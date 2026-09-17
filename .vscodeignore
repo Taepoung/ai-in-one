@@ -1,0 +1,23 @@
+# 확장 패키지(.vsix)에 넣지 않을 것.
+#
+# 기준은 «실행에 필요한가»다. 우리는 esbuild로 dist에 번들하므로
+# **소스도 의존성도 패키지에 들어갈 이유가 없다** — 넣으면 100MB짜리 확장이 된다.
+
+node_modules/**
+src/**
+docs/**
+.vscode/**
+.github/**
+
+# 빌드·검사 설정
+esbuild.mjs
+eslint.config.mjs
+tsconfig.json
+package-lock.json
+
+# 소스맵은 디버깅용이라 배포본에서 뺀다 (dist/*.js 는 남는다)
+dist/**/*.map
+
+.gitignore
+.vscodeignore
+*.vsix
