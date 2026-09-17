@@ -1,0 +1,2190 @@
+import { EventEmitter } from "node:events";
+import type * as acp from "@agentclientprotocol/sdk";
+
+import { AcpConnection, type AgentEvent } from "./acpConnection.js";
+import type { RoomStore } from "./store.js";
+import {
+  createBotInstance,
+  sendsContent,
+  type AgentDef,
+  type AnswerPolicy,
+  type Approver,
+  ASK_USER,
+  type BotInstance,
+  type Attachment,
+  type FileChange,
+  type Message,
+  type Room,
+  type RoomMeta,
+  type PermissionDecision,
+  type PermissionRequest,
+  type RoomStatus,
+  type RoomUsage,
+  type ToolActivity,
+  type SearchHit,
+} from "./types.js";
+import type { WorkspaceHost } from "./workspaceHost.js";
+
+export interface RoomManagerOptions {
+  host: WorkspaceHost;
+  store: RoomStore;
+  agents: AgentDef[];
+  /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
+  configProbeMs?: number;
+}
+
+export interface CreateRoomOptions {
+  agentId: string;
+  title?: string;
+  cwd?: string;
+  /** 봇 역할 (B3). 첫 프롬프트 앞에 프리픽스로 붙는다 */
+  rolePrompt?: string;
+  /**
+   * 방 만들기 화면에서 고른 세션 설정 — 모델·추론 강도 등 (B15).
+   *
+   * `configId → 값`. 세션을 연 **직후, 첫 프롬프트 전에** 적용하므로 비용이 없다.
+   */
+  configValues?: Record<string, string | boolean>;
+  /**
+   * 봇의 권한 정책 (D2).
+   *
+   * **전역 설정이 없으므로 여기서 정해진다.** 비워두면 `DEFAULT_AUTO_APPROVE`.
+   */
+  agentMode?: string;
+  answerPolicy?: AnswerPolicy;
+}
+
+/**
+ * **봇 하나**의 실행 상태 (B1).
+ *
+ * 세션이 봇 단위이므로 세션에 딸린 것은 전부 여기 있다. v2.0 단체방에서
+ * 봇이 여럿이면 **봇마다 자기 세션·자기 큐·자기 턴**을 갖는다 — 지금은
+ * 하나뿐이라 결과가 같지만, **모양을 먼저 맞춰두면 나중에 다시 짜지 않는다.**
+ *
+ * 디스크에 저장하지 않는다 — 껐다 켜면 전부 비어 있고 `bot.sessionId`로 복구한다.
+ */
+interface BotRuntime {
+  /** 지금 붙어 있는 ACP 세션. 복구했든 새로 만들었든 여기 담긴다 */
+  sessionId?: string;
+  /**
+   * 진행 중인 턴이 있으면 그 사이 들어온 메시지를 여기 쌓는다 (§4.3).
+   *
+   * 텍스트가 아니라 **메시지를 통째로** 들고 있어야 응답과 짝지을 수 있고
+   * (`replyToIds`), 전송 실패를 표시할 때도 id로 정확히 찾는다.
+   *
+   * **봇마다 따로다.** 단체방에서 한 봇이 도는 동안 다른 봇에게 보낸 말이
+   * 엉뚱한 줄에 끼면 안 된다.
+   */
+  queue: Message[];
+  /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
+  roleInjected: boolean;
+  /** 그 **세션이** 광고한 슬래시 명령. 압축(C11) 버튼을 여기서 찾는다 */
+  commands: string[];
+  /** 스트리밍 중 emit을 솎아내기 위한 마지막 발행 시각 */
+  lastEmit: number;
+  /** 스트리밍 중 디스크 저장을 솎아내기 위한 마지막 저장 시각 */
+  lastSave: number;
+  /** 턴 밖 발화를 담고 있는 메시지 (A11) */
+  idle?: { message: Message; at: number };
+}
+
+/**
+ * **방 하나**의 실행 상태 — 봇과 무관한 것만 남긴다.
+ *
+ * 화면에 뜨는 상태는 방 단위다(«작업 중» 표시가 하나). v2.0에서 봇이 병렬로
+ * 돌면 여기서 **봇들의 상태를 합쳐** 정하게 된다.
+ */
+interface RoomRuntime {
+  status: RoomStatus;
+  /**
+   * 이번 턴에 걸린 blob 쓰기들.
+   *
+   * 파일 변경 내용은 비동기로 저장되는데, 이걸 기다리지 않고 방을 저장하면
+   * **해시가 비어 있는 채로 기록되어 diff를 영영 못 본다.**
+   */
+  pendingWrites: Promise<unknown>[];
+  /** 봇별 상태. 열쇠는 `BotInstance.id` */
+  bots: Map<string, BotRuntime>;
+}
+
+/** 스트리밍 델타마다 전체 방을 내보내면 웹뷰가 감당하지 못한다 */
+const EMIT_INTERVAL_MS = 60;
+
+/**
+ * 스트리밍 중 응답을 디스크에 남기는 간격.
+ *
+ * 트랜스크립트가 JSONL이라 **한 줄 덧붙이기**로 끝나므로 대화가 길어져도 비용이
+ * 같다. 그래서 받다 만 응답도 남길 수 있다 — 단일 JSON이었다면 매번 전체를
+ * 다시 써야 해서 엄두를 못 냈다.
+ */
+const SAVE_INTERVAL_MS = 2000;
+
+/**
+ * 설정 조회에 기다려 주는 시간.
+ *
+ * **기다리기만 하는 건 실패보다 나쁘다.** CLI가 설치가 안 됐거나 로그인이
+ * 안 됐으면 `session/new`가 응답 없이 멈춰 있을 수 있는데, 그러면 권한 시트가
+ * *"불러오는 중…"* 에서 영원히 멈춘다 — 사용자는 기능이 없는 줄 안다.
+ * 처음 받는 npm 패키지를 감안해 넉넉히 주되, **끝은 있다.**
+ */
+const CONFIG_PROBE_MS = 90_000;
+
+/**
+ * 턴 밖 발화를 **한 덩어리로 볼** 시간.
+ *
+ * 이보다 조용했다가 다시 오면 다른 말로 본다 — 한참 전 말풍선에 이어 붙이면
+ * 시각이 거짓말을 한다.
+ */
+const IDLE_BURST_MS = 30_000;
+
+/**
+ * 세션이 쓰는 모델 이름을 봇에 적어 둔다 (B5). 바뀌었으면 `true`.
+ *
+ * **id가 아니라 보이는 이름이다.** 목록에 `Claude · Opus 5`로 나가는데
+ * 거기에 `opus-5`가 뜨면 방 만들기 화면에서 고른 것과 달라 보인다.
+ * 선택지는 평평하게도, 그룹으로 묶여서도 오므로 둘 다 훑는다.
+ */
+function noteModel(bot: BotInstance, options: acp.SessionConfigOption[]): boolean {
+  const opt = options.find((o) => o.category === "model");
+  if (!opt || opt.type !== "select") return false;
+
+  const current = opt.currentValue;
+  for (const entry of opt.options) {
+    const found =
+      "group" in entry
+        ? entry.options.find((v) => v.value === current)
+        : entry.value === current
+          ? entry
+          : undefined;
+    if (!found) continue;
+    // **id도 같이 적는다** — 이름만으로는 나중에 다시 적용할 수 없다
+    bot.model = found.value;
+    if (bot.modelLabel === found.name) return false;
+    bot.modelLabel = found.name;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 최근 이만큼의 메시지는 **손대지 않는다.**
+ *
+ * 되돌아보면 «방금 뭘 하던 중이었나»가 제일 중요하고, 거기서 한 글자만 틀려도
+ * 이어서 하기가 어긋난다. 줄이는 건 그 바깥에서만 한다.
+ */
+const REFEED_KEEP_RECENT = 12;
+
+/** 오래된 메시지 하나에 허용하는 길이. 넘으면 **가운데를** 접는다 */
+const REFEED_MAX_CHARS = 1200;
+
+/**
+ * 긴 글의 가운데를 접는다 — 앞뒤는 남긴다.
+ *
+ * 맥락은 **시작과 끝에 몰려 있다.** 무엇을 하려는지는 앞에, 결론은 뒤에 있고,
+ * 가운데는 대개 그 사이를 채우는 본문이다. 뒤에서 자르면 결론이 날아간다.
+ *
+ * **접었다는 걸 글 안에 적는다.** 에이전트도 «여기 뭔가 더 있었다»를 알아야
+ * 넘겨짚지 않고 되물을 수 있다.
+ */
+function foldMiddle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.6);
+  const tail = max - head;
+  const cut = text.length - head - tail;
+  return `${text.slice(0, head)}\n…[중략 ${cut.toLocaleString()}자]…\n${text.slice(-tail)}`;
+}
+
+/**
+ * 되먹일 대화를 글로 만든다 (F7).
+ *
+ * **«적게, 최대한 보존»** — 싼 것부터 쓰고 손해 보는 건 마지막에, 그것도 눈에
+ * 보이게 한다.
+ *
+ * ```
+ * 1  시스템 메시지          뺀다   우리 안내다. 에이전트에겐 잡음
+ * 2  전달 안 된 메시지      뺀다   **애초에 상대가 못 봤다** — 넣으면 없던 일이 생긴다
+ * 3  압축된 구간            요약   에이전트가 준 것. 그가 기억하던 것도 그 요약이었다
+ * 4  최근 12개              원문   방금 뭘 하던 중이었나가 제일 중요하다
+ * 5  그 앞의 긴 메시지      가운데를 접는다   `…[중략 N자]…` 로 **표시하면서**
+ * ```
+ *
+ * 1~3은 **손해가 없다.** 4~5만 맞바꾸기이고, 5는 접었다는 사실이 글 안에 남아
+ * 에이전트가 되물을 수 있다 — 조용히 사라지는 것과는 다르다.
+ *
+ * ★ **다만 이미 압축된 구간은 요약으로 대신한다.**
+ *
+ * 그 요약은 우리가 지어낸 게 아니라 **에이전트가 압축하면서 준 것**이다
+ * (`CompactionUpdate.summary`). 우리는 모델이 없어 요약을 만들 수 없고, 시키려면
+ * 에이전트 턴을 써야 하는데 **세션이 죽은 뒤에는 시킬 상대가 없다.** 살아 있을 때
+ * 받아 둔 것을 쓰는 게 유일한 길이다.
+ *
+ * 그리고 이건 손해가 아니다 — **에이전트가 기억하던 것도 그 요약이었다.**
+ * 압축 이전 원문을 다시 넣으면 오히려 압축 전보다 더 많은 걸 보내게 된다.
+ */
+function transcriptText(room: Room, batch: Message[]): string {
+  const skip = new Set(batch.map((m) => m.id));
+  const name = (m: Message) =>
+    m.role === "user"
+      ? "사용자"
+      : (room.participants.find((b) => b.id === m.authorBotId)?.name ?? "에이전트");
+
+  /*
+   * 마지막 압축 지점 뒤부터가 원문 구간이고, 그 앞은 요약이 대신한다.
+   *
+   * 🔴 **마지막 요약 하나만 쓰면 안 된다.** 압축이 여러 번 일어났을 때 나중
+   * 요약이 앞의 요약까지 품는지는 **스펙이 정하지 않는다** — 각자 자기 구간만
+   * 요약했을 수도 있다. 하나만 쓰면 그 경우 앞 구간이 **말없이 사라진다.**
+   *
+   * 그래서 **전부 순서대로** 넣는다. 나중 요약이 앞을 품는 에이전트라면 조금
+   * 겹치는 것뿐이지만, 아니라면 이게 유일하게 안 잃는 방법이다.
+   * 겹침은 토큰 몇, 누락은 맥락이다.
+   */
+  let at = -1;
+  const summaries: string[] = [];
+  room.messages.forEach((m, k) => {
+    if (m.mark === "compaction" && m.summary) {
+      summaries.push(m.summary.trim());
+      at = k;
+    }
+  });
+
+  const head = summaries.length > 0 ? `[이전 요약] ${summaries.join("\n\n")}` : "";
+  const rest = at >= 0 ? room.messages.slice(at + 1) : room.messages;
+
+  const kept = rest.filter(
+    (m) =>
+      m.role !== "system" &&
+      !skip.has(m.id) &&
+      // 🔴 **전달 안 된 메시지는 넣지 않는다.** 보내다 실패한 것이라 **이전 세션도
+      // 본 적이 없다.** 넣으면 «했던 얘기»가 하나 생겨서, 에이전트가 답한 적
+      // 없는 것에 답한 척하게 된다. 빼는 게 작기도 하고 **맞기도 하다.**
+      !m.sendFailed,
+  );
+
+  // 최근 것은 손대지 않는다 — 이어서 할 지점이 거기다
+  const foldFrom = Math.max(0, kept.length - REFEED_KEEP_RECENT);
+
+  const body = kept
+    .map((m, k) => {
+      // 🔴 **첨부는 다시 안 보낸다.** 이미지를 통째로 재전송하면 비용이 글자와
+      // 비교가 안 되고, 워크스페이스 파일은 에이전트가 직접 읽으면 된다(I4).
+      // 그렇다고 말없이 빼면 *"이 스크린샷 봐줘"* 만 남아 **있지도 않은 것을
+      // 가리키게 된다** — 자리는 남긴다.
+      const marks = (m.attachments ?? []).map((a) => `[첨부: ${a.name}]`).join(" ");
+      const text = k < foldFrom ? foldMiddle(m.text.trim(), REFEED_MAX_CHARS) : m.text.trim();
+      const line = [text, marks].filter(Boolean).join(" ");
+      return line ? `${name(m)}: ${line}` : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  return [head, body].filter(Boolean).join("\n\n");
+}
+
+/** 설정 캐시의 열쇠. **방 하나 안에서도 봇마다 다르다** (B1) */
+function configKeyOf(roomId: string, botId: string): string {
+  return `${roomId}:${botId}`;
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
+type Events = {
+  /** 목록 화면 갱신 */
+  metas: [RoomMeta[]];
+  /**
+   * 방 전체 갱신. **구조가 바뀜 때만** 쓴다 (정책·제목·불러오기).
+   *
+   * 스트리밍에는 쓰지 않는다 — 그쪽은 `message`다.
+   */
+  room: [Room];
+  /**
+   * 메시지 하나만 바뀌었다 (roomId, 그 메시지).
+   *
+   * **스트리밍의 기본 경로다.** 방 전체를 내보내면 셀이 60ms마다
+   * 대화 전체를 직렬화하게 되어 **비용이 대화 길이에 비례한다.**
+   * 디스크를 JSONL append로 푸다 것과 같은 문제를 한 겹 위에서 푸는 것이다.
+   */
+  message: [string, Message];
+  /** 응답 대기 표시 (C10) */
+  status: [string, RoomStatus];
+  /**
+   * 방에서 일어난 오류 (roomId, 메시지).
+   *
+   * **이름이 `error`가 아닌 이유**: Node의 `EventEmitter`는 `'error'`를 특별 취급해
+   * **리스너가 없으면 던진다.** 셸이 깜빡하면 에이전트 실패 하나가 확장 호스트를 죽인다.
+   */
+  roomError: [string, string];
+  /** 오래 걸리는 중이라는 안내. 오류가 아니므로 따로 둔다 */
+  notice: [string, string];
+};
+
+/**
+ * 방의 수명과 대화를 관리한다.
+ *
+ * **에이전트당 프로세스 하나, 방마다 세션 하나**(A4·B1). 여러 방이 같은
+ * CLI 프로세스를 공유하되 대화는 세션으로 격리된다.
+ */
+export class RoomManager extends EventEmitter<Events> {
+  private readonly connections = new Map<string, AcpConnection>();
+  private readonly runtimes = new Map<string, RoomRuntime>();
+  /** 열어둔 방의 전체 내용. 목록만 볼 때는 메타만 쓴다 */
+  private readonly open = new Map<string, Room>();
+  /**
+   * 에이전트별 설정 선택지 (B15).
+   *
+   * **방 만들기 화면 몫이다** — 거기엔 아직 방도 세션도 없다. 방이 생긴 뒤의
+   * «지금 값»은 `roomConfigs`를 봐야 한다.
+   */
+  private readonly configCache = new Map<string, acp.SessionConfigOption[]>();
+  /** 방별 — 그 방 세션이 실제로 들고 있는 값 */
+  private readonly roomConfigs = new Map<string, acp.SessionConfigOption[]>();
+  /**
+   * 그 방 **그 봇의** 설정. 모드·모델은 세션 것이고 세션은 봇 것이다(B1).
+   *
+   * 🔴 방까지만 내렸다가 또 샐 뻔했다 — 단체방에 에이전트가 다른 봇 둘이
+   * 들어오면 방 열쇠 하나로는 둘을 못 가른다.
+   */
+  /** 세션을 붙이는 중인 방들. 방을 빠르게 오가도 CLI를 두 번 부르지 않는다 */
+  private readonly sessionFlight = new Map<string, Promise<void>>();
+  /**
+   * 이미 자국을 남긴 압축들 (C11).
+   *
+   * `compaction_update`는 **같은 id로 여러 번 온다**(진행 → 완료). 그대로
+   * 두면 구분선이 겹쳐 쌓인다.
+   */
+  private readonly compacted = new Set<string>();
+  /** 아직 받는 중인 요약 조각들. 열쇠는 둘 다 `방id:압축id`다 */
+  private readonly compacting = new Map<string, string>();
+  /** 조회 중인 것들 — 같은 에이전트를 두 번 띄우지 않기 위해 */
+  private readonly configFlight = new Map<string, Promise<acp.SessionConfigOption[]>>();
+  /**
+   * 사용자가 지금 보고 있는 방.
+   *
+   * **미읽음(B8)의 기준이다.** 이게 없으면 어느 방의 응답을 "안 읽었다"고 할지
+   * 알 수 없다 — 방이 메모리에 로드되어 있다는 것과 사용자가 보고 있다는 건 다르다.
+   */
+  private activeRoomId: string | null = null;
+  /** 초안 저장 디바운스. 타이핑마다 디스크를 때리지 않는다 */
+  private draftTimer?: ReturnType<typeof setTimeout>;
+  /** 그 초안이 **어느 방 것인지**. 활성 방과 다를 수 있다 */
+  private draftRoomId?: string;
+  /**
+   * 나간 방들.
+   *
+   * 진행 중인 턴이 있는 채로 방을 나가면 `runQueue`가 계속 돌다가 **지워진 파일에
+   * 덧붙여 방을 되살린다.** 여기 들어 있으면 저장을 건너뛴다.
+   */
+  private readonly left = new Set<string>();
+
+  constructor(private readonly opts: RoomManagerOptions) {
+    super();
+  }
+
+  // ── 목록 ──────────────────────────────────────────────────────────────
+
+  /** 열린 워크스페이스 루트. 셀이 방을 구분할 때 쓴다 (B5) */
+  defaultCwd(): string {
+    return this.opts.host.defaultCwd();
+  }
+
+  /** 폴더가 실제로 열려 있는가 (B9). `defaultCwd`는 없어도 홈을 준다 */
+  hasWorkspace(): boolean {
+    return this.opts.host.hasWorkspace();
+  }
+
+  listMetas(): RoomMeta[] {
+    return this.opts.store.listMetas();
+  }
+
+  statusOf(roomId: string): RoomStatus {
+    return this.runtimes.get(roomId)?.status ?? "idle";
+  }
+
+  /** 상태 표시줄 배지용 (F1) */
+  totalUnread(): number {
+    return this.listMetas().reduce((sum, m) => sum + m.unread, 0);
+  }
+
+  // ── 방 ────────────────────────────────────────────────────────────────
+
+  async createRoom(opts: CreateRoomOptions): Promise<Room> {
+    const agent = this.agentOrThrow(opts.agentId);
+    const now = Date.now();
+    const room: Room = {
+      id: `room-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      title: opts.title?.trim() || this.nextDefaultTitle(),
+      participants: [
+        createBotInstance(agent, {
+          ...(opts.rolePrompt ? { rolePrompt: opts.rolePrompt } : {}),
+          ...(opts.agentMode ? { agentMode: opts.agentMode } : {}),
+          ...(opts.answerPolicy ? { answerPolicy: opts.answerPolicy } : {}),
+        }),
+      ],
+      cwd: opts.cwd ?? this.opts.host.defaultCwd(),
+      messages: [],
+      unread: 0,
+      createdAt: now,
+      lastActivityAt: now,
+    };
+    await this.opts.store.createRoom(room);
+    this.open.set(room.id, room);
+    this.emitMetas();
+
+    // **역할을 방 상단에 보여준다** (B3). 안 보이면 봇이 왜 이렇게
+    // 답하는지 모른 채로 대화하게 된다.
+    if (opts.rolePrompt?.trim()) {
+      const note: Message = {
+        id: messageId(),
+        role: "system",
+        text: `역할: ${opts.rolePrompt.trim()}`,
+        deliveredTo: [],
+        createdAt: now,
+      };
+      this.append(room, note);
+      await this.saveNewMessage(room, note);
+    }
+
+    // **방을 만들면 세션도 연다** (B1: 방 1개 = 세션 1개).
+    //
+    // 첫 메시지까지 미루면 (1) 고른 모델을 적용할 수 없고 — `setConfigOption`은
+    // 세션이 있어야 부른다 — (2) 로그인 문제를 첫 메시지에서야 알게 되고
+    // (3) 방은 있는데 세션은 없는 상태가 생긴다.
+    try {
+      await this.openSession(room, opts.configValues);
+    } catch (err) {
+      // 방은 남긴다 — 제목·역할을 다시 입력하게 만들지 않는다.
+      // 첫 메시지를 보낼 때 다시 시도한다.
+      this.setStatus(room.id, "error");
+      this.emit("roomError", room.id, describe(err));
+    }
+    return room;
+  }
+
+  /**
+   * 세션을 열고 방 만들기에서 고른 설정을 적용한다.
+   *
+   * **첫 프롬프트 전이라 모델 변경 비용이 0이다** — 그래서 사용자 입장에서는
+   * "만들 때 고른 것"과 같다 (B15).
+   */
+  private async openSession(
+    room: Room,
+    configValues?: Record<string, string | boolean>,
+  ): Promise<void> {
+    const bot = room.participants[0]!;
+    const conn = this.connection(bot.agentId);
+    const bt = this.botRuntime(room.id, bot.id);
+
+    this.setStatus(room.id, "connecting");
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
+      this.emit(
+        "notice",
+        room.id,
+        `${this.agentOrThrow(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
+      ),
+    );
+
+    bt.sessionId = sessionId;
+    this.pointAt(bot, sessionId);
+    bt.roleInjected = false;
+    // 세션을 연 **직후부터** 듣는다 — 명령 목록이 여기서 온다 (A11)
+    this.watchIdle(room, bot, sessionId);
+    // 세션이 들고 있는 값이 답이다 — 사용자가 안 골랐으면 에이전트 기본값이 온다
+    if (configOptions.length > 0) this.noteRoomConfig(room, bot, configOptions);
+
+    for (const [configId, value] of Object.entries(configValues ?? {})) {
+      try {
+        const updated = await conn.setConfigOption(sessionId, configId, value);
+        this.noteRoomConfig(room, bot, updated);
+        if (typeof value === "string") this.rememberModel(bot.agentId, configId, value);
+      } catch (err) {
+        this.opts.host.log(`[${bot.agentId}] 설정 적용 실패 (${configId}): ${describe(err)}`);
+      }
+    }
+
+    await this.saveProps(room, { participants: room.participants });
+    this.setStatus(room.id, "idle");
+  }
+
+  /** 다음 방의 기본값이 되도록 에이전트별 마지막 선택을 남긴다 (F6) */
+  private rememberModel(agentId: string, configId: string, value: string): void {
+    const options = this.configCache.get(agentId) ?? [];
+    const opt = options.find((o) => o.id === configId);
+    if (opt?.category !== "model") return;
+    const prev = this.opts.store.getAppState().lastModelByAgent ?? {};
+    void this.opts.store.patchAppState({
+      lastModelByAgent: { ...prev, [agentId]: value },
+    });
+  }
+
+  /**
+   * 방을 메모리에 올린다.
+   *
+   * **읽음 처리는 하지 않는다.** 그건 사용자가 실제로 보고 있을 때(`setActiveRoom`)의
+   * 일이다. 목록 렌더링이나 검색 때문에 방을 로드하는 것만으로 미읽음이 사라지면 안 된다.
+   */
+  async openRoom(roomId: string): Promise<Room> {
+    const cached = this.open.get(roomId);
+    if (cached) return cached;
+    const room = await this.opts.store.loadRoom(roomId);
+    if (!room) throw new Error("방을 찾을 수 없습니다.");
+    this.open.set(roomId, room);
+    return room;
+  }
+
+  /**
+   * 봇의 역할을 고친다 (B3·B12).
+   *
+   * 이미 대화 중이면 이번 세션에 **다시 주입해야** 반영된다 —
+   * 역할은 프롬프트 프리픽스라 한 번 보낸 뒤에는 다시 보내지 않는다.
+   */
+  async setRole(roomId: string, rolePrompt: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const bot = room.participants[0];
+    if (!bot) return;
+
+    bot.rolePrompt = rolePrompt || undefined;
+    // 역할은 프롬프트 프리픽스라 **그 봇의** 세션에 다시 넣어야 한다
+    this.botRuntime(roomId, bot.id).roleInjected = false;
+
+    await this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+  }
+
+  async renameRoom(roomId: string, title: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    room.title = title.trim() || room.title;
+    await this.saveProps(room, { title: room.title });
+    // 목록뿐 아니라 **열려 있는 방의 헤더도** 바뀌어야 한다.
+    this.emit("room", room);
+  }
+
+  /**
+   * **아무것도 안 쓰고 나간 방은 치운다** (B6).
+   *
+   * 메신저에서 대화창을 열었다 그냥 나오면 목록에 안 남는 것과 같다. 여기서는
+   * 이유가 하나 더 있다 — 에이전트는 **첫 프롬프트를 받아야** 세션을 디스크에
+   * 남기므로(§13.1), 말을 안 건 방의 세션은 다음에 열 때 **반드시 복구에
+   * 실패한다.** 되살릴 것도 없는 방을 그 대가를 치르며 들고 있을 이유가 없다.
+   *
+   * **«쓴 게 있으면» 남긴다** — 대화든 초안이든 역할이든. 제목만으로는 안 남긴다:
+   * 제목은 비워두면 우리가 지어주는 것이라 사용자가 쓴 것이라 할 수 없다.
+   *
+   * 지웠으면 `true`.
+   */
+  async discardIfUntouched(roomId: string): Promise<boolean> {
+    // 초안이 디바운스 중일 수 있다 — 확정하고 나서 본다
+    await this.flushDraft();
+
+    const room = this.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
+    if (!room) return false;
+
+    const wrote =
+      room.messages.some((m) => m.role !== "system") ||
+      Boolean(room.draft?.trim()) ||
+      room.participants.some((b) => b.rolePrompt?.trim());
+    if (wrote) return false;
+
+    await this.leaveRoom(roomId);
+    return true;
+  }
+
+  /**
+   * 방을 나간다 (B6). **세션과 방 파일이 함께 사라진다.**
+   *
+   * 진행 중인 턴이 있으면 먼저 중단하고, 그 에이전트의 마지막 방이었으면
+   * CLI 프로세스까지 정리한다 — 좀비 프로세스를 남기지 않는다.
+   */
+  async leaveRoom(roomId: string): Promise<void> {
+    const room = this.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
+    const bot = room ? this.soleBot(room) : undefined;
+    const sessionId =
+      (bot ? this.runtimes.get(roomId)?.bots.get(bot.id)?.sessionId : undefined) ??
+      bot?.sessionId ??
+      undefined;
+
+    if (sessionId && room) {
+      const conn = this.connections.get(room.participants[0]!.agentId);
+      await conn?.cancel(sessionId).catch(() => undefined);
+      // **대화가 있으면 삭제, 없으면 해제.** 방을 나가는 건 대화를 지우는 행위이므로
+      // 에이전트 쪽 기록도 남기지 않는다. 다만 빈 세션은 CLI 디스크에 아예 없어서
+      // `delete`가 실패하므로 구분해야 한다.
+      await conn?.deleteSession(sessionId, room.messages.length > 0);
+    }
+
+    // 진행 중인 턴이 끝나면서 저장하려 들 수 있다. 되살아나지 않게 막는다.
+    this.left.add(roomId);
+    this.runtimes.delete(roomId);
+    this.open.delete(roomId);
+    await this.opts.store.deleteRoom(roomId);
+    this.emitMetas();
+
+    this.disposeUnusedConnections();
+  }
+
+  /**
+   * 읽음 처리. 구분선 자리를 마지막 메시지로 옮긴다.
+   *
+   * 다음에 이 방을 열면 안 읽은 게 없으므로 맨 아래로 간다.
+   */
+  markRead(room: Room): void {
+    const last = room.messages.at(-1);
+    if (room.unread === 0 && room.lastReadMessageId === last?.id) return;
+    room.unread = 0;
+    room.lastReadMessageId = last?.id;
+    void this.saveProps(room, { unread: 0, lastReadMessageId: last?.id });
+  }
+
+  /**
+   * 방을 열 때 어디로 스크롤할지 (F6).
+   *
+   * 메신저와 같다 — **안 읽은 게 있으면 그 시작 지점, 없으면 맨 아래.**
+   * 중간 스크롤 위치를 따로 기억하지 않는 이유는, AI 대화는 선형이라
+   * 대개 최신 응답이 궁금하기 때문이다.
+   */
+  firstUnreadId(room: Room): string | undefined {
+    if (room.unread === 0 || !room.lastReadMessageId) return undefined;
+    const at = room.messages.findIndex((m) => m.id === room.lastReadMessageId);
+    return at >= 0 ? room.messages[at + 1]?.id : room.messages[0]?.id;
+  }
+
+  /**
+   * 사용자가 보고 있는 방을 알린다. **목록으로 뒤로 가면 `null`** (B7).
+   *
+   * **방 나가기(B6)와 전혀 다르다.** 여기서는 세션을 건드리지 않는다 —
+   * 목록에 나가 있는 동안에도 에이전트는 계속 일하고, 끝나면 미읽음이 붙는다.
+   *
+   * 셸이 불러줘야 한다 — core는 어느 화면이 떠 있는지 모른다.
+   */
+  async setActiveRoom(roomId: string | null): Promise<void> {
+    if (this.activeRoomId === roomId) return;
+
+    // 나가는 방의 초안을 확정 저장한다 (디바운스 대기 중일 수 있다)
+    await this.flushDraft();
+
+    this.activeRoomId = roomId;
+    if (roomId) {
+      const room = await this.openRoom(roomId);
+      this.markRead(room);
+      // **방을 보고 있으면 세션도 붙어 있어야 한다** (B1)
+      void this.bindSession(room);
+    }
+  }
+
+  /**
+   * 보고 있는 방의 세션을 붙인다 (B1).
+   *
+   * **«방 하나 = 세션 하나»가 계속 참이어야 한다.** 방을 만들 때는 열어 두는데
+   * 창을 껐다 켜면 그 연결이 사라지고, 예전에는 **첫 전송 때까지** 안 붙었다.
+   * 그 사이가 거짓말하는 구간이었다 — 목록의 모델, 시트의 권한 모드가 전부
+   * «이 방의 값»이 아니라 에이전트 기본값이었고, 로그인이 풀린 것도 첫 메시지를
+   * 보내고 나서야 알았다.
+   *
+   * **목록을 훑는 것만으로는 안 붙인다.** 보고 있는 방 하나뿐이라 세션 수는
+   * 예전과 같다 — 시점만 당겼다.
+   *
+   * 화면을 막지 않는다. 실패는 방 오류로 알리고, 다음 전송이 다시 시도한다.
+   */
+  private bindSession(room: Room): Promise<void> {
+    // **참여자 전부**를 붙인다 — 단체방에서는 봇마다 세션이 하나씩이다(B1).
+    const need = room.participants.filter(
+      (b) => !this.botRuntime(room.id, b.id).sessionId,
+    );
+    if (need.length === 0) return Promise.resolve();
+
+    const running = this.sessionFlight.get(room.id);
+    if (running) return running;
+
+    this.setStatus(room.id, "connecting");
+    const work = Promise.all(need.map((b) => this.ensureSession(room, b)))
+      .then(() => {
+        // 붙고 나면 화면이 들고 있는 값이 낡았다 — 이 방의 진짜 값으로 갈아준다
+        this.setStatus(room.id, "idle");
+        this.emit("room", room);
+      })
+      .catch((err: unknown) => {
+        this.setStatus(room.id, "error");
+        this.emit("roomError", room.id, describe(err));
+      })
+      .finally(() => this.sessionFlight.delete(room.id));
+
+    this.sessionFlight.set(room.id, work);
+    return work;
+  }
+
+  /**
+   * 쓰다 만 메시지를 기억한다.
+   *
+   * 타이핑마다 디스크를 때리지 않도록 디바운스한다. 방을 나가거나 전송할 때는
+   * `flushDraft()`로 즉시 확정한다.
+   */
+  setDraft(roomId: string, text: string): void {
+    const room = this.open.get(roomId);
+    if (!room) return;
+    room.draft = text || undefined;
+    clearTimeout(this.draftTimer);
+    // **어느 방의 초안인지 붙들어 둔다.** 아래 참조.
+    this.draftRoomId = roomId;
+    this.draftTimer = setTimeout(() => void this.flushDraft(), 800);
+  }
+
+  /**
+   * 디바운스 중인 초안을 즉시 확정한다 (B7).
+   *
+   * 🔴 예전에는 **«지금 활성인 방»의 초안**을 저장했다. 대개는 같은 방이라
+   * 맞아떨어졌지만, 활성 방이 없거나 이미 바뀐 뒤에 불리면 **엉뚱한 방을
+   * 저장하거나 아무것도 저장하지 않았다.** 초안은 «내가 쓰던 글»이라
+   * 조용히 사라지면 안 된다 — **쓴 방을 기억해 그 방에 쓴다.**
+   */
+  async flushDraft(): Promise<void> {
+    clearTimeout(this.draftTimer);
+    this.draftTimer = undefined;
+    const roomId = this.draftRoomId;
+    this.draftRoomId = undefined;
+    if (!roomId) return;
+    const room = this.open.get(roomId);
+    if (room) await this.saveProps(room, { draft: room.draft });
+  }
+
+  // ── 대화 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 메시지를 보낸다.
+   *
+   * 진행 중인 턴이 있으면 **큐에 쌓았다가 끝나면 묶어서** 보낸다(§4.3).
+   * 하나씩 순차로 보내면 턴이 여러 번 도는데, 묶으면 한 번이고 에이전트가
+   * 전체 요구를 한 번에 본다.
+   */
+  async send(roomId: string, text: string, attachments?: Attachment[]): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const rt = this.runtime(roomId);
+    // v1.0은 방에 봇이 하나다. 단체방에서는 **멘션된 봇마다** 이 아래가 돈다.
+    const bot = this.soleBot(room);
+    if (!bot) return;
+    const bt = this.botRuntime(roomId, bot.id);
+
+    // 보냈으니 초안은 비운다
+    room.draft = undefined;
+    clearTimeout(this.draftTimer);
+    this.draftTimer = undefined;
+
+    const sent: Message = {
+      id: messageId(),
+      role: "user",
+      text,
+      deliveredTo: room.participants.map((b) => b.id),
+      createdAt: Date.now(),
+      ...(attachments?.length ? { attachments } : {}),
+    };
+    this.append(room, sent);
+
+    // **보낸 즉시 저장한다.** 턴이 끝날 때 몰아서 저장하면, 응답을 기다리는 중에
+    // VSCode를 닫았을 때 내가 보낸 메시지까지 사라진다.
+    await this.saveNewMessage(room, sent);
+
+    if (rt.status !== "idle" && rt.status !== "error") {
+      bt.queue.push(sent);
+      return;
+    }
+
+    // 턴이 끝날 때마다 큐를 비우며 **반복**한다. 재귀로 하면 대화가 길어질수록
+    // 스택이 쌓인다.
+    let batch = [sent];
+    for (;;) {
+      await this.runQueue(room, batch);
+      if (bt.queue.length === 0) return;
+      batch = bt.queue.splice(0, bt.queue.length);
+    }
+  }
+
+  /**
+   * 전달되지 못한 메시지를 다시 보낸다.
+   *
+   * 새 말풍선을 만들지 않고 **원래 메시지의 실패 표시만 걷어낸다** — 메신저에서
+   * 재전송하면 그 말풍선이 그대로 보내지는 것과 같다.
+   */
+  async retry(roomId: string, messageId?: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const targets = room.messages.filter(
+      (m) => m.role === "user" && m.sendFailed && (!messageId || m.id === messageId),
+    );
+    if (targets.length === 0) return;
+
+    for (const m of targets) delete m.sendFailed;
+    for (const m of targets) await this.saveMessage(room, { id: m.id, sendFailed: undefined });
+    for (const m of targets) this.emit("message", room.id, m);
+
+    const bot = this.soleBot(room);
+    if (!bot) return;
+    const bt = this.botRuntime(roomId, bot.id);
+    let batch = targets;
+    for (;;) {
+      await this.runQueue(room, batch);
+      if (bt.queue.length === 0) return;
+      batch = bt.queue.splice(0, bt.queue.length);
+    }
+  }
+
+  /** 다시 보낼 수 있는 메시지가 있는지 (UI의 `↻` 표시 여부) */
+  hasFailedMessages(room: Room): boolean {
+    return room.messages.some((m) => m.role === "user" && m.sendFailed);
+  }
+
+  /**
+   * 받다 만 응답이 있는지.
+   *
+   * 있으면 다음에 세션을 열 때 `resume` 대신 `load`를 써서 보정할 수 있다 —
+   * 끊긴 건 **마지막 에이전트 메시지 하나**뿐이라 꼬리만 바꿔치기하면 된다.
+   * 평소에는 `resume`을 쓰므로 비용이 늘지 않는다.
+   */
+  truncatedMessage(room: Room): Message | undefined {
+    const last = room.messages.at(-1);
+    return last?.truncated ? last : undefined;
+  }
+
+  /** 진행 중인 턴을 중단한다 (C6). 큐에 남은 것도 버린다 — 아직 안 보냈다. */
+  async cancel(roomId: string): Promise<void> {
+    const room = this.open.get(roomId);
+    const rt = this.runtimes.get(roomId);
+    if (!room || !rt) return;
+
+    // 단체방에서는 **도는 봇 전부**를 끊는다 — 지금은 하나뿐이다
+    for (const bot of room.participants) {
+      const bt = rt.bots.get(bot.id);
+      if (!bt?.sessionId) continue;
+
+      // 큐에 있던 것들은 **아직 안 보냈다.** 그냥 버리면 화면에는 떠 있는데
+      // 영영 답이 안 와서 "왜 조용하지"가 된다. 다시 보낼 수 있게 표시한다(C5).
+      const dropped = bt.queue.splice(0, bt.queue.length);
+      for (const m of dropped) {
+        m.sendFailed = "보내기 전에 중단했습니다.";
+        await this.saveMessage(room, { id: m.id, sendFailed: m.sendFailed });
+      }
+      await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
+    }
+  }
+
+  /** 에이전트가 압축 명령을 제공하는지 (C11). 없으면 버튼을 숨긴다 */
+  compactCommand(roomId: string): string | undefined {
+    const room = this.open.get(roomId);
+    const bot = room ? this.soleBot(room) : undefined;
+    const names = bot ? (this.runtimes.get(roomId)?.bots.get(bot.id)?.commands ?? []) : [];
+    return names.find((n) => /^(compact|compress)$/i.test(n));
+  }
+
+  /**
+   * 컨텍스트를 압축한다 (C11).
+   *
+   * **ACP에 압축 요청 메서드가 없다.** 에이전트가 광고한 슬래시 명령을 프롬프트로
+   * 보내는 게 유일한 경로다.
+   */
+  async compact(roomId: string): Promise<void> {
+    const cmd = this.compactCommand(roomId);
+    if (!cmd) throw new Error("이 에이전트는 압축을 지원하지 않습니다.");
+    const room = await this.openRoom(roomId);
+    await this.send(roomId, `/${cmd}`);
+    // 압축되면 역할이 요약에 안 남을 수 있다. 다음 턴에 다시 주입한다 (B3).
+    const bot = this.soleBot(room);
+    if (bot) this.botRuntime(room.id, bot.id).roleInjected = false;
+  }
+
+  /**
+   * 대화 중에 모델·추론 강도를 바꾼다 (B12·B15).
+   *
+   * 방 만들 때만 정할 수 있으면 "Opus로 바꿔볼까"가 불가능하다.
+   */
+  async setConfig(
+    roomId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<acp.SessionConfigOption[]> {
+    const room = await this.openRoom(roomId);
+    const bot = room.participants[0]!;
+
+    // 🔴 **저장된 `sessionId`를 그대로 쓰면 안 된다.** 창을 껐다 켜면 그 id는
+    // 디스크에 남아 있지만 **CLI는 그 세션을 안 들고 있다** — 방을 여는 것만으로는
+    // 복구하지 않기 때문이다(복구는 첫 전송에서 일어난다). 그 상태로 설정을 바꾸면
+    // 없는 세션에 대고 부르게 된다. `ensureSession`이 복구까지 책임진다.
+    // 턴이 도는 중에도 모드를 바꿀 수 있다 — 그 상태를 덮어쓰면 안 된다
+    const before = this.statusOf(room.id);
+    if (before === "idle") this.setStatus(room.id, "connecting");
+    let sessionId: string;
+    try {
+      sessionId = await this.ensureSession(room, bot);
+    } finally {
+      if (before === "idle") this.setStatus(room.id, "idle");
+    }
+
+    const conn = this.connection(bot.agentId);
+    const updated = await conn.setConfigOption(sessionId, configId, value);
+    if (typeof value === "string") this.rememberModel(bot.agentId, configId, value);
+
+    // **권한 모드도 모델 이름도 여기서 봇에 박힌다** (D2·B5) — 응답에 실려 온
+    // 현재 값을 그대로 옮기므로, 우리가 보낸 값과 에이전트가 실제로 고른 값이
+    // 다르면 에이전트 쪽이 이긴다.
+    this.noteRoomConfig(room, bot, updated);
+    await this.saveProps(room, { participants: room.participants });
+
+    // 왜 응답 성향이 바뀌었는지 나중에 알 수 있어야 한다
+    const opt = updated.find((o) => o.id === configId);
+
+    if (opt?.category === "model") {
+      const msg: Message = {
+        id: messageId(),
+        role: "system",
+        // id가 아니라 **보이는 이름으로** 남긴다 — 사용자가 고른 건 그쪽이다
+        text: `모델이 ${bot.modelLabel ?? String(value)}(으)로 바뀌었습니다.`,
+        deliveredTo: [],
+        createdAt: Date.now(),
+      };
+      this.append(room, msg);
+      await this.saveNewMessage(room, msg);
+    }
+    return updated;
+  }
+
+  /**
+   * 봇의 질문 정책을 바꾼다 (D5).
+   *
+   * **권한은 여기 없다.** 권한은 에이전트 모드가 정하고, 그건 `setConfig()`로
+   * 세션에 적용한다(D2) — 우리 사다리를 따로 두지 않는다.
+   *
+   * 1:1 방에서는 봇이 하나뿐이라 `botId`를 생략하면 그 봇을 가리키고,
+   * 단체방에서는 참여자 서랍이 `botId`를 준다.
+   */
+  async setPolicy(
+    roomId: string,
+    patch: { answerPolicy?: AnswerPolicy; approver?: Approver },
+    botId?: string,
+  ): Promise<void> {
+    const room = await this.openRoom(roomId);
+
+    // 1:1이면 «그 봇». 여럿인데 지목하지 않으면 누구 얘긴지 알 수 없다.
+    const bot = botId
+      ? room.participants.find((b) => b.id === botId)
+      : room.participants.length === 1
+        ? room.participants[0]
+        : undefined;
+    if (!bot) return;
+
+    if (patch.answerPolicy !== undefined) bot.answerPolicy = patch.answerPolicy;
+    if (patch.approver !== undefined) bot.approver = patch.approver;
+    await this.saveProps(room, { participants: room.participants });
+  }
+
+
+  // ── 세션 설정 ──────────────────────────────────────────────────────────
+
+  /**
+   * 모델 등 선택지를 받아온다 (B15).
+   *
+   * 캐시가 있으면 **즉시 돌려주고 뒤에서 갱신**한다 — 방 만들기 화면에서
+   * 목록이 비어 보이지 않게 하려는 것이다.
+   */
+  /**
+   * 에이전트가 받아주는 첨부 종류 (I5).
+   *
+   * **CLI를 띄우지 않는다** — 연결 전이면 전부 허용으로 답하고,
+   * 실제로 보낼 때 다시 확인해 걸러낸다.
+   */
+  /**
+   * 모든 방의 대화를 훑는다 (H2).
+   *
+   * 방 하나가 세션 하나라 **방이 빠르게 쌓인다.** 일주일이면
+   * 수십 개가 되므로 기본 기능이다.
+   */
+  search(query: string, limit?: number): Promise<SearchHit[]> {
+    return this.opts.store.search(query, limit);
+  }
+
+  /**
+   * 방의 사용량 (B14).
+   *
+   * 스트리밍은 메시지 단위로만 나가므로(F9), 셀이 사용량을 같이
+   * 실어 보내려면 동기적으로 집어올 수 있어야 한다.
+   */
+  usageOf(roomId: string): RoomUsage | undefined {
+    return this.open.get(roomId)?.usage;
+  }
+
+  promptCapabilities(agentId: string): { image: boolean; audio: boolean; embeddedContext: boolean } {
+    return this.connection(agentId).promptCapabilities();
+  }
+
+  /**
+   * **이 방의** 설정 선택지 (D2·B15).
+   *
+   * 🔴 에이전트별 캐시를 쓰면 안 된다. 세션은 **방마다, 그리고 방 안에서도
+   * 봇마다** 다른데(B1) 캐시가 하나라 **방 A에서 계획 모드로 바꾸면 방 B의
+   * 시트에도 «계획»이 떴다.** 방을 여는 순간 세션이 붙으므로 대개 이미 있다.
+   */
+  async roomConfigOptions(
+    roomId: string,
+    botId?: string,
+  ): Promise<acp.SessionConfigOption[]> {
+    const room = await this.openRoom(roomId);
+    // 지목이 없으면 방의 유일한 봇 (v1.0). 단체방에서는 화면이 봇을 준다.
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
+    if (!bot) return [];
+
+    const known = this.roomConfigs.get(configKeyOf(room.id, bot.id));
+    if (known) return known;
+
+    await this.bindSession(room);
+    const after = this.roomConfigs.get(configKeyOf(room.id, bot.id));
+    if (after) return after;
+
+    // 붙는 데 실패했으면 이유가 있어야 한다 — 빈 목록으로 삼키면
+    // «이 에이전트는 권한 모드가 없다»로 읽힌다
+    return this.configOptions(bot.agentId);
+  }
+
+  async configOptions(agentId: string): Promise<acp.SessionConfigOption[]> {
+    const cached = this.configCache.get(agentId);
+    if (cached) {
+      // 백그라운드 갱신은 실패해도 조용히 넘어간다 — 보여줄 값이 이미 있다.
+      void this.refreshConfigOptions(agentId).catch(() => {});
+      return cached;
+    }
+    // **같은 에이전트를 동시에 두 번 띄우지 않는다.** 방에 들어오면서 한 번,
+    // 권한 시트를 열면서 또 한 번 부르는 게 정상 경로다.
+    const flight = this.configFlight.get(agentId);
+    if (flight) return flight;
+
+    const started = this.refreshConfigOptions(agentId).finally(() =>
+      this.configFlight.delete(agentId),
+    );
+    this.configFlight.set(agentId, started);
+    return started;
+  }
+
+  private async refreshConfigOptions(agentId: string): Promise<acp.SessionConfigOption[]> {
+    try {
+      const limit = this.opts.configProbeMs ?? CONFIG_PROBE_MS;
+      const options = await withTimeout(
+        this.connection(agentId).probeConfigOptions(this.opts.host.defaultCwd()),
+        limit,
+        `${this.agentOrThrow(agentId).label}이(가) 응답하지 않습니다 (${Math.round(
+          limit / 1000,
+        )}초). 터미널에서 한 번 실행해 로그인·설치를 마쳤는지 확인하세요.`,
+      );
+      this.configCache.set(agentId, options);
+      return options;
+    } catch (err) {
+      this.opts.host.log(`[${agentId}] 설정 조회 실패: ${describe(err)}`);
+
+      // 이전 값이 있으면 그걸 쓴다 — 일시적인 실패로 목록을 비울 이유가 없다.
+      const cached = this.configCache.get(agentId);
+      if (cached) return cached;
+
+      // **빈 배열로 삼키지 않는다.** 그러면 셀이 *"모델이 없다"* 와
+      // *"CLI를 못 띄웠다"* 를 구별하지 못해 방 만들기 화면이 아무 설명 없이 비어 보인다.
+      throw err;
+    }
+  }
+
+  // ── 내부 ──────────────────────────────────────────────────────────────
+
+
+  private async runQueue(room: Room, batch: Message[]): Promise<void> {
+    const rt = this.runtime(room.id);
+    // 단체방에서는 **멘션된 봇마다** 이 함수가 돈다. 지금은 하나뿐이다.
+    const bot = room.participants[0]!;
+    const bt = this.botRuntime(room.id, bot.id);
+    const conn = this.connection(bot.agentId);
+
+    let sessionId: string;
+    try {
+      this.setStatus(room.id, "connecting");
+      sessionId = await this.ensureSession(room, bot);
+    } catch (err) {
+      // 세션을 못 열었으면 **프롬프트가 아예 안 나갔다.** 해당 메시지들을
+      // 실패로 표시해 다시 보낼 수 있게 한다 — 그냥 버리면 다시 타이핑해야 한다.
+      const reason = describe(err);
+      for (const m of batch) {
+        m.sendFailed = reason;
+        await this.saveMessage(room, { id: m.id, sendFailed: reason });
+      }
+      this.setStatus(room.id, "error");
+      this.emit("roomError", room.id, reason);
+      return;
+    }
+
+    const prompt = await this.buildPrompt(room, bot, bt, batch);
+
+    const reply: Message = {
+      id: messageId(),
+      role: "agent",
+      authorBotId: bot.id,
+      text: "",
+      deliveredTo: [bot.id],
+      replyToIds: batch.map((m) => m.id),
+      createdAt: Date.now(),
+      streaming: true,
+    };
+    this.append(room, reply);
+
+    // **응답 자리를 프롬프트보다 먼저 저장한다.**
+    //
+    // 이게 없으면 스트리밍 도중에 VSCode가 꺼졌을 때 사용자 메시지만 남고,
+    // 다시 켰을 때 "답이 안 달렸으니 전송 실패"로 잘못 판정된다(C5).
+    // 실제로는 전송됐고 에이전트가 답까지 했는데 `↻`를 누르면 같은 질문이 두 번 간다.
+    await this.saveNewMessage(room, reply);
+
+    this.setStatus(room.id, "waiting");
+
+    conn.listen(sessionId, (ev) => this.applyEvent(room, reply, ev));
+    try {
+      const res = await conn.prompt(sessionId, prompt);
+      // **이제 이 세션은 디스크에 남는다** — 되살릴 값이 여기서 확정된다 (F7)
+      this.notePrompted(room, bot, sessionId);
+      if (res.usage) this.applyUsage(room, res.usage);
+      // 왜 끝났는지 알려준다. 그냥 두면 거부나 길이 초과가 **짧은 응답**으로 보인다.
+      const note = stopReasonNote(res.stopReason);
+      if (note) reply.error = note;
+    } catch (err) {
+      reply.error = describe(err);
+      this.setStatus(room.id, "error");
+    } finally {
+      // **놓지 않는다.** 떼어버리면 턴 사이에 오는 걸 아무도 안 받는다(A11).
+      conn.listen(sessionId, (ev) => this.onIdleEvent(room, bot, ev));
+    }
+
+    // blob 쓰기가 끝나야 해시가 채워진다. 기다리지 않고 저장하면 diff를 잃는다.
+    if (rt.pendingWrites.length > 0) {
+      await Promise.allSettled(rt.pendingWrites);
+      rt.pendingWrites.length = 0;
+    }
+
+    reply.streaming = false;
+
+    // 보고 있지 않은 방의 응답만 안 읽은 것으로 센다 (B8)
+    if (this.activeRoomId !== room.id) room.unread += 1;
+
+    await this.saveMessage(room, reply);
+    await this.saveProps(room, { unread: room.unread, usage: room.usage });
+    // 턴이 끝날 때도 바뀐 건 응답 하나다. 방 전체를 보낼 이유가 없다.
+    this.emit("message", room.id, reply);
+    if (rt.status !== "error") this.setStatus(room.id, "idle");
+  }
+
+  private applyUsage(room: Room, usage: acp.Usage): void {
+    room.usage = {
+      ...room.usage,
+      totalTokens: usage.totalTokens,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      ...(usage.thoughtTokens != null ? { thoughtTokens: usage.thoughtTokens } : {}),
+      ...(usage.cachedReadTokens != null
+        ? { cachedReadTokens: usage.cachedReadTokens }
+        : {}),
+      ...(usage.cachedWriteTokens != null
+        ? { cachedWriteTokens: usage.cachedWriteTokens }
+        : {}),
+    };
+  }
+
+  private applyEvent(room: Room, reply: Message, ev: AgentEvent): void {
+    switch (ev.type) {
+      case "text":
+        reply.text += ev.delta;
+        this.setStatus(room.id, "streaming");
+        break;
+
+      case "thought":
+        reply.thought = (reply.thought ?? "") + ev.delta;
+        break;
+
+      case "tool":
+        this.setStatus(room.id, "tool");
+        this.recordActivity(reply, ev);
+        break;
+
+      case "diff":
+        this.recordDiff(room, reply, ev);
+        break;
+
+      case "usage":
+        room.usage = {
+          ...room.usage,
+          contextUsed: ev.used,
+          contextSize: ev.size,
+          ...(ev.cost ? { cost: ev.cost } : {}),
+        };
+        break;
+
+      case "commands":
+        // 슬래시 명령은 **그 세션이** 광고한 것이다
+        if (reply.authorBotId) this.botRuntime(room.id, reply.authorBotId).commands = ev.names;
+        break;
+
+      // 🔴 **압축은 «대화의 사건»이다** (C11). 이 지점부터 에이전트가 아는 건
+      // 요약본인데 화면에는 전체가 그대로 보인다. 타임라인에 자국을 남기지
+      // 않으면 *"아까 말한 거"* 가 왜 안 통하는지 알 길이 없다.
+      //
+      // **요약 내용은 안 보여준다.** 사용자가 읽을 것은 자기 대화지 요약이 아니다.
+      case "compaction":
+        this.noteCompaction(room, ev);
+        break;
+
+      // 계획 (계획 모드의 알맹이). 메시지에 붙여 화면에 그대로 보여준다
+      case "plan":
+        reply.plan = ev.markdown
+          ? { markdown: ev.markdown }
+          : { entries: ev.entries ?? [] };
+        break;
+
+      case "planRemoved":
+        delete reply.plan;
+        break;
+
+      // 에이전트가 스스로 모드를 바꿨다 — 우리 기록이 낡는다
+      case "mode":
+        this.noteAgentMode(room, reply.authorBotId, ev.modeId);
+        break;
+
+      case "config":
+        this.noteAgentConfig(room, reply.authorBotId, ev.options);
+        break;
+
+      // 🔴 **모르는 것도 조용히 넘기지 않는다** (§0 P5)
+      case "unknown":
+        this.opts.host.log(`[${room.id}] 아직 다루지 않는 업데이트: ${ev.kind}`);
+        break;
+    }
+    room.lastActivityAt = Date.now();
+    this.emitThrottled(room, reply);
+    this.saveThrottled(room, reply);
+  }
+
+  /**
+   * 압축 알림을 방에 반영한다 (C11).
+   *
+   * **턴 안에서도 밖에서도 온다** — 에이전트는 컨텍스트가 차면 스스로 압축하는데,
+   * 그게 우리가 프롬프트를 보낸 동안일 거라는 보장이 없다.
+   */
+  private noteCompaction(
+    room: Room,
+    ev: { id: string; status: string; summary?: string; summaryDelta?: string },
+  ): void {
+    // 🔴 **방까지 붙여야 유일하다.** `compactionId`는 스펙상 «세션 안에서»
+    // 유일할 뿐이라, 같은 에이전트의 두 방이 같은 id를 쓸 수 있다.
+    const key = `${room.id}:${ev.id}`;
+
+    // 요약은 **조각으로 나뉘어 먼저** 올 수 있다. 끝날 때까지 모은다.
+    if (ev.summaryDelta) {
+      this.compacting.set(key, (this.compacting.get(key) ?? "") + ev.summaryDelta);
+    }
+    if (ev.status !== "completed" || this.compacted.has(key)) return;
+    this.compacted.add(key);
+
+    // `summary`는 «통째로 교체», 조각은 «덧붙이기». 준 쪽을 쓴다.
+    const summary = (ev.summary ?? this.compacting.get(key) ?? "").trim();
+    this.compacting.delete(key);
+    const mark: Message = {
+      id: messageId(),
+      role: "system",
+      text: "여기까지 압축됨 — 위쪽은 에이전트가 요약으로 기억합니다",
+      mark: "compaction",
+      // 보여주려고 담는 게 아니다 — **되먹일 때 앞부분을 대신한다**(F7)
+      ...(summary ? { summary } : {}),
+      deliveredTo: [],
+      createdAt: Date.now(),
+    };
+    this.append(room, mark);
+    void this.saveNewMessage(room, mark);
+    this.emit("message", room.id, mark);
+  }
+
+  /**
+   * 기록이 가리킬 세션을 정한다 (F7).
+   *
+   * 🔴 **유령으로 진짜를 밀어내지 않는다.** 에이전트는 첫 프롬프트를 받아야
+   * 세션을 디스크에 남기므로(§13.1), 말을 안 건 세션 id는 되살릴 수 없다.
+   * 그런 id가 기록을 덮으면 **진짜 세션을 가리키던 포인터를 잃는다** —
+   * 일시적인 복구 실패 한 번이 영구 손실이 된다. 실제로 그랬다.
+   *
+   * 그래서 **써본 세션은 써본 세션으로만** 밀어낸다. 새 세션이 프롬프트를
+   * 받으면 그때 `notePrompted()`가 기록을 옮긴다.
+   */
+  private pointAt(bot: BotInstance, sessionId: string): void {
+    if (bot.sessionPrompted && bot.sessionId) return;
+    bot.sessionId = sessionId;
+    bot.sessionPrompted = false;
+  }
+
+  /** 그 세션이 실제로 쓰였다 — 이제 이게 되살릴 값이다 */
+  private notePrompted(room: Room, bot: BotInstance, sessionId: string): void {
+    if (bot.sessionId === sessionId && bot.sessionPrompted) return;
+    bot.sessionId = sessionId;
+    bot.sessionPrompted = true;
+    void this.saveProps(room, { participants: room.participants });
+  }
+
+  /** 세션이 붙어 있는 동안 **계속** 듣는다 (A11) */
+  private watchIdle(room: Room, bot: BotInstance, sessionId: string): void {
+    this.connection(bot.agentId).listen(sessionId, (ev) =>
+      this.onIdleEvent(room, bot, ev),
+    );
+  }
+
+  /**
+   * **턴 밖에서** 온 것들 (A11).
+   *
+   * 🔴 예전에는 `listen`을 프롬프트 직전에 붙이고 끝나면 뗐다. 그래서 턴 사이에
+   * 오는 건 **받는 사람이 없어 그냥 사라졌다.** 실제로 잃고 있던 것들:
+   *
+   * - `available_commands_update` — 보통 **세션을 열자마자** 온다. 그래서
+   *   압축 버튼이 첫 턴을 돌기 전에는 안 보였다
+   * - `compaction_update` — 에이전트가 **스스로** 압축하는 시점은 우리 턴과 무관하다
+   * - `usage_update` — 컨텍스트가 얼마나 찼는지
+   *
+   * 말과 도구 호출은 여기서 방에 심지 않는다. ACP에서 그건 턴에 속하는 것이라
+   * 우리가 짝지을 응답이 없고, 늦게 온 꼬리를 새 메시지로 만들면 대화가 겹친다.
+   * **다만 조용히 버리지도 않는다** — 로그에 남겨 실제로 오는지 볼 수 있게 한다.
+   */
+  private onIdleEvent(room: Room, bot: BotInstance, ev: AgentEvent): void {
+    switch (ev.type) {
+      case "commands":
+        this.botRuntime(room.id, bot.id).commands = ev.names;
+        this.emit("room", room);
+        break;
+
+      case "usage":
+        room.usage = {
+          ...room.usage,
+          contextUsed: ev.used,
+          contextSize: ev.size,
+          ...(ev.cost ? { cost: ev.cost } : {}),
+        };
+        void this.saveProps(room, { usage: room.usage });
+        break;
+
+      case "compaction":
+        this.noteCompaction(room, ev);
+        break;
+
+      case "mode":
+        this.noteAgentMode(room, bot.id, ev.modeId);
+        break;
+
+      case "config":
+        this.noteAgentConfig(room, bot.id, ev.options);
+        break;
+
+      case "unknown":
+        this.opts.host.log(`[${bot.agentId}] 아직 다루지 않는 업데이트: ${ev.kind}`);
+        break;
+
+      // 🔴 **말과 계획은 방에 심는다.** 턴 밖이라고 버리면 «CLI가 준 걸 우리가
+      // 숨긴» 것이 된다(§0 P5). 짝지을 응답이 없으면 **새로 만든다.**
+      default: {
+        const idle = this.idleReply(room, bot);
+        this.applyEvent(room, idle, ev);
+      }
+    }
+  }
+
+  /**
+   * 턴 밖 발화를 담을 메시지 (A11).
+   *
+   * 잠깐 조용했다가 다시 오면 **다른 말**로 본다 — 한참 전 말풍선에 이어 붙이면
+   * 시각이 거짓말을 한다.
+   */
+  private idleReply(room: Room, bot: BotInstance): Message {
+    const bt = this.botRuntime(room.id, bot.id);
+    const now = Date.now();
+    if (bt.idle && now - bt.idle.at < IDLE_BURST_MS) {
+      bt.idle.at = now;
+      return bt.idle.message;
+    }
+
+    const message: Message = {
+      id: messageId(),
+      role: "agent",
+      authorBotId: bot.id,
+      text: "",
+      deliveredTo: [bot.id],
+      createdAt: now,
+    };
+    bt.idle = { message, at: now };
+    this.append(room, message);
+    void this.saveNewMessage(room, message);
+    return message;
+  }
+
+  /** 에이전트가 스스로 바꾼 모드를 따라간다 (D2) */
+  private noteAgentMode(room: Room, botId: string | undefined, modeId: string): void {
+    const bot = room.participants.find((b) => b.id === botId) ?? this.soleBot(room);
+    if (!bot || bot.agentMode === modeId) return;
+    bot.agentMode = modeId;
+    void this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+  }
+
+  /** 우리가 안 시킨 설정 변경도 반영한다 (B15) */
+  private noteAgentConfig(
+    room: Room,
+    botId: string | undefined,
+    options: acp.SessionConfigOption[],
+  ): void {
+    const bot = room.participants.find((b) => b.id === botId) ?? this.soleBot(room);
+    if (!bot) return;
+    this.noteRoomConfig(room, bot, options);
+    void this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+  }
+
+  /**
+   * 스트리밍 중에도 응답을 디스크에 남긴다.
+   *
+   * 중간에 VSCode가 꺼져도 **받은 데까지는 남는다.** JSONL이라 한 줄 덧붙이기로
+   * 끝나므로 대화가 길어져도 비용이 같다.
+   */
+  private saveThrottled(room: Room, reply: Message): void {
+    // **봇마다 따로 솎는다.** 단체방에서 둘이 동시에 답하면 서로의 저장을
+    // 밀어내게 되고, 그러면 한쪽 응답이 중간 저장 없이 통째로 날아갈 수 있다.
+    const bt = this.botRuntime(room.id, reply.authorBotId ?? "");
+    const now = Date.now();
+    if (now - bt.lastSave < SAVE_INTERVAL_MS) return;
+    bt.lastSave = now;
+    void this.opts.store
+      .updateMessage(room, { id: reply.id, text: reply.text })
+      .catch((err) => this.opts.host.log(`중간 저장 실패: ${describe(err)}`));
+  }
+
+  /**
+   * 스트리밍 중에는 발행을 솎아낸다.
+   *
+   * 토큰 델타마다 방 전체를 내보내면 초당 수십 번 전체 대화를 직렬화하게 된다.
+   * 턴이 끝날 때 한 번 더 확실히 내보내므로 마지막 델타를 놓치지 않는다.
+   */
+  private emitThrottled(room: Room, message: Message): void {
+    // 같은 이유로 봇마다 따로 (위)
+    const bt = this.botRuntime(room.id, message.authorBotId ?? "");
+    const now = Date.now();
+    if (now - bt.lastEmit < EMIT_INTERVAL_MS) return;
+    bt.lastEmit = now;
+    this.emit("message", room.id, message);
+  }
+
+  /**
+   * 에이전트가 한 일을 기록한다 (C3).
+   *
+   * **같은 `toolCallId`로 여러 번 온다** — `pending` → `in_progress` → `completed`.
+   * 합쳐서 하나로 두고 상태만 갱신한다.
+   *
+   * 기록이 없으면 *"무슨 명령이 돌았나"* 를 알 방법이 승인 기록(D3)뿐인데,
+   * 그러면 **자동 승인된 것들만 골라서 흔적이 없어진다.**
+   */
+  private recordActivity(
+    reply: Message,
+    ev: Extract<AgentEvent, { type: "tool" }>,
+  ): void {
+    const tools = (reply.tools ??= []);
+    const status = ev.status as ToolActivity["status"];
+    const at = tools.findIndex((t) => t.id === ev.toolCallId);
+
+    const next: ToolActivity = {
+      id: ev.toolCallId,
+      // 갱신 이벤트는 제목을 안 줄 수도 있다. 먼저 온 걸 지키자.
+      title: ev.title || tools[at]?.title || "도구 사용",
+      ...(ev.kind ? { kind: ev.kind } : tools[at]?.kind ? { kind: tools[at]!.kind! } : {}),
+      status,
+      ...(ev.paths.length > 0 ? { paths: ev.paths } : tools[at]?.paths ? { paths: tools[at]!.paths! } : {}),
+      // **명령은 첫 이벤트에만 실려 온다** — 갱신에는 없으니 들고 있던 걸 지킨다
+      ...(ev.command ? { command: ev.command } : tools[at]?.command ? { command: tools[at]!.command! } : {}),
+      // 결과는 **나중에** 온다 (갱신). 오면 갈아 끼우고, 없으면 있던 걸 지킨다.
+      ...(ev.output ? { output: ev.output } : tools[at]?.output ? { output: tools[at]!.output! } : {}),
+      // 언제 시작했나. 타임라인으로 읽으려면 시각이 있어야 한다
+      ...(tools[at]?.at ? { at: tools[at]!.at! } : { at: Date.now() }),
+      // **글의 어디쯤이었나.** 처음 본 시점을 지킨다 — 갱신 때 옮기면 순서가 흐트러진다
+      ...(tools[at]?.textAt !== undefined
+        ? { textAt: tools[at]!.textAt! }
+        : { textAt: reply.text.length }),
+    };
+
+    if (at >= 0) tools[at] = next;
+    else tools.push(next);
+  }
+
+  /**
+   * 파일 변경을 기록한다 (E2). 전문은 blob으로 빼고 해시만 남긴다 (E6).
+   *
+   * 같은 파일을 여러 번 고치면 **최종 상태 하나로 합친다** — 카드가 중복으로 쌓이면
+   * 무엇이 최종인지 알 수 없다.
+   */
+  private recordDiff(
+    room: Room,
+    reply: Message,
+    ev: Extract<AgentEvent, { type: "diff" }>,
+  ): void {
+    const store = this.opts.store;
+    const files = (reply.files ??= []);
+    const existing = files.find((f) => f.path === ev.path);
+    const change: FileChange = existing ?? {
+      path: ev.path,
+      kind: ev.oldText === null ? "create" : "edit",
+    };
+    if (!existing) files.push(change);
+
+    // 줄 수는 즉시 계산해 카드에 바로 보여준다
+    const counts = countChangedLines(ev.oldText ?? "", ev.newText);
+    change.added = counts.added;
+    change.removed = counts.removed;
+
+    // blob 쓰기는 비동기지만 **턴이 끝나기 전에 반드시 끝나야 한다** —
+    // 안 그러면 해시가 빈 채로 저장되어 diff를 잃는다.
+    const write = (async () => {
+      if (ev.oldText !== null && !change.oldSha256) {
+        change.oldSha256 = await store.putBlob(ev.oldText);
+      }
+      change.newSha256 = await store.putBlob(ev.newText);
+    })().catch((err) => this.opts.host.log(`blob 저장 실패: ${describe(err)}`));
+
+    this.runtime(room.id).pendingWrites.push(write);
+  }
+
+  /**
+   * 보낼 프롬프트를 만든다.
+   *
+   * **역할(B3)은 첫 프롬프트 앞에 프리픽스로 붙인다.** ACP `session/new`에는
+   * 시스템 프롬프트 파라미터가 없고, 별도 턴으로 보내면 어색한 첫 응답이 생긴다.
+   */
+  private async buildPrompt(
+    room: Room,
+    bot: BotInstance,
+    bt: BotRuntime,
+    batch: Message[],
+  ): Promise<acp.ContentBlock[]> {
+    const body = batch.map((m) => m.text).join("\n");
+    const parts: string[] = [];
+
+    if (bot.rolePrompt && !bt.roleInjected) {
+      parts.push(bot.rolePrompt.trim(), "---");
+      bt.roleInjected = true;
+    }
+    // 끊긴 맥락을 되먹인다 (F7). **역할보다 뒤, 실제 요청보다 앞.**
+    if (room.refeedPending) {
+      const history = transcriptText(room, batch);
+      if (history) {
+        parts.push(
+          // **줄여 보냈다는 걸 말해준다.** 모르면 «[중략]»을 만난 에이전트가
+          // 빈자리를 넘겨짚는다 — 알면 되물을 수 있다.
+          "[이전 대화 기록] 세션이 초기화되어 지금까지의 대화를 다시 전달합니다. " +
+            "길이를 줄이려고 오래된 메시지는 가운데를 접었습니다(`…[중략 N자]…`). " +
+            "그 부분이 필요하면 넘겨짚지 말고 물어보세요.",
+          history,
+          "[기록 끝] 위는 참고용 맥락입니다. 아래가 지금 요청입니다.",
+        );
+      }
+      room.refeedPending = false;
+      void this.saveProps(room, { refeedPending: false });
+    }
+    if (bot.answerPolicy === "auto") {
+      parts.push(
+        "[사용자가 자리에 없습니다. 묻지 말고 스스로 판단해 진행하세요.]",
+      );
+    }
+    parts.push(body);
+
+    const blocks: acp.ContentBlock[] = [{ type: "text", text: parts.join("\n\n") }];
+    for (const m of batch) {
+      for (const a of m.attachments ?? []) {
+        const block = await this.toContentBlock(room, bot, a);
+        if (block) blocks.push(block);
+      }
+    }
+    return blocks;
+  }
+
+  /**
+   * 첨부를 ACP 블록으로 만든다 (I4).
+   *
+   * **워크스페이스 안 파일은 내용을 싣지 않고 경로만 준다.** 에이전트가
+   * `fs/read_text_file`로 직접 읽는데, 그게 우리 핸들러를 타서 **미저장 버퍼까지
+   * 반영**된다. 토큰도 아끼고 정확도도 높다.
+   */
+  private async toContentBlock(
+    room: Room,
+    bot: BotInstance,
+    a: Attachment,
+  ): Promise<acp.ContentBlock | null> {
+    // **경로로 갈지 내용으로 갈지는 한 곳에서 정한다** (I4). 셸도 같은 함수를 보고
+    // blob에 담을지 정하므로, 규칙이 갈리면 기록이 실제와 어긋난다.
+    if (!sendsContent(a, room.cwd)) {
+      return { type: "resource_link", uri: `file://${a.path}`, name: a.name };
+    }
+
+    // 보내봐야 받지 못하는 종류는 애초에 보내지 않는다 (I5).
+    // 스펙이 못 박는다 — *"The Client MUST adapt its interface
+    // according to PromptCapabilities"*.
+    const caps = this.connection(bot.agentId).promptCapabilities();
+
+    if (a.mimeType.startsWith("image/") || a.mimeType.startsWith("audio/")) {
+      const kind = a.mimeType.startsWith("image/") ? "image" : "audio";
+      if (!caps[kind]) {
+        this.notifyUnsupported(room, a, kind === "image" ? "이미지" : "오디오");
+        return null;
+      }
+      const buf = await this.opts.store.getBlob(a.sha256);
+      if (!buf) return null;
+      return kind === "image"
+        ? { type: "image", data: buf.toString("base64"), mimeType: a.mimeType }
+        : { type: "audio", data: buf.toString("base64"), mimeType: a.mimeType };
+    }
+
+    // 붙여넣은 로그, 워크스페이스 밖 파일 — 에이전트가 접근할 수 없으니 실어 보낸다
+    if (!caps.embeddedContext) {
+      this.notifyUnsupported(room, a, "파일 내용 첨부");
+      return null;
+    }
+    const text = await this.opts.store.getBlobText(a.sha256);
+    if (text === null) return null;
+    return {
+      type: "resource",
+      resource: { uri: a.path ? `file://${a.path}` : `blob:${a.sha256}`, text },
+    };
+  }
+
+  /** 첨부를 조용히 버리지 않는다 — 보냈다고 생각하고 기다리면 안 된다 */
+  private notifyUnsupported(room: Room, a: Attachment, kind: string): void {
+    this.emit(
+      "notice",
+      room.id,
+      `${room.participants[0]?.name ?? "에이전트"}는 ${kind}를 받지 못해 ` +
+        `«${a.name}»을 보내지 않았습니다.`,
+    );
+  }
+
+  /**
+   * 쓸 수 있는 세션을 확보한다.
+   *
+   * **저장된 세션에 다시 붙는 것을 먼저 시도한다 (F7).** 에이전트 CLI가 세션을
+   * 디스크에 남기므로, VSCode를 껐다 켜도 원래 세션으로 돌아가면 계획·메모리·
+   * 도구 이력까지 살아난다. 새로 만들면 대화 텍스트조차 모르는 상태가 된다.
+   */
+  private async ensureSession(room: Room, bot: BotInstance): Promise<string> {
+    const bt = this.botRuntime(room.id, bot.id);
+    if (bt.sessionId) return bt.sessionId;
+
+    const conn = this.connection(bot.agentId);
+
+    if (bot.sessionId) {
+      const resumed = await conn.resumeSession(bot.sessionId, room.cwd);
+      if (resumed.ok) {
+        bt.sessionId = bot.sessionId;
+        // 복구된 세션은 역할을 이미 알고 있다
+        bt.roleInjected = true;
+        // **이 방이 지금 어떤 모드·모델인지는 복구 응답에만 있다.**
+        // 다만 사용자가 고른 값은 우리 기록이 우선이다 — 먼저 되살린다.
+        if (resumed.options.length > 0) {
+          await this.restoreChoices(room, bot, bot.sessionId, resumed.options);
+        }
+        this.watchIdle(room, bot, bot.sessionId);
+        return bot.sessionId;
+      }
+      // 복구 실패는 정상 경로다. 새로 열고 **말해준다** —
+      // 기록을 되먹이는 건 아직 안 한다(미구현).
+      //
+      // 🔴 **잃을 게 있을 때만 말한다.** 에이전트는 첫 프롬프트를 받아야 세션을
+      // 디스크에 남긴다(§13.1 실측). 그래서 «만들고 말은 안 건» 방의 세션은
+      // 없어진 게 아니라 **처음부터 없었고**, 복구는 반드시 실패한다. 방을 열
+      // 때마다 세션을 붙이므로(B1) 그대로 두면 **빈 방을 열 때마다**
+      // *"맥락이 빠질 수 있습니다"* 가 쌓인다 — 빠질 맥락이 없는데.
+      if (room.messages.some((m) => m.role !== "system")) {
+        const known = await conn.listSessions(room.cwd);
+        const gone = known !== null && !known.includes(bot.sessionId);
+        const head = gone
+          ? "이전 세션이 에이전트에서 사라졌습니다."
+          : "이전 세션을 이어받지 못했습니다.";
+        const note: Message = {
+          id: messageId(),
+          role: "system",
+          // 🔴 **왜인지도 같이 적는다** (§0 원칙). 이유가 출력 채널에만 있으면
+          // 대부분은 안 열어보고, 그러면 «우리가 끊었나»로 남는다.
+          text: `${head} 여기서부터는 새 세션입니다. — ${resumed.reason}`,
+          deliveredTo: [],
+          createdAt: Date.now(),
+        };
+        this.append(room, note);
+        void this.saveNewMessage(room, note);
+
+        // **화면과 에이전트가 어긋났다.** 사용자가 고를 때까지 들고 있는다.
+        room.contextLost = true;
+        room.lostSessionId = bot.sessionId;
+        await this.saveProps(room, { contextLost: true, lostSessionId: bot.sessionId });
+        this.emit("room", room);
+      }
+    }
+
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
+      // `npx`로 CLI를 처음 받으면 수십 초가 걸린다. 멈춘 줄 알지 않게 알린다.
+      this.emit(
+        "notice",
+        room.id,
+        `${this.agentOrThrow(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
+      ),
+    );
+    bt.sessionId = sessionId;
+    this.pointAt(bot, sessionId);
+    // 세션이 새로 열렸으므로 역할을 다시 넣어야 한다
+    bt.roleInjected = false;
+    // 새 세션이면 에이전트 기본값으로 시작한다 — 고른 것들을 다시 넣어준다
+    if (configOptions.length > 0) await this.restoreChoices(room, bot, sessionId, configOptions);
+    this.watchIdle(room, bot, sessionId);
+
+    await this.saveProps(room, {
+      participants: room.participants,
+      ...(room.contextLost ? { contextLost: true } : {}),
+    });
+    return sessionId;
+  }
+
+  /**
+   * 끊긴 맥락을 어떻게 할지 정한다 (F7).
+   *
+   * `true`면 **다음 메시지에** 지금까지의 대화를 함께 보낸다. 별도 턴을 쓰지
+   * 않으므로 «이어가기»를 눌러도 화면에서는 아무 일도 안 일어난다 — 배너가
+   * *"다음 메시지에 함께 전달됩니다"* 로 바뀌는 것이 피드백이다.
+   *
+   * `false`면 그냥 새 대화처럼 간다. **다시 묻지 않는다.**
+   */
+  async decideRefeed(roomId: string, accept: boolean): Promise<void> {
+    const room = await this.openRoom(roomId);
+    room.contextLost = false;
+    room.refeedPending = accept;
+    // 사용자가 정했으니 이제 옛 세션을 놓는다
+    delete room.lostSessionId;
+    await this.saveProps(room, {
+      contextLost: false,
+      refeedPending: accept,
+      lostSessionId: undefined,
+    });
+    this.emit("room", room);
+  }
+
+  /**
+   * 못 이어받은 세션에 **다시 붙어본다** (F7).
+   *
+   * 🔴 복구 실패가 늘 영구적인 건 아니다 — 에이전트가 늦게 떴거나 잠깐 바빴던
+   * 것뿐일 수 있다. 그래서 실패했다고 바로 갈아타지 않고 옛 id를 들고 있다가
+   * 여기서 한 번 더 시도한다. **되면 대화가 통째로 돌아온다.**
+   */
+  async retryResume(roomId: string): Promise<boolean> {
+    const room = await this.openRoom(roomId);
+    const bot = this.soleBot(room);
+    const lost = room.lostSessionId;
+    if (!bot || !lost) return false;
+
+    const resumed = await this.connection(bot.agentId).resumeSession(lost, room.cwd);
+    if (!resumed.ok) {
+      this.emit("notice", room.id, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
+      return false;
+    }
+
+    const bt = this.botRuntime(room.id, bot.id);
+    bt.sessionId = lost;
+    bt.roleInjected = true;
+    bot.sessionId = lost;
+    bot.sessionPrompted = true;
+    room.contextLost = false;
+    delete room.refeedPending;
+    delete room.lostSessionId;
+
+    if (resumed.options.length > 0) await this.restoreChoices(room, bot, lost, resumed.options);
+    this.watchIdle(room, bot, lost);
+
+    const note: Message = {
+      id: messageId(),
+      role: "system",
+      text: "이전 세션을 다시 이어받았습니다.",
+      deliveredTo: [],
+      createdAt: Date.now(),
+    };
+    this.append(room, note);
+    await this.saveNewMessage(room, note);
+    await this.saveProps(room, {
+      participants: room.participants,
+      contextLost: false,
+      refeedPending: undefined,
+      lostSessionId: undefined,
+    });
+    this.emit("room", room);
+    return true;
+  }
+
+  /**
+   * 이 방의 세션이 들고 있는 설정을 갈무리한다.
+   *
+   * 🔴 **방마다 따로 둔다.** 예전에는 에이전트별 캐시 하나뿐이라 방 A에서 모델을
+   * 바꾸면 그 값이 방 B의 화면에도 나왔다 — 세션은 방마다 다른데(B1) 화면에
+   * 쓰는 값은 하나였다. 에이전트별 캐시는 **아직 방이 없는** 만들기 화면 몫으로만
+   * 남긴다.
+   */
+  /**
+   * 세션을 붙인 직후, **사용자가 고른 것들을 되살린다** (D2·B15).
+   *
+   * 🔴 저장만 하고 **다시 적용한 적이 없었다.** `bot.agentMode`·`bot.model`에
+   * 담아두고 주석에는 *"다음에 열 때 다시 적용할 수 있게"* 라고 써두고선 적용하는
+   * 코드가 없었다. 게다가 복구 응답을 그대로 받아 적느라(`noteRoomConfig`)
+   * **세션이 말하는 기본값으로 우리 기록까지 덮어썼다** — Sonnet으로 쓰던 방이
+   * 창을 껐다 켜면 Opus로 돌아오고, 디스크에서도 지워졌다.
+   *
+   * 그래서 **덮어쓰기 전에 먼저 적용한다.** 세션이 이미 같은 값이면 아무것도
+   * 하지 않는다. 하나를 바꾸면 다른 선택지가 함께 바뀔 수 있으므로(B15)
+   * **응답으로 받은 목록을 다음 판단에 쓴다.**
+   */
+  private async restoreChoices(
+    room: Room,
+    bot: BotInstance,
+    sessionId: string,
+    options: acp.SessionConfigOption[],
+  ): Promise<void> {
+    const want = bot.configValues ?? {};
+    let now = options;
+
+    // **권한을 먼저.** 모델·강도를 바꾸는 사이에도 권한은 지켜져야 한다.
+    const order = (o: acp.SessionConfigOption) => (o.category === "mode" ? 0 : 1);
+    for (const opt of [...options].sort((a, b) => order(a) - order(b))) {
+      const value = want[opt.id];
+      if (value === undefined) continue;
+
+      const live = now.find((o) => o.id === opt.id);
+      if (!live || live.currentValue === value) continue;
+
+      // 에이전트가 더 이상 안 주는 값이면 **우기지 않는다** — 그쪽이 진실이다
+      if (live.type === "select") {
+        const offered = live.options.some((e) =>
+          "group" in e ? e.options.some((v) => v.value === value) : e.value === value,
+        );
+        if (!offered) continue;
+      }
+
+      try {
+        now = await this.connection(bot.agentId).setConfigOption(sessionId, opt.id, value);
+      } catch (err) {
+        this.opts.host.log(`[${bot.agentId}] ${opt.id} 복원 실패: ${describe(err)}`);
+      }
+    }
+    this.noteRoomConfig(room, bot, now);
+  }
+
+  private noteRoomConfig(
+    room: Room,
+    bot: BotInstance,
+    options: acp.SessionConfigOption[],
+  ): void {
+    this.roomConfigs.set(configKeyOf(room.id, bot.id), options);
+    // 만들기 화면의 기본값으로도 쓴다 — 최소한 최근에 본 목록이다
+    this.configCache.set(bot.agentId, options);
+    if (noteModel(bot, options)) this.emitMetas();
+
+    const mode = options.find((o) => o.category === "mode");
+    if (mode && typeof mode.currentValue === "string") bot.agentMode = mode.currentValue;
+
+    // **범주를 가리지 않고 전부 담는다.** 사고 강도든 Fast mode든, 우리가 뜻을
+    // 모르는 것이든 — 세션이 들고 있던 값이면 다음에도 그 값이어야 한다.
+    const values: Record<string, string | boolean> = {};
+    for (const o of options) {
+      if (o.currentValue !== undefined && o.currentValue !== null) values[o.id] = o.currentValue;
+    }
+    bot.configValues = values;
+  }
+
+  /**
+   * 에이전트 프로세스가 죽었다 (A5).
+   *
+   * **보관 중인 sessionId를 버리는 게 핵심이다.** 그대로 두면 다음 전송이
+   * 이미 없는 세션으로 나가 조용히 실패한다. 비워두면 다음 턴에
+   * `ensureSession`이 **저장된 세션으로 재접속**한다 (F7) — 대화는 이어진다.
+   *
+   * 미리 다시 띄우지는 않는다. 쓸 일이 없는데 CLI를 살려두면 메모리만 쓴다.
+   */
+  /**
+   * 권한 요청과 질문을 방에 남긴다 (D3·D5).
+   *
+   * 자동 승인이나 자동 취소로 조용히 지나가면 나중에
+   * *"이걸 물었었구나"* 를 볼 수 없다.
+   */
+  private recordDecision(sessionId: string, note: string): void {
+    const room = this.roomForSession(sessionId);
+    if (!room) return;
+    const msg: Message = {
+      id: messageId(),
+      role: "system",
+      text: note,
+      deliveredTo: [],
+      createdAt: Date.now(),
+    };
+    this.append(room, msg);
+    void this.saveNewMessage(room, msg);
+  }
+
+  private onAgentCrash(agentId: string, reason: string): void {
+    for (const [roomId, room] of this.open) {
+      if (!room.participants.some((b) => b.agentId === agentId)) continue;
+
+      // **그 에이전트를 쓰는 봇만** 세션을 잃는다. 단체방에서 Codex가 죽어도
+      // 같은 방의 Claude는 멀쩡하다.
+      const rt = this.runtimes.get(roomId);
+      for (const b of room.participants) {
+        if (b.agentId !== agentId) continue;
+        const bt = rt?.bots.get(b.id);
+        if (!bt) continue;
+        bt.sessionId = undefined;
+        bt.roleInjected = false;
+      }
+      if (rt?.status && rt.status !== "idle") {
+        this.setStatus(roomId, "error");
+        this.emit(
+          "roomError",
+          roomId,
+          `${this.agentOrThrow(agentId).label} 프로세스가 종료되어 ` +
+            `답변이 끊겼습니다 (${reason}). 다시 보내면 이어서 합니다.`,
+        );
+      }
+    }
+  }
+
+  private connection(agentId: string): AcpConnection {
+    let conn = this.connections.get(agentId);
+    if (!conn) {
+      conn = new AcpConnection(
+        this.agentOrThrow(agentId),
+        this.opts.host,
+        (sessionId) => this.answerPolicyForSession(sessionId),
+        (reason) => this.onAgentCrash(agentId, reason),
+        (sessionId, note) => this.recordDecision(sessionId, note),
+        (sessionId, req) => this.askApprover(sessionId, req),
+      );
+      this.connections.set(agentId, conn);
+    }
+    return conn;
+  }
+
+  /** 쓰이지 않는 CLI 프로세스를 정리한다 (B6) */
+  private disposeUnusedConnections(): void {
+    const inUse = new Set(this.listMetas().flatMap((m) => m.agentIds));
+    for (const [agentId, conn] of this.connections) {
+      if (inUse.has(agentId)) continue;
+      conn.dispose();
+      this.connections.delete(agentId);
+    }
+  }
+
+  private runtime(roomId: string): RoomRuntime {
+    let rt = this.runtimes.get(roomId);
+    if (!rt) {
+      rt = { status: "idle", pendingWrites: [], bots: new Map() };
+      this.runtimes.set(roomId, rt);
+    }
+    return rt;
+  }
+
+  /**
+   * 그 **봇의** 실행 상태 (B1).
+   *
+   * 1:1에서는 방에 하나뿐이라 `runtime(roomId)`과 같은 말이지만, 세션에 딸린
+   * 것을 여기서 읽어두면 **단체방에서 봇을 늘릴 때 부르는 쪽을 안 고친다.**
+   */
+  private botRuntime(roomId: string, botId: string): BotRuntime {
+    const rt = this.runtime(roomId);
+    let bt = rt.bots.get(botId);
+    if (!bt) {
+      bt = { queue: [], roleInjected: false, commands: [], lastEmit: 0, lastSave: 0 };
+      rt.bots.set(botId, bt);
+    }
+    return bt;
+  }
+
+  /** 방의 유일한 봇 (v1.0). 단체방에서는 부르는 쪽이 봇을 지목해야 한다 */
+  private soleBot(room: Room): BotInstance | undefined {
+    return room.participants[0];
+  }
+
+  private setStatus(roomId: string, status: RoomStatus): void {
+    const rt = this.runtime(roomId);
+    if (rt.status === status) return;
+    rt.status = status;
+    this.emit("status", roomId, status);
+  }
+
+  private append(room: Room, message: Message): void {
+    room.messages.push(message);
+    room.lastActivityAt = message.createdAt;
+    this.emit("message", room.id, message);
+  }
+
+  /**
+   * 방 속성만 갱신한다 (제목·미읽음·초안 등).
+   *
+   * 트랜스크립트가 JSONL이라 **한 줄만 덧붙인다** — 방이 길어져도 비용이 같다.
+   */
+  private async saveProps(
+    room: Room,
+    patch: Partial<Omit<Room, "messages">>,
+  ): Promise<void> {
+    if (this.left.has(room.id)) return;
+    await this.opts.store.updateRoom(room, patch);
+    this.emitMetas();
+  }
+
+  private async saveNewMessage(room: Room, message: Message): Promise<void> {
+    if (this.left.has(room.id)) return;
+    await this.opts.store.appendMessage(room, message);
+    this.emitMetas();
+  }
+
+  private async saveMessage(
+    room: Room,
+    patch: Partial<Message> & { id: string },
+  ): Promise<void> {
+    if (this.left.has(room.id)) return;
+    await this.opts.store.updateMessage(room, patch);
+    this.emitMetas();
+  }
+
+  private emitMetas(): void {
+    this.emit("metas", this.listMetas());
+  }
+
+  /**
+   * 승인을 **대상에게 묻고 답을 돌려준다** (D2).
+   *
+   * 권한은 「봇 : 범위 : 대상」이다. 범위(`autoApprove`)가 자동 승인을 안 해주면
+   * 여기로 오고, 대상(`approver`)이 누가 답할지 정한다.
+   *
+   * **승인 주체가 넘어가는 게 아니다.** `session/request_permission`은 클라이언트
+   * 메서드라 응답은 언제나 우리가 만든다 — 대상은 «누구 말을 듣나»일 뿐이고,
+   * 그래서 기록(D3)도 제한도 우리 손에 남는다.
+   */
+  private async askApprover(
+    sessionId: string,
+    req: PermissionRequest,
+  ): Promise<PermissionDecision> {
+    const found = this.botForSession(sessionId);
+    const approver = found?.bot.approver ?? ASK_USER;
+
+    if (approver.kind === "bot") {
+      // v2.0에서 붙는다 (§4.2.2). 아직은 사람에게 넘기되 **조용히 넘기지 않는다** —
+      // 맡겼다고 생각하고 자리를 비우면 안 된다.
+      this.emit(
+        "notice",
+        found!.room.id,
+        `봇 심사는 아직 준비되지 않아 «${req.title}»을 직접 물어봅니다.`,
+      );
+    }
+    return this.opts.host.requestPermission(req);
+  }
+
+
+  /** 그 세션의 질문 정책 (D5). 같은 이유로 봇에서 읽는다 */
+  private answerPolicyForSession(sessionId: string): AnswerPolicy {
+    return this.botForSession(sessionId)?.bot.answerPolicy ?? "ask";
+  }
+
+  /** 세션 하나는 봇 하나에 속한다 (B1). 방까지 함께 돌려준다 */
+  private botForSession(sessionId: string): { room: Room; bot: BotInstance } | undefined {
+    for (const room of this.open.values()) {
+      const bot = room.participants.find((b) => b.sessionId === sessionId);
+      if (bot) return { room, bot };
+    }
+    return undefined;
+  }
+
+  private roomForSession(sessionId: string): Room | undefined {
+    return this.botForSession(sessionId)?.room;
+  }
+
+  private agentOrThrow(agentId: string): AgentDef {
+    const agent = this.opts.agents.find((a) => a.id === agentId);
+    if (!agent) throw new Error(`알 수 없는 에이전트: ${agentId}`);
+    return agent;
+  }
+
+  private nextDefaultTitle(): string {
+    const used = this.listMetas().filter((m) => /^새 대화 \d+$/.test(m.title));
+    return `새 대화 ${used.length + 1}`;
+  }
+
+  dispose(): void {
+    // **쓰다 만 글을 들고 죽지 않는다.** 창을 닫는 순간 디바운스가 돌고 있으면
+    // 그대로 사라진다 — 최소한 쓰기를 시작은 해둔다.
+    void this.flushDraft();
+    for (const conn of this.connections.values()) conn.dispose();
+    this.connections.clear();
+    this.runtimes.clear();
+  }
+}
+
+/**
+ * 카드에 보여줄 `+N -M`을 센다 (E2).
+ *
+ * **줄 수 차이만 보면 안 된다.** 10줄을 전부 고쳐도 개수는 그대로라 `+0 -0`이
+ * 나온다 — 잘못된 숫자는 없느니만 못하다.
+ *
+ * 앞뒤로 같은 줄을 걷어내고 남은 것을 센다. 중간에 흩어진 변경은 실제보다 크게
+ * 잡히지만 **틀린 방향으로는 가지 않고** O(n)이다. 정확한 diff는 E4가 보여준다.
+ */
+function countChangedLines(
+  oldText: string,
+  newText: string,
+): { added: number; removed: number } {
+  const a = oldText ? oldText.split("\n") : [];
+  const b = newText.split("\n");
+
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+
+  let tail = 0;
+  while (
+    tail < a.length - head &&
+    tail < b.length - head &&
+    a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  ) {
+    tail++;
+  }
+
+  return {
+    removed: a.length - head - tail,
+    added: b.length - head - tail,
+  };
+}
+
+/**
+ * 턴이 왜 끝났는지 사용자에게 알릴 말. 정상 종료면 `undefined`.
+ *
+ * 이걸 버리면 **거부나 길이 초과가 그냥 짧은 응답으로 보인다** — 사용자는
+ * 에이전트가 왜 말을 하다 말았는지 알 수 없다.
+ */
+function stopReasonNote(reason: string): string | undefined {
+  switch (reason) {
+    case "refusal":
+      return "에이전트가 이 요청에 응답하지 않았습니다.";
+    case "max_tokens":
+      return "응답 길이 제한에 도달해 중간에 끊겼습니다.";
+    case "max_turn_requests":
+      return "한 턴에서 도구를 너무 많이 호출해 중단되었습니다.";
+    case "cancelled":
+      return "중단했습니다.";
+    default:
+      return undefined;
+  }
+}
+
+function messageId(): string {
+  return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function describe(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return typeof err === "string" ? err : JSON.stringify(err);
+}

@@ -1,0 +1,126 @@
+{
+  "name": "ai-in-one",
+  "displayName": "AI in One",
+  "description": "여러 AI 코딩 에이전트를 메신저처럼 한 곳에서. 구독은 그대로, 대화는 에이전트 사이를 넘나들며.",
+  "version": "0.1.0",
+  "publisher": "taein-yoon",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiInOne.open",
+        "title": "AI in One: 채팅 열기",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "aiInOne.newRoom",
+        "title": "AI in One: 새 대화방"
+      },
+      {
+        "command": "aiInOne.attachSelection",
+        "title": "AI in One에 보내기"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aiInOne.open",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "aiInOne.attachSelection",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "aiInOne.open",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aiInOne.attachSelection",
+          "group": "9_cutcopypaste@10",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI in One",
+      "properties": {
+        "aiInOne.agents": {
+          "type": "object",
+          "markdownDescription": "에이전트 정의. 기본값을 덮어쓰거나 새 에이전트를 추가합니다. CLI 플래그는 도구 버전에 따라 바뀔 수 있으니 여기서 조정하세요.",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "label",
+              "command",
+              "args"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "color": {
+                "type": "string"
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "vscode:prepublish": "npm run typecheck && node esbuild.mjs --production"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/codicons": "^0.0.46-24",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.0.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
