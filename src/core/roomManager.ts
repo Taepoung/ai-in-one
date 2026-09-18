@@ -708,16 +708,36 @@ export class RoomManager extends EventEmitter<Events> {
     const live = atTail ? await this.ensureSession(room, bot).catch(() => undefined) : undefined;
 
     if (live && atTail) {
-      // 🔴 **말을 안 건 세션은 갈라도 소용없다.** 에이전트는 첫 프롬프트를 받아야
-      // 세션을 디스크에 남기므로(§13.1) 빈 세션의 분기는 물려받을 게 없다.
+      /*
+       * 🔴 **지금 붙어 있는 세션이 «대화를 나눈 그 세션»인가.**
+       *
+       * 두 가지가 어긋날 수 있다:
+       *
+       *   1. 말을 안 건 세션 — 에이전트는 성공한 첫 프롬프트를 받아야 세션을
+       *      디스크에 남긴다(§13.1). 갈라도 물려받을 게 없다.
+       *   2. **복구에 실패해 새로 연 세션** — 이게 고약하다. `bot.sessionId`는
+       *      «유령이 진짜를 밀어내지 않는다»는 규칙(`pointAt`) 때문에 여전히
+       *      **잃어버린 진짜 세션**을 가리키는데, 런타임은 방금 연 **빈 세션**을
+       *      들고 있다. 그 빈 것을 갈라놓고 *"계획과 파일 기억까지 물려받았습니다"*
+       *      라고 말하면 **거짓말**이다 — 사용자는 상대가 다 안다고 믿고 대화한다.
+       *
+       * 그래서 **둘이 같은 것일 때만** 네이티브로 간다. 아니면 폴백이다:
+       * 글로 옮기는 건 비싸지만, 비어 있는 걸 물려받았다고 하는 것보다 낫다.
+       */
       if (!bot.sessionPrompted) {
         return await this.freshFork(room, bot, "원본이 아직 에이전트와 대화한 적이 없습니다");
+      }
+      if (live !== bot.sessionId) {
+        return await this.freshFork(
+          room,
+          bot,
+          "원본의 세션이 끊겨 지금은 빈 세션에 붙어 있습니다 — 복제해도 물려받을 것이 없습니다",
+        );
       }
       const res = await conn.forkSession(live, room.cwd);
       if (res.ok) return { sessionId: res.sessionId, native: true, options: res.options };
       return await this.freshFork(room, bot, res.reason);
     }
-
     return await this.freshFork(
       room,
       bot,
