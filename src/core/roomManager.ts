@@ -33,6 +33,13 @@ export interface RoomManagerOptions {
   agents: AgentDef[];
   /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
   configProbeMs?: number;
+  /**
+   * 일시적인 실패를 다시 보내는 간격 (v1.1).
+   *
+   * **빈 배열이면 재시도하지 않는다** — 재시도 아래의 동작을 따로 보려는
+   * 테스트가 쓴다. 짧게 주면 사다리를 빠르게 타볼 수도 있다.
+   */
+  retryDelays?: number[];
 }
 
 export interface CreateRoomOptions {
@@ -112,6 +119,11 @@ interface BotRuntime {
   turn?: Message;
   /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
   tail?: ReturnType<typeof setTimeout>;
+  /**
+   * 다시 보내기를 기다리는 중이면 **중단할 수 있어야** 한다.
+   * «중단»을 눌렀는데 30초 뒤에 메시지가 나가면 그건 중단이 아니다.
+   */
+  stopRetry?: () => void;
 }
 
 /**
@@ -314,6 +326,46 @@ function transcriptText(room: Room, batch: Message[]): string {
 
   return [head, body].filter(Boolean).join("\n\n");
 }
+
+/**
+ * **다시 보내볼 만한 실패인가** (v1.1).
+ *
+ * 나눠야 하는 이유는 명확하다 — **사람이 뭘 해야 풀리는 실패**를 자동으로
+ * 반복하면 같은 벽에 계속 부딪히면서 토큰만 쓴다. 로그인은 우리가 기다린다고
+ * 되지 않는다.
+ *
+ * ```
+ * 다시 해볼 만하다   프로세스가 죽음 · 과부하 · 한도 · 타임아웃 · 연결 끊김
+ * 기다려도 그대로   로그인 필요 · 세션 없음 · 내용 거부 · 잘못된 요청
+ * ```
+ *
+ * 🔴 **모르는 것은 «안 된다» 쪽에 둔다.** 반대로 두면 우리가 모르는 새 오류가
+ * 나올 때마다 조용히 재전송이 돌아 **사용자 돈으로 실험**하게 된다.
+ */
+function retryable(reason: string): boolean {
+  const s = reason.toLowerCase();
+  // 사람 손이 필요한 것들 — 여기 걸리면 아무리 기다려도 같다
+  if (/auth|login|\ub85c\uadf8\uc778|not found|\ucc3e\uc744 \uc218 \uc5c6|invalid|refus|\uac70\ubd80/.test(s)) return false;
+  return /closed|crash|\uc885\ub8cc|overload|rate.?limit|usage limit|too many|timeout|\uc2dc\uac04 \ucd08\uacfc|econnreset|epipe|socket|temporar|unavailable|5\d\d/.test(s);
+}
+
+/**
+ * **한도**인가 — 다시 해볼 만하지만 **기다림의 단위가 다르다.**
+ *
+ * 과부하는 몇 초면 풀리지만 구독 한도는 *"try again at Sep 21st"* 처럼 며칠 뒤다.
+ * 그걸 같은 사다리로 다루면 30초마다 헛되이 두드리게 된다.
+ */
+function usageLimited(reason: string): boolean {
+  return /usage limit|quota|\ud55c\ub3c4/i.test(reason);
+}
+
+/**
+ * 재시도 간격. **짧게 시작해 빨리 포기한다.**
+ *
+ * 과부하는 대개 몇 초 안에 풀리고, 그래도 안 되면 더 기다린다고 달라지지 않는다.
+ * 오래 붙들고 있으면 사용자는 «멈춘 건가»만 보게 된다.
+ */
+const RETRY_DELAYS_MS = [3_000, 10_000, 30_000];
 
 /** 설정 캐시의 열쇠. **방 하나 안에서도 봇마다 다르다** (B1) */
 function configKeyOf(roomId: string, botId: string): string {
@@ -991,7 +1043,8 @@ export class RoomManager extends EventEmitter<Events> {
       const room = await this.openRoom(roomId);
       this.markRead(room);
       // **방을 보고 있으면 세션도 붙어 있어야 한다** (B1)
-      void this.bindSession(room);
+      // 한도로 못 보낸 게 있으면 붙고 나서 다시 보낸다
+      void this.bindSession(room).then(() => this.retryPending(room));
     }
   }
 
@@ -1179,6 +1232,8 @@ export class RoomManager extends EventEmitter<Events> {
 
       // 큐에 있던 것들은 **아직 안 보냈다.** 그냥 버리면 화면에는 떠 있는데
       // 영영 답이 안 와서 "왜 조용하지"가 된다. 다시 보낼 수 있게 표시한다(C5).
+      // 다시 보내기를 기다리는 중이면 그것부터 끊는다 — 안 그러면 «중단»이 거짓말이 된다
+      bt.stopRetry?.();
       const dropped = bt.queue.splice(0, bt.queue.length);
       for (const m of dropped) {
         m.sendFailed = "보내기 전에 중단했습니다.";
@@ -1420,6 +1475,42 @@ export class RoomManager extends EventEmitter<Events> {
   // ── 내부 ──────────────────────────────────────────────────────────────
 
 
+  /**
+   * 한도로 못 보낸 것을 **돌아왔을 때** 한 번 더 보낸다 (v1.1).
+   *
+   * 구독 한도는 며칠 뒤에 풀리므로 타이머로 붙들 수 없다. 대신 **사용자가
+   * 방을 다시 여는 시점**을 신호로 쓴다 — 그때가 곧 «다시 해볼 만한 때»고,
+   * 화면 앞에 있으니 결과도 바로 본다.
+   *
+   * 🔴 **이미 답이 달린 메시지는 다시 안 보낸다.** 표시만 남고 실제로는
+   * 성공했을 수 있다(다른 창에서 보냈거나, 재시도가 늦게 성공했거나).
+   * 그걸 또 보내면 같은 질문이 두 번 간다.
+   */
+  private async retryPending(room: Room): Promise<void> {
+    if (!room.retryPending) return;
+    const bot = this.soleBot(room);
+    if (!bot || isBusy(this.statusOf(room.id))) return;
+
+    // 마지막 사용자 메시지에 답이 달렸으면 이미 끝난 일이다
+    const last = room.messages.at(-1);
+    if (!last || last.role !== "agent" || !last.error) {
+      room.retryPending = false;
+      await this.saveProps(room, { retryPending: false });
+      return;
+    }
+
+    room.retryPending = false;
+    await this.saveProps(room, { retryPending: false });
+
+    const asked = (last.replyToIds ?? [])
+      .map((id) => room.messages.find((m) => m.id === id))
+      .filter((m): m is Message => m !== undefined);
+    if (asked.length === 0) return;
+
+    this.noteRoom(room, "한도로 못 보낸 메시지를 다시 보냅니다.", "info");
+    await this.runQueue(room, asked);
+  }
+
   private async runQueue(room: Room, batch: Message[]): Promise<void> {
     const rt = this.runtime(room.id);
     // 단체방에서는 **멘션된 봇마다** 이 함수가 돈다. 지금은 하나뿐이다.
@@ -1471,17 +1562,61 @@ export class RoomManager extends EventEmitter<Events> {
     this.releaseTurn(room, bot);
     // **이 턴의 말은 여기로 모인다.** 리스너를 갈지 않고 표시만 켜둔다 — 이유는 `watchIdle`에.
     bt.turn = reply;
-    try {
-      const res = await conn.prompt(sessionId, prompt);
-      // **이제 이 세션은 디스크에 남는다** — 되살릴 값이 여기서 확정된다 (F7)
-      this.notePrompted(room, bot, sessionId);
-      if (res.usage) this.applyUsage(room, res.usage);
-      // 왜 끝났는지 알려준다. 그냥 두면 거부나 길이 초과가 **짧은 응답**으로 보인다.
-      const note = stopReasonNote(res.stopReason);
-      if (note) reply.error = note;
-    } catch (err) {
-      reply.error = describe(err);
-      this.setStatus(room.id, "error");
+
+    /*
+     * ★ **일시적인 실패는 우리가 다시 보낸다.**
+     *
+     * 과부하·프로세스 죽음·한도는 사용자가 할 수 있는 게 «다시 누르기»뿐인데,
+     * 그걸 시키려고 사람을 붙들어 둘 이유가 없다.
+     *
+     * 🔴 **다만 아무 때나 하면 파일이 두 번 고쳐진다.** 에이전트가 이미 말을
+     * 했거나 도구를 돌렸으면 그 턴은 **일이 일어난 뒤**다. 다시 보내면 같은
+     * 편집이 한 번 더 간다. 그래서 **아무 일도 안 일어난 턴만** 다시 보낸다.
+     *
+     * 재시도는 **같은 말풍선 안에서** 일어난다 — 실패할 때마다 빈 말풍선이
+     * 쌓이면 대화가 로그가 된다. 무슨 일이 있었는지는 그 안에 적는다(§0 P5).
+     */
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await conn.prompt(sessionId, prompt);
+        // **이제 이 세션은 디스크에 남는다** — 되살릴 값이 여기서 확정된다 (F7)
+        this.notePrompted(room, bot, sessionId);
+        if (res.usage) this.applyUsage(room, res.usage);
+        // 왜 끝났는지 알려준다. 그냥 두면 거부나 길이 초과가 **짧은 응답**으로 보인다.
+        const note = stopReasonNote(res.stopReason);
+        if (note) reply.error = note;
+        if (attempt > 0) delete reply.error;
+        break;
+      } catch (err) {
+        const reason = describe(err);
+        // **일이 일어난 뒤면 손대지 않는다** — 되돌릴 수 없는 것이 이미 일어났다
+        const touched = reply.text.length > 0 || (reply.tools?.length ?? 0) > 0;
+        const ladder = this.opts.retryDelays ?? RETRY_DELAYS_MS;
+        const delay = ladder[attempt];
+
+        if (touched || delay === undefined || !retryable(reason)) {
+          reply.error = reason;
+          this.setStatus(room.id, "error");
+          // 한도는 **나중에 풀린다.** 방을 다시 열 때 한 번 더 해보도록 적어둔다
+          if (!touched && usageLimited(reason)) {
+            room.retryPending = true;
+            void this.saveProps(room, { retryPending: true });
+          }
+          break;
+        }
+
+        // **기다리는 중이라는 걸 보여준다.** 조용히 멈춰 있으면 «죽었나»가 된다
+        reply.error =
+          `${reason}\n\n다시 보냅니다 — ${attempt + 1}/${ladder.length}번째, ` +
+          `${Math.round(delay / 1000)}초 뒤`;
+        this.setStatus(room.id, "waiting");
+        this.emit("message", room.id, reply);
+        if (!(await this.waitRetry(bt, delay))) {
+          reply.error = `${reason}\n\n다시 보내기를 중단했습니다.`;
+          this.setStatus(room.id, "error");
+          break;
+        }
+      }
     }
 
     // blob 쓰기가 끝나야 해시가 채워진다. 기다리지 않고 저장하면 diff를 잃는다.
@@ -1730,6 +1865,26 @@ export class RoomManager extends EventEmitter<Events> {
     bt.turn = undefined;
     void this.saveMessage(room, pending);
     this.emit("message", room.id, pending);
+  }
+
+  /**
+   * 다음 재시도까지 기다린다. **중단되면 `false`.**
+   *
+   * 타이머만 놓으면 중단 버튼이 거짓말이 된다 — 눌러도 30초 뒤에
+   * 메시지가 나가버린다. 그래서 깨울 고리를 남긴다.
+   */
+  private waitRetry(bt: BotRuntime, ms: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        bt.stopRetry = undefined;
+        resolve(true);
+      }, ms);
+      bt.stopRetry = () => {
+        clearTimeout(timer);
+        bt.stopRetry = undefined;
+        resolve(false);
+      };
+    });
   }
 
   private watchIdle(room: Room, bot: BotInstance, sessionId: string): void {
