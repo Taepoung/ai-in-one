@@ -2346,6 +2346,7 @@ function paintPermissionSheet(r: Room): void {
       ),
     ),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
+    sharedMemoryRow(r),
   );
   screens.chat.querySelector(".sheet")?.replaceWith(sheet);
   if (!sheet.isConnected) screens.chat.append(sheet);
@@ -2663,6 +2664,7 @@ function showRoomInfo(r: Room): void {
       row("에이전트", agent?.label ?? "?"),
       chosen ? row(labelOf(model!), chosen.name) : null,
       row("작업 디렉터리", r.cwd),
+      sharedMemoryRow(r),
       row("만든 때", new Date(r.createdAt).toLocaleString()),
       ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
       bot?.agentMode ? row("권한", bot.agentMode) : null,
@@ -2951,6 +2953,29 @@ function openMessageMenu(e: MouseEvent, m: Message): void {
 function isBusyHere(r: Room): boolean {
   const s = statuses.get(r.id) ?? "idle";
   return s !== "idle" && s !== "error";
+}
+
+/**
+ * **봉을 나눠도 기억은 나뉘지 않는다** — 다중 봉 방의 공지.
+ *
+ * 에이전트의 기억은 `~/.claude/projects/<cwd 슬러그>/memory/` 에 쌓인다(§13.2 실측).
+ * **열쇠가 cwd**라서, 방을 나눠도 봉을 나눠도 폴더가 같으면 같은 기억을 읽는다.
+ * 설정 디렉터리를 가르는 길은 인증이 죽어 닫혔고(자격증명을 복사하는 것은 §0 P3 위반),
+ * 남는 길은 cwd를 가르는 것뿐이다.
+ *
+ * 그러니 **막을 수 없는 것은 말이라도 해준다**(§0). «리뷰어»와 «구현자»를
+ * 한 방에 넣고 각자에게 다른 걸 시킨 사람은, 한 쪽에게 시킨 «기억해»가 다른 쪽에게
+ * 넘어간 것을 **알 길이 없다** — 대화는 갈라져 보이니까.
+ */
+function sharedMemoryRow(r: Room): HTMLElement | null {
+  if (r.participants.length < 2) return null;
+  return el(
+    "div",
+    { class: "warn-row" },
+    icon("warning"),
+    " 에이전트의 기억은 봇마다 나뉘지 않습니다 — 같은 폴더를 보는 봇은 한 쪽에게 "
+      + "«기억해»라고 시킨 것을 같이 읽습니다. 대화 내용 자체는 봇마다 따로입니다.",
+  );
 }
 
 /**
