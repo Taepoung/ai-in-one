@@ -11,6 +11,7 @@ import {
   type Approver,
   ASK_USER,
   type BotInstance,
+  type ForkFallback,
   type Attachment,
   type FileChange,
   type Message,
@@ -646,7 +647,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   async forkRoom(
     roomId: string,
-    opts: { atMessageId?: string; title?: string } = {},
+    opts: { atMessageId?: string; title?: string; fallback?: ForkFallback } = {},
   ): Promise<Room> {
     const parent = await this.openRoom(roomId);
 
@@ -680,7 +681,13 @@ export class RoomManager extends EventEmitter<Events> {
 
     // **끝에서 가르는 경우에만** 네이티브 분기를 쓸 수 있다 — 아래 참조
     const forked = await this.forkSession(parent, bot, cut === parent.messages.length - 1);
-    return this.createRoomFromFork(parent, bot, cut, forked, opts.title);
+    /*
+     * 폴백일 때만 선택이 의미가 있다. 화면이 미리 물어봤으면 그걸 쓰고,
+     * **예상 못 한 실패**라 못 물어봤으면 `refeed`로 둔다 — 그쪽이 분기의
+     * 목적에 가깝고, 실제 토큰은 **다음 메시지를 보낼 때까지** 안 든다.
+     * 방의 배너에서 그 전에 따로 끌 수 있다.
+     */
+    return this.createRoomFromFork(parent, bot, cut, forked, opts.title, opts.fallback ?? "refeed");
   }
 
   /**
@@ -776,7 +783,8 @@ export class RoomManager extends EventEmitter<Events> {
     bot: BotInstance,
     cut: number,
     forked: ForkedSession,
-    title?: string,
+    title: string | undefined,
+    fallback: ForkFallback,
   ): Promise<Room> {
     const now = Date.now();
     const at = parent.messages[cut]!;
@@ -828,8 +836,8 @@ export class RoomManager extends EventEmitter<Events> {
       lastReadMessageId: at.id,
       forkedFromRoomId: parent.id,
       forkedAtMessageId: at.id,
-      // 폴백이면 에이전트가 백지다. **다음 메시지에 실어 보낸다** (F7과 같은 길)
-      ...(forked.native ? {} : { refeedPending: true }),
+      // 폴백이면 에이전트가 백지다. **사용자가 고른 대로** — 글로 옮기거나 백지로 가거나
+      ...(forked.native || fallback === "fresh" ? {} : { refeedPending: true }),
       createdAt: now,
       lastActivityAt: now,
     };
@@ -869,8 +877,11 @@ export class RoomManager extends EventEmitter<Events> {
        */
       text: forked.native
         ? "원본 세션을 갈라 시작했습니다 — 대화뿐 아니라 계획과 파일 기억까지 물려받았습니다."
-        : "⚠ 계획과 파일 기억은 물려받지 못했습니다 — 위 대화를 글로만 옮깁니다. " +
-          `(${forked.reason}) 다음 메시지에 함께 전달됩니다.`,
+        : fallback === "refeed"
+          ? "⚠ 계획과 파일 기억은 물려받지 못했습니다 — 위 대화를 글로만 옮깁니다. " +
+            `(${forked.reason}) 다음 메시지에 함께 전달됩니다.`
+          : "⚠ 계획과 파일 기억은 물려받지 못했습니다 — 위 기록만 남기고 백지에서 시작합니다. " +
+            `(${forked.reason}) 에이전트는 위 대화를 모릅니다.`,
       ...(forked.native ? {} : { mark: "error" as const }),
       deliveredTo: [],
       createdAt: now,

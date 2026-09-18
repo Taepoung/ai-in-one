@@ -1084,8 +1084,26 @@ function paintChat(r: Room): void {
   } else if (r.refeedPending) {
     // 누른 뒤에는 **약속이 살아 있다**는 걸 보여준다 — 턴을 안 쓰므로
     // 아무 표시도 없으면 «눌렀는데 아무 일도 안 일어났다»가 된다.
+    /*
+     * ★ **되돌릴 수 있어야 한다.**
+     *
+     * 분기가 예상 못 하게 폴백했을 때는 **미리 물어볼 기회가 없었다.** 그런데
+     * 다행히 되먹임은 약속일 뿐 **토큰은 다음 메시지를 보낼 때까지 안 든다.**
+     * 그 사이에 끌 수 있게 해두면, «물어보지 못한 경우»에도 선택은 남는다.
+     */
     nodes.push(
-      el("div", { class: "banner" }, icon("history"), " 다음 메시지에 이전 대화가 함께 전달됩니다."),
+      el(
+        "div",
+        { class: "banner" },
+        icon("history"),
+        " 다음 메시지에 이전 대화가 함께 전달됩니다. ",
+        el("button", {
+          class: "link",
+          text: "글 없이 시작",
+          title: "지난 대화를 안 보냅니다 — 토큰을 아끼는 대신 상대는 위 대화를 모릅니다",
+          onclick: () => post({ t: "refeed", roomId: r.id, accept: false }),
+        }),
+      ),
     );
   }
 
@@ -2689,6 +2707,17 @@ function askFork(r: Room, atMessageId?: string): void {
     placeholder: `비우면 «${r.title.replace(/\s*\(\d+\)\s*$/, "")} (2)»`,
   }) as HTMLInputElement;
 
+  const go = (fallback?: "refeed" | "fresh") => {
+    post({
+      t: "fork",
+      roomId: r.id,
+      ...(atMessageId ? { atMessageId } : {}),
+      ...(title.value.trim() ? { title: title.value.trim() } : {}),
+      ...(fallback ? { fallback } : {}),
+    });
+    renderChat();
+  };
+
   const node = el(
     "div",
     { class: "card" },
@@ -2727,19 +2756,29 @@ function askFork(r: Room, atMessageId?: string): void {
     el(
       "div",
       { class: "card-actions" },
-      el("button", {
-        class: "primary",
-        text: "분기하기",
-        onclick: () => {
-          post({
-            t: "fork",
-            roomId: r.id,
-            ...(atMessageId ? { atMessageId } : {}),
-            ...(title.value.trim() ? { title: title.value.trim() } : {}),
-          });
-          renderChat();
-        },
-      }),
+      /*
+       * ★ **기본은 언제나 네이티브 분기다.** 잃는 게 없고 토큰도 안 든다.
+       *
+       * 못 할 게 뻔한 경우에만 **둘로 갈라 묻는다.** 우리가 고르면 안 되는
+       * 이유는 손해의 방향이 반대라서다 — 글로 옮기면 토큰이 들고, 백지로
+       * 가면 상대가 아무것도 모른다. 어느 쪽이 나은지는 대화 길이와 지갑
+       * 사정이 정하는데 **둘 다 우리가 모르는 것**이다.
+       */
+      ...(lossy
+        ? [
+            el("button", {
+              class: "primary",
+              text: "대화 넘겨서 분기",
+              title: "지금까지의 대화를 글로 옮겨 보냅니다 — 토큰이 듭니다",
+              onclick: () => go("refeed"),
+            }),
+            el("button", {
+              text: "기록만 두고 분기",
+              title: "화면에는 남지만 에이전트는 위 대화를 모릅니다",
+              onclick: () => go("fresh"),
+            }),
+          ]
+        : [el("button", { class: "primary", text: "분기하기", onclick: () => go() })]),
       el("button", { text: "취소", onclick: () => renderChat() }),
     ),
   );

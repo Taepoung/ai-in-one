@@ -4,6 +4,7 @@ import type {
   Attachment,
   ElicitationRequest,
   SearchHit,
+  ForkFallback,
   Message,
   PermissionRequest,
   Room,
@@ -152,7 +153,19 @@ export type FromWebview =
    *
    * `atMessageId`가 없으면 **지금까지 전부**를 물려받는다.
    */
-  | { t: "fork"; roomId: string; atMessageId?: string; title?: string }
+  | {
+      t: "fork";
+      roomId: string;
+      atMessageId?: string;
+      title?: string;
+      /**
+       * 네이티브 분기가 **안 될 때**만 쓰인다 (v1.1).
+       *
+       * 화면이 미리 알 수 있는 경우(과거 지점·능력 없음)에만 실려 온다.
+       * 비어 있으면 코어가 `refeed`로 둔다 — 되돌릴 수 있으므로.
+       */
+      fallback?: ForkFallback;
+    }
   | { t: "draft"; roomId: string; text: string }
   | { t: "needConfig"; agentId: string; roomId?: string }
   /** 끊긴 맥락을 되먹일지 (F7). `accept`면 다음 메시지에 실어 보낸다 */
