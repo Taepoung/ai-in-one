@@ -143,7 +143,13 @@ export type FromWebview =
   | { t: "needCaps"; agentId: string }
   /** 전문 검색 (H2). 목록 필터(H1)와 방 안 찾기(H4)는 웹뷰에서 끝난다 */
   | { t: "search"; query: string }
-  | { t: "cancel"; roomId: string }
+  /**
+   * 진행 중인 턴을 중단한다 (C6).
+   *
+   * `botId`를 주면 **그 봇만** 끊는다 — 단체방에서 한 봇만 그만두게
+   * 하려면 필요하다(v2.0). 안 주면 방 전체다.
+   */
+  | { t: "cancel"; roomId: string; botId?: string }
   | { t: "retry"; roomId: string; messageId?: string }
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string }

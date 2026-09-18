@@ -306,7 +306,7 @@ export class ChatPanel implements AskTarget {
           break;
         }
         case "cancel":
-          await this.rooms.cancel(m.roomId);
+          await this.rooms.cancel(m.roomId, m.botId);
           break;
         case "retry":
           await this.rooms.retry(m.roomId, m.messageId);

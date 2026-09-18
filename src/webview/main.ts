@@ -1219,6 +1219,8 @@ function sigOf(m: Message): string {
     m.files?.length ?? 0,
     // 활동은 같은 id로 상태만 바뀌며 여러 번 온다 — 개수만으로는 못 잡는다
     (m.tools ?? []).map((t) => t.status).join(""),
+    // 봇 수가 바뀌면 «이 봇만 중단»이 생기거나 사라진다
+    manyBots() ? "m" : "",
   ].join(" ");
 }
 
@@ -1251,6 +1253,9 @@ function reuseOrBuild(
   nodeCache.set(m.id, { sig, node });
   return node;
 }
+
+/** 방에 봇이 둘 이상인가 — 말풍선 중단이 의미가 생기는 조건 (v2.0) */
+const manyBots = (): boolean => (room?.participants.length ?? 1) > 1;
 
 function messageNode(
   m: Message,
@@ -1314,6 +1319,35 @@ function messageNode(
         { class: "row" },
         bubble,
         !m.streaming && part.last ? el("span", { class: "time", text: hhmm(m.createdAt) }) : null,
+      ),
+    );
+  }
+
+  /*
+   * ★ **말풍선에 붙는 중단** — 단체방을 위한 자리 (v2.0 준비).
+   *
+   * 입력창 위의 «중단»은 **방 전체**를 끊는다. 봇이 하나면 같은 말이지만,
+   * 여럿이 각자 턴을 돌면 *"Codex는 그만두고 Claude는 계속"* 을 할 수가 없다.
+   * 흐르는 말풍선은 **정확히 한 봇의 턴**이므로, 거기 붙이면 봇 수만큼
+   * 자연히 생긴다 — 새 UI를 지어낼 필요가 없다.
+   *
+   * 🔴 **1:1에서는 안 보여준다.** 위의 «중단»과 하는 일이 똑같아서, 둘을 나란히
+   * 두면 «뭐가 다르지»만 남는다. 방에 봇이 둘 이상일 때부터 의미가 생긴다.
+   *
+   * 말풍선은 스크롤하면 사라지므로 **위의 «중단»을 없애지 않는다** — 그건
+   * 언제나 닿을 수 있는 자리이고 «전부 멈춤»으로 남는다.
+   */
+  if (m.streaming && m.authorBotId && manyBots()) {
+    node.append(
+      el(
+        "div",
+        { class: "meta" },
+        el("button", {
+          class: "link stop-bot",
+          text: `${agent?.label ?? "이 봇"}만 중단`,
+          onclick: () =>
+            room && post({ t: "cancel", roomId: room.id, botId: m.authorBotId }),
+        }),
       ),
     );
   }

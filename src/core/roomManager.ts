@@ -1187,14 +1187,28 @@ export class RoomManager extends EventEmitter<Events> {
     return last?.truncated ? last : undefined;
   }
 
-  /** 진행 중인 턴을 중단한다 (C6). 큐에 남은 것도 버린다 — 아직 안 보냈다. */
-  async cancel(roomId: string): Promise<void> {
+  /**
+   * 진행 중인 턴을 중단한다 (C6).
+   *
+   * ★ **봇 하나만 끊을 수 있다** (v2.0 준비).
+   *
+   * 단체방에서는 봇마다 자기 턴을 도는데, 그때 «중단»이 방 전체에만 걸리면
+   * *"Codex는 그만두고 Claude는 계속"* 이 불가능하다. 세션이 봇 단위이므로(B1)
+   * 끊는 단위도 봇이어야 맞다 — `session/cancel`은 애초에 세션에 거는 것이다.
+   *
+   * 나중에 붙이려면 **부르는 쪽을 전부 고쳐야** 해서 지금 자리를 내둔다.
+   * `botId`를 안 주면 예전처럼 **방의 모든 봇**을 끊는다.
+   */
+  async cancel(roomId: string, botId?: string): Promise<void> {
     const room = this.open.get(roomId);
     const rt = this.runtimes.get(roomId);
     if (!room || !rt) return;
 
-    // 단체방에서는 **도는 봇 전부**를 끊는다 — 지금은 하나뿐이다
-    for (const bot of room.participants) {
+    const targets = botId
+      ? room.participants.filter((b) => b.id === botId)
+      : room.participants;
+
+    for (const bot of targets) {
       const bt = rt.bots.get(bot.id);
       if (!bt?.sessionId) continue;
 
