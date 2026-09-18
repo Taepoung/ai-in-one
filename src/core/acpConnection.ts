@@ -101,6 +101,14 @@ export type ResumeResult =
   | { ok: true; options: acp.SessionConfigOption[] }
   | { ok: false; reason: string };
 
+/**
+ * 분기 결과 (v1.1). 실패해도 **끝이 아니다** — 폴백이 있으므로
+ * 부르는 쪽이 이유를 보고 결정한다.
+ */
+export type ForkResult =
+  | { ok: true; sessionId: string; options: acp.SessionConfigOption[] }
+  | { ok: false; reason: string };
+
 export interface NewSessionResult {
   sessionId: string;
   configOptions: acp.SessionConfigOption[];
@@ -414,6 +422,78 @@ export class AcpConnection {
       this.host.log(`[${this.agent.id}] 세션 복구 실패, 새로 시작합니다: ${reason}`);
       return { ok: false, reason };
     }
+  }
+
+  /**
+   * 이 에이전트가 **세션을 갈라줄 수 있나** (v1.1).
+   *
+   * `session/fork`는 **UNSTABLE**이고, 스펙이 *"only available if the agent
+   * advertises the `session.fork` capability"* 라고 못 박는다. 광고 없이 부르면
+   * 메서드 없음으로 떨어지거나 — 더 나쁘면 — 조용히 빈 응답이 온다.
+   *
+   * 그래서 **물어보고 없으면 폴백으로 간다.** 폴백은 새 세션 + 기록 재주입이라
+   * 비싸지만, **모르는 채 실패하는 것보다는 낫다.**
+   */
+  canFork(): boolean {
+    const fork = this.init?.agentCapabilities?.sessionCapabilities?.fork;
+    return fork !== undefined && fork !== null;
+  }
+
+  /**
+   * 세션을 갈라 **독립된 새 세션**을 만든다 (v1.1).
+   *
+   * 원본은 그대로 남고 둘은 각자 살아간다. 되먹이기와 달리 대화 텍스트뿐 아니라
+   * **계획·메모리·도구 이력까지** 복제된다 — 글로 다시 읽히는 폴백과 가장 크게
+   * 갈리는 지점이다.
+   *
+   * 🔴 **지금 상태에서만 갈라진다.** `ForkSessionRequest`에는 «어느 메시지
+   * 지점에서»가 **없다** — `sessionId`·`cwd`·`mcpServers`뿐이다. 그래서 과거
+   * 지점 분기는 이 길로 못 가고 폴백을 써야 한다(`roomManager.forkSession`).
+   *
+   * ★ **갈라놓고 바로 말을 걸 수 없다 — resume을 해야 한다.**
+   *
+   * 실제 Claude 어댑터로 재본 결과(§13.2), `session/fork`는 새 세션을 **디스크에만**
+   * 만들고 프로세스에 붙여주지는 않는다. 그 상태로 `session/prompt`를 보내면
+   * *"Session not found"* 로 떨어진다 — **부모가 멀쩡히 살아 있어도** 그렇다.
+   * 응답도 `{ sessionId }` 하나뿐이라 설정 목록조차 안 온다.
+   *
+   * 처음엔 이걸 «부모를 닫으면 분기가 깨진다»로 잘못 읽었다. 부모를 살려둔 채
+   * 다시 재보고서야 원인이 **붙이지 않은 것**임이 드러났다. 그래서 여기서
+   * **갈라내고 곧바로 붙여서** 돌려준다 — 부르는 쪽이 이 사정을 알 이유가 없다.
+   */
+  async forkSession(sessionId: string, cwd: string): Promise<ForkResult> {
+    await this.ensureStarted();
+    if (!this.canFork()) {
+      return { ok: false, reason: `${this.agent.label}이(가) 세션 분기를 지원하지 않습니다` };
+    }
+
+    let forked: string;
+    try {
+      const res = (await this.conn!.agent.request(acp.methods.agent.session.fork, {
+        sessionId,
+        cwd,
+        mcpServers: [],
+      })) as { sessionId?: string } | undefined;
+
+      // 세션 id가 없으면 갈라진 게 아니다. **받은 것처럼 굴지 않는다** —
+      // 빈 응답을 성공으로 읽으면 방이 아무것도 아닌 id를 가리키게 된다.
+      if (!res?.sessionId) {
+        return { ok: false, reason: "에이전트가 분기된 세션 id를 돌려주지 않았습니다" };
+      }
+      forked = res.sessionId;
+    } catch (err) {
+      const reason = describe(err);
+      this.host.log(`[${this.agent.id}] 세션 분기 실패: ${reason}`);
+      return { ok: false, reason };
+    }
+
+    // **붙여야 쓸 수 있다.** 여기서 실패하면 분기는 디스크에 남지만 말을 걸 수
+    // 없으므로 실패로 친다 — 폴백이 맡는 편이 낫다.
+    const attached = await this.resumeSession(forked, cwd);
+    if (!attached.ok) {
+      return { ok: false, reason: `분기는 만들었지만 붙이지 못했습니다 — ${attached.reason}` };
+    }
+    return { ok: true, sessionId: forked, options: attached.options };
   }
 
   /** 프롬프트를 보내고 턴이 끝날 때까지 기다린다. 스트리밍은 리스너로 나간다 */

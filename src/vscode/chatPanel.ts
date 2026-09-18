@@ -312,6 +312,22 @@ export class ChatPanel implements AskTarget {
         case "setRole":
           await this.rooms.setRole(m.roomId, m.rolePrompt);
           break;
+        case "fork": {
+          /*
+           * **분기하면 그 방으로 들어간다.**
+           *
+           * 목록으로 돌려보내면 방금 만든 갈래를 다시 찾아 눌러야 한다 —
+           * 방을 만들 때(`createRoom`)와 같은 흐름으로 맞춘다.
+           */
+          const room = await this.rooms.forkRoom(m.roomId, {
+            ...(m.atMessageId ? { atMessageId: m.atMessageId } : {}),
+            ...(m.title ? { title: m.title } : {}),
+          });
+          this.openRoomId = room.id;
+          this.postRoom(room);
+          await this.rooms.setActiveRoom(room.id);
+          break;
+        }
         case "leave":
           if (this.openRoomId === m.roomId) this.openRoomId = null;
           await this.rooms.leaveRoom(m.roomId);

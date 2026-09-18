@@ -496,6 +496,13 @@ export interface RoomMeta {
   createdAt: number;
   lastActivityAt: number;
   forkedFromRoomId?: string;
+  /**
+   * 원본의 어느 지점에서 갈라졌는지 (v1.1).
+   *
+   * 목록의 계보 배지를 누르면 **원본의 그 자리로** 간다. 방을 열어놓고
+   * 다시 찾게 하지 않으려면 메타에도 있어야 한다 — 목록은 방을 안 읽는다.
+   */
+  forkedAtMessageId?: string;
 }
 
 /**
@@ -535,6 +542,7 @@ export function toMeta(room: Room): RoomMeta {
     createdAt: room.createdAt,
     lastActivityAt: room.lastActivityAt,
     ...(room.forkedFromRoomId ? { forkedFromRoomId: room.forkedFromRoomId } : {}),
+    ...(room.forkedAtMessageId ? { forkedAtMessageId: room.forkedAtMessageId } : {}),
   };
 }
 

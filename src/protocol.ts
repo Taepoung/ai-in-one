@@ -139,6 +139,12 @@ export type FromWebview =
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string }
   | { t: "leave"; roomId: string }
+  /**
+   * 대화를 그 지점에서 갈라 새 방을 만든다 (v1.1).
+   *
+   * `atMessageId`가 없으면 **지금까지 전부**를 물려받는다.
+   */
+  | { t: "fork"; roomId: string; atMessageId?: string; title?: string }
   | { t: "draft"; roomId: string; text: string }
   | { t: "needConfig"; agentId: string; roomId?: string }
   /** 끊긴 맥락을 되먹일지 (F7). `accept`면 다음 메시지에 실어 보낸다 */
@@ -196,6 +202,21 @@ export function orderRooms(metas: RoomMeta[], cwd: string): RoomMeta[] {
  * `app.js`가 그리는 것과 **같은 구조여야 한다** — 다르면 스크립트가 붙는 순간
  * 화면이 한 번 튄다.
  */
+/**
+ * 계보 배지의 글 — `↳ 리팩터링 논의에서 분기` (D3).
+ *
+ * **셸과 웹뷰가 같은 함수를 쓴다** — 첫 페인트와 스크립트가 다른 글을 내면
+ * 목록이 한 번 튀다 (F8).
+ *
+ * 원본 방이 없어졌으면 그렇다고 적는다. 분기는 **유지**되므로(D4) 배지만
+ * 바뀌는 것이고, 여기서 «분기»를 지워버리면 이 방이 왜 있는지가 사라진다.
+ */
+export function forkLabel(m: RoomMeta, all: RoomMeta[]): string | null {
+  if (!m.forkedFromRoomId) return null;
+  const parent = all.find((x) => x.id === m.forkedFromRoomId);
+  return parent ? `↳ ${parent.title}에서 분기` : "↳ 삭제된 방에서 분기";
+}
+
 export function roomListHtml(boot: Boot): string {
   if (boot.rooms.length === 0) {
     return `<div class="empty"><p>아직 대화가 없습니다.</p><p class="dim">오른쪽 위 <i class="codicon codicon-add"></i> 로 시작하세요.</p></div>`;
@@ -208,11 +229,13 @@ export function roomListHtml(boot: Boot): string {
         ? `<span class="draft">초안:</span> ${esc(r.draftPreview)}`
         : esc(whoText(r, boot.agents));
       const here = !boot.cwd || r.cwd === boot.cwd;
+      const lineage = forkLabel(r, boot.rooms);
       return `<button class="room" data-id="${esc(r.id)}">
   <span class="room-icon"><i class="codicon codicon-${kindIcon(r.kind)}"></i></span>
   <span class="room-main">
     <span class="room-top"><span class="room-title">${esc(r.title)}</span><span class="room-time">${when(r.lastActivityAt)}</span></span>
     <span class="room-sub"><span class="room-who">${left}</span><span class="${here ? "room-cwd" : "room-cwd elsewhere"}" title="${esc(r.cwd)}">${esc(shortenPath(r.cwd))}</span></span>
+    ${lineage ? `<span class="room-fork" title="원본으로 가기">${esc(lineage)}</span>` : ""}
   </span>
   ${r.unread > 0 ? `<span class="badge">${r.unread}</span>` : ""}
   <span class="room-more" title="더 보기"><i class="codicon codicon-kebab-vertical"></i></span>

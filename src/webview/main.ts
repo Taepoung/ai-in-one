@@ -18,7 +18,7 @@ import type {
   FromWebview,
   ToWebview,
 } from "../protocol.js";
-import { orderRooms } from "../protocol.js";
+import { forkLabel, orderRooms } from "../protocol.js";
 
 declare function acquireVsCodeApi(): { postMessage(msg: FromWebview): void };
 const vscode = acquireVsCodeApi();
@@ -222,6 +222,7 @@ function roomNode(m: RoomMeta): HTMLElement {
   {
     {
       const busy = statuses.get(m.id);
+      const lineage = forkLabel(m, metas);
       // 왼쪽은 **지금 무슨 일이 있는지**가 먼저다. 조용하면 누구와 얘기하는지.
       const left = el("span", { class: "room-who" });
       if (busy && busy !== "idle" && busy !== "error") {
@@ -255,6 +256,18 @@ function roomNode(m: RoomMeta): HTMLElement {
               title: m.cwd,
             }),
           ),
+          // 계보 배지 (D3). 트리 들여쓰기 대신 한 줄로 — 분기는 많아야 두세 개다
+          lineage &&
+            el("span", {
+              class: "room-fork",
+              text: lineage,
+              title: "원본으로 가기",
+              // 행 전체가 버튼이라 그냥 두면 이 방이 열린다
+              onclick: (ev: Event) => {
+                ev.stopPropagation();
+                jumpToOrigin(m);
+              },
+            }),
         ),
         m.unread > 0 && el("span", { class: "badge", text: String(m.unread) }),
         el(
@@ -971,6 +984,12 @@ function paintChat(r: Room): void {
     }
     nodes.push(reuseOrBuild(m, agent, !broken && followsSame(above, m)));
     above = m;
+    // 물려받은 대화가 끝나는 자리에 선 하나 (D2)
+    if (r.forkedAtMessageId && m.id === r.forkedAtMessageId) {
+      nodes.push(forkLine(r));
+      // 선이 끼어들었으므로 다음 말은 이어지는 게 아니다 — 이름을 다시 쓴다
+      above = undefined;
+    }
   }
   // 카드는 대화 아래에 붙는다 — 답할 때까지 눈에 보여야 한다
   for (const card of cards.filter((x) => x.roomId === r.id || x.roomId === "")) {
@@ -1231,6 +1250,9 @@ function messageNode(
   const node = el("div", {
     class: `msg ${m.role}${m.sendFailed ? " failed" : ""}${grouped ? " grouped" : ""}`,
   });
+
+  // 우클릭으로 그 지점에서 분기한다 (D2)
+  node.addEventListener("contextmenu", (e) => openMessageMenu(e, m));
 
   // 이어지는 말에는 이름을 다시 쓰지 않는다 — 같은 사람이 계속 말하는 중이다
   if (m.role === "agent" && !grouped) {
@@ -2410,6 +2432,7 @@ function toggleMenu(e: Event, r: Room): void {
 
   const options = optionsFor(r.participants[0]?.agentId ?? "", r.id) ?? [];
   const models = options.find((o) => o.category === "model");
+  const kids = childrenOf(r.id);
 
   const menu = el(
     "div",
@@ -2429,6 +2452,21 @@ function toggleMenu(e: Event, r: Room): void {
       : []),
     ...(compactable
       ? [el("hr"), item("대화 압축하기", () => post({ t: "compact", roomId: r.id }))]
+      : []),
+    el("hr"),
+    // 진행 중인 턴이 있으면 분기 안 된다 (D4) — 누르고 실패하게 두지 않는다
+    ...(isBusyHere(r) || !r.messages.some((m) => m.role !== "system")
+      ? [el("button", { class: "off", text: "여기서 분기", disabled: true,
+            title: isBusyHere(r) ? "응답이 끝난 뒤에 분기할 수 있습니다" : "아직 나눌 대화가 없습니다" })]
+      : [item("여기서 분기", () => askFork(r))]),
+    ...(r.forkedFromRoomId && metas.some((x) => x.id === r.forkedFromRoomId)
+      ? [item("원본으로 가기", () => jumpToOrigin(r))]
+      : []),
+    ...(kids.length > 0
+      ? [
+          el("div", { class: "group", text: `분기 ${kids.length}개` }),
+          ...kids.map((k) => item(k.title, () => openRoom(k.id))),
+        ]
       : []),
     el("hr"),
     item("방 나가기 (세션도 삭제)", () => confirmLeave(r), "danger"),
@@ -2505,6 +2543,7 @@ function showRoomInfo(r: Room): void {
       chosen ? row(labelOf(model!), chosen.name) : null,
       row("작업 디렉터리", r.cwd),
       row("만든 때", new Date(r.createdAt).toLocaleString()),
+      ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
       bot?.agentMode ? row("권한", bot.agentMode) : null,
       sessionRow(bot),
       el("div", { class: "info-row" }, el("span", { class: "dim", text: "역할" })),
@@ -2593,6 +2632,179 @@ function confirmLeave(r: Room): void {
   );
   screens.chat.querySelector(".messages")?.append(node);
   node.scrollIntoView({ block: "end" });
+}
+
+// ── 분기 (v1.1) ─────────────────────────────────────────────────────────
+
+/** 이 방에서 갈라져 나간 방들 (D3) */
+function childrenOf(roomId: string): RoomMeta[] {
+  return metas.filter((m) => m.forkedFromRoomId === roomId);
+}
+
+/**
+ * 원본 방의 **분기 지점으로** 간다 (D2·D3).
+ *
+ * 분기한 메시지 id를 두 방이 공유하므로(코어가 id를 그대로 물려준다) 검색
+ * 결과로 점프하는 것과 같은 길을 쓴다 — 짝을 따로 들고 있을 필요가 없다.
+ *
+ * 원본이 없어졌으면 **아무 일도 안 한다.** 분기는 유지되지만(D4) 갈 곳이 없다.
+ */
+function jumpToOrigin(r: { forkedFromRoomId?: string; forkedAtMessageId?: string }): void {
+  if (!r.forkedFromRoomId || !metas.some((x) => x.id === r.forkedFromRoomId)) return;
+  if (r.forkedAtMessageId) jumpToMessageId = r.forkedAtMessageId;
+  openRoom(r.forkedFromRoomId);
+}
+
+/**
+ * 분기 물어보기 (D1).
+ *
+ * ⚠️ **파일은 갈라지지 않는다.** 여기가 그걸 말할 유일한 자리다 — 분기 방은
+ * «평범한 새 방»이라 상단 배너를 두지 않기로 했으므로(D2), 고르는 순간에
+ * 말하지 않으면 영영 말하지 않는 셈이 된다. (방 정보에도 남긴다.)
+ */
+function askFork(r: Room, atMessageId?: string): void {
+  const at = atMessageId ? r.messages.findIndex((m) => m.id === atMessageId) : r.messages.length - 1;
+  const inherited = r.messages.slice(0, at + 1).filter((m) => m.role !== "system").length;
+
+  const title = el("input", {
+    type: "text",
+    placeholder: `비우면 «${r.title.replace(/\s*\(\d+\)\s*$/, "")} (2)»`,
+  }) as HTMLInputElement;
+
+  const node = el(
+    "div",
+    { class: "card" },
+    el("div", { class: "card-title" }, icon("git-branch"), " 여기서 분기"),
+    el("div", {
+      class: "dim",
+      text:
+        `지금까지의 대화 ${inherited}개를 물려받아 새 방을 만듭니다. ` +
+        `이 방은 그대로 남습니다.`,
+    }),
+    el("div", { class: "card-body" }, title),
+    /*
+     * **fork의 목적이 코드에 대해서는 성립하지 않는다** (D1).
+     * 대화는 갈라지지만 워크스페이스는 하나라, 분기 방에서 고친 파일은
+     * 원본 쪽 결과도 같이 바꾼다. 격리하지 않기로 했으므로 **분명히 알린다.**
+     */
+    el(
+      "div",
+      { class: "warn-row" },
+      icon("warning"),
+      " 파일은 분기되지 않습니다. 두 방이 같은 워크스페이스를 공유합니다.",
+    ),
+    el(
+      "div",
+      { class: "card-actions" },
+      el("button", {
+        class: "primary",
+        text: "분기하기",
+        onclick: () => {
+          post({
+            t: "fork",
+            roomId: r.id,
+            ...(atMessageId ? { atMessageId } : {}),
+            ...(title.value.trim() ? { title: title.value.trim() } : {}),
+          });
+          renderChat();
+        },
+      }),
+      el("button", { text: "취소", onclick: () => renderChat() }),
+    ),
+  );
+
+  chat?.list.append(node);
+  node.scrollIntoView({ block: "end" });
+  title.focus();
+}
+
+/**
+ * 물려받은 메시지가 끝나는 자리의 **인라인 마커** (D2).
+ *
+ * 메신저의 «여기서부터 안 읽음» 구분선과 같은 패턴이다. 상단 배너를 쓰지
+ * 않는 이유도 같다 — 분기 방은 평범한 방이고, 시간이 지나면 이 선은 위로
+ * 밀려 사라진다. 그게 맞다. 식별은 목록의 계보 배지가 계속 해준다(D3).
+ */
+function forkLine(r: Room): HTMLElement {
+  const parent = metas.find((m) => m.id === r.forkedFromRoomId);
+  const node = el(
+    "div",
+    { class: parent ? "fork-line linked" : "fork-line" },
+    el("span", { text: parent ? `↳ ${parent.title}에서 분기` : "↳ 삭제된 방에서 분기" }),
+  );
+  if (parent) {
+    node.title = "원본의 분기 지점으로";
+    node.addEventListener("click", () => jumpToOrigin(r));
+  }
+  return node;
+}
+
+/**
+ * 메시지 하나에서 분기한다 (D2).
+ *
+ * 우클릭으로 연다 — 말풍선마다 버튼을 붙이면 대화가 도구 모음이 된다.
+ * «지금까지»로 가르는 흔한 쪽은 방 메뉴(⋮)에도 있으므로, 이 길을 못 찾아도
+ * 막히지는 않는다.
+ */
+function openMessageMenu(e: MouseEvent, m: Message): void {
+  const r = room;
+  if (!r) return;
+  e.preventDefault();
+  screens.chat.querySelector(".menu")?.remove();
+
+  const close = () => screens.chat.querySelector(".menu")?.remove();
+  const menu = el(
+    "div",
+    { class: "menu at" },
+    el("button", {
+      text: "여기서 분기",
+      onclick: () => {
+        close();
+        askFork(r, m.id);
+      },
+    }),
+  );
+
+  const box = screens.chat.getBoundingClientRect();
+  menu.style.top = `${e.clientY - box.top}px`;
+  menu.style.left = `${Math.min(e.clientX - box.left, box.width - 190)}px`;
+  menu.style.right = "auto";
+  screens.chat.append(menu);
+  setTimeout(() => document.addEventListener("click", close, { once: true }), 0);
+}
+
+/** 지금 이 방이 일하는 중인가 — 진행 중에는 분기를 막는다 (D4) */
+function isBusyHere(r: Room): boolean {
+  const s = statuses.get(r.id) ?? "idle";
+  return s !== "idle" && s !== "error";
+}
+
+/**
+ * 방 정보의 분기 줄 (D1·D3).
+ *
+ * 인라인 마커는 대화가 길어지면 위로 밀려 사라진다 — 그게 맞지만(D2), 그러면
+ * **«파일은 공유된다»를 다시 볼 자리가 없어진다.** 방 정보는 그 자리다:
+ * 늘 있지만 길을 막지는 않는다.
+ */
+function forkInfoRows(r: Room): Kids {
+  const parent = metas.find((m) => m.id === r.forkedFromRoomId);
+  const value = el("span", {
+    class: parent ? "link-ish" : "",
+    text: parent ? parent.title : "삭제된 방",
+  });
+  if (parent) {
+    value.title = "원본의 분기 지점으로";
+    value.addEventListener("click", () => jumpToOrigin(r));
+  }
+  return [
+    el("div", { class: "info-row" }, el("span", { class: "dim", text: "분기 원본" }), value),
+    el(
+      "div",
+      { class: "warn-row" },
+      icon("warning"),
+      " 파일은 분기되지 않습니다. 원본 방과 같은 워크스페이스를 공유합니다.",
+    ),
+  ];
 }
 
 // ── 스크롤 ──────────────────────────────────────────────────────────────

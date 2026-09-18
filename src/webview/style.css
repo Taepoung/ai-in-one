@@ -1812,3 +1812,118 @@ details.advanced[open] > summary .codicon-chevron-right {
   color: var(--focus);
   background: var(--list-hover);
 }
+
+/* ── 분기 (v1.1) ────────────────────────────────────────────────────── */
+
+/*
+ * 목록의 계보 배지 (D3).
+ *
+ * 트리로 들여쓰지 않는다 — 모바일 메신저 UI에 맞지 않고, 분기는 많아야
+ * 두세 개라 계층까지 갈 필요가 없다. 셋째 줄 한 줄이면 충분하다.
+ */
+.room-fork {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--chat-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.room-fork:hover {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+}
+
+/*
+ * 물려받은 대화가 끝나는 자리의 선 (D2).
+ *
+ * «여기서부터 안 읽음»과 같은 패턴이라 같은 모양을 쓴다. 다만 이건
+ * **누를 수 있다** — 원본의 그 지점으로 간다.
+ */
+.fork-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+
+.fork-line::before,
+.fork-line::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line);
+}
+
+.fork-line span {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--bubble-bot-bg);
+  color: var(--chat-dim);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fork-line.linked {
+  cursor: pointer;
+}
+
+.fork-line.linked:hover span {
+  color: var(--vscode-textLink-foreground);
+}
+
+/*
+ * 되돌릴 수 없는 게 아니라 **오해할 수 있는** 것이라 danger가 아니다 (D1).
+ * 분기는 안전한 동작이고, 다만 파일이 따라 갈라지지 않는다는 것만 짚는다.
+ */
+.warn-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--focus);
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--chat-bg) 88%, var(--vscode-foreground) 12%);
+  font-size: 11px;
+  color: var(--chat-fg);
+}
+
+.warn-row .codicon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* 커서 자리에 여는 메뉴 — 메시지 우클릭용 */
+.menu.at {
+  top: auto;
+  right: auto;
+  min-width: 150px;
+}
+
+/* 지금은 못 하는 항목. 숨기면 «왜 없지»가 되므로 이유를 달아 남긴다 */
+.menu button.off {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--chat-dim);
+  font: inherit;
+  text-align: left;
+  cursor: not-allowed;
+}
+
+.link-ish {
+  cursor: pointer;
+}
+
+.link-ish:hover {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline;
+}

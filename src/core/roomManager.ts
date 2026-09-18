@@ -18,6 +18,7 @@ import {
   type RoomMeta,
   type PermissionDecision,
   type PermissionRequest,
+  isBusy,
   type RoomStatus,
   type RoomUsage,
   type ToolActivity,
@@ -52,6 +53,21 @@ export interface CreateRoomOptions {
    */
   agentMode?: string;
   answerPolicy?: AnswerPolicy;
+}
+
+/**
+ * 갈라낸 세션 하나 (v1.1).
+ *
+ * **`native`가 핵심이다.** 에이전트가 복제해준 것이면 계획·메모리까지 따라오고,
+ * 폴백이면 글만 따라온다 — 사용자에게 다르게 말해야 하는 차이라 숨기지 않는다.
+ */
+export interface ForkedSession {
+  sessionId: string;
+  /** 에이전트의 `session/fork`로 갈랐나. 아니면 새 세션이다 */
+  native: boolean;
+  options: acp.SessionConfigOption[];
+  /** 폴백으로 간 이유. 네이티브면 없다 */
+  reason?: string;
 }
 
 /**
@@ -594,6 +610,234 @@ export class RoomManager extends EventEmitter<Events> {
 
     await this.leaveRoom(roomId);
     return true;
+  }
+
+
+  // ── 분기 ──────────────────────────────────────────────────────────────
+
+  /**
+   * 대화를 그 지점에서 갈라 **새 방**을 만든다 (v1.1).
+   *
+   * 원본은 손대지 않는다. *"이 방향으로 가보고 아니면 되돌아오기"* 가 목적이므로
+   * 갈라진 뒤의 두 방은 서로를 모른 채 각자 살아간다.
+   *
+   * ⚠️ **파일은 갈라지지 않는다** (D1). 두 방이 같은 워크스페이스를 보므로 분기
+   * 방에서 고친 코드는 원본 쪽에도 그대로 반영된다. 격리하지 않고 **알린다** —
+   * 코드까지 가르려면 git worktree가 필요하고 그건 백로그다.
+   *
+   * @param atMessageId 여기까지 물려받는다. 없으면 **지금까지 전부**.
+   */
+  async forkRoom(
+    roomId: string,
+    opts: { atMessageId?: string; title?: string } = {},
+  ): Promise<Room> {
+    const parent = await this.openRoom(roomId);
+
+    // **진행 중인 턴이 있으면 안 된다** (D4). 반쯤 온 응답을 물려받으면 분기가
+    // 원본과 다른 지점에서 시작하고, 원본 쪽 턴이 끝나며 덧쓰는 것도 놓친다.
+    if (isBusy(this.statusOf(roomId))) {
+      throw new Error("진행 중인 턴이 끝난 뒤에 분기할 수 있습니다.");
+    }
+
+    const bot = this.soleBot(parent);
+    if (!bot) throw new Error("분기할 봇이 없습니다.");
+
+    // 🔴 **이걸 먼저 본다.** 빈 방은 `cut`이 -1이라 지점 검사에 먼저 걸리는데,
+    // 그러면 *"분기할 지점을 찾을 수 없습니다"* 라고 말하게 된다 — 지점을 고른 적도
+    // 없는 사람에겐 뜻 모를 소리다. 없는 건 지점이 아니라 **대화**다.
+    if (!parent.messages.some((m) => m.role !== "system")) {
+      throw new Error("아직 나눌 대화가 없습니다.");
+    }
+
+    const cut =
+      opts.atMessageId === undefined
+        ? parent.messages.length - 1
+        : parent.messages.findIndex((m) => m.id === opts.atMessageId);
+    if (cut < 0) throw new Error("분기할 지점을 찾을 수 없습니다.");
+
+    const inherited = parent.messages.slice(0, cut + 1);
+    // 시스템 메시지는 우리 안내다 — 그것만 물려받는 건 분기가 아니라 새 방이다
+    if (!inherited.some((m) => m.role !== "system")) {
+      throw new Error("아직 나눌 대화가 없습니다.");
+    }
+
+    // **끝에서 가르는 경우에만** 네이티브 분기를 쓸 수 있다 — 아래 참조
+    const forked = await this.forkSession(parent, bot, cut === parent.messages.length - 1);
+    return this.createRoomFromFork(parent, bot, cut, forked, opts.title);
+  }
+
+  /**
+   * **세션만** 가른다. 방은 만들지 않는다.
+   *
+   * ★ 방 생성과 나눠둔 이유는 실험실의 LAB-1(KV 캐시 리프레시)이다 — 거기서는
+   * 세션만 갈라 한 번 쓰고 버리므로 방이 없어야 한다. 여기서 안 나누면 나중에
+   * 다시 뜯어야 한다.
+   *
+   * ★ **끝에서 가르는 것과 과거 지점에서 가르는 것은 길이 다르다.**
+   *
+   * ACP `session/fork`에는 «어느 메시지 지점에서»가 **없다** — 세션을 **지금
+   * 상태 그대로** 복제할 뿐이다. 그래서 과거 지점 분기는 네이티브로 갈 수 없고,
+   * 새 세션을 열어 **물려받은 데까지만** 글로 다시 읽히는 폴백을 쓴다.
+   *
+   * 폴백이 손해인 건 분명하다(계획·메모리·도구 이력이 안 따라온다). 그래도
+   * **되는 척하는 것보다 낫다** — 네이티브로 과거 지점을 가르면 잘라낸 뒤의
+   * 대화까지 에이전트가 기억한 채로 시작한다. 화면에는 없는데 상대는 아는,
+   * D2가 경계한 바로 그 상태다.
+   */
+  async forkSession(room: Room, bot: BotInstance, atTail: boolean): Promise<ForkedSession> {
+    const conn = this.connection(bot.agentId);
+
+    // 가르려면 **붙어 있어야** 한다. 창을 껐다 켠 직후일 수 있다.
+    const live = atTail ? await this.ensureSession(room, bot).catch(() => undefined) : undefined;
+
+    if (live && atTail) {
+      // 🔴 **말을 안 건 세션은 갈라도 소용없다.** 에이전트는 첫 프롬프트를 받아야
+      // 세션을 디스크에 남기므로(§13.1) 빈 세션의 분기는 물려받을 게 없다.
+      if (!bot.sessionPrompted) {
+        return await this.freshFork(room, bot, "원본이 아직 에이전트와 대화한 적이 없습니다");
+      }
+      const res = await conn.forkSession(live, room.cwd);
+      if (res.ok) return { sessionId: res.sessionId, native: true, options: res.options };
+      return await this.freshFork(room, bot, res.reason);
+    }
+
+    return await this.freshFork(
+      room,
+      bot,
+      atTail
+        ? "원본 세션에 붙지 못했습니다"
+        : "ACP의 세션 분기에는 «어느 지점에서»가 없어 과거 지점은 복제할 수 없습니다",
+    );
+  }
+
+  /** 폴백 — 새 세션을 열고 **왜 그랬는지** 들고 나온다 */
+  private async freshFork(
+    room: Room,
+    bot: BotInstance,
+    reason: string,
+  ): Promise<ForkedSession> {
+    const conn = this.connection(bot.agentId);
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
+      this.emit(
+        "notice",
+        room.id,
+        `${this.agentOrThrow(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
+      ),
+    );
+    return { sessionId, native: false, options: configOptions, reason };
+  }
+
+  /**
+   * 갈라낸 세션에 **방을 만들어 붙인다** (v1.1).
+   *
+   * 분기 방은 «평범한 새 방»이다 (D2) — 특별한 모드도 지속 상태도 없다.
+   * 물려받은 메시지가 끝나는 자리를 `forkedAtMessageId`로 적어두면, 화면이
+   * 거기에 구분선 하나를 끼운다. 그게 전부다.
+   */
+  private async createRoomFromFork(
+    parent: Room,
+    bot: BotInstance,
+    cut: number,
+    forked: ForkedSession,
+    title?: string,
+  ): Promise<Room> {
+    const now = Date.now();
+    const at = parent.messages[cut]!;
+
+    /*
+     * **메시지 id를 그대로 물려받는다.**
+     *
+     * 방마다 파일이 따로라 겹쳐도 부딪히지 않고, 대신 `forkedAtMessageId` 하나가
+     * **두 방 모두에서** 유효해진다 — 분기 지점으로 점프할 때 짝을 따로 만들 필요가 없다.
+     *
+     * 진행 중이던 흔적은 지운다. 물려받은 건 이미 끝난 대화다.
+     */
+    const messages: Message[] = parent.messages.slice(0, cut + 1).map((m) => {
+      const copy: Message = structuredClone(m);
+      delete copy.streaming;
+      return copy;
+    });
+
+    const room: Room = {
+      id: `room-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      title: title?.trim() || this.nextForkTitle(parent.title),
+      participants: [
+        {
+          // 봇은 **새 것**이다 — 세션이 다르고, 설정도 여기서부터 따로 간다
+          ...structuredClone(bot),
+          id: `${bot.agentId}-${now.toString(36)}`,
+          sessionId: forked.sessionId,
+          // 🔴 갈라낸 세션도 **첫 프롬프트를 받아야** 디스크에 남는다고 본다.
+          // 유령 id로 진짜를 밀어내지 않으려면 여기서 참이라고 우기면 안 된다.
+          sessionPrompted: false,
+        },
+      ],
+      cwd: parent.cwd,
+      messages,
+      unread: 0,
+      // 마지막까지 읽은 상태로 연다 — 물려받은 건 이미 읽은 대화다
+      lastReadMessageId: at.id,
+      forkedFromRoomId: parent.id,
+      forkedAtMessageId: at.id,
+      // 폴백이면 에이전트가 백지다. **다음 메시지에 실어 보낸다** (F7과 같은 길)
+      ...(forked.native ? {} : { refeedPending: true }),
+      createdAt: now,
+      lastActivityAt: now,
+    };
+
+    await this.opts.store.createRoom(room);
+    this.open.set(room.id, room);
+
+    const bt = this.botRuntime(room.id, room.participants[0]!.id);
+    bt.sessionId = forked.sessionId;
+    // 네이티브 분기는 역할을 이미 알고 있다 — 원본이 들은 것을 그대로 물려받았다
+    bt.roleInjected = forked.native;
+    this.watchIdle(room, room.participants[0]!, forked.sessionId);
+    if (forked.options.length > 0) {
+      await this.restoreChoices(room, room.participants[0]!, forked.sessionId, forked.options);
+    }
+
+    /*
+     * **어떻게 갈라졌는지 말해준다** (§0 원칙).
+     *
+     * 네이티브면 계획·메모리까지 따라왔고, 폴백이면 글만 따라온다 — 사용자가
+     * 기대를 맞출 수 있어야 하는 차이다. 조용히 지나가면 «왜 얘는 아까 얘기를
+     * 모르지»가 된다.
+     */
+    const note: Message = {
+      id: messageId(),
+      role: "system",
+      text: forked.native
+        ? "원본 세션을 갈라 시작했습니다 — 계획과 파일 기억까지 물려받았습니다."
+        : `새 세션으로 시작합니다 — ${forked.reason}. 위 대화는 다음 메시지에 글로 함께 전달됩니다.`,
+      deliveredTo: [],
+      createdAt: now,
+    };
+    this.append(room, note);
+    await this.saveNewMessage(room, note);
+
+    this.emitMetas();
+    return room;
+  }
+
+  /**
+   * 분기 방의 기본 제목 — `원본 (2)`, 그다음은 `(3)`.
+   *
+   * 분기의 분기도 형제로 센다(D4). `논의 (2)`에서 또 가르면 `논의 (2) (2)`가 아니라
+   * `논의 (3)`이다 — 꼬리표가 겹치면 목록에서 읽을 수 없게 된다.
+   */
+  private nextForkTitle(parentTitle: string): string {
+    const base = parentTitle.replace(/\s*\(\d+\)\s*$/, "").trim() || parentTitle;
+    const taken = new Set(this.listMetas().map((m) => m.title));
+    for (let n = 2; ; n++) {
+      const name = `${base} (${n})`;
+      if (!taken.has(name)) return name;
+    }
+  }
+
+  /** 이 방에서 갈라져 나간 방들 (D3·분기 목록) */
+  childrenOf(roomId: string): RoomMeta[] {
+    return this.listMetas().filter((m) => m.forkedFromRoomId === roomId);
   }
 
   /**
