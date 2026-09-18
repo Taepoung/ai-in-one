@@ -2854,7 +2854,8 @@ function askFork(r: Room, atMessageId?: string): void {
       "div",
       { class: "warn-row" },
       icon("warning"),
-      " 파일은 분기되지 않습니다. 두 방이 같은 워크스페이스를 공유합니다.",
+      " 파일과 **에이전트의 기억**은 분기되지 않습니다 — 두 방이 같은 폴더를 보므로, "
+        + "분기에서 «기억해»한 것이 CLAUDE.md 같은 파일에 적힐 수 있고, 그러면 원본도 읽게 됩니다.",
     ),
     el(
       "div",
@@ -2975,7 +2976,8 @@ function forkInfoRows(r: Room): Kids {
       "div",
       { class: "warn-row" },
       icon("warning"),
-      " 파일은 분기되지 않습니다. 원본 방과 같은 워크스페이스를 공유합니다.",
+      " 파일과 에이전트의 기억은 분기되지 않습니다 — 원본 방과 같은 폴더를 봅니다. "
+        + "대화 내용은 갈라집니다.",
     ),
   ];
 }
