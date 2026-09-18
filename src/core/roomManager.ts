@@ -101,6 +101,13 @@ interface BotRuntime {
   lastEmit: number;
   /** 스트리밍 중 디스크 저장을 솎아내기 위한 마지막 저장 시각 */
   lastSave: number;
+  /**
+   * **이 봇이 지금 뭐 하는중** (v2.0 준비).
+   *
+   * 방의 상태는 이것들을 합친 것이다(`mergeStatus`). 따로 들고 있으면
+   * 둘이 어긋난다 — «방은 idle인데 봇은 도는 중» 같은 게 생긴다.
+   */
+  status: RoomStatus;
   /** 턴 밖 발화를 담고 있는 메시지 (A11) */
   idle?: { message: Message; at: number };
   /**
@@ -336,6 +343,35 @@ function retryable(reason: string): boolean {
   return /closed|crash|\uc885\ub8cc|overload|rate.?limit|usage limit|quota|\ud55c\ub3c4|too many|timeout|\uc2dc\uac04 \ucd08\uacfc|econnreset|epipe|socket|temporar|unavailable|5\d\d/.test(s);
 }
 
+/**
+ * 봇들의 상태를 **방 하나의 상태로** 합친다 (v2.0 준비).
+ *
+ * 순서는 «화면이 무엇을 말해야 하나»다 — 사람을 기다리는 것이 가장 급하고,
+ * 그다음이 도는 중, 마지막이 조용함.
+ *
+ * 🔴 **`error`는 `idle`보다만 높다.** 한 봇이 실패했다고 다른 봇이 도는 걸
+ * 가릴 수는 없다 — «답하는 중»이 안 뜨면 사용자는 멈춘 줄 안다. 반대로
+ * 아무도 안 돌 때는 실패를 보여줘야 한다.
+ */
+const STATUS_RANK: RoomStatus[] = [
+  "permission",
+  "asking",
+  "tool",
+  "streaming",
+  "waiting",
+  "connecting",
+  "error",
+  "idle",
+];
+
+function mergeStatus(all: RoomStatus[]): RoomStatus {
+  if (all.length === 0) return "idle";
+  for (const s of STATUS_RANK) {
+    if (all.includes(s)) return s;
+  }
+  return "idle";
+}
+
 /** 설정 캐시의 열쇠. **방 하나 안에서도 봇마다 다르다** (B1) */
 function configKeyOf(roomId: string, botId: string): string {
   return `${roomId}:${botId}`;
@@ -368,8 +404,13 @@ type Events = {
    * 디스크를 JSONL append로 푸다 것과 같은 문제를 한 겹 위에서 푸는 것이다.
    */
   message: [string, Message];
-  /** 응답 대기 표시 (C10) */
-  status: [string, RoomStatus];
+  /**
+   * 응답 대기 표시 (C10) — (roomId, 합친 상태, 봇별 상태).
+   *
+   * 봇별이 필요한 이유는 단체방이다 — «Claude는 답하는 중, Codex는 끝»을
+   * 합친 값 하나로는 말할 수 없다.
+   */
+  status: [string, RoomStatus, Record<string, RoomStatus>];
   /**
    * 방에서 일어난 오류 (roomId, 메시지).
    *
@@ -459,7 +500,13 @@ export class RoomManager extends EventEmitter<Events> {
     return this.opts.store.listMetas();
   }
 
-  statusOf(roomId: string): RoomStatus {
+  /** 방의 상태, 또는 **그 봇의** 상태 (v2.0 준비) */
+  statusOf(roomId: string, botId?: string): RoomStatus {
+    if (botId) return this.runtimes.get(roomId)?.bots.get(botId)?.status ?? "idle";
+    return this.statusOfRoom(roomId);
+  }
+
+  private statusOfRoom(roomId: string): RoomStatus {
     return this.runtimes.get(roomId)?.status ?? "idle";
   }
 
@@ -517,7 +564,7 @@ export class RoomManager extends EventEmitter<Events> {
     } catch (err) {
       // 방은 남긴다 — 제목·역할을 다시 입력하게 만들지 않는다.
       // 첫 메시지를 보낼 때 다시 시도한다.
-      this.setStatus(room.id, "error");
+      this.setStatus(room.id, "error", room.participants[0]?.id);
       this.noteRoom(room, `세션을 열지 못했습니다 — ${describe(err)}`);
     }
     return room;
@@ -537,7 +584,7 @@ export class RoomManager extends EventEmitter<Events> {
     const conn = this.connection(bot.agentId);
     const bt = this.botRuntime(room.id, bot.id);
 
-    this.setStatus(room.id, "connecting");
+    this.setStatus(room.id, "connecting", bot.id);
     const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
       this.emit(
         "notice",
@@ -565,7 +612,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     await this.saveProps(room, { participants: room.participants });
-    this.setStatus(room.id, "idle");
+    this.setStatus(room.id, "idle", bot.id);
   }
 
   /** 다음 방의 기본값이 되도록 에이전트별 마지막 선택을 남긴다 (F6) */
@@ -1102,7 +1149,6 @@ export class RoomManager extends EventEmitter<Events> {
    */
   async send(roomId: string, text: string, attachments?: Attachment[]): Promise<void> {
     const room = await this.openRoom(roomId);
-    const rt = this.runtime(roomId);
     // v1.0은 방에 봇이 하나다. 단체방에서는 **멘션된 봇마다** 이 아래가 돈다.
     const bot = this.soleBot(room);
     if (!bot) return;
@@ -1127,7 +1173,10 @@ export class RoomManager extends EventEmitter<Events> {
     // VSCode를 닫았을 때 내가 보낸 메시지까지 사라진다.
     await this.saveNewMessage(room, sent);
 
-    if (rt.status !== "idle" && rt.status !== "error") {
+    // ★ **그 봇이** 도는 중일 때만 쌌는다 — 단체방에서 한 봇이 바쁘다고
+    // 다른 봇에게 보낸 말까지 줄을 설 이유가 없다
+    const mine = this.statusOf(roomId, bot.id);
+    if (mine !== "idle" && mine !== "error") {
       bt.queue.push(sent);
       return;
     }
@@ -1266,12 +1315,12 @@ export class RoomManager extends EventEmitter<Events> {
     // 없는 세션에 대고 부르게 된다. `ensureSession`이 복구까지 책임진다.
     // 턴이 도는 중에도 모드를 바꿀 수 있다 — 그 상태를 덮어쓰면 안 된다
     const before = this.statusOf(room.id);
-    if (before === "idle") this.setStatus(room.id, "connecting");
+    if (before === "idle") this.setStatus(room.id, "connecting", bot.id);
     let sessionId: string;
     try {
       sessionId = await this.ensureSession(room, bot);
     } finally {
-      if (before === "idle") this.setStatus(room.id, "idle");
+      if (before === "idle") this.setStatus(room.id, "idle", bot.id);
     }
 
     const conn = this.connection(bot.agentId);
@@ -1464,7 +1513,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     let sessionId: string;
     try {
-      this.setStatus(room.id, "connecting");
+      this.setStatus(room.id, "connecting", bot.id);
       sessionId = await this.ensureSession(room, bot);
     } catch (err) {
       // 세션을 못 열었으면 **프롬프트가 아예 안 나갔다.** 해당 메시지들을
@@ -1474,7 +1523,7 @@ export class RoomManager extends EventEmitter<Events> {
         m.sendFailed = reason;
         await this.saveMessage(room, { id: m.id, sendFailed: reason });
       }
-      this.setStatus(room.id, "error");
+      this.setStatus(room.id, "error", bot.id);
       this.emit("roomError", room.id, reason);
       return;
     }
@@ -1500,7 +1549,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 실제로는 전송됐고 에이전트가 답까지 했는데 `↻`를 누르면 같은 질문이 두 번 간다.
     await this.saveNewMessage(room, reply);
 
-    this.setStatus(room.id, "waiting");
+    this.setStatus(room.id, "waiting", bot.id);
 
     // 앞 턴이 유예 중이면 **확정하고** 자리를 받는다 — 그냥 밀어내면 디스크에만 빠진다
     this.releaseTurn(room, bot);
@@ -1517,7 +1566,7 @@ export class RoomManager extends EventEmitter<Events> {
     } catch (err) {
       const reason = describe(err);
       reply.error = reason;
-      this.setStatus(room.id, "error");
+      this.setStatus(room.id, "error", bot.id);
 
       /*
        * ★ **다시 해볼 만한 실패에는 `↻`를 붙인다.**
@@ -1564,7 +1613,8 @@ export class RoomManager extends EventEmitter<Events> {
     this.emit("message", room.id, reply);
     // **마지막에 놓는다.** 응답보다 늦게 오는 조각이 있어서 — `releaseTurn` 참조
     this.scheduleRelease(room, bot, reply);
-    if (rt.status !== "error") this.setStatus(room.id, "idle");
+    // ★ **이 봇이** 실패한 게 아니면 놓는다 — 다른 봇의 실패가 이 봇을 묶지 않는다
+    if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
   }
 
   private applyUsage(room: Room, usage: acp.Usage): void {
@@ -1587,7 +1637,7 @@ export class RoomManager extends EventEmitter<Events> {
     switch (ev.type) {
       case "text":
         reply.text += ev.delta;
-        this.setStatus(room.id, "streaming");
+        this.setStatus(room.id, "streaming", reply.authorBotId);
         break;
 
       case "thought":
@@ -1595,7 +1645,7 @@ export class RoomManager extends EventEmitter<Events> {
         break;
 
       case "tool":
-        this.setStatus(room.id, "tool");
+        this.setStatus(room.id, "tool", reply.authorBotId);
         this.recordActivity(reply, ev);
         break;
 
@@ -2448,8 +2498,16 @@ export class RoomManager extends EventEmitter<Events> {
         bt.sessionId = undefined;
         bt.roleInjected = false;
       }
-      if (rt?.status && rt.status !== "idle") {
-        this.setStatus(roomId, "error");
+      const hit = room.participants.filter((b) => b.agentId === agentId);
+      // ★ **그 에이전트를 쓰는 봇만** 오류다 — 같은 방의 다른 봇은 멀줦하다
+      /*
+       * 🔴 **`isBusy`로 거르면 놓친다.** 프로세스가 죽으면 `prompt`가 먼저
+       * 거절돼 상태가 이미 `error`일 수 있고, `isBusy("error")`는 false다.
+       * 그러면 «프로세스가 종료되었다»를 안 적게 된다 — 실제로 그렇게 깨졌다.
+       * 기준은 «바쁜가»가 아니라 **«조용하지 않았나»**다.
+       */
+      if (hit.some((b) => this.statusOf(roomId, b.id) !== "idle")) {
+        for (const b of hit) this.setStatus(roomId, "error", b.id);
         this.noteRoom(
           room,
           `${this.agentOrThrow(agentId).label} 프로세스가 종료되어 ` +
@@ -2504,7 +2562,14 @@ export class RoomManager extends EventEmitter<Events> {
     const rt = this.runtime(roomId);
     let bt = rt.bots.get(botId);
     if (!bt) {
-      bt = { queue: [], roleInjected: false, commands: [], lastEmit: 0, lastSave: 0 };
+      bt = {
+        status: "idle",
+        queue: [],
+        roleInjected: false,
+        commands: [],
+        lastEmit: 0,
+        lastSave: 0,
+      };
       rt.bots.set(botId, bt);
     }
     return bt;
@@ -2515,11 +2580,36 @@ export class RoomManager extends EventEmitter<Events> {
     return room.participants[0];
   }
 
-  private setStatus(roomId: string, status: RoomStatus): void {
+  /**
+   * 상태를 바꾼다 — **봇 단위로** (v2.0 준비).
+   *
+   * 🔴 예전에는 방에 상태가 하나뿐이었다. 봇이 하나일 때는 같은 말이지만,
+   * 여럿이 각자 턴을 돌면 **누가 답하는 중인지 말할 수가 없다.** 세션이 봇
+   * 단위이므로(B1) 상태도 봇 단위여야 맞다.
+   *
+   * `botId`를 안 주면 **방의 모든 봇**에 건다 — 세션을 붙이거나 방이 통째로
+   * 실패할 때처럼 진짜 방 단위인 일들이 있다.
+   *
+   * 방의 상태는 **봇들에서 파생된다**(`mergeStatus`) — 따로 들고 있으면 둘이
+   * 어긋난다.
+   */
+  private setStatus(roomId: string, status: RoomStatus, botId?: string): void {
     const rt = this.runtime(roomId);
-    if (rt.status === status) return;
-    rt.status = status;
-    this.emit("status", roomId, status);
+    const room = this.open.get(roomId);
+    const ids = botId
+      ? [botId]
+      : (room?.participants.map((b) => b.id) ?? [...rt.bots.keys()]);
+
+    for (const id of ids) this.botRuntime(roomId, id).status = status;
+
+    const bots: Record<string, RoomStatus> = {};
+    for (const [id, bt] of rt.bots) bots[id] = bt.status;
+    const merged = mergeStatus(Object.values(bots));
+
+    // 방 상태가 그대로여도 **봇별 상태는 바뀌었을 수 있다** — 화면이 알아야 한다
+    const same = rt.status === merged;
+    rt.status = merged;
+    if (!same || botId !== undefined) this.emit("status", roomId, merged, bots);
   }
 
   private append(room: Room, message: Message): void {

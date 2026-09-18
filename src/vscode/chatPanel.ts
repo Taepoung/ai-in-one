@@ -130,8 +130,8 @@ export class ChatPanel implements AskTarget {
       const usage = this.rooms.usageOf(roomId);
       this.post({ t: "msg", roomId, message, ...(usage ? { usage } : {}) });
     }) as never);
-    on("status", ((roomId: string, status: never) =>
-      this.post({ t: "status", roomId, status })) as never);
+    on("status", ((roomId: string, status: never, bots: never) =>
+      this.post({ t: "status", roomId, status, bots })) as never);
     on("roomError", ((roomId: string, message: string) =>
       this.post({ t: "roomError", roomId, message })) as never);
     on("notice", ((roomId: string, message: string) =>

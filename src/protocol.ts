@@ -82,7 +82,13 @@ export type ToWebview =
    * 이 경로는 대화가 아무리 길어도 ~1KB로 고정이다.
    */
   | { t: "msg"; roomId: string; message: Message; usage?: RoomUsage }
-  | { t: "status"; roomId: string; status: RoomStatus }
+  /**
+   * 응답 대기 표시 (C10).
+   *
+   * `status`는 **봇들을 합친 값**이고, `bots`가 각자의 상태다.
+   * 단체방에서 «Claude는 답하는 중, Codex는 끝»을 말하려면 둘 다 필요하다.
+   */
+  | { t: "status"; roomId: string; status: RoomStatus; bots?: Record<string, RoomStatus> }
   | { t: "roomError"; roomId: string; message: string }
   | { t: "notice"; roomId: string; message: string }
   | {

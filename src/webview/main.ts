@@ -41,6 +41,13 @@ let compactable = false;
 let usage: RoomUsage | undefined;
 let firstUnreadId: string | undefined;
 const statuses = new Map<string, RoomStatus>();
+/**
+ * 봇별 상태 — **지금 보는 방의 것만** (v2.0 준비).
+ *
+ * 방마다 들고 있을 이유가 없다 — 상태 줄은 열린 방에만 그려진다.
+ * 목록은 합친 값하나면 충분하다.
+ */
+let botStatus: Record<string, RoomStatus> = {};
 const configs = new Map<string, ConfigOptionBrief[]>();
 /**
  * 설정을 못 불러온 이유.
@@ -1173,17 +1180,30 @@ function applyDelta(msg: Message): void {
   if (stick) c.list.scrollTop = c.list.scrollHeight;
 }
 
+/**
+ * 상태 줄 (C10).
+ *
+ * ★ **봇이 여럿이면 누가 뭘 하는지 이름으로 말한다** (v2.0 준비).
+ * 합친 값 하나로는 «Claude는 답하는 중, Codex는 끝남»을 말할 수가 없다.
+ * 1:1에서는 이름이 군더더기라 예전처럼 상태만 쓴다.
+ */
 function paintStatus(bar: HTMLElement, r: Room, status: RoomStatus): void {
-  if (status === "idle") {
-    bar.removeAttribute("data-show");
-    bar.replaceChildren();
-    return;
-  }
+  const many = r.participants.length > 1;
+  const busy = r.participants.filter((b) => {
+    const s = botStatus[b.id];
+    return s !== undefined && s !== "idle" && s !== "error";
+  });
 
-  bar.setAttribute("data-show", "");
+  const text =
+    many && busy.length > 0
+      ? busy
+          .map((b) => `${agentById.get(b.agentId)?.label ?? b.name} ${statusText(botStatus[b.id]!)}`)
+          .join(" · ")
+      : statusText(status);
+
   const kids: Node[] = [
     el("span", { class: "typing" }, el("i"), el("i"), el("i")),
-    el("span", { text: statusText(status) }),
+    el("span", { text }),
   ];
   // 중단은 턴이 도는 동안에만 의미가 있다
   if (status === "streaming" || status === "tool" || status === "waiting") {
@@ -3016,6 +3036,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
 
     case "status":
       statuses.set(m.roomId, m.status);
+      if (room?.id === m.roomId) botStatus = m.bots ?? {};
       if (room?.id === m.roomId) renderChat();
       renderList();
       break;
