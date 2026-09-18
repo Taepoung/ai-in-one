@@ -197,7 +197,17 @@ export interface Message {
    * 마크다운형 둘 다 오므로 받은 모양 그대로 담는다.
    */
   plan?: { entries?: Array<{ text: string; status: string }>; markdown?: string };
-  mark?: "compaction";
+  /**
+   * 이 시스템 메시지의 종류.
+   *
+   * `compaction` 은 **경계**다 — 선으로 그어 «이 위로는 요약»을 보인다.
+   * `error` 는 **못 한 일**이다 — 세션을 못 열었거나, 프로세스가 죽었거나,
+   * 첨부를 못 보냈거나. 화면에서 붉게 갈라진다.
+   *
+   * 🔴 이걸 **기록으로** 두는 이유는 §0 P5다. 예전엔 이벤트로만 보내서
+   * 화면을 다시 그리면 사라졌다 — **이름만 바꿔도** 그랬다.
+   */
+  mark?: "compaction" | "error";
   /**
    * 압축하면서 에이전트가 남긴 요약 (C11·F7).
    *

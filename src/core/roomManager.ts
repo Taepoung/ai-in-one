@@ -496,7 +496,7 @@ export class RoomManager extends EventEmitter<Events> {
       // 방은 남긴다 — 제목·역할을 다시 입력하게 만들지 않는다.
       // 첫 메시지를 보낼 때 다시 시도한다.
       this.setStatus(room.id, "error");
-      this.emit("roomError", room.id, describe(err));
+      this.noteRoom(room, `세션을 열지 못했습니다 — ${describe(err)}`);
     }
     return room;
   }
@@ -972,7 +972,7 @@ export class RoomManager extends EventEmitter<Events> {
       })
       .catch((err: unknown) => {
         this.setStatus(room.id, "error");
-        this.emit("roomError", room.id, describe(err));
+        this.noteRoom(room, `세션에 붙지 못했습니다 — ${describe(err)}`);
       })
       .finally(() => this.sessionFlight.delete(room.id));
 
@@ -1995,9 +1995,9 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 첨부를 조용히 버리지 않는다 — 보냈다고 생각하고 기다리면 안 된다 */
   private notifyUnsupported(room: Room, a: Attachment, kind: string): void {
-    this.emit(
-      "notice",
-      room.id,
+    // 🔴 **이건 정보 손실 통보다.** 사라지면 사용자는 보낸 줄 알고 기다린다.
+    this.noteRoom(
+      room,
       `${room.participants[0]?.name ?? "에이전트"}는 ${kind}를 받지 못해 ` +
         `«${a.name}»을 보내지 않았습니다.`,
     );
@@ -2125,7 +2125,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     const resumed = await this.connection(bot.agentId).resumeSession(lost, room.cwd);
     if (!resumed.ok) {
-      this.emit("notice", room.id, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
+      this.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
       return false;
     }
 
@@ -2253,6 +2253,44 @@ export class RoomManager extends EventEmitter<Events> {
    * 자동 승인이나 자동 취소로 조용히 지나가면 나중에
    * *"이걸 물었었구나"* 를 볼 수 없다.
    */
+  /**
+   * 방에 **기록으로** 남긴다 (§0 P5).
+   *
+   * 🔴 예전에는 이런 안내를 `roomError`·`notice` 이벤트로만 보냈다. 웹뷰는 그걸
+   * **DOM에 직접** 붙이는데, 방을 다시 그릴 때 목록을 통째로 갈아끼우므로
+   * **이름만 바꿔도 사라졌다.** 실제로 그렇게 날아가던 것들:
+   *
+   * - *"프로세스가 종료되어 답변이 끊겼습니다. 다시 보내면 이어서 합니다."*
+   * - *"…는 이미지를 받지 못해 «캡처.png»를 보내지 않았습니다."* ← **정보 손실 통보**
+   * - *"세션을 열지 못했습니다 — …"*
+   *
+   * **우리는 껍데기다.** 무엇을 남기고 무엇을 지울지 고를 처지가 아니고,
+   * 특히 «못 했다»는 사실은 나중에 *"왜 그때 답이 없었지"* 를 푸는 유일한 단서다.
+   * 그러니 **대화에 박아 둔다** — 껐다 켜도, 다시 그려도 남는다.
+   *
+   * 진행 안내(*"처음 시작하는 중입니다"*)는 여전히 `notice`로 흘린다. 그건 곧
+   * 해소되는 것이라 남기면 방마다 부스러기가 쌓인다.
+   *
+   * ★ **같은 말을 연달아 쌓지 않는다.** 방을 열 때마다 붙기를 실패하면 같은 줄이
+   * 계속 늘어난다 — 권한 카드가 쌓이던 것과 같은 실수를 반복하지 않는다.
+   */
+  private noteRoom(room: Room, text: string, kind: "error" | "info" = "error"): void {
+    const last = room.messages.at(-1);
+    if (last?.role === "system" && last.text === text) return;
+
+    const msg: Message = {
+      id: messageId(),
+      role: "system",
+      text,
+      deliveredTo: [],
+      createdAt: Date.now(),
+      ...(kind === "error" ? { mark: "error" as const } : {}),
+    };
+    this.append(room, msg);
+    void this.saveNewMessage(room, msg);
+    this.emit("message", room.id, msg);
+  }
+
   private recordDecision(sessionId: string, note: string): void {
     const room = this.roomForSession(sessionId);
     if (!room) return;
@@ -2283,9 +2321,8 @@ export class RoomManager extends EventEmitter<Events> {
       }
       if (rt?.status && rt.status !== "idle") {
         this.setStatus(roomId, "error");
-        this.emit(
-          "roomError",
-          roomId,
+        this.noteRoom(
+          room,
           `${this.agentOrThrow(agentId).label} 프로세스가 종료되어 ` +
             `답변이 끊겼습니다 (${reason}). 다시 보내면 이어서 합니다.`,
         );
