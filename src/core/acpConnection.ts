@@ -472,8 +472,20 @@ export class AcpConnection {
    * 비싸지만, **모르는 채 실패하는 것보다는 낫다.**
    */
   canFork(): boolean {
-    const fork = this.init?.agentCapabilities?.sessionCapabilities?.fork;
-    return fork !== undefined && fork !== null;
+    return this.forkSupport() === "yes";
+  }
+
+  /**
+   * 분기를 할 수 있나 — **«모른다»를 «안 된다»와 가른다.**
+   *
+   * 화면이 *"상태를 잃습니다"* 라고 미리 경고하려면 이 구별이 필요하다.
+   * 아직 프로세스를 안 띄운 상태에서 `false`를 돌려주면 **멀줦한 에이전트를
+   * 못 한다고 모함**하게 된다. 방을 열면 이미 떠 있으므로 보통은 알 수 있다.
+   */
+  forkSupport(): "yes" | "no" | "unknown" {
+    if (!this.init) return "unknown";
+    const fork = this.init.agentCapabilities?.sessionCapabilities?.fork;
+    return fork !== undefined && fork !== null ? "yes" : "no";
   }
 
   /**

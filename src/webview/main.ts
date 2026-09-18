@@ -1846,7 +1846,8 @@ function renderInline(host: HTMLElement, text: string): void {
 /** 보낼 준비가 된 첨부들. 전송하면 비워진다 */
 let pending: Attachment[] = [];
 /** 에이전트가 받아주는 종류 (I5). 연결 전이면 전부 허용으로 온다 */
-let caps = { image: true, audio: true, embeddedContext: true };
+let caps: { image: boolean; audio: boolean; embeddedContext: boolean; fork: "yes" | "no" | "unknown" } =
+  { image: true, audio: true, embeddedContext: true, fork: "unknown" };
 
 /** sha256 → data: URI. 같은 이미지를 두 번 받아오지 않는다 */
 const blobCache = new Map<string, string>();
@@ -2666,6 +2667,23 @@ function askFork(r: Room, atMessageId?: string): void {
   const at = atMessageId ? r.messages.findIndex((m) => m.id === atMessageId) : r.messages.length - 1;
   const inherited = r.messages.slice(0, at + 1).filter((m) => m.role !== "system").length;
 
+  /*
+   * ★ **폴백이 될 걸 알면 누르기 전에 말한다** (§0 P5).
+   *
+   * 분기의 값어치는 «계획과 파일 기억까지 그대로»에 있다. 그게 안 되는 경우에
+   * 같은 얼굴로 물으면, 사용자는 세션이 복제된 줄 알고 *"아까 읽은 파일"* 을
+   * 가리키며 대화한다. **잃는 걸 알고 고르는 것과 모르고 고르는 것은 다르다.**
+   *
+   * 두 가지를 확실히 알 수 있다:
+   *   · 과거 지점 — ACP에 «어느 지점에서»가 없다. **프로토콜상 언제나** 폴백
+   *   · 에이전트가 분기를 광고 안 함 — 이미 붙어 있으므로 알 수 있다
+   *
+   * `unknown`이면 **아무 말도 안 한다.** 모르는 걸 단정하면 멀쩡한 에이전트를
+   * 못 한다고 모함하게 된다.
+   */
+  const past = at < r.messages.length - 1;
+  const cannot = caps.fork === "no";
+  const lossy = past || cannot;
   const title = el("input", {
     type: "text",
     placeholder: `비우면 «${r.title.replace(/\s*\(\d+\)\s*$/, "")} (2)»`,
@@ -2682,6 +2700,19 @@ function askFork(r: Room, atMessageId?: string): void {
         `이 방은 그대로 남습니다.`,
     }),
     el("div", { class: "card-body" }, title),
+    // ★ 잎는 것을 **누르기 전에** — 위 주석 참조
+    lossy
+      ? el(
+          "div",
+          { class: "warn-row" },
+          icon("warning"),
+          ` 계획과 파일 기억은 물려받지 못합니다 — 대화만 글로 옮깁니다. ` +
+            (past
+              ? "과거 지점은 세션을 복제할 수 없습니다."
+              : `${agentById.get(r.participants[0]?.agentId ?? "")?.label ?? "이 에이전트"}는 세션 분기를 지원하지 않습니다."`) +
+            " 다음 메시지에 실려 가므로 토큰이 듭니다.",
+        )
+      : null,
     /*
      * **fork의 목적이 코드에 대해서는 성립하지 않는다** (D1).
      * 대화는 갈라지지만 워크스페이스는 하나라, 분기 방에서 고친 파일은
@@ -2988,7 +3019,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
 
     case "caps":
       if (room?.participants[0]?.agentId === m.agentId) {
-        caps = { image: m.image, audio: m.audio, embeddedContext: m.embeddedContext };
+        caps = { image: m.image, audio: m.audio, embeddedContext: m.embeddedContext, fork: m.fork };
       }
       break;
 

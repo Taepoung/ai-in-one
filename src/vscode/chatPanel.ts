@@ -297,7 +297,12 @@ export class ChatPanel implements AskTarget {
         }
         case "needCaps": {
           const caps = this.rooms.promptCapabilities(m.agentId);
-          this.post({ t: "caps", agentId: m.agentId, ...caps });
+          this.post({
+            t: "caps",
+            agentId: m.agentId,
+            ...caps,
+            fork: this.rooms.forkSupport(m.agentId),
+          });
           break;
         }
         case "cancel":

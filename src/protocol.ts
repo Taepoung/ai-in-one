@@ -101,7 +101,15 @@ export type ToWebview =
   /** 썸네일 지연 로딩 — 방을 열 때 모든 이미지를 실어 보내면 페이로드가 터진다 */
   | { t: "blobData"; sha256: string; dataUri: string }
   /** 에이전트가 받아주는 첨부 종류 (I5) */
-  | { t: "caps"; agentId: string; image: boolean; audio: boolean; embeddedContext: boolean }
+  | {
+      t: "caps";
+      agentId: string;
+      image: boolean;
+      audio: boolean;
+      embeddedContext: boolean;
+      /** 세션 분기 (v1.1). `unknown`이면 **경고하지 않는다** — 모르는 걸 단정하지 않는다 */
+      fork: "yes" | "no" | "unknown";
+    }
   | { t: "searchResults"; query: string; hits: SearchHit[] }
   | { t: "createFailed"; message: string };
 

@@ -856,9 +856,22 @@ export class RoomManager extends EventEmitter<Events> {
     const note: Message = {
       id: messageId(),
       role: "system",
+      /*
+       * 🔴 **폴백은 «새 세션»이 아니라 «상태를 잃었다»가 핵심이다.**
+       *
+       * 예전 문구는 *"새 세션으로 시작합니다"* 였는데, 그건 **우리 사정**이지
+       * 사용자에게 달라지는 것이 아니다. 실제로 달라지는 건 이쪽이다:
+       * 네이티브면 에이전트가 세운 **계획과 읽은 파일 기억**까지 따라오고,
+       * 폴백이면 **대화 글자만** 따라온다. 그걸 안 적으면 사용자는 상대가
+       * 아까 읽은 파일을 기억한다고 믿은 채로 대화한다.
+       *
+       * 그래서 폴백은 **무엇을 잃었는지 먼저**, 이유는 그다음이다.
+       */
       text: forked.native
-        ? "원본 세션을 갈라 시작했습니다 — 계획과 파일 기억까지 물려받았습니다."
-        : `새 세션으로 시작합니다 — ${forked.reason}. 위 대화는 다음 메시지에 글로 함께 전달됩니다.`,
+        ? "원본 세션을 갈라 시작했습니다 — 대화뿐 아니라 계획과 파일 기억까지 물려받았습니다."
+        : "⚠ 계획과 파일 기억은 물려받지 못했습니다 — 위 대화를 글로만 옮깁니다. " +
+          `(${forked.reason}) 다음 메시지에 함께 전달됩니다.`,
+      ...(forked.native ? {} : { mark: "error" as const }),
       deliveredTo: [],
       createdAt: now,
     };
@@ -1305,6 +1318,16 @@ export class RoomManager extends EventEmitter<Events> {
    */
   usageOf(roomId: string): RoomUsage | undefined {
     return this.open.get(roomId)?.usage;
+  }
+
+  /**
+   * 그 에이전트가 세션을 갈라줄 수 있나 (v1.1).
+   *
+   * 화면이 **누르기 전에** *"상태를 잃습니다"* 라고 알려주려고 내보난다.
+   * `unknown`이면 경고하지 않는다 — 모르는 걸 단정하면 멀줦한 에이전트를 못 한다고 모함한다.
+   */
+  forkSupport(agentId: string): "yes" | "no" | "unknown" {
+    return this.connection(agentId).forkSupport();
   }
 
   promptCapabilities(agentId: string): { image: boolean; audio: boolean; embeddedContext: boolean } {
