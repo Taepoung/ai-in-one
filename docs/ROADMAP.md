@@ -57,7 +57,7 @@ current_mode_update        번역 안 함          → 에이전트가 모드를
 
 | 용어 | 뜻 | 예 |
 |---|---|---|
-| **에이전트** | ACP를 말하는 CLI | Claude Code · Codex · Gemini CLI |
+| **에이전트** | ACP를 말하는 CLI | Claude Code · Codex (기본 내장) |
 | **모델** | 에이전트가 쓰는 LLM | Opus · Sonnet · GPT-5 |
 | **봇** | 방에 참여한 인스턴스 (이름 + 에이전트 + 세션) | `Claude` · `리뷰어` |
 
@@ -154,10 +154,9 @@ current_mode_update        번역 안 함          → 에이전트가 모드를
 #### A. 에이전트 연결
 
 - [x] **A1** ACP stdio 연결 — CLI를 자식 프로세스로 spawn, JSON-RPC로 통신
-- [x] **A2** 기본 에이전트 3종 내장
+- [x] **A2** 기본 에이전트 내장 — **Claude·Codex** (Gemini는 무료 로그인이 막혀 제외, §13.2)
   - `claude` → `npx -y @agentclientprotocol/claude-agent-acp`
   - `codex` → `npx -y @agentclientprotocol/codex-acp`
-  - `gemini` → `npx -y @google/gemini-cli --experimental-acp`
 - [x] **A3** `aiInOne.agents` 설정으로 플래그 덮어쓰기 / 새 에이전트 추가
   *CLI 플래그는 버전마다 바뀌므로 하드코딩하면 안 된다*
 - [x] **A4** 에이전트당 프로세스 1개, 방마다 ACP 세션 — 여러 방이 프로세스를 공유
@@ -2686,7 +2685,8 @@ fork 자신이 오염되면서 갱신 대상이 어긋난다. 따라서 리프�
 
 - [ ] **M5** `@agentclientprotocol/claude-agent-acp`가 `ANTHROPIC_API_KEY`로 동작하는가
 - [ ] **M6** `@agentclientprotocol/codex-acp`가 `OPENAI_API_KEY`로 동작하는가
-- [ ] **M7** `@google/gemini-cli`가 `GEMINI_API_KEY`로 동작하는가
+- [x] **M7** `@google/gemini-cli`가 `GEMINI_API_KEY`로 동작하는가 — **된다.**
+      단 `settings.json`의 `security.auth.selectedType`도 `"gemini-api-key"`여야 한다 (§13.2)
 - [ ] **M8** 구독 모드와의 차이 — 사용 가능 모델, rate limit, 기능 제약
 
 **판단 기준**: 셋 중 **하나라도** (A)로 되면 그 에이전트만이라도 API 모드를 지원한다.

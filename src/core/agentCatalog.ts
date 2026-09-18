@@ -28,16 +28,37 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     color: "#10a37f",
     install: "터미널에서 `codex` 를 실행해 설치·로그인하세요.",
   },
-  {
-    id: "gemini",
-    label: "Gemini",
-    description: "Google Gemini CLI",
-    command: npx(),
-    args: ["-y", "@google/gemini-cli", "--experimental-acp"],
-    color: "#4285f4",
-    install: "터미널에서 `gemini` 를 실행해 설치·로그인하세요.",
-  },
 ];
+
+/**
+ * **Gemini는 기본 목록에서 뺐다** (2026-09).
+ *
+ * CLI가 없어진 게 아니라 **구독으로 쓰는 길이 막혔다.** 개인 구글 계정
+ * 로그인이 *"This client is no longer supported for Gemini Code Assist for
+ * individuals"* 로 거절된다(§13.2 실측). 남은 인증은 전부 API 키다.
+ *
+ * 그러면 §0 P3 — *"구독을 합법적으로 쓰는 유일한 경로"* — 가 이 에이전트에서만
+ * 성립하지 않는다. **«구독 그대로»라고 소개하는 목록에 키를 요구하는 것을
+ * 끼워두면 그 소개가 거짓말이 된다.**
+ *
+ * 없앤 게 아니라 **기본에서 뺀 것**이다. 키가 있는 사람은 설정으로 되살린다:
+ *
+ * ```jsonc
+ * "aiInOne.agents": {
+ *   "gemini": {
+ *     "label": "Gemini",
+ *     "command": "npx",                                  // Windows는 "npx.cmd"
+ *     "args": ["-y", "@google/gemini-cli", "--acp"],
+ *     "env": { "GEMINI_API_KEY": "…" }
+ *   }
+ * }
+ * ```
+ *
+ * ⚠️ `~/.gemini/settings.json`의 `security.auth.selectedType`도 `"gemini-api-key"`
+ * 여야 한다 — `"oauth-personal"`로 남아 있으면 **키를 무시하고** 위 오류가 뜬다.
+ *
+ * 구글이 개인 계정 경로를 되돌리면 여기로 돌아온다.
+ */
 
 function npx(): string {
   return process.platform === "win32" ? "npx.cmd" : "npx";
