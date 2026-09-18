@@ -449,17 +449,6 @@ export interface Room {
    * 디스크에 남긴다. 고르자마자 창을 닫아도 약속은 지켜져야 한다.
    */
   refeedPending?: boolean;
-  /**
-   * 한도에 막혀 **나중에 다시 보내볼** 메시지가 있다 (v1.1).
-   *
-   * 과부하는 몇 초면 풀리지만 구독 한도는 *"try again at Sep 21st"* 처럼 며칠
-   * 뒤다. 그걸 타이머로 붙들고 있을 수는 없다 — 창이 닫히면 사라지고, 며칠 뒤에
-   * 혼자 깨어나 말을 거는 것도 이상하다.
-   *
-   * 그래서 **표시만 남기고, 방을 다시 열 때 한 번 시도한다.** 사용자가 돌아온
-   * 시점이 곧 «다시 해볼 만한 때»다.
-   */
-  retryPending?: boolean;
   createdAt: number;
   lastActivityAt: number;
   /**
