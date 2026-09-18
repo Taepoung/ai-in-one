@@ -804,9 +804,21 @@ export class RoomManager extends EventEmitter<Events> {
           ...structuredClone(bot),
           id: `${bot.agentId}-${now.toString(36)}`,
           sessionId: forked.sessionId,
-          // 🔴 갈라낸 세션도 **첫 프롬프트를 받아야** 디스크에 남는다고 본다.
-          // 유령 id로 진짜를 밀어내지 않으려면 여기서 참이라고 우기면 안 된다.
-          sessionPrompted: false,
+/*
+           * **갈라낸 세션은 «말 걸기 전»에도 디스크에 남는다** (§13.2 실측).
+           *
+           * `session/new`로 연 세션은 성공한 첫 프롬프트를 받아야 남지만(§13.1),
+           * 분기는 **이미 내용이 있는 세션의 복제**라 곧바로 남는다. 프로세스를
+           * 아예 새로 띄워 resume 해보니 맥락까지 그대로였다.
+           *
+           * 🔴 처음엔 «모르니까 보수적으로» false로 뒀는데, **그게 손해였다.**
+           * 이 값이 false면 `pointAt`의 보호가 풀려서 **일시적인 복구 실패 한 번에
+           * 진짜 분기 세션 포인터를 유령이 덮어쓴다** — v1.0에서 한 번 당한 그 사고다.
+           * 게다가 «분기의 분기»도 폴백으로 떨어진다.
+           *
+           * 폴백으로 만든 것(`session/new`)은 여전히 false다. 그건 진짜로 비어 있다.
+           */
+          sessionPrompted: forked.native,
         },
       ],
       cwd: parent.cwd,
