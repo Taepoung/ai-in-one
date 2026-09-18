@@ -492,7 +492,7 @@ function openFind(): void {
     findAt = (findAt + by + findMatches.length) % findMatches.length;
     const node = findMatches[findAt]!;
     node.classList.add("current");
-    node.scrollIntoView({ block: "center" });
+    if (c.list) scrollInside(c.list, node, "center");
     count.textContent = `${findAt + 1}/${findMatches.length}`;
   };
 
@@ -2678,7 +2678,7 @@ function showRoomInfo(r: Room): void {
   );
 
   chat?.list.append(card);
-  card.scrollIntoView({ block: "end" });
+  if (chat?.list) scrollInside(chat.list, card, "end");
 }
 
 function roleEditor(r: Room): HTMLElement {
@@ -2751,8 +2751,9 @@ function confirmLeave(r: Room): void {
       el("button", { text: "취소", onclick: () => renderChat() }),
     ),
   );
-  screens.chat.querySelector(".messages")?.append(node);
-  node.scrollIntoView({ block: "end" });
+  const host = screens.chat.querySelector<HTMLElement>(".messages");
+  host?.append(node);
+  if (host) scrollInside(host, node, "end");
 }
 
 // ── 분기 (v1.1) ─────────────────────────────────────────────────────────
@@ -2886,7 +2887,7 @@ function askFork(r: Room, atMessageId?: string): void {
   );
 
   chat?.list.append(node);
-  node.scrollIntoView({ block: "end" });
+  if (chat?.list) scrollInside(chat.list, node, "end");
   title.focus();
 }
 
@@ -2988,10 +2989,34 @@ let stick = true;
  *
  * 스트리밍 중에는 사용자가 위로 올려 읽고 있으면 따라가지 않는다.
  */
+/**
+ * **대화 목록 안에서만** 스크롤한다.
+ *
+ * 🔴 `scrollIntoView()`를 쓰면 안 된다. 그건 **조상 컨테이너까지 전부** 스크롤하는데,
+ * `html`·`body`·`#app`이 `overflow: hidden`이라 스크롤바가 없을 뿐 **스크립트로는
+ * 밀린다.** 목록에서 방으로 들어가는 슬라이드가 도는 동안 부르면, 화면이 아직
+ * 오른쪽에 있으므로 브라우저가 **`body`를 옆으로 밀어** 대상을 보이게 만든다.
+ * 전환이 끝나도 그 스크롤은 남아서 **화면이 어긋난 채 멈춘 것처럼** 보인다.
+ *
+ * 실제로 목록의 계보 배지(«…에서 분기»)를 눌렀을 때 그렇게 깨졌다.
+ *
+ * 그래서 **`list.scrollTop`만 건드린다.** 위치는 두 사각형의 차이로 잡는데,
+ * 전환 중이어도 **둘 다 같은 만큼 밀려 있으므로 차이는 정확하다.**
+ */
+function scrollInside(list: HTMLElement, node: HTMLElement, place: "center" | "end"): void {
+  const a = node.getBoundingClientRect();
+  const b = list.getBoundingClientRect();
+  const delta =
+    place === "center"
+      ? a.top - b.top - (list.clientHeight - a.height) / 2
+      : a.bottom - b.bottom;
+  list.scrollTop += delta;
+}
+
 function scrollIntoPlace(list: HTMLElement): void {
-  const line = list.querySelector(".unread-line");
+  const line = list.querySelector<HTMLElement>(".unread-line");
   if (line) {
-    line.scrollIntoView({ block: "center" });
+    scrollInside(list, line, "center");
     return;
   }
   if (stick) list.scrollTop = list.scrollHeight;
@@ -3066,7 +3091,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
         const target = nodeCache.get(jumpToMessageId)?.node;
         jumpToMessageId = undefined;
         if (target) {
-          target.scrollIntoView({ block: "center" });
+          if (chat?.list) scrollInside(chat.list, target, "center");
           target.classList.add("jumped");
           setTimeout(() => target.classList.remove("jumped"), 1600);
         }
