@@ -2887,8 +2887,59 @@ CLI는 최신(0.60.0)이고 npm 최신과 같으므로 **서버 쪽 결정**이�
 > 카탈로그의 안내 *"터미널에서 `gemini` 를 실행해 설치·로그인하세요"* 는
 > 개인 계정 사용자에게 **막다른 길을 가리킨다.**
 >
-> → v1.2에서 판단한다. 기본 목록에서 뺄지, 안내 문구를 API 키 쪽으로 돌릴지.
+> → v1.2에서 판단한다. **CLI 자체는 쓸 수 있다** — 바로 아래 참조.
 > 지금은 **사실만 적어둔다** — 확인 못 한 걸 고쳐놓으면 다음 사람이 헷갈린다.
+
+#### Gemini는 CLI로 쓸 수 있나 — **된다. 단 API 키로.**
+
+막힌 건 `oauth-personal` 하나다. 인증 선택을 바꾸면 `session/new`가 **성공한다**:
+
+```jsonc
+// ~/.gemini/settings.json
+{ "security": { "auth": { "selectedType": "gemini-api-key" } } }
+// + 환경변수 GEMINI_API_KEY
+```
+
+> 🔴 **환경변수만 넣으면 안 된다.** `settings.json`에 `selectedType`이
+> `oauth-personal`로 남아 있으면 `GEMINI_API_KEY`는 **무시되고** 여전히
+> «no longer supported»가 뜬다. 실제로 이것에 한 번 속아서, 키 경로까지
+> 막힌 줄 알 뻔했다 — 임시 홈에 설정을 따로 두고 다시 재고서야 갈렸다.
+
+세션 생성은 키를 검증하지 않으므로 **가짜 키로도 여기까지는 통과한다.**
+실제 응답을 받으려면 당연히 진짜 키가 필요하다.
+
+#### 🔴 그런데 Gemini는 `configOptions`를 **안 준다**
+
+`session/new` 응답을 열어보면 우리가 읽는 자리가 비어 있다:
+
+| 주는 것 | 무엇 | 우리가 읽나 |
+|---|---|:---:|
+| `modes` | `default` · `autoEdit` · `yolo` · `plan` (현재 `default`) | ❌ |
+| `models` | `auto` · `gemini-3.1-pro-preview-customtools` · `gemini-2.5-pro` … | ❌ |
+| `configOptions` | **없음** | — |
+
+**그래서 Gemini 방에는 권한 모드도 모델도 화면에 안 뜬다.** 우리 잘못이다 —
+`modes`는 **스펙에 있는 기능**이고(`SessionModeState` + `session/set_mode`),
+우리가 새 `configOptions` 쪽만 만들었다.
+
+```
+권한 모드   modes + session/set_mode          ← 스펙. 우리가 안 만듦
+            configOptions(category="mode")     ← 우리가 만든 것. Claude·Codex가 씀
+모델        configOptions(category="model")    ← Claude·Codex
+            models                             ← 비표준 확장. **setter가 스펙에 없다**
+```
+
+> Claude와 Codex는 **둘 다** 준다(`modes`·`models`를 중복으로). 그래서 우리는
+> 여태 한쪽만 읽고도 멀쩡했고, **한쪽만 주는 에이전트를 만나서야 드러났다.**
+
+→ **v1.2 후보**: `configOptions`가 비면 `modes`로 떨어지기. 권한 모드는 그것으로
+닿는다. 모델은 표준 setter가 없어 `aiInOne.agents`의 args에 `-m`을 주는 우회뿐이다.
+
+#### 그 밖
+
+- `--experimental-acp`는 **deprecated**, 이제 `--acp`다. 둘 다 아직 동작한다.
+  **안 바꿨다** — 옛 CLI를 쓰는 사람이 `--acp`를 모르면 그쪽이 깨진다.
+  없어질 때 바꾸는 게 맞다. (`aiInOne.agents`로 언제든 덮어쓸 수 있다.)
 
 #### Codex — 로그인은 됐고 **사용량에서 막혔다**
 
