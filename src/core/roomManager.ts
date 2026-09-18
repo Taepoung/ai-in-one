@@ -2207,6 +2207,38 @@ export class RoomManager extends EventEmitter<Events> {
           await this.restoreChoices(room, bot, bot.sessionId, resumed.options);
         }
         this.watchIdle(room, bot, bot.sessionId);
+
+        /*
+         * ★ **잃었다고 표시해둔 그 세션에 다시 붙었으면 표시를 걷는다.**
+         *
+         * 🔴 복구 실패는 일시적일 수 있어서 `contextLost`를 디스크에 남긴다.
+         * 그런데 나중에 **저절로 붙었을 때** 그걸 지우는 코드가 없었다 —
+         * «다시 시도»를 눌렀을 때만(`retryResume`) 지웠다. 그래서 한 번 실패한
+         * 방은 **다시 붙은 뒤에도** *"에이전트는 위 대화를 모릅니다"* 를 달고
+         * 있었다. 실제로는 알고 있는데.
+         *
+         * 되먹임 약속도 함께 거둔다 — 세션이 이미 아는 대화를 글로 또 밀어넣으면
+         * 돈만 쓴다.
+         */
+        if (room.lostSessionId === bot.sessionId || room.contextLost) {
+          const promised = room.refeedPending === true;
+          room.contextLost = false;
+          delete room.lostSessionId;
+          delete room.refeedPending;
+          await this.saveProps(room, {
+            contextLost: false,
+            lostSessionId: undefined,
+            refeedPending: undefined,
+          });
+          this.noteRoom(
+            room,
+            promised
+              ? "이전 세션에 다시 붙었습니다 — 대화를 글로 옮길 필요가 없어졌습니다."
+              : "이전 세션에 다시 붙었습니다.",
+            "info",
+          );
+          this.emit("room", room);
+        }
         return bot.sessionId;
       }
       // 복구 실패는 정상 경로다. 새로 열고 **말해준다** —
