@@ -102,6 +102,15 @@ interface BotRuntime {
   lastSave: number;
   /** 턴 밖 발화를 담고 있는 메시지 (A11) */
   idle?: { message: Message; at: number };
+  /**
+   * **지금 도는 턴의 응답 자리.**
+   *
+   * 있으면 들어오는 것이 그 턴의 말이고, 없으면 턴 밖 발화다(A11).
+   * 리스너를 갈아끼우는 대신 이 값으로 가르는 이유는 `watchIdle`에.
+   */
+  turn?: Message;
+  /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
+  tail?: ReturnType<typeof setTimeout>;
 }
 
 /**
@@ -152,6 +161,14 @@ const CONFIG_PROBE_MS = 90_000;
  * 시각이 거짓말을 한다.
  */
 const IDLE_BURST_MS = 30_000;
+
+/**
+ * 응답이 온 뒤에도 **이만큼은 그 턴의 말로 친다.**
+ *
+ * 손으로 재보니 늦게 오는 조각은 수십 ms 안에 들어왔다. 여기서 더 늘리면
+ * 진짜 턴 밖 발화(A11)까지 삼키게 된다 — 그건 숨기면 안 되는 것이다.
+ */
+const TURN_TAIL_MS = 1500;
 
 /**
  * 세션이 쓰는 모델 이름을 봇에 적어 둔다 (B5). 바뀌었으면 `true`.
@@ -1384,7 +1401,10 @@ export class RoomManager extends EventEmitter<Events> {
 
     this.setStatus(room.id, "waiting");
 
-    conn.listen(sessionId, (ev) => this.applyEvent(room, reply, ev));
+    // 앞 턴이 유예 중이면 **확정하고** 자리를 받는다 — 그냥 밀어내면 디스크에만 빠진다
+    this.releaseTurn(room, bot);
+    // **이 턴의 말은 여기로 모인다.** 리스너를 갈지 않고 표시만 켜둔다 — 이유는 `watchIdle`에.
+    bt.turn = reply;
     try {
       const res = await conn.prompt(sessionId, prompt);
       // **이제 이 세션은 디스크에 남는다** — 되살릴 값이 여기서 확정된다 (F7)
@@ -1396,9 +1416,6 @@ export class RoomManager extends EventEmitter<Events> {
     } catch (err) {
       reply.error = describe(err);
       this.setStatus(room.id, "error");
-    } finally {
-      // **놓지 않는다.** 떼어버리면 턴 사이에 오는 걸 아무도 안 받는다(A11).
-      conn.listen(sessionId, (ev) => this.onIdleEvent(room, bot, ev));
     }
 
     // blob 쓰기가 끝나야 해시가 채워진다. 기다리지 않고 저장하면 diff를 잃는다.
@@ -1416,6 +1433,8 @@ export class RoomManager extends EventEmitter<Events> {
     await this.saveProps(room, { unread: room.unread, usage: room.usage });
     // 턴이 끝날 때도 바뀐 건 응답 하나다. 방 전체를 보낼 이유가 없다.
     this.emit("message", room.id, reply);
+    // **마지막에 놓는다.** 응답보다 늦게 오는 조각이 있어서 — `releaseTurn` 참조
+    this.scheduleRelease(room, bot, reply);
     if (rt.status !== "error") this.setStatus(room.id, "idle");
   }
 
@@ -1573,10 +1592,86 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /** 세션이 붙어 있는 동안 **계속** 듣는다 (A11) */
+  /**
+   * 그 세션의 이벤트를 받는다. **리스너는 세션당 하나뿐이다.**
+   *
+   * 🔴 예전에는 턴이 시작될 때 «턴 리스너»로 갈아끼우고 `prompt()`가 끝나면
+   * «턴 밖 리스너»로 되돌렸다. 그런데 **`session/prompt`의 응답과 그 턴의
+   * `session/update`는 도착 순서가 보장되지 않는다** — 응답이 먼저 처리되면
+   * 리스너는 이미 갈려 있고, 그 턴의 말이 **턴 밖 발화로 오인된다.**
+   *
+   * 그 결과가 «빈 말풍선 + 그 아래 따로 뜬 말풍선»이고, 30초 안에 여러 턴이
+   * 돌면 그것들이 **한 말풍선에 뭉쳐서** `알겠습니다알겠습니다알겠습니다`가 된다.
+   *
+   * 그래서 **갈아끼우지 않는다.** 리스너는 하나로 두고, 턴이 도는 중인지는
+   * `bt.turn`으로 가른다 — 그건 우리가 정확히 언제 놓을지 정할 수 있다.
+   */
+  /**
+   * 턴을 놓는다 — **응답이 온 순간이 아니라 조금 뒤에** (A11 경계).
+   *
+   * 🔴 `session/prompt`의 응답과 그 턴의 `session/update`는 **도착 순서가 보장되지
+   * 않는다.** 가짜 에이전트로 재보니 8턴 중 2턴에서 응답이 먼저 왔다 — 파이프는
+   * 순서를 지키지만 SDK가 그 순서대로 넘겨주지는 않는다.
+   *
+   * 그래서 응답을 받자마자 턴을 닫으면 **그 턴의 마지막 말이 턴 밖 발화로 오인된다.**
+   * 화면에는 «빈 말풍선 + 엉뚱한 자리에 붙은 말»이 되고, 30초 안에 여러 턴이 돌면
+   * 그것들이 한 말풍선에 뭉친다.
+   *
+   * 유예를 두면 그 창이 닫힌다. **길게 잡을 필요는 없다** — 늦어야 수십 ms고,
+   * 진짜 턴 밖 발화는 한참 뒤에 온다. 그 사이의 것을 이 턴의 꼬리로 보는 편이
+   * 새 말풍선을 만드는 것보다 언제나 맞다.
+   */
+  /**
+   * 턴을 놓을 **예약**을 건다 — 응답이 온 순간이 아니라 조금 뒤에 (A11 경계).
+   *
+   * 🔴 `session/prompt`의 응답과 그 턴의 `session/update`는 **도착 순서가 보장되지
+   * 않는다.** 가짜 에이전트로 재보니 8턴 중 2턴에서 응답이 먼저 왔다 — 파이프는
+   * 순서를 지키지만 SDK가 그 순서대로 넘겨주지는 않는다.
+   *
+   * 그래서 응답을 받자마자 턴을 닫으면 **그 턴의 마지막 말이 턴 밖 발화로 오인된다.**
+   * 화면에는 «빈 말풍선 + 엉뚱한 자리에 붙은 말»이 되고, 30초 안에 여러 턴이 돌면
+   * 그것들이 한 말풍선에 뭉친다.
+   */
+  private scheduleRelease(room: Room, bot: BotInstance, reply: Message): void {
+    const bt = this.botRuntime(room.id, bot.id);
+    if (bt.turn !== reply) return;
+    clearTimeout(bt.tail);
+    bt.tail = setTimeout(() => this.releaseTurn(room, bot, reply), TURN_TAIL_MS);
+  }
+
+  /**
+   * 턴을 **지금** 놓는다. 예약이 다 됐거나, 다음 턴이 시작하려 할 때.
+   *
+   * 🔴 **다음 턴이 밀고 들어올 때 그냥 버리면 안 된다.** 예약해둔 것을 «임자가
+   * 바뀌었으니 없던 일»로 치면, 유예 중에 늦게 붙은 조각이 **디스크에만 빠진다** —
+   * 화면에는 있는데 껐다 켜면 빈 말풍선이 된다. 실제로 그렇게 나왔다.
+   * 그래서 밀려날 때도 **확정하고** 넘긴다.
+   *
+   * 저장은 **조건 없이** 한다. «바뀌었으면»으로 걸러봤더니, 늦게 온 조각이
+   * 마지막 저장과 비교 시점 **사이에** 도착하면 비교 기준이 이미 그걸 품고
+   * 있어서 «안 바뀌었다»가 됐다. 줄 하나 더 쓰는 값으로 **화면과 디스크가 같다**를
+   * 산다 — JSONL은 같은 id를 병합하고 주기적으로 정리한다(`maybeCompact`).
+   */
+  private releaseTurn(room: Room, bot: BotInstance, only?: Message): void {
+    const bt = this.botRuntime(room.id, bot.id);
+    const pending = bt.turn;
+    if (!pending) return;
+    // 예약이 걸린 뒤 다른 턴이 자리를 가져갔으면, 그 예약은 남의 것이다
+    if (only && pending !== only) return;
+
+    clearTimeout(bt.tail);
+    bt.tail = undefined;
+    bt.turn = undefined;
+    void this.saveMessage(room, pending);
+    this.emit("message", room.id, pending);
+  }
+
   private watchIdle(room: Room, bot: BotInstance, sessionId: string): void {
-    this.connection(bot.agentId).listen(sessionId, (ev) =>
-      this.onIdleEvent(room, bot, ev),
-    );
+    this.connection(bot.agentId).listen(sessionId, (ev) => {
+      const turn = this.botRuntime(room.id, bot.id).turn;
+      if (turn) this.applyEvent(room, turn, ev);
+      else this.onIdleEvent(room, bot, ev);
+    });
   }
 
   /**
@@ -2365,6 +2460,10 @@ export class RoomManager extends EventEmitter<Events> {
     void this.flushDraft();
     for (const conn of this.connections.values()) conn.dispose();
     this.connections.clear();
+    // 유예 타이머가 살아 있으면 지운 방에 써대고 깨어난다
+    for (const rt of this.runtimes.values()) {
+      for (const bt of rt.bots.values()) clearTimeout(bt.tail);
+    }
     this.runtimes.clear();
   }
 }

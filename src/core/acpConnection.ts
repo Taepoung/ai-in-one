@@ -135,6 +135,12 @@ export class AcpConnection {
   private stderr = "";
   /** initialize 응답. 에이전트가 무엇을 지원하는지 판단하는 근거 */
   private init?: acp.InitializeResponse;
+  /**
+   * 지금 `session/load`로 **기록을 다시 받고 있는** 세션들.
+   *
+   * 그 동안 오는 `session/update`는 새 소식이 아니라 **재생**이다.
+   */
+  private readonly replaying = new Set<string>();
   /** sessionId → 그 방의 이벤트 소비자 */
   private readonly listeners = new Map<string, (ev: AgentEvent) => void>();
   /** 받을 사람이 붙기 전에 온 이벤트들 (A11) */
@@ -408,12 +414,43 @@ export class AcpConnection {
         return { ok: true, options: res?.configOptions ?? [] };
       }
       if (caps?.loadSession) {
-        // `session/load`는 응답을 안 줘도 되는 메서드라(`| void`) 타입이 `{}`다.
-        // 주면 `configOptions`가 들어 있다.
-        const res = (await ctx.request(acp.methods.agent.session.load, { sessionId, cwd })) as
-          | acp.LoadSessionResponse
-          | undefined;
-        return { ok: true, options: res?.configOptions ?? [] };
+        /*
+         * 🔴 **`session/load`는 대화를 통째로 다시 흘려보낸다.**
+         *
+         * 스펙이 그렇게 정한다 — *"streaming the entire conversation via
+         * session/update"*. `resume`이 그걸 **안 하는 것**이 둘의 차이다.
+         *
+         * 그런데 우리는 그 대화를 이미 디스크에 갖고 있다. 그대로 받으면
+         * **방에 대화가 한 벌 더 쌓인다** — 실제로 마지막 말풍선에
+         * `알겠습니다알겠습니다알겠습니다`가 붙는 걸 봤다.
+         *
+         * 그래서 **재생되는 동안은 버린다.** 버퍼에 쌓인 것까지 비운다 —
+         * 리스너가 늦게 붙으면 그게 나중에 쏟아지기 때문이다.
+         *
+         * 숨기는 게 아니다(§0). 우리가 이미 보여주고 있는 바로 그 대화다.
+         */
+        this.replaying.add(sessionId);
+        try {
+          // `session/load`는 응답을 안 줘도 되는 메서드라(`| void`) 타입이 `{}`다.
+          // 주면 `configOptions`가 들어 있다.
+          const res = (await ctx.request(acp.methods.agent.session.load, { sessionId, cwd })) as
+            | acp.LoadSessionResponse
+            | undefined;
+          return { ok: true, options: res?.configOptions ?? [] };
+        } finally {
+          /*
+           * 🔴 **응답이 왔다고 재생이 끝난 게 아니다.**
+           *
+           * JSON-RPC 응답과 그 사이 알림은 **도착 순서가 보장되지 않는다**
+           * (`runQueue`의 턴 꼬리와 같은 문제). 여기서 바로 풀면 늦게 도착한
+           * 재생분이 그대로 통과해 대화가 한 벌 더 쌓인다.
+           *
+           * 그래서 **다음 프롬프트까지** 들고 있는다(`prompt`가 푼다). 그때부터는
+           * 분명히 새 말이다. 버퍼에 쌓인 것도 같이 비운다 — 리스너가 늦게
+           * 붙으면 그게 나중에 쏟아지기 때문이다.
+           */
+          this.pending.delete(sessionId);
+        }
       }
       return { ok: false, reason: `${this.agent.label}이(가) 세션 복구를 지원하지 않습니다` };
     } catch (err) {
@@ -501,6 +538,8 @@ export class AcpConnection {
     sessionId: string,
     prompt: string | acp.ContentBlock[],
   ): Promise<acp.PromptResponse> {
+    // **여기부터는 새 말이다.** 재생 억제를 푸는 유일하게 확실한 지점이다.
+    this.replaying.delete(sessionId);
     const blocks: acp.ContentBlock[] =
       typeof prompt === "string" ? [{ type: "text", text: prompt }] : prompt;
     return this.conn!.agent.request(acp.methods.agent.session.prompt, {
@@ -585,7 +624,19 @@ export class AcpConnection {
   }
 
   private dispatch(note: acp.SessionNotification): void {
-    const events = translate(note.update);
+    let events = translate(note.update);
+    // 재생 중이면 이미 우리가 갖고 있는 대화다 — `resumeSession` 참조
+    if (this.replaying.has(note.sessionId)) {
+      const kept = events.filter((ev) => !this.isReplayed(ev));
+      // **조용히 버리지 않는다**(§0). 화면에 안 띄울 뿐 무엇을 버렸는지는 남긴다.
+      if (kept.length !== events.length) {
+        this.host.log(
+          `[${this.agent.id}] session/load 재생분 ${events.length - kept.length}건을 버렸습니다 ` +
+            `(이미 방에 있는 대화입니다)`,
+        );
+      }
+      events = kept;
+    }
     const emit = this.listeners.get(note.sessionId);
     if (emit) {
       for (const ev of events) emit(ev);
@@ -598,6 +649,27 @@ export class AcpConnection {
     buf.push(...events);
     if (buf.length > 200) buf.splice(0, buf.length - 200);
     this.pending.set(note.sessionId, buf);
+  }
+
+  /**
+   * 재생분인가 — **내용은 버리고 상태는 받는다.**
+   *
+   * `session/load`가 다시 흘려보내는 건 «이미 있었던 일»이다. 말·생각·도구·계획은
+   * 우리 디스크에 그대로 있으므로 받으면 **한 벌 더 쌓인다.**
+   *
+   * 반면 명령 목록·사용량·모드·설정은 «지금 상태»라 몇 번을 받아도 같다.
+   * 오히려 붙자마자 오는 것들이라(A11) 버리면 압축 버튼이 안 뜬다. 그래서 통과시킨다.
+   */
+  private isReplayed(ev: AgentEvent): boolean {
+    switch (ev.type) {
+      case "commands":
+      case "usage":
+      case "mode":
+      case "config":
+        return false;
+      default:
+        return true;
+    }
   }
 
   // ── 세션 설정 ──────────────────────────────────────────────────────────
