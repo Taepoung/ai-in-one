@@ -2868,6 +2868,46 @@ Gemini에서는 v1.0 기능 몇 개도 다르게 돈다. 숨기지 않고 적어
 | 방 나가기 | **에이전트 쪽 기록이 안 지워진다** — `delete`도 `close`도 없다 |
 | «사라졌다» vs «복구 실패» | **구별 못 한다** — `list`가 없어 물어볼 수가 없다 |
 
+
+#### 🔴 Gemini — **개인 구글 계정 경로가 닫혔다** (2026-09)
+
+`gemini`로 로그인하면 이렇게 거절당한다:
+
+```
+Failed to sign in. This client is no longer supported for Gemini Code Assist
+for individuals. To continue using Gemini, please migrate to the Antigravity
+suite of products: https://antigravity.google
+```
+
+CLI는 최신(0.60.0)이고 npm 최신과 같으므로 **서버 쪽 결정**이다. 남은 인증은
+`gemini-api-key`·`vertex-ai`·`gateway` — 전부 **구독이 아니라 API 키**다.
+
+> 이건 §0 P3(«구독을 그대로 쓴다»)의 전제가 **Gemini에서만 깨진 것**이다.
+> 우리가 키를 만지는 건 아니므로(CLI가 알아서 읽는다) 설계가 무너지진 않지만,
+> 카탈로그의 안내 *"터미널에서 `gemini` 를 실행해 설치·로그인하세요"* 는
+> 개인 계정 사용자에게 **막다른 길을 가리킨다.**
+>
+> → v1.2에서 판단한다. 기본 목록에서 뺄지, 안내 문구를 API 키 쪽으로 돌릴지.
+> 지금은 **사실만 적어둔다** — 확인 못 한 걸 고쳐놓으면 다음 사람이 헷갈린다.
+
+#### Codex — 로그인은 됐고 **사용량에서 막혔다**
+
+```
+{"code":-32603,"message":"Internal error",
+ "data":{"message":"You've hit your usage limit. Upgrade to Plus to continue
+          using Codex …, or try again at Sep 21st, 2026 2:30 AM.",
+         "codexErrorInfo":"usageLimitExceeded"}}
+```
+
+`session/new`는 **로그인 없이도** 되고 `configOptions`도 준다(위 표). 막히는 건
+`session/prompt`부터다. 그래서 **네이티브 분기가 실제로 도는지는 아직 못 봤다** —
+Claude에서만 끝까지 재봤다.
+
+> ★ **이 오류가 v1.0 버그를 하나 더 드러냈다.** `describe()`가 `err.message`만
+> 읽어서 화면에는 **«Internal error»** 만 떴을 것이다. 왜 안 되는지 아는 건
+> 에이전트뿐인데 그걸 우리가 지운 셈이다(§0 P5 위반). `data.message`·`data.details`를
+> 꺼내 붙이도록 고쳤고, 아는 열쇠가 없으면 통째로 보여준다 (`errtext.mts`).
+
 > 이 표는 `realcaps.mts`가 **우리 코드로** 실제 CLI를 읽어 확인한다. 가짜
 > 에이전트는 우리가 쓴 대로 대답하므로 «우리가 착각한 것»을 못 잡는다.
 

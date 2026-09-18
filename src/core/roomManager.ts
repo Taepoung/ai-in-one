@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
 
-import { AcpConnection, type AgentEvent } from "./acpConnection.js";
+import { AcpConnection, describe, type AgentEvent } from "./acpConnection.js";
 import type { RoomStore } from "./store.js";
 import {
   createBotInstance,
@@ -2527,7 +2527,3 @@ function messageId(): string {
   return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function describe(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return typeof err === "string" ? err : JSON.stringify(err);
-}

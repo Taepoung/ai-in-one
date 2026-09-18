@@ -1050,9 +1050,47 @@ function isReadOnly(kind: string | null | undefined): boolean {
   return kind === "read" || kind === "search";
 }
 
-function describe(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return typeof err === "string" ? err : JSON.stringify(err);
+/**
+ * 오류를 사람이 읽을 글로 (§0 P5 — **CLI가 준 걸 숨기지 않는다**).
+ *
+ * 🔴 `err.message`만 쓰면 «Internal error»가 뜬다. JSON-RPC는 껍데기에
+ * 일반 문구를 두고 **쓸모 있는 말은 `data`에** 넣기 때문이다. 실제로 겪은 것들:
+ *
+ * ```
+ * {"code":-32603,"message":"Internal error",
+ *  "data":{"message":"You've hit your usage limit. Upgrade to Plus…"}}   ← Codex 사용량
+ * {"code":-32603,"message":"Internal error",
+ *  "data":{"details":"Session not found"}}                              ← Claude 세션
+ * ```
+ *
+ * 둘 다 화면에는 «Internal error»로 떴을 것이다. **왜 안 되는지를 아는 건
+ * 에이전트뿐인데, 그걸 우리가 지워버리면 사용자는 물어볼 곳이 없다.**
+ */
+export function describe(err: unknown): string {
+  if (typeof err === "string") return err;
+  if (!err || typeof err !== "object") return JSON.stringify(err);
+
+  const e = err as { message?: unknown; data?: unknown };
+  const head = typeof e.message === "string" ? e.message : "";
+  const deep = detailOf(e.data);
+
+  // 안쪽이 더 구체적이면 그걸 앞세운다. 껍데기는 대개 «Internal error»다.
+  if (deep && deep !== head) return head ? `${head} — ${deep}` : deep;
+  return head || JSON.stringify(err);
+}
+
+/** JSON-RPC `data`에서 쓸 만한 한 줄을 꺼낸다. 모양이 제각각이라 몇 군데를 본다 */
+function detailOf(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (!data || typeof data !== "object") return "";
+  const d = data as Record<string, unknown>;
+  for (const key of ["message", "details", "detail", "error", "reason"]) {
+    const v = d[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  // 아는 열쇠가 없으면 **통째로 보여준다** — 버리는 것보다 낫다
+  const text = JSON.stringify(data);
+  return text === "{}" ? "" : text.slice(0, 400);
 }
 
 /**
