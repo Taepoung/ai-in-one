@@ -947,9 +947,47 @@ function mountChat(r: Room): void {
   scrollIntoPlace(list);
 }
 
+/**
+ * **이 말을 한 봇의 에이전트** (v2.0 준비).
+ *
+ * 🔴 예전에는 어느 말풍선이든 `participants[0]`의 에이전트를 썼다. 1:1에서는
+ * 맞아떨어졌지만 **단체방에서는 Codex의 답에 «Claude»가 붙는다** — 이름도
+ * 색깔도 전부 첫 봇 것이 된다. 실제로 그렇게 나왔다.
+ *
+ * 메시지는 `authorBotId`로 **누가 말했는지 이미 알고 있다.** 그걸 쓴다.
+ * 모르면(시스템 메시지 등) 방의 첫 봇으로 떨어진다.
+ */
+function agentOf(m: Message, r: Room): AgentBrief | undefined {
+  const bot = m.authorBotId
+    ? r.participants.find((b) => b.id === m.authorBotId)
+    : undefined;
+  return agentById.get((bot ?? r.participants[0])?.agentId ?? "");
+}
+
+/**
+ * **무엇에 대한 답인지 말해줘야 하나** (C4).
+ *
+ * 바로 위 질문 하나에 답하는 1:1 대화에서는 군더더기다. 그런데 단체방에서는
+ * **다른 봇의 말이 사이에 끼어든다** — 그러면 «이게 어느 질문의 답이지»가 되고,
+ * 그때는 말해줘야 한다.
+ *
+ * 🔴 예전에는 «둘 이상에 답할 때»만 봤다. 그건 큐잉(§4.3)만 생각한 규칙이라,
+ * 하나에 답하는데 **자리가 멀어진** 경우를 놓친다.
+ */
+function needsAnswerNote(m: Message, all: Message[]): boolean {
+  const answers = m.replyToIds ?? [];
+  if (answers.length === 0) return false;
+  if (answers.length > 1) return true;   // 묶여서 답한 것은 언제나 적는다
+
+  // 바로 위가 그 질문이면 자명하다
+  const at = all.findIndex((x) => x.id === m.id);
+  return at <= 0 || all[at - 1]!.id !== answers[0];
+}
+
 function paintChat(r: Room): void {
   const c = chat;
   if (!c) return;
+  // 헤더에 쓰는 것 — 방을 대표하는 에이전트. 말풍선은 **각자 말한 봇으로** 잎는다
   const agent = agentById.get(r.participants[0]?.agentId ?? "");
 
   // 이름을 고치는 중이면 헤더를 건드리지 않는다 — 입력이 날아간다
@@ -989,7 +1027,9 @@ function paintChat(r: Room): void {
       nodes.push(el("div", { class: "unread-line", text: "여기서부터 안 읽음" }));
       broken = true;
     }
-    nodes.push(reuseOrBuild(m, agent, !broken && followsSame(above, m)));
+    nodes.push(
+      reuseOrBuild(m, agentOf(m, r), !broken && followsSame(above, m), needsAnswerNote(m, r.messages)),
+    );
     above = m;
     // 물려받은 대화가 끝나는 자리에 선 하나 (D2)
     if (r.forkedAtMessageId && m.id === r.forkedAtMessageId) {
@@ -1156,8 +1196,7 @@ function applyDelta(msg: Message): void {
   const c = chat;
   if (!c || c.roomId !== r.id) return;
 
-  const agent = agentById.get(r.participants[0]?.agentId ?? "");
-  const node = messageNode(msg, agent);
+  const node = messageNode(msg, agentOf(msg, r), false, needsAnswerNote(msg, r.messages));
   const hit = nodeCache.get(msg.id);
   nodeCache.set(msg.id, { sig: sigOf(msg), node });
 
@@ -1262,14 +1301,15 @@ function reuseOrBuild(
   m: Message,
   agent: AgentBrief | undefined,
   grouped = false,
+  noteAnswer = false,
 ): HTMLElement {
   // **묶임 여부도 서명에 넣는다** — 앞 메시지가 지워지면 이름이 다시 나와야 하는데
   // 캐시가 옛 모양을 그대로 돌려주면 이름 없는 말풍선이 혼자 남는다.
-  const sig = `${sigOf(m)} ${grouped ? "g" : ""}`;
+  const sig = `${sigOf(m)} ${grouped ? "g" : ""}${noteAnswer ? "a" : ""}`;
   const hit = nodeCache.get(m.id);
   if (hit && hit.sig === sig) return hit.node;
 
-  const node = messageNode(m, agent, grouped);
+  const node = messageNode(m, agent, grouped, noteAnswer);
   nodeCache.set(m.id, { sig, node });
   return node;
 }
@@ -1281,6 +1321,7 @@ function messageNode(
   m: Message,
   agent: AgentBrief | undefined,
   grouped = false,
+  noteAnswer = false,
 ): HTMLElement {
   if (m.role === "system") {
     // 압축은 메모가 아니라 **경계**다 (C11). 선으로 그어야 «이 위로는 요약»이 읽힌다.
@@ -1384,11 +1425,18 @@ function messageNode(
     );
   }
 
-  // 뭐에 대한 답인지 — **자명하지 않을 때만** 보여준다 (C4).
-  // 바로 앞 하나에 답하는 1:1 대화에서는 굳이 말할 필요가 없다.
-  if ((m.replyToIds?.length ?? 0) > 1) {
+  // 뭐에 대한 답인지 — **자명하지 않을 때만** 보여준다 (C4). `needsAnswerNote` 참조
+  if (noteAnswer) {
+    const n = m.replyToIds?.length ?? 0;
+    const asked =
+      n === 1 ? room?.messages.find((x) => x.id === m.replyToIds![0]) : undefined;
     node.append(
-      el("div", { class: "meta", text: `↩ 질문 ${m.replyToIds!.length}개에 한 번에 답합니다` }),
+      el("div", {
+        class: "meta",
+        text: asked
+          ? `↩ «${asked.text.slice(0, 20)}${asked.text.length > 20 ? "…" : ""}»에 답합니다`
+          : `↩ 질문 ${n}개에 한 번에 답합니다`,
+      }),
     );
   }
 
