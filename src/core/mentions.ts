@@ -175,10 +175,23 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
    */
   const head = orphan.trim();
   if (head && orphanAfterMention) {
-    // 지목하려던 봇을 못 찾았다 — 전원으로 넓히지 않고 물어본다
+    /*
+     * 지목하려던 봇을 못 찾았다. 그 글은 **갈 곳이 없다** — 전원으로
+     * 넓히면 조용히 넓혔지는 것이므로 보내지 않는다.
+     *
+     * 하지만 **나머지까지 죽이지는 않는다.** 멀줦히 지목된 블록은 그대로
+     * 보내고, **못 보난 것을 글자까지 짚어** 말해준다 — 다시 쓸 수 있게.
+     */
+    const bit = head.length > 20 ? `${head.slice(0, 20)}…` : head;
+    if (blocks.length > 0) {
+      warnings.push(
+        `없는 봇에게 보내려던 «${bit}»은 보내지 못했습니다. 나머지는 보냈습니다.`,
+      );
+      return { blocks, warnings };
+    }
     return {
       blocks,
-      blocked: "지목한 봇을 찾을 수 없습니다. 칩을 지우고 다시 골라주세요.",
+      blocked: `지목한 봇을 찾을 수 없어 «${bit}»을 보내지 못했습니다. 칩을 지우고 다시 골라주세요.`,
       warnings,
     };
   }
