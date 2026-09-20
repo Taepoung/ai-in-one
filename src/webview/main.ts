@@ -2868,6 +2868,8 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
     const hint = el("span", { class: "dim" });
     const paint = () => {
       hint.textContent = mode.values!.find((v) => v.id === select.value)?.description ?? "";
+      // 가로로 누운 뒤로는 한 줄로 잘린다 — **전문은 여기 남긴다**
+      hint.title = hint.textContent;
       hint.hidden = hint.textContent === "";
     };
     select.addEventListener("change", () => {
@@ -2933,7 +2935,7 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       el("label", { text: "승인 주체" }),
       who,
       others.length === 0
-        ? el("span", { class: "dim", text: "방에 다른 봇이 있으면 그 봇에게 맡길 수 있습니다." })
+        ? el("span", { class: "dim", text: "방에 다른 봇이 있으면 그 봇에게 맡길 수 있습니다.", title: "방에 다른 봇이 있으면 그 봇에게 맡길 수 있습니다." })
         : null,
     ),
   );
@@ -2958,7 +2960,7 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       { class: "field" },
       el("label", { text: "질문" }),
       ask,
-      el("span", { class: "dim", text: "에이전트가 갈림길에서 물어볼 때." }),
+      el("span", { class: "dim", text: "에이전트가 갈림길에서 물어볼 때.", title: "에이전트가 갈림길에서 물어볼 때." }),
     ),
   );
 
@@ -2971,7 +2973,16 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
       bot.name,
     ),
-    ...rows,
+    /*
+     * ★ **세 칸을 가로로 누인다** (v2.0).
+     *
+     * 봇마다 위아래로 쌓으면 봇이 셋일 때 아홉 줄이 된다 — 시트가
+     * 화면을 다 먹고 **정작 비교해야 할 두 봇을 나란히 못 본다.**
+     * 가로로 두면 봇 하나가 한 줄이라 «누가 무엇까지 할 수 있나»가 한눈에 들어온다.
+     *
+     * 좁아지면 알아서 접힌다(`flex-wrap`) — 폭을 재서 가르지 않는다.
+     */
+    el("div", { class: "policy" }, ...rows),
   );
 }
 

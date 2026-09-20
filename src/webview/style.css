@@ -2217,3 +2217,45 @@ fieldset.bot .bot-drop {
 .compose-note .bad {
   color: var(--vscode-errorForeground, #f14c4c);
 }
+
+/*
+ * 봇 하나의 권한 세 칸 — **가로로** (v2.0).
+ *
+ * 위아래로 쌓으면 봇이 셋일 때 아홉 줄이 되어 시트가 화면을 다 먹는다.
+ * 그러면 정작 비교해야 할 두 봇을 나란히 못 본다.
+ */
+.sheet-bot .policy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.sheet-bot .policy > .field {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.sheet-bot .policy > .field select {
+  width: 100%;
+}
+
+/*
+ * 선택지 설명은 **줄 하나로 자른다.**
+ *
+ * 에이전트가 주는 글이라 길이를 우리가 못 정하는데, 그게 칸 높이를 밀면
+ * 옆 칸들까지 따라 내려가 가로로 둔 뜻이 없어진다. 전문은 툴팁에 남는다.
+ */
+.sheet-bot .policy > .field .dim {
+  display: block;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 못 불러왔을 때의 안내는 한 줄을 통째로 쓴다 — 고칠 거리가 있는 상태다 */
+.sheet-bot .policy > p,
+.sheet-bot .policy > button.link {
+  flex: 1 1 100%;
+}
