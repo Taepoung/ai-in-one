@@ -2043,7 +2043,33 @@ function messageNode(
     if (m.mark === "compaction") {
       return el("div", { class: "msg system" }, el("div", { class: "cut-line", text: m.text }));
     }
-    return el("div", { class: "msg system" }, el("div", { class: "bubble", text: m.text }));
+    /*
+     * ★ **우리가 봇에게 물어본 것** (§4.2.2).
+     *
+     * 사용자가 쓴 말이 아니므로 말풍선이 아니고, 그렇다고 **숨기지도 않는다**
+     * (§0). 심사에 무엇을 넘겼는지는 *"왜 저게 통과했지"* 에 답하는 근거이고,
+     * **인젝션을 눈으로 확인할 수 있는 유일한 자리**이기도 하다.
+     *
+     * 다만 diff까지 실려 길다 — 접어서 둔다.
+     */
+    if (m.mark === "review") {
+      const first = m.text.split("\n")[0] ?? "승인 심사";
+      return el(
+        "div",
+        { class: "msg system" },
+        el(
+          "details",
+          { class: "tool review" },
+          el("summary", {}, icon("law"), ` ${first}`),
+          el("pre", { class: "thought-body" }, el("code", { text: m.text })),
+        ),
+      );
+    }
+    return el(
+      "div",
+      { class: "msg system" },
+      el("div", { class: `bubble${m.mark === "error" ? " error" : ""}`, text: m.text }),
+    );
   }
 
   const node = el("div", {
@@ -4160,10 +4186,15 @@ function policyLine(r: Room, bot: BotInstance): string {
     bits.push("모드 불러오는 중…");
   }
 
+  /*
+   * 🔴 **봇 이름에 «이/가»를 붙이지 않는다.** 이름은 사용자가 짓는 말이라
+   * 받침을 미리 알 수 없다 — «베타이 승인»이 된다. 분기 안내문에서 이미 한 번
+   * 깨졌던 자리다. «에게»는 받침과 무관하다.
+   */
   bits.push(
     bot.approver.kind === "user"
-      ? "사용자가 승인"
-      : `${r.participants.find((b) => b.id === (bot.approver as { botId?: string }).botId)?.name ?? "다른 봇"}이 승인`,
+      ? "승인은 사용자에게"
+      : `승인은 ${r.participants.find((b) => b.id === (bot.approver as { botId?: string }).botId)?.name ?? "다른 봇"}에게`,
   );
   bits.push(bot.answerPolicy === "auto" ? "질문은 알아서" : "질문은 물어봄");
   return bits.join(" · ");
