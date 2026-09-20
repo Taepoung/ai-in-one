@@ -742,6 +742,106 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * **봇을 방에 초대한다** (v2.0). 1:1 방을 단체방으로 올리는 것도 이 길이다.
+   *
+   * 🔴 **새 봇은 위 대화를 모른다** (§4.1.1). 화면에는 지난 대화가 그대로
+   * 보이는데 초대된 봇의 세션은 백지라, 말해주지 않으면 사용자는 *"보이니까
+   * 알겠지"* 라고 믿은 채로 말을 건다. 그 착각이 이 설계의 유일한 위험이므로
+   * **초대하는 자리에서 바로 적는다.**
+   *
+   * 기억은 또 다른 이야기다 — 같은 폴더를 보므로 **기억은 오히려 공유된다**
+   * (§4.2.3 실측). «대화는 모르는데 기억은 안다»가 헷갈릴 수 있어서, 봇이 둘이
+   * 되는 순간 그것도 함께 말한다.
+   */
+  async addBot(roomId: string, spec: BotSpec): Promise<BotInstance> {
+    const room = await this.openRoom(roomId);
+    const agent = this.agentOrThrow(spec.agentId);
+
+    const taken = new Set(room.participants.map((b) => b.name));
+    const bot = createBotInstance(agent, {
+      taken,
+      ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
+      ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
+      ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
+    });
+    room.participants.push(bot);
+
+    const first = room.participants.length === 2;
+    const said = room.messages.some((m) => m.role !== "system");
+    this.noteRoom(
+      room,
+      said
+        ? `${bot.name}을(를) 초대했습니다. ${bot.name}은(는) 위 대화를 모릅니다 — ` +
+            `@${bot.name} 으로 지목해 다시 알려주세요.`
+        : `${bot.name}을(를) 초대했습니다.`,
+      "info",
+    );
+    // 봇이 둘이 되는 **그 순간**에 한 번만 (§4.2.3)
+    if (first) {
+      this.noteRoom(
+        room,
+        "이제 봇이 여럿입니다. 대화는 봇마다 갈라지지만 **에이전트의 기억은 나뉘지 않습니다** — " +
+          "같은 폴더를 보므로 한 봇에게 시킨 «기억해»를 다른 봇도 읽습니다.",
+        "info",
+      );
+    }
+
+    // 세션은 **지금** 연다 — 첫 멘션까지 미루면 로그인 문제를 그때 알게 된다(B1)
+    try {
+      await this.openSession(room, bot, spec.configValues);
+    } catch (err) {
+      this.setStatus(room.id, "error", bot.id);
+      this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`);
+    }
+
+    await this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+    this.emitMetas();
+    return bot;
+  }
+
+  /**
+   * **봇을 내보낸다** (v2.0).
+   *
+   * 그 봇의 세션은 **지운다.** 방을 나갈 때와 같은 이유다 — 내보내는 것은
+   * «이 봇과의 대화를 끝낸다»는 뜻이므로 에이전트 쪽에 기록을 남겨둘 이유가 없다.
+   *
+   * 🔴 **말풍선은 지우지 않는다.** 세션은 그쪽 것이고 기록은 우리 것이다(§0).
+   * 나간 봇이 한 말까지 지우면 *"아까 그 얘기 어디 갔지"* 가 되고, 무엇보다
+   * 사용자가 읽은 것을 우리가 되물릴 수는 없다.
+   *
+   * 마지막 한 명은 내보낼 수 없다 — 봇이 없는 방은 말을 걸 수가 없다.
+   */
+  async removeBot(roomId: string, botId: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const at = room.participants.findIndex((b) => b.id === botId);
+    if (at < 0) return;
+    if (room.participants.length === 1) {
+      throw new Error("마지막 봇은 내보낼 수 없습니다. 방을 나가시려면 «방 나가기»를 쓰세요.");
+    }
+
+    const bot = room.participants[at]!;
+    const rt = this.runtimes.get(roomId);
+    const bt = rt?.bots.get(botId);
+    const sessionId = bt?.sessionId ?? bot.sessionId ?? undefined;
+
+    if (sessionId) {
+      const conn = this.connections.get(bot.agentId);
+      await conn?.cancel(sessionId).catch(() => undefined);
+      // 말을 건 적 있는 세션만 디스크에 있다 — 없는 걸 지우려 들면 실패한다(§13.1)
+      await conn?.deleteSession(sessionId, bot.sessionPrompted === true).catch(() => undefined);
+    }
+
+    room.participants.splice(at, 1);
+    rt?.bots.delete(botId);
+
+    this.noteRoom(room, `${bot.name}을(를) 내보냈습니다. 지금까지의 대화는 그대로 남습니다.`, "info");
+    await this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+    this.emitMetas();
+  }
+
+  /**
    * 봇 이름을 바꾼다 (v2.2 준비).
    *
    * **표시 이름이 곧 멘션 이름이다**(`BotInstance.name`). 그래서 방 안에서
@@ -912,8 +1012,7 @@ export class RoomManager extends EventEmitter<Events> {
       throw new Error("진행 중인 턴이 끝난 뒤에 분기할 수 있습니다.");
     }
 
-    const bot = this.soleBot(parent);
-    if (!bot) throw new Error("분기할 봇이 없습니다.");
+    if (parent.participants.length === 0) throw new Error("분기할 봇이 없습니다.");
 
     // 🔴 **이걸 먼저 본다.** 빈 방은 `cut`이 -1이라 지점 검사에 먼저 걸리는데,
     // 그러면 *"분기할 지점을 찾을 수 없습니다"* 라고 말하게 된다 — 지점을 고른 적도
@@ -934,15 +1033,29 @@ export class RoomManager extends EventEmitter<Events> {
       throw new Error("아직 나눌 대화가 없습니다.");
     }
 
-    // **끝에서 가르는 경우에만** 네이티브 분기를 쓸 수 있다 — 아래 참조
-    const forked = await this.forkSession(parent, bot, cut === parent.messages.length - 1);
+    /*
+     * ★ **참여 봇 전부를 가른다** (v2.0).
+     *
+     * 분기는 «이 대화를 여기서 두 갈래로»라는 뜻이다. 한 봇만 갈라내면
+     * 새 방은 나머지 봇을 잃은 채로 시작하고, 그것은 분기가 아니라 이사다.
+     *
+     * **병렬로** 가른다 — 세션끼리 무관하고, 봇이 셋이면 순차는 세 배 기다린다.
+     * 한 봇이 폴백으로 떨어져도 나머지는 네이티브로 간다(§4.4 «성공분만»).
+     */
+    const atTail = cut === parent.messages.length - 1;
+    const forks = await Promise.all(
+      parent.participants.map(async (b) => ({
+        bot: b,
+        forked: await this.forkSession(parent, b, atTail),
+      })),
+    );
     /*
      * 폴백일 때만 선택이 의미가 있다. 화면이 미리 물어봤으면 그걸 쓰고,
      * **예상 못 한 실패**라 못 물어봤으면 `refeed`로 둔다 — 그쪽이 분기의
      * 목적에 가깝고, 실제 토큰은 **다음 메시지를 보낼 때까지** 안 든다.
      * 방의 배너에서 그 전에 따로 끌 수 있다.
      */
-    return this.createRoomFromFork(parent, bot, cut, forked, opts.title, opts.fallback ?? "refeed");
+    return this.createRoomFromFork(parent, forks, cut, opts.title, opts.fallback ?? "refeed");
   }
 
   /**
@@ -1035,9 +1148,8 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private async createRoomFromFork(
     parent: Room,
-    bot: BotInstance,
+    forks: Array<{ bot: BotInstance; forked: ForkedSession }>,
     cut: number,
-    forked: ForkedSession,
     title: string | undefined,
     fallback: ForkFallback,
   ): Promise<Room> {
@@ -1061,29 +1173,25 @@ export class RoomManager extends EventEmitter<Events> {
     const room: Room = {
       id: `room-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       title: title?.trim() || this.nextForkTitle(parent.title),
-      participants: [
-        {
-          // 봇은 **새 것**이다 — 세션이 다르고, 설정도 여기서부터 따로 간다
-          ...structuredClone(bot),
-          id: `${bot.agentId}-${now.toString(36)}`,
-          sessionId: forked.sessionId,
-/*
-           * **갈라낸 세션은 «말 걸기 전»에도 디스크에 남는다** (§13.2 실측).
-           *
-           * `session/new`로 연 세션은 성공한 첫 프롬프트를 받아야 남지만(§13.1),
-           * 분기는 **이미 내용이 있는 세션의 복제**라 곧바로 남는다. 프로세스를
-           * 아예 새로 띄워 resume 해보니 맥락까지 그대로였다.
-           *
-           * 🔴 처음엔 «모르니까 보수적으로» false로 뒀는데, **그게 손해였다.**
-           * 이 값이 false면 `pointAt`의 보호가 풀려서 **일시적인 복구 실패 한 번에
-           * 진짜 분기 세션 포인터를 유령이 덮어쓴다** — v1.0에서 한 번 당한 그 사고다.
-           * 게다가 «분기의 분기»도 폴백으로 떨어진다.
-           *
-           * 폴백으로 만든 것(`session/new`)은 여전히 false다. 그건 진짜로 비어 있다.
-           */
-          sessionPrompted: forked.native,
-        },
-      ],
+      // 봇은 전부 **새 것**이다 — 세션이 다르고 설정도 여기서부터 따로 간다
+      participants: forks.map(({ bot, forked }, n) => ({
+        ...structuredClone(bot),
+        id: `${bot.agentId}-${now.toString(36)}-${n}-${Math.random().toString(36).slice(2, 6)}`,
+        sessionId: forked.sessionId,
+        /*
+         * **갈라낸 세션은 «말 걸기 전»에도 디스크에 남는다** (§13.2 실측).
+         *
+         * `session/new`로 연 세션은 성공한 첫 프롬프트를 받아야 남지만(§13.1),
+         * 분기는 **이미 내용이 있는 세션의 복제**라 곱바로 남는다.
+         *
+         * ⚠ 처음엔 «모르니까 보수적으로» false로 둥는데, **그게 손해였다.**
+         * 이 값이 false면 `pointAt`의 보호가 풀려 일시적인 복구 실패 한 번에
+         * 진짜 분기 세션 포인터를 유령이 덮어쓴다 — v1.0에서 한 번 당한 사고다.
+         *
+         * 폴백으로 만든 것(`session/new`)은 여전히 false다. 그건 진짜로 비어 있다.
+         */
+        sessionPrompted: forked.native,
+      })),
       cwd: parent.cwd,
       messages,
       unread: 0,
@@ -1092,7 +1200,10 @@ export class RoomManager extends EventEmitter<Events> {
       forkedFromRoomId: parent.id,
       forkedAtMessageId: at.id,
       // 폴백이면 에이전트가 백지다. **사용자가 고른 대로** — 글로 옮기거나 백지로 가거나
-      ...(forked.native || fallback === "fresh" ? {} : { refeedPending: true }),
+      // 한 봇이라도 폴백이면 되먹임이 필요하다 — 그 봇은 백지에서 시작하므로
+      ...(forks.every((f) => f.forked.native) || fallback === "fresh"
+        ? {}
+        : { refeedPending: true }),
       createdAt: now,
       lastActivityAt: now,
     };
@@ -1100,13 +1211,16 @@ export class RoomManager extends EventEmitter<Events> {
     await this.opts.store.createRoom(room);
     this.open.set(room.id, room);
 
-    const bt = this.botRuntime(room.id, room.participants[0]!.id);
-    bt.sessionId = forked.sessionId;
-    // 네이티브 분기는 역할을 이미 알고 있다 — 원본이 들은 것을 그대로 물려받았다
-    bt.roleInjected = forked.native;
-    this.watchIdle(room, room.participants[0]!, forked.sessionId);
-    if (forked.options.length > 0) {
-      await this.restoreChoices(room, room.participants[0]!, forked.sessionId, forked.options);
+    for (const [n, { forked }] of forks.entries()) {
+      const fresh = room.participants[n]!;
+      const bt = this.botRuntime(room.id, fresh.id);
+      bt.sessionId = forked.sessionId;
+      // 네이티브 분기는 역할을 이미 알고 있다 — 원본이 들은 것을 그대로 물려받았다
+      bt.roleInjected = forked.native;
+      this.watchIdle(room, fresh, forked.sessionId);
+      if (forked.options.length > 0) {
+        await this.restoreChoices(room, fresh, forked.sessionId, forked.options);
+      }
     }
 
     /*
@@ -1130,14 +1244,29 @@ export class RoomManager extends EventEmitter<Events> {
        *
        * 그래서 폴백은 **무엇을 잃었는지 먼저**, 이유는 그다음이다.
        */
-      text: forked.native
-        ? "원본 세션을 갈라 시작했습니다 — 대화뿐 아니라 계획과 파일 기억까지 물려받았습니다."
-        : fallback === "refeed"
-          ? "⚠ 계획과 파일 기억은 물려받지 못했습니다 — 위 대화를 글로만 옮깁니다. " +
-            `(${forked.reason}) 다음 메시지에 함께 전달됩니다.`
-          : "⚠ 계획과 파일 기억은 물려받지 못했습니다 — 위 기록만 남기고 백지에서 시작합니다. " +
-            `(${forked.reason}) 에이전트는 위 대화를 모릅니다.`,
-      ...(forked.native ? {} : { mark: "error" as const }),
+      /*
+       * 봇이 여럿이면 **섞일 수 있다** — Claude는 네이티브로 갈라지고
+       * Gemini는 폴백으로 떨어지는 식이다. 그럴 때 **잔치를 이름으로 짚는다** —
+       * «일부는 잃었습니다»만 써두면 누구에게 다시 설명해야 하는지 모른다.
+       */
+      text: (() => {
+        const lost = forks.filter((f) => !f.forked.native);
+        if (lost.length === 0) {
+          return "원본 세션을 갈라 시작했습니다 — 대화뿐 아니라 계획과 파일 기억까지 물려받았습니다.";
+        }
+        // 봇이 하나면 이름을 안 붙인다 — 군더더기다. 조사도 그에 따라 갈린다.
+        const subject =
+          forks.length === 1
+            ? "계획과 파일 기억은"
+            : `${lost.map((f) => f.bot.name).join("·")}는 계획과 파일 기억을`;
+        const why = lost[0]!.forked.reason;
+        return fallback === "refeed"
+          ? `⚠ ${subject} 물려받지 못했습니다 — 위 대화를 글로만 옮깁니다. ` +
+            `(${why}) 다음 메시지에 함께 전달됩니다.`
+          : `⚠ ${subject} 물려받지 못했습니다 — 위 기록만 남기고 백지에서 시작합니다. ` +
+            `(${why}) 에이전트는 위 대화를 모릅니다.`;
+      })(),
+      ...(forks.every((f) => f.forked.native) ? {} : { mark: "error" as const }),
       deliveredTo: [],
       createdAt: now,
     };
