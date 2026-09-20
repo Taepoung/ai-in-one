@@ -7,13 +7,28 @@ import { BLOB_SCHEME, BlobDocuments } from "./blobDocuments.js";
 import { ChatPanel } from "./chatPanel.js";
 import { VscodeHost } from "./vscodeHost.js";
 
+/**
+ * **활성화가 오래 걸렸다면 어디서 걸렸는지 알 수 있어야 한다.**
+ *
+ * VSCode는 확장이 늦게 뜨면 *"10초가 넘었으니 창을 다시 로드하라"* 고만
+ * 말해준다 — **누구 탓인지는 안 말해준다.** 그러면 우리는 짐작하게 되고,
+ * 짐작으로 고치면 맞았는지도 모른다. 그래서 우리 몴은 우리가 재둔다(§0).
+ *
+ * 디스크를 만지는 것은 `store.init()` 뿐이므로 그것만 따로 재면 충분하다 —
+ * `rooms.json`이 깨졌을 때만 방 파일을 전부 읽어 재조립하기 때문이다.
+ */
+const SLOW_ACTIVATE_MS = 1000;
+
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
+  const began = Date.now();
   const out = vscode.window.createOutputChannel("AI in One");
   const host = new VscodeHost(out);
 
   // `globalState`는 용량 제한이 있어 쓰지 않는다. 대화는 파일로 남긴다 (F5).
   const store = new RoomStore(ctx.globalStorageUri.fsPath);
+  const storeBegan = Date.now();
   await store.init();
+  const storeTook = Date.now() - storeBegan;
 
   let agents = readAgents();
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
@@ -61,6 +76,18 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       out.appendLine("에이전트 설정이 바뀌었습니다. 새로 만드는 방부터 적용됩니다.");
     }),
   );
+
+  const took = Date.now() - began;
+  out.appendLine(
+    `활성화 ${took}ms (기록 읽기 ${storeTook}ms · 방 ${rooms.listMetas().length}개)`,
+  );
+  // 느렸으면 **눈에 보이는 곳에도** — 출력 창을 열어볼 생각을 하려면
+  // 먼저 «느렸다»를 알아야 한다. 빠를 때는 조용하다.
+  if (took >= SLOW_ACTIVATE_MS) {
+    out.appendLine(
+      `⚠ 활성화가 느렸습니다. 디스크가 바쁜거나 기록이 많을 수 있습니다.`,
+    );
+  }
 }
 
 export function deactivate(): void {
