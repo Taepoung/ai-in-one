@@ -337,7 +337,7 @@ Approve for me · Full access` 처럼 이름도 개수도 다릅니다.
 
 ```
 ┌─ 참여자 1 ─────────────── ✕ ─┐
-│ ● Claude          ▓▓▓▓▓░░ 62%│
+│ ● Claude                62%│
 │   Opus 5 · Claude Code        │
 │   모델  [ Opus 5        ▾]    │
 │   [권한 설정] [대화 압축]      │

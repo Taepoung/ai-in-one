@@ -1756,6 +1756,9 @@ function sigOf(m: Message): string {
     (m.tools ?? []).map((t) => t.status).join(""),
     // 봇 수가 바뀌면 «이 봇만 중단»이 생기거나 사라진다
     manyBots() ? "m" : "",
+    // 이름 옆 사용량 — **반올림한 값**만 넣는다. 토큰 하나마다 다시
+    // 그리면 스트리밍 중에 말풍선을 초당 열몇 번씩 다시 만들게 된다.
+    usagePct(m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : undefined),
   ].join(" ");
 }
 
@@ -1816,12 +1819,22 @@ function messageNode(
 
   // 이어지는 말에는 이름을 다시 쓰지 않는다 — 같은 사람이 계속 말하는 중이다
   if (m.role === "agent" && !grouped) {
+    /*
+     * ★ **사용량을 이름 옆에** — 서랍을 안 열어도 보이게.
+     *
+     * 컨텍스트가 차고 있다는 것은 **대화 중에 알아야** 쓸모가 있다 —
+     * 다 차고 나서 서랍에서 보면 이미 압축이 돌아간 뒤다.
+     */
+    const who = m.authorBotId
+      ? room?.participants.find((b) => b.id === m.authorBotId)
+      : room?.participants[0];
     node.append(
       el(
         "div",
         { class: "who" },
         el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
         agent?.label ?? "에이전트",
+        usageChip(who),
       ),
     );
   }
@@ -3925,22 +3938,33 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
 }
 
 /**
+ * 컨텍스트가 몇 퍼센트 찼나 — 모르면 `-1`.
+ *
+ * 말풍선 캐시 서명에 들어가므로 **거친 값이어야 한다.** 토큰 하나마다
+ * 바뀌는 숫자를 넣으면 스트리밍 중에 말풍선을 계속 다시 만들게 된다.
+ */
+function usagePct(bot: BotInstance | undefined): number {
+  const u = bot?.usage;
+  return u?.contextUsed && u.contextSize ? Math.round((u.contextUsed / u.contextSize) * 100) : -1;
+}
+
+/**
  * 컨텍스트가 얼마나 찼나 — **이름 바로 옆**.
  *
  * 에이전트가 안 알려주면 **자리를 비운다.** 우리가 글자 수로 짐작하지 않는다 —
  * 토크나이저가 에이전트마다 다르고, 틀린 숫자는 없는 것보다 나쁘다(§0).
  */
-function usageChip(bot: BotInstance): HTMLElement | null {
-  const u = bot.usage;
+function usageChip(bot: BotInstance | undefined): HTMLElement | null {
+  const u = bot?.usage;
   if (!u?.contextUsed || !u.contextSize) return null;
   const pct = Math.round((u.contextUsed / u.contextSize) * 100);
   const tokens = `${u.contextUsed.toLocaleString()} / ${u.contextSize.toLocaleString()} 토큰`;
-  return el(
-    "span",
-    { class: pct >= 90 ? "usage full" : "usage", title: `컨텍스트 ${tokens}` },
-    el("span", { class: "bar" }, el("i", { style: { width: `${Math.min(pct, 100)}%` } })),
-    el("span", { text: `${pct}%` }),
-  );
+  // 바는 뺀다 — 숫자가 이미 정확한데 그림은 같은 말을 더 흐릿하게 할 뿐이다
+  return el("span", {
+    class: pct >= 90 ? "usage full" : "usage",
+    title: `컨텍스트 ${tokens}`,
+    text: `${pct}%`,
+  });
 }
 
 // ── 스크롤 ──────────────────────────────────────────────────────────────
