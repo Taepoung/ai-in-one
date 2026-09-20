@@ -759,7 +759,9 @@ export function createBotInstance(
     name = `${agent.label} ${n}`;
   }
   return {
-    id: `${agent.id}-${Date.now().toString(36)}`,
+    // 🔴 시각만 쓰면 **같은 에이전트로 봇을 둘 만들 때 같은 ms에 걸려 id가 겹친다.**
+    // 그러면 멘션도 상태도 둘이 섞인다 — 단체방에서는 정상 경로다(v2.0).
+    id: `${agent.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     agentId: agent.id,
     name,
     sessionId: null,

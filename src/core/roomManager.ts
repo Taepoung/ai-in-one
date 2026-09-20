@@ -2,6 +2,11 @@ import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
 
 import { AcpConnection, describe, type AgentEvent } from "./acpConnection.js";
+import {
+  parseCompose,
+  type ComposeParse,
+  type ComposeToken,
+} from "./mentions.js";
 import type { RoomStore } from "./store.js";
 import {
   createBotInstance,
@@ -35,8 +40,30 @@ export interface RoomManagerOptions {
   configProbeMs?: number;
 }
 
-export interface CreateRoomOptions {
+/**
+ * 단체방의 봇 하나 (v2.0).
+ *
+ * v1.0의 «에이전트 하나 = 방 하나»를 그대로 여러 개로 늘린 것이다 — 모델·역할·
+ * 권한이 전부 **봇에 붙는 값**이라(D2·B3) 봇마다 따로 받아야 한다.
+ */
+export interface BotSpec {
   agentId: string;
+  rolePrompt?: string;
+  agentMode?: string;
+  answerPolicy?: AnswerPolicy;
+  /** 그 봇의 세션에 적용할 설정 — 모델·추론 강도 (B15) */
+  configValues?: Record<string, string | boolean>;
+}
+
+export interface CreateRoomOptions {
+  /**
+   * 1:1 방의 에이전트. **`bots`를 주면 무시된다.**
+   *
+   * v1.0 경로를 그대로 두려고 남긴다 — 부르는 쪽을 전부 고치지 않아도 되게.
+   */
+  agentId?: string;
+  /** 단체방 (v2.0). 봇마다 에이전트·모델·역할을 따로 고른다 */
+  bots?: BotSpec[];
   title?: string;
   cwd?: string;
   /** 봇 역할 (B3). 첫 프롬프트 앞에 프리픽스로 붙는다 */
@@ -533,18 +560,43 @@ export class RoomManager extends EventEmitter<Events> {
   // ── 방 ────────────────────────────────────────────────────────────────
 
   async createRoom(opts: CreateRoomOptions): Promise<Room> {
-    const agent = this.agentOrThrow(opts.agentId);
+    /*
+     * **봇 목록으로 통일해서 만든다** (v2.0).
+     *
+     * 1:1은 «봇이 하나인 단체방»이지 다른 물건이 아니다. 갈래를 둘로 두면
+     * 나중에 고칠 때마다 한쪽을 빠뜨린다 — v1.1에서 `participants[0]`을
+     * 여기저기 박아뒀다가 겪은 일이다.
+     */
+    const specs: BotSpec[] =
+      opts.bots && opts.bots.length > 0
+        ? opts.bots
+        : [{
+            agentId: opts.agentId ?? "",
+            ...(opts.rolePrompt ? { rolePrompt: opts.rolePrompt } : {}),
+            ...(opts.agentMode ? { agentMode: opts.agentMode } : {}),
+            ...(opts.answerPolicy ? { answerPolicy: opts.answerPolicy } : {}),
+            ...(opts.configValues ? { configValues: opts.configValues } : {}),
+          }];
+
+    // **이름은 방 안에서 유일해야 한다** — 이름이 곧 멘션 이름이라(§4.1.2)
+    // 같은 에이전트를 둘 고르면 `Claude`, `Claude 2`로 갈라진다.
+    const taken = new Set<string>();
+    const participants = specs.map((spec) => {
+      const bot = createBotInstance(this.agentOrThrow(spec.agentId), {
+        taken,
+        ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
+        ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
+        ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
+      });
+      taken.add(bot.name);
+      return bot;
+    });
+
     const now = Date.now();
     const room: Room = {
       id: `room-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
       title: opts.title?.trim() || this.nextDefaultTitle(),
-      participants: [
-        createBotInstance(agent, {
-          ...(opts.rolePrompt ? { rolePrompt: opts.rolePrompt } : {}),
-          ...(opts.agentMode ? { agentMode: opts.agentMode } : {}),
-          ...(opts.answerPolicy ? { answerPolicy: opts.answerPolicy } : {}),
-        }),
-      ],
+      participants,
       cwd: opts.cwd ?? this.opts.host.defaultCwd(),
       messages: [],
       unread: 0,
@@ -557,11 +609,16 @@ export class RoomManager extends EventEmitter<Events> {
 
     // **역할을 방 상단에 보여준다** (B3). 안 보이면 봇이 왜 이렇게
     // 답하는지 모른 채로 대화하게 된다.
-    if (opts.rolePrompt?.trim()) {
+    for (const bot of room.participants) {
+      if (!bot.rolePrompt?.trim()) continue;
       const note: Message = {
         id: messageId(),
         role: "system",
-        text: `역할: ${opts.rolePrompt.trim()}`,
+        // 봇이 여럿이면 **누구의 역할인지** 써준다 — 안 그러면 줄만 늘고 뜻이 없다
+        text:
+          room.participants.length > 1
+            ? `${bot.name}의 역할: ${bot.rolePrompt.trim()}`
+            : `역할: ${bot.rolePrompt.trim()}`,
         deliveredTo: [],
         createdAt: now,
       };
@@ -574,14 +631,23 @@ export class RoomManager extends EventEmitter<Events> {
     // 첫 메시지까지 미루면 (1) 고른 모델을 적용할 수 없고 — `setConfigOption`은
     // 세션이 있어야 부른다 — (2) 로그인 문제를 첫 메시지에서야 알게 되고
     // (3) 방은 있는데 세션은 없는 상태가 생긴다.
-    try {
-      await this.openSession(room, opts.configValues);
-    } catch (err) {
-      // 방은 남긴다 — 제목·역할을 다시 입력하게 만들지 않는다.
-      // 첫 메시지를 보낼 때 다시 시도한다.
-      this.setStatus(room.id, "error", room.participants[0]?.id);
-      this.noteRoom(room, `세션을 열지 못했습니다 — ${describe(err)}`);
-    }
+    // 봇마다 하나씩 — **병렬로**. 세션은 서로 무관하고, 순차로 열면
+    // 봇이 셋일 때 방 만드는 데만 몇 초가 걸린다.
+    await Promise.all(
+      room.participants.map(async (bot, at) => {
+        try {
+          await this.openSession(room, bot, specs[at]?.configValues);
+        } catch (err) {
+          // 방은 남긴다 — 제목·역할을 다시 입력하게 만들지 않는다.
+          // 첫 메시지를 보낼 때 다시 시도한다.
+          //
+          // ★ **한 봇이 안 열려도 나머지는 산다** — Codex 로그인이 풀렸다고
+          // Claude와의 대화까지 못 하게 만들 이유가 없다.
+          this.setStatus(room.id, "error", bot.id);
+          this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`);
+        }
+      }),
+    );
     return room;
   }
 
@@ -593,9 +659,9 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private async openSession(
     room: Room,
+    bot: BotInstance,
     configValues?: Record<string, string | boolean>,
   ): Promise<void> {
-    const bot = room.participants[0]!;
     const conn = this.connection(bot.agentId);
     const bt = this.botRuntime(room.id, bot.id);
 
@@ -1316,6 +1382,112 @@ export class RoomManager extends EventEmitter<Events> {
       if (bt.queue.length === 0) return;
       batch = bt.queue.splice(0, bt.queue.length);
     }
+  }
+
+  /**
+   * **한 번에 쓴 글을 멘션 그룹대로 쪼개 보낸다** (§4.1.2 · §4.3).
+   *
+   * 1:1의 `send()`는 «방의 유일한 봇에게 이 글»이었다. 단체방에서는 한 번 쓴
+   * 것이 **여러 봇에게 서로 다른 지시**로 갈라지므로 입구가 따로 필요하다.
+   *
+   * ```
+   * (@claude) (@codex)          →  블록 1 : 두 봇에게
+   * 이 코드 리뷰해줘
+   *
+   * (@gemini)                   →  블록 2 : 한 봇에게
+   * 문서도 업데이트해줘
+   * ```
+   *
+   * 🔴 **저장은 대상별로 쪼갠다.** 한 말풍선에 여러 봇을 담으면 «누가 무엇을
+   * 받았나»가 흐려지고, 봇별 뷰(v2.1)와 응답 짝짓기가 전부 어려워진다. 같이 쓴
+   * 것이라는 사실은 `composeGroupId`로 묶어 화면이 붙여 그린다.
+   *
+   * **블록끼리는 병렬**이다(§4.3). 봇이 다르면 기다릴 이유가 없고, 같은 봇이
+   * 두 블록에 나오면 그 봇의 큐가 알아서 순서를 지킨다 — 직렬은 **세션 단위**의
+   * 제약이지 방 단위가 아니다.
+   */
+  async sendCompose(
+    roomId: string,
+    tokens: ComposeToken[],
+    attachments?: Attachment[],
+  ): Promise<ComposeParse> {
+    const room = await this.openRoom(roomId);
+    const parsed = parseCompose(tokens, room.participants);
+
+    // 말해줄 것이 있으면 **보내기 전에** 남긴다 — 건너뛴 그룹을 나중에 알려주면
+    // 이미 «보냈다»고 믿은 뒤다.
+    for (const w of parsed.warnings) this.noteRoom(room, w, "info");
+    if (parsed.blocked) {
+      this.noteRoom(room, parsed.blocked, "error");
+      return parsed;
+    }
+
+    room.draft = undefined;
+    clearTimeout(this.draftTimer);
+    this.draftTimer = undefined;
+
+    const groupId = messageId();
+    const at = Date.now();
+
+    /** 블록 하나 = 메시지 하나. 먼저 **전부 적고** 나서 보낸다 */
+    const sent: Array<{ message: Message; botIds: string[] }> = [];
+    for (const [n, block] of parsed.blocks.entries()) {
+      const message: Message = {
+        id: messageId(),
+        role: "user",
+        text: block.text,
+        deliveredTo: block.botIds,
+        createdAt: at + n,   // 쓴 순서를 잃지 않는다
+        composeGroupId: groupId,
+        // 첨부는 **첫 블록에만** 붙인다. 블록마다 복사하면 같은 그림을 여러 번
+        // 올리게 되고, 어느 블록에 붙일지는 화면이 고르게 할 일이다(v2.1).
+        ...(n === 0 && attachments?.length ? { attachments } : {}),
+      };
+      this.append(room, message);
+      await this.saveNewMessage(room, message);
+      sent.push({ message, botIds: block.botIds });
+    }
+
+    // ── 보낸다. **봇마다 독립**이라 한 봇이 막혀도 나머지는 간다
+    const byBot = new Map<string, Message[]>();
+    for (const { message, botIds } of sent) {
+      for (const id of botIds) {
+        const list = byBot.get(id) ?? [];
+        list.push(message);
+        byBot.set(id, list);
+      }
+    }
+
+    await Promise.all(
+      [...byBot].map(async ([botId, batch]) => {
+        const bot = room.participants.find((b) => b.id === botId);
+        if (!bot) return;
+        const bt = this.botRuntime(roomId, botId);
+
+        // ★ **그 봇이** 도는 중이면 쌓는다 — 다른 봇이 바쁘다고 줄 설 이유가 없다
+        const mine = this.statusOf(roomId, botId);
+        if (mine !== "idle" && mine !== "error") {
+          bt.queue.push(...batch);
+          return;
+        }
+        /*
+         * ★ **블록마다 한 턴씩** — 합치지 않는다 (§4.1.2).
+         *
+         * 같은 봇을 두 번 지목했다면 *"먼저 이것, 그다음 저것"* 을 나눠 시킨
+         * 것이다. 묶어 보내면 한 턴이 되어 그 순서가 «한 번에 말한 것»으로
+         * 눈치까지 눈치는 수밖에 없다.
+         *
+         * 묶는 것은 **답하는 중에 끼어든** 메시지들이다(§4.3) — 그건 사용자가
+         * 따로 보낸 것이고, 기다리는 동안 쌓인 것을 한 번에 주는 게 이득이다.
+         */
+        for (const one of batch) await this.runQueue(room, [one], botId);
+        for (;;) {
+          if (bt.queue.length === 0) return;
+          await this.runQueue(room, bt.queue.splice(0, bt.queue.length), botId);
+        }
+      }),
+    );
+    return parsed;
   }
 
   /**
