@@ -918,7 +918,17 @@ let chat: ChatEls | null = null;
 function renderChat(): void {
   const r = room;
   if (!r) return;
-  if (chat?.roomId !== r.id) mountChat(r);
+  /*
+   * 🔴 **봇이 하나에서 둘이 되면 입력창을 갈아 끼워야 한다.**
+   *
+   * `mountChat`은 붙이는 순간에 «단체방인가»를 보고 `textarea`와 칩 상자 중
+   * 하나를 고른다. 그런데 방은 **도중에 바뀜다** — 1:1에서 봇을 부르면
+   * 그 자리에서 단체방이 된다(§4.2). 다시 붙이지 않으면 `textarea`가 남아
+   * **@로 지목할 수가 없어 사실상 단체방이 아니게 된다.**
+   */
+  const wantChips = r.participants.length > 1;
+  const hasChips = chat?.box.classList.contains("chipbox") === true;
+  if (chat?.roomId !== r.id || wantChips !== hasChips) mountChat(r);
   paintChat(r);
 }
 
@@ -3903,8 +3913,18 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
   // ── 모델 바꾸기 — 에이전트가 목록을 줄 때만
   if (model?.values?.length) {
     const select = el("select") as HTMLSelectElement;
+    /*
+     * 🔴 **봇이 실제로 든 값이 먼저다.**
+     *
+     * `model.current`는 **방 단위 캐시**라 봇이 둘이면 둘 다 같은 값을
+     * 보여준다. 그리고 설정이 늦게 오면 낡은 값이 남는다 — 실제로
+     * 이름 옆엔 Sonnet이 적힐는데 칸은 Opus로 보이는 일이 있었다.
+     *
+     * `bot.model`은 **그 봇의 세션이 들고 있는 값**이다(B1). 그걸 먼저 본다.
+     */
+    const now = bot.model ?? model.current;
     for (const v of model.values) {
-      select.append(el("option", { value: v.id, text: v.name, selected: v.id === model.current }));
+      select.append(el("option", { value: v.id, text: v.name, selected: v.id === now }));
     }
     select.addEventListener("change", () =>
       post({ t: "setConfig", roomId: r.id, configId: model.configId, value: select.value }),
@@ -4150,6 +4170,11 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       else configErrors.delete(key);
       // 만들기 화면은 방이 없으므로 에이전트 몫만 받는다
       if (!m.roomId && stack[stack.length - 1] === "new") renderNew(m.error);
+      // 서랍도 마찬가지다 — 열어둔 뒤에 온 설정이 갈 곳이 없으면
+      // 모델 칸이 영영 비어 있거나 낡은 값을 보여준다
+      if (room && m.roomId === room.id && screens.chat.querySelector(".drawer")) {
+        paintDrawer(room);
+      }
       // 열려 있는 권한 시트는 **늦게 온 설정을 받아 다시 그린다**
       if (room && m.roomId === room.id && screens.chat.querySelector(".sheet")) {
         paintPermissionSheet(room);
