@@ -1611,11 +1611,11 @@ ACP `ContentBlock`은 5종이다: `text` · `image` · `audio` · `resource`(내
 | `src/core/workspaceHost.ts` | 셸 능력 인터페이스 | ✅ |
 | `src/core/agentCatalog.ts` | 기본 에이전트 3종 + 설정 병합 | ✅ |
 | `src/core/acpConnection.ts` | ACP 연결 / 세션 / 턴 실행 | ✅ |
-| `src/core/roomManager.ts` | 방 상태 · unread · 영속화 | ⬜ |
-| `src/vscode/extension.ts` | 활성화 · 커맨드 · 상태표시줄 | ⬜ |
-| `src/vscode/chatPanel.ts` | WebviewPanel 셸 | ⬜ |
-| `src/vscode/workspaceHost.ts` | 미저장 버퍼 읽기 · diff (E1·E3) | ⬜ |
-| `src/webview/` | 메신저 UI (화면 3개) | ⬜ |
+| `src/core/roomManager.ts` | 방 상태 · unread · 영속화 | ✅ |
+| `src/vscode/extension.ts` | 활성화 · 커맨드 · 상태표시줄 | ✅ |
+| `src/vscode/chatPanel.ts` | WebviewPanel 셸 | ✅ |
+| `src/vscode/workspaceHost.ts` | 미저장 버퍼 읽기 · diff (E1·E3) | ✅ |
+| `src/webview/` | 메신저 UI (화면 3개) | ✅ |
 
 ---
 
@@ -1627,12 +1627,12 @@ ACP `ContentBlock`은 5종이다: `text` · `image` · `audio` · `resource`(내
 
 ### 기능
 
-- [x] **채팅 `⋮ → 여기서 분기`** — 현재 시점에서 분기
-- [x] **특정 메시지에서 fork** — 메시지 우클릭 → "여기서 분기"
+- [x] **헤더의 가지 버튼** — 현재 시점에서 분기 (처음엔 `⋮` 안에 있었다)
+- [x] **특정 메시지에서 fork** — 메시지 우클릭 → "이 메시지에서 분기"
 - [x] **분기 방 제목** — 기본 `원본 제목 (2)`, 생성 시 수정 가능
 - [x] **계보 표시** — 목록에 `↳ 원본이름에서 분기`(D3), 채팅에는 인라인 마커(D2)
 - [x] **원본으로 이동** — 마커나 배지를 탭하면 원본 방의 분기 지점으로
-- [x] **분기 목록** — 원본 방 `⋮`에서 자식 분기들 보기
+- [x] **분기 목록** — 원본 방 `⋮ → 방 정보` 에서 자식 분기들 보기
 
 ### 기술 메모
 
