@@ -1196,6 +1196,46 @@ function paintChat(r: Room): void {
      * 다행히 되먹임은 약속일 뿐 **토큰은 다음 메시지를 보낼 때까지 안 든다.**
      * 그 사이에 끌 수 있게 해두면, «물어보지 못한 경우»에도 선택은 남는다.
      */
+    /*
+     * ★ **분기가 폴백했을 때도 세 가지를 준다** (F7과 같은 모양).
+     *
+     * 예전엔 «끄기» 하나뿐이었다. 그런데 폴백은 **일시적인 실패일 수 있다** —
+     * 에이전트가 잠깐 바쁜 것뿐인데 그 한 번 때문에 영영 «글자만 옮긴 방»으로
+     * 살 이유가 없다. 세션 복구 실패에 «다시 시도»를 둔 것과 같은 이유다.
+     */
+    const stuck = r.participants.filter((b) => b.forkFallback);
+    if (stuck.length > 0) {
+      nodes.push(
+        el(
+          "div",
+          { class: "banner warn" },
+          el("span", {
+            text:
+              (r.participants.length > 1
+                ? `${stuck.map((b) => b.name).join("·")}는 `
+                : "") +
+              "세션을 갈라내지 못해 계획·파일 기억을 물려받지 못했습니다. " +
+              "다시 해보면 돌아올 수 있습니다.",
+          }),
+          el("button", {
+            class: "link",
+            text: "다시 시도",
+            title: "되면 계획과 파일 기억까지 돌아옵니다",
+            onclick: () => post({ t: "retryFork", roomId: r.id }),
+          }),
+          el("button", {
+            class: "link",
+            text: "대화 넘겨서 시작",
+            onclick: () => post({ t: "refeed", roomId: r.id, accept: true }),
+          }),
+          el("button", {
+            class: "link",
+            text: "기록만 두고 시작",
+            onclick: () => post({ t: "refeed", roomId: r.id, accept: false }),
+          }),
+        ),
+      );
+    } else
     nodes.push(
       el(
         "div",

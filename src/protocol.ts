@@ -178,6 +178,8 @@ export type FromWebview =
    * 이름이 곧 멘션 이름이라 방 안에서 유일해야 한다 — 겹치면 코어가 뒤에
    * 수를 붙여 돌려준다. **아직 화면은 없다**(배선만).
    */
+  /** 분기를 한 번 더 — 되면 계획·파일 기억까지 돌아온다 (v1.1 보완) */
+  | { t: "retryFork"; roomId: string }
   | { t: "renameBot"; roomId: string; botId: string; name: string }
   /**
    * 봇의 에이전트 바꾸기 (§8.1(b) 준비).

@@ -317,6 +317,12 @@ export class ChatPanel implements AskTarget {
         case "setRole":
           await this.rooms.setRole(m.roomId, m.rolePrompt, m.botId);
           break;
+        case "retryFork": {
+          const got = await this.rooms.retryFork(m.roomId);
+          // 안 됐으면 **왜 안 됐는지**를 말해준다 — 조용히 실패하면 또 누른다
+          if (!got.ok && got.reason) this.post({ t: "notice", roomId: m.roomId, message: got.reason });
+          break;
+        }
         case "renameBot":
           await this.rooms.renameBot(m.roomId, m.botId, m.name);
           break;

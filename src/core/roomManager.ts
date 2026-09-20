@@ -1140,6 +1140,101 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * **분기를 다시 해본다** (v1.1 보완).
+   *
+   * 네이티브 분기가 실패하면 우리는 `session/new`로 폴백하고 «글만 옮긴다»고
+   * 적어둔다. 그런데 그 실패는 **일시적일 수 있다** — 에이전트가 잠깐 바빴거나
+   * 막 뜨는 중이었을 수도 있다. 세션 복구 실패(F7)에 «다시 시도»를 둔 것과
+   * 똑같은 이유로, 여기에도 한 번 더 해볼 길이 있어야 한다.
+   *
+   * 되면 **계획과 파일 기억까지 돌아온다.** 되먹임은 글자만 옮기지만 분기는
+   * 세션을 복제하기 때문이다.
+   *
+   * 🔴 **원본이 그 뒤로 더 말했으면 안 한다.** `session/fork`는 «어느 지점에서»를
+   * 못 받으므로 **지금 상태**를 복제한다 — 원본이 세 턴을 더 돌았다면 다시
+   * 분기한 세션은 그 세 턴까지 알고 있다. 사용자가 고른 지점이 아니다.
+   * 그럴 때는 조용히 다른 것을 주지 않고 **안 된다고 말한다**(§0).
+   */
+  async retryFork(roomId: string): Promise<{ ok: boolean; reason?: string }> {
+    const room = await this.openRoom(roomId);
+    if (!room.forkedFromRoomId) return { ok: false, reason: "분기된 방이 아닙니다." };
+
+    const failed = room.participants.filter((b) => b.forkFallback);
+    if (failed.length === 0) return { ok: false, reason: "다시 할 분기가 없습니다." };
+    if (isBusy(this.statusOf(roomId))) {
+      return { ok: false, reason: "응답이 끝난 뒤에 다시 시도할 수 있습니다." };
+    }
+
+    let parent: Room;
+    try {
+      parent = await this.openRoom(room.forkedFromRoomId);
+    } catch {
+      return { ok: false, reason: "원본 방이 없어졌습니다." };
+    }
+
+    // 원본이 더 말했으면 **지금 분기해도 그 지점이 아니다**
+    const tail = [...parent.messages].reverse().find((m) => m.role !== "system");
+    if (tail && tail.id !== room.forkedAtMessageId) {
+      return {
+        ok: false,
+        reason: "원본이 그 뒤로 더 대화해서, 지금 분기하면 그때 지점이 아닙니다.",
+      };
+    }
+
+    let won = 0;
+    for (const bot of failed) {
+      // 원본 쪽 짝을 이름으로 찾는다 — 분기할 때 이름을 그대로 물려줬다
+      const origin = parent.participants.find((b) => b.name === bot.name);
+      const live = origin
+        ? (this.runtimes.get(parent.id)?.bots.get(origin.id)?.sessionId ?? origin.sessionId)
+        : undefined;
+      if (!origin || !live) continue;
+
+      const got = await this.connection(origin.agentId).forkSession(live, room.cwd);
+      if (!got.ok) continue;
+
+      // 폴백으로 열었던 세션은 **빈 것**이라 지울 것도 없다 — 놓기만 한다
+      const bt = this.botRuntime(room.id, bot.id);
+      if (bt.sessionId) {
+        await this.connections.get(bot.agentId)?.closeSession(bt.sessionId).catch(() => undefined);
+      }
+      bt.sessionId = got.sessionId;
+      // 네이티브로 갈라낸 세션은 역할을 이미 알고 있다
+      bt.roleInjected = true;
+      bot.sessionId = got.sessionId;
+      bot.sessionPrompted = true;
+      delete bot.forkFallback;
+      this.watchIdle(room, bot, got.sessionId);
+      if (got.options.length > 0) await this.restoreChoices(room, bot, got.sessionId, got.options);
+      won++;
+    }
+
+    if (won === 0) return { ok: false, reason: "다시 해봐도 갈라지지 않았습니다." };
+
+    const left = room.participants.filter((b) => b.forkFallback);
+    // 전부 되살아났으면 되먹임 약속은 필요 없다 — 계획·기억까지 돌아왔다
+    if (left.length === 0) delete room.refeedPending;
+
+    this.noteRoom(
+      room,
+      left.length === 0
+        ? "다시 분기했습니다 — 계획과 파일 기억까지 물려받았습니다."
+        : `${failed
+            .filter((b) => !b.forkFallback)
+            .map((b) => b.name)
+            .join("·")}는 다시 분기했습니다. ` +
+            `${left.map((b) => b.name).join("·")}는 여전히 글로만 옮깁니다.`,
+      "info",
+    );
+    await this.saveProps(room, {
+      participants: room.participants,
+      ...(left.length === 0 ? { refeedPending: undefined } : {}),
+    });
+    this.emit("room", room);
+    return { ok: true };
+  }
+
+  /**
    * 갈라낸 세션에 **방을 만들어 붙인다** (v1.1).
    *
    * 분기 방은 «평범한 새 방»이다 (D2) — 특별한 모드도 지속 상태도 없다.
@@ -1191,6 +1286,8 @@ export class RoomManager extends EventEmitter<Events> {
          * 폴백으로 만든 것(`session/new`)은 여전히 false다. 그건 진짜로 비어 있다.
          */
         sessionPrompted: forked.native,
+        // 폴백이면 **다시 해볼 수 있게** 이유를 들고 있는다
+        ...(forked.native ? {} : { forkFallback: forked.reason }),
       })),
       cwd: parent.cwd,
       messages,
