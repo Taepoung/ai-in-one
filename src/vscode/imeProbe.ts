@@ -107,8 +107,11 @@ function html(): string {
   const verdict = document.getElementById("verdict");
   const ceLen = document.getElementById("ceLen");
 
-  const seen = { compositions: 0, enterWhileComposing: 0, chipWholeDelete: 0, chipPartial: 0 };
+  const seen = { compositions: 0, enterWhileComposing: 0, enterAfterCommit: 0, enterClean: 0,
+                 chipWholeDelete: 0, chipPartial: 0 };
   let composing = false;
+  /** 마지막 조합이 끝난 시각 — Enter가 «확정용»인지 가리는 단서다 */
+  let lastEnd = 0;
 
   const say = (s) => {
     log.textContent += s + "\\n";
@@ -128,9 +131,13 @@ function html(): string {
     } else if (seen.chipWholeDelete > 0) {
       lines.push('<span class="ok">칩이 <b>한 번에</b> 지워집니다</span>');
     }
-    if (seen.enterWhileComposing > 0) {
-      lines.push('<span class="bad">조합 중 Enter가 ' + seen.enterWhileComposing + '번 들어왔습니다 — <b>isComposing으로 걸러야 합니다</b></span>');
+    if (seen.enterAfterCommit > 0) {
+      lines.push('<span class="bad">확정용 Enter를 <b>전송으로 읽은 것이 ' + seen.enterAfterCommit + '번</b> — isComposing만으로는 못 걸러냅니다</span>');
     }
+    if (seen.enterWhileComposing > 0) {
+      lines.push('<span class="ok">조합 중 Enter ' + seen.enterWhileComposing + '번은 isComposing으로 걸렸습니다</span>');
+    }
+    if (seen.enterClean > 0) lines.push('조합과 무관한 Enter ' + seen.enterClean + '번');
     lines.push("칩 " + chips + "개");
     verdict.innerHTML = lines.join("<br>");
   };
@@ -146,17 +153,36 @@ function html(): string {
     el.addEventListener("compositionupdate", (e) => say(who + "  조합 중: " + JSON.stringify(e.data)));
     el.addEventListener("compositionend", (e) => {
       composing = false;
+      lastEnd = Date.now();
       say(who + "  조합 끝: " + JSON.stringify(e.data));
       paint();
     });
     el.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        // ★ 여기가 핵심이다. 조합 중 Enter는 **확정**이지 전송이 아니다.
+        /*
+         * ★ **여기가 진짜 시험이다.**
+         *
+         * 우리 규칙은 «Enter && !isComposing → 전송»이다. 그런데 Windows IME는
+         * **조합을 끝내는 Enter**에서도 «compositionend»를 먼저 보내고, 뒤따라오는
+         * keydown에는 «isComposing=false»를 실을 수 있다. 그러면 «확정하려는 Enter»와
+         * «보내려는 Enter»가 구별되지 않는다.
+         *
+         * 그래서 **직전 조합이 언제 끝났는지**를 함께 재서 둘을 가른다.
+         */
+        const since = Date.now() - lastEnd;
+        const commit = lastEnd > 0 && since < 60;
         if (e.isComposing || composing) {
           seen.enterWhileComposing++;
-          say(who + "  ⚠ 조합 중 Enter (isComposing=" + e.isComposing + ") — 전송하면 글자가 잘린다");
+          say(who + "  조합 중 Enter (isComposing=true) — 규칙이 걸러낸다");
+        } else if (commit) {
+          seen.enterAfterCommit++;
+          say(who + "  [!] Enter (isComposing=false) 인데 " + since + "ms 전에 조합이 끝났다"
+              + " — **확정용 Enter를 전송으로 읽는다**");
         } else {
-          say(who + "  Enter (조합 아님) — 전송해도 되는 자리");
+          seen.enterClean++;
+          say(who + "  Enter (조합과 무관"
+              + (lastEnd > 0 ? ", 직전 조합으로부터 " + since + "ms" : "")
+              + ") — 전송해도 되는 자리");
         }
         e.preventDefault();
         paint();
@@ -189,6 +215,7 @@ function html(): string {
     ta.value = "";
     log.textContent = "";
     seen.compositions = 0; seen.enterWhileComposing = 0;
+    seen.enterAfterCommit = 0; seen.enterClean = 0; lastEnd = 0;
     seen.chipWholeDelete = 0; seen.chipPartial = 0;
     paint();
   });
