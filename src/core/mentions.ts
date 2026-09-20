@@ -17,6 +17,9 @@
  * 전부 이 파일이 정한다 — 그래야 한 군데서만 고치고 한 군데서만 잰다.
  *
  * 화면은 칩을 `mention`, 나머지를 `text`로 늘어놓기만 하면 된다.
+ *
+ * ★ **맨 앞에 지목이 없으면 전원에게** 간다. 단체방에서 제일 흔한 것이
+ * «다들 이거 봐줘»인데 그때마다 `@everyone`을 치게 하면 수고가 된다.
  */
 
 /** 입력창이 적어 보내는 것. 칩 하나, 또는 글자 덩어리 하나 */
@@ -71,8 +74,15 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
   const blocks: ComposeBlock[] = [];
   /** 지금 모으는 중인 그룹. 아직 지시를 안 받았으면 `text`가 빈 채로 있다 */
   let open: ComposeBlock | undefined;
-  /** 첫 그룹 앞에 흘린 글자 — 있으면 막는다 */
+  /** 첫 그룹 앞에 흘린 글자 — 지목이 없었으면 전원에게 간다 */
   let orphan = "";
+  /**
+   * 그 글자가 **지목을 시도한 뒤**에 흘러들었나.
+   *
+   * 나간 봇을 가리킨 칩은 건너뛰는데, 그 뒤의 글까지 «지목이 없다»고 보고
+   * **전원에게 보내면 조용히 넓혀진다.** 사용자는 분명히 한 명을 골랐다.
+   */
+  let orphanAfterMention = false;
   /**
    * 지금 **줄 맨 앞**인가.
    *
@@ -102,12 +112,12 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
         warnings.push("이 방에 없는 봇이 지목되어 있습니다. 칩을 지우고 다시 골라주세요.");
         // 라우팅 자리였으면 **줄 맨 앞은 소비된 것**으로 친다 — 뒤따르는 글자가
         // 갑자기 «첫 멘션 앞의 텍스트»가 되어 엉뚱한 이유로 막히면 안 된다.
-        if (routing) chaining = true;
+        if (routing) { chaining = true; orphanAfterMention = true; }
         continue;
       }
       if (tk.botId === EVERYONE && ids.length === 0) {
         warnings.push("방에 봇이 없어 @everyone이 가리킬 대상이 없습니다.");
-        if (routing) chaining = true;
+        if (routing) { chaining = true; orphanAfterMention = true; }
         continue;
       }
 
@@ -150,12 +160,43 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
   }
   push(open);
 
+  /*
+   * ★ **맨 앞에 지목 없이 쓴 글은 전원에게 간다.**
+   *
+   * 처음엔 막았다 — «깜빡했는데 전원이 파일을 고친다»가 무서워서였다.
+   * 그 규칙을 정할 때는 **보내기 전 요약이 없었다.** 지금은 입력창 위에
+   * «누구에게 가나»가 띄므로 깜빡은 보내기 전에 드러난다 — 조용한 사고가 아니다.
+   *
+   * 반대편은 비쌀다: 단체방에서 제일 흔한 «다들 이거 봐줘»에 매번
+   * `@everyone`을 치게 하는 것이다. **기본값이 수고가 되면 사람은 다른 길을
+   * 찾는다** — 그러다 진짜로 지목해야 할 때도 굴러가게 된다.
+   *
+   * `@everyone`은 남긴다 — **중간 블록**에서는 대신할 게 없다.
+   */
+  const head = orphan.trim();
+  if (head && orphanAfterMention) {
+    // 지목하려던 봇을 못 찾았다 — 전원으로 넓히지 않고 물어본다
+    return {
+      blocks,
+      blocked: "지목한 봇을 찾을 수 없습니다. 칩을 지우고 다시 골라주세요.",
+      warnings,
+    };
+  }
+  if (head) {
+    if (bots.length === 0) {
+      return {
+        blocks,
+        blocked: "방에 봇이 없습니다.",
+        warnings,
+      };
+    }
+    blocks.unshift({ botIds: bots.map((b) => b.id), text: head });
+  }
+
   const blocked =
-    orphan.trim() !== ""
-      ? "맨 앞에 지목 없이 쓴 글이 있습니다. 누구에게 보낼지 먼저 고르세요."
-      : blocks.length === 0
-        ? "받을 봇이 없습니다. @로 지목해야 전달됩니다."
-        : undefined;
+    blocks.length === 0
+      ? "보낼 내용이 없습니다."
+      : undefined;
 
   return { blocks, ...(blocked ? { blocked } : {}), warnings };
 }
