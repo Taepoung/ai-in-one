@@ -138,7 +138,14 @@ export type FromWebview =
   | { t: "back" }
   | {
       t: "createRoom";
+      /** 1:1의 에이전트. `bots`를 주면 무시된다 */
       agentId: string;
+      /** 단체방 (v2.0) — 봇마다 에이전트·모델·역할을 따로 고른다 */
+      bots?: Array<{
+        agentId: string;
+        rolePrompt?: string;
+        configValues?: Record<string, string | boolean>;
+      }>;
       title: string;
       cwd?: string;
       rolePrompt?: string;
@@ -180,6 +187,9 @@ export type FromWebview =
    */
   /** 분기를 한 번 더 — 되면 계획·파일 기억까지 돌아온다 (v1.1 보완) */
   | { t: "retryFork"; roomId: string }
+  /** 방에 봇을 부른다 (v2.0). 1:1을 단체방으로 올리는 길이기도 하다 */
+  | { t: "addBot"; roomId: string; agentId: string; rolePrompt?: string }
+  | { t: "removeBot"; roomId: string; botId: string }
   | { t: "renameBot"; roomId: string; botId: string; name: string }
   /**
    * 봇의 에이전트 바꾸기 (§8.1(b) 준비).

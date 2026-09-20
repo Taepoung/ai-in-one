@@ -551,26 +551,35 @@ function clearFindMarks(): void {
 
 // ── 방 만들기 ───────────────────────────────────────────────────────────
 
-let draftAgentId = boot.agents[0]?.id ?? "";
+/**
+ * 만들려는 방의 봇들 (v2.0).
+ *
+ * 1:1은 **봇이 하나인 단체방**이다 — 타입을 따로 고르게 하지 않는다.
+ * 라디오 버튼은 거듭때기다: 봇을 하나 더 넣으면 그게 곧 단체방이고,
+ * 아이콘도 `roomKind()`가 참여자 수로 알아서 바꾼다.
+ */
+interface DraftBot {
+  agentId: string;
+  /** 모델·추론 강도 — 봇마다 따로 고른다 */
+  picks: Map<string, string | boolean>;
+  role: string;
+}
+const draftBots: DraftBot[] = [{ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" }];
+/** 방금 손대던 봇 — 빼기를 누른 뒤 범위를 안전하게 유지하려고 둔다 */
+let draftAt = 0;
 let draftCwd = "";
 
 function openNewRoom(): void {
   draftCwd = "";
   renderNew();
   go("new");
-  if (draftAgentId) post({ t: "needConfig", agentId: draftAgentId });
+  for (const b of draftBots) if (b.agentId) post({ t: "needConfig", agentId: b.agentId });
   setTimeout(() => screens.new.querySelector<HTMLInputElement>("#new-title")?.focus(), 240);
 }
 
 function renderNew(error?: string): void {
-  const options = configs.get(draftAgentId);
-  const picks = new Map<string, string | boolean>();
 
   const title = el("input", { type: "text", id: "new-title", placeholder: "비우면 «새 대화»" });
-  const role = el("textarea", {
-    id: "new-role",
-    placeholder: "예) 너는 코드 리뷰어다. 구현하지 말고 지적만 해라.",
-  });
   const cwdInput = el("input", {
     type: "text",
     id: "new-cwd",
@@ -603,11 +612,14 @@ function renderNew(error?: string): void {
     create.textContent = "여는 중…";
     post({
       t: "createRoom",
-      agentId: draftAgentId,
+      agentId: draftBots[0]?.agentId ?? "",
       title: title.value.trim(),
       ...(cwdInput.value.trim() ? { cwd: cwdInput.value.trim() } : {}),
-      ...(role.value.trim() ? { rolePrompt: role.value.trim() } : {}),
-      ...(picks.size > 0 ? { configValues: Object.fromEntries(picks) } : {}),
+      bots: draftBots.map((b) => ({
+        agentId: b.agentId,
+        ...(b.role.trim() ? { rolePrompt: b.role.trim() } : {}),
+        ...(b.picks.size > 0 ? { configValues: Object.fromEntries(b.picks) } : {}),
+      })),
     });
   });
 
@@ -623,23 +635,21 @@ function renderNew(error?: string): void {
       "div",
       { class: "form" },
       el("div", { class: "field" }, el("label", { text: "방 제목" }), title),
-      el(
-        "fieldset",
-        { class: "bot" },
-        el("legend", { text: "봇" }),
-        el(
-          "div",
-          { class: "field" },
-          el("label", { text: "에이전트" }),
-          el(
-            "div",
-            { class: "agents" },
-            ...boot.agents.map((a) => agentButton(a)),
-          ),
-        ),
-        // 에이전트를 고른 뒤에 채워진다. 미리 받아둬서 기다림이 없다 (B15)
-        ...configFields(options, picks),
-        el("div", { class: "field" }, el("label", { text: "역할 (선택)" }), role),
+      ...draftBots.map((b, n) => botFieldset(b, n)),
+      // 봇을 하나 더 넣으면 그게 곧 단체방이다 — 타입을 따로 고르게 하지 않는다
+      el("div", { class: "row" },
+        el("button", {
+          class: "ghost",
+          text: "+ 봇 추가",
+          onclick: () => {
+            draftBots.push({ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" });
+            draftAt = draftBots.length - 1;
+            renderNew();
+          },
+        }),
+        draftBots.length > 1
+          ? el("span", { class: "dim", text: `봇 ${draftBots.length}개 — 단체방으로 만들어집니다` })
+          : el("span", { class: "dim", text: "혼자 쓰면 1:1 방입니다" }),
       ),
       el(
         "div",
@@ -673,17 +683,60 @@ function renderNew(error?: string): void {
   );
 }
 
-function agentButton(a: AgentBrief): HTMLElement {
+/**
+ * 봇 하나를 고르는 칸 (v2.0).
+ *
+ * 1:1이든 단체방이든 **같은 블록이 반복될 뿐**이다 — 모델·역할이
+ * 전부 봇에 붙는 값이라(D2·B3) 봇마다 따로 받아야 한다.
+ */
+function botFieldset(b: DraftBot, n: number): HTMLElement {
+  const role = el("textarea", {
+    placeholder: "예) 너는 코드 리뷰어다. 구현하지 말고 지적만 해라.",
+    ...(n === 0 ? { id: "new-role" } : {}),
+  }) as HTMLTextAreaElement;
+  role.value = b.role;
+  role.addEventListener("input", () => (b.role = role.value));
+
+  return el(
+    "fieldset",
+    { class: "bot" },
+    el("legend", { text: draftBots.length > 1 ? `봇 ${n + 1}` : "봇" }),
+    draftBots.length > 1
+      ? el("button", {
+          class: "link bot-drop",
+          text: "빼기",
+          onclick: () => {
+            draftBots.splice(n, 1);
+            draftAt = Math.min(draftAt, draftBots.length - 1);
+            renderNew();
+          },
+        })
+      : null,
+    el(
+      "div",
+      { class: "field" },
+      el("label", { text: "에이전트" }),
+      el("div", { class: "agents" }, ...boot.agents.map((a) => agentButton(a, b, n))),
+    ),
+    // 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15)
+    ...configFields(configs.get(b.agentId), b.picks),
+    el("div", { class: "field" }, el("label", { text: "역할 (선택)" }), role),
+  );
+}
+
+function agentButton(a: AgentBrief, b: DraftBot, n: number): HTMLElement {
   return el(
     "button",
     {
       class: "agent",
-      "aria-pressed": a.id === draftAgentId,
+      "aria-pressed": a.id === b.agentId,
       onclick: () => {
-        if (a.id === draftAgentId) return;
-        draftAgentId = a.id;
+        if (a.id === b.agentId) return;
+        b.agentId = a.id;
+        // 모델은 에이전트마다 다르다 — 압은 것을 그대로 두면 없는 id를 보낸다
+        b.picks.clear();
+        draftAt = n;
         renderNew();
-        // 이 에이전트의 모델 목록이 아직 없으면 지금 받아온다
         if (!configs.has(a.id)) post({ t: "needConfig", agentId: a.id });
       },
     },
@@ -3290,6 +3343,7 @@ function paintDrawer(r: Room): void {
     ),
     ...r.participants.map((bot) => drawerBot(r, bot)),
     sharedMemoryRow(r),
+    inviteRow(r),
   );
 
   const was = screens.chat.querySelector(".drawer");
@@ -3299,6 +3353,32 @@ function paintDrawer(r: Room): void {
     screens.chat.append(veil, drawer);
   }
 }
+
+/**
+ * **봇 부르기** — 서랍 바닥 (v2.0).
+ *
+ * 1:1 방에서 누르면 그 자리에서 단체방이 된다 — 방을 새로 만들 필요가 없다.
+ * 역할은 여기서 안 받는다. 부른 뒤 **그 봇의 줄에서** 적으면 된다 — 단추 하나에
+ * 폼을 달면 «부르기 전에 다 정해야 한다»가 되고, 그건 사실이 아니다.
+ */
+function inviteRow(r: Room): HTMLElement {
+  const pick = el("select", { class: "invite" }) as HTMLSelectElement;
+  for (const a of boot.agents) pick.append(el("option", { value: a.id, text: a.label }));
+  return el(
+    "div",
+    { class: "invite-row" },
+    pick,
+    el("button", {
+      class: "ghost",
+      text: "+ 봇 부르기",
+      onclick: () => {
+        closeDrawer();
+        post({ t: "addBot", roomId: r.id, agentId: pick.value });
+      },
+    }),
+  );
+}
+
 
 /**
  * 봇 한 줄.
@@ -3363,6 +3443,22 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       }),
     );
   }
+  // 내보내기 — 마지막 한 명은 코어가 막지만, 누르고 거절당하게 두지 않는다 —
+  // 애초에 안 보여준다
+  if (r.participants.length > 1) {
+    acts.push(
+      el("button", {
+        class: "ghost",
+        text: "내보내기",
+        title: "이 봇과의 세션을 끝냅니다. 지금까지의 대화는 그대로 남습니다.",
+        onclick: () => {
+          closeDrawer();
+          post({ t: "removeBot", roomId: r.id, botId: bot.id });
+        },
+      }),
+    );
+  }
+
   // 🔴 **중단은 여기 안 둔다.** 흔드는 말풍선 아래에 이미 «…만 중단»이 있고,
   // 그것이 본래 자리다 — 멈추려는 순간 보는 것은 그 말풍선이지 서랍이 아니다.
   // 서랍을 열고 봇을 찾는 사이에 답이 끝나면 버튼만 헛돌게 된다.

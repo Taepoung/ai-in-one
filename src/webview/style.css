@@ -2105,3 +2105,30 @@ details.advanced[open] > summary .codicon-chevron-right {
 .cut-line.lost {
   color: var(--vscode-errorForeground, #f14c4c);
 }
+
+/* 서랍 바닥의 «봇 부르기» — 봇 줄들과 선으로 갈린다 */
+.invite-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.invite-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 방 만들기의 «빼기» — 봇 블록 오른쪽 위 */
+fieldset.bot {
+  position: relative;
+}
+
+fieldset.bot .bot-drop {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 11px;
+}

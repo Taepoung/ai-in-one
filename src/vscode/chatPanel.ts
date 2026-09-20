@@ -224,6 +224,7 @@ export class ChatPanel implements AskTarget {
         case "createRoom": {
           const room = await this.rooms.createRoom({
             agentId: m.agentId,
+            ...(m.bots?.length ? { bots: m.bots } : {}),
             ...(m.title ? { title: m.title } : {}),
             ...(m.cwd ? { cwd: m.cwd } : {}),
             ...(m.rolePrompt ? { rolePrompt: m.rolePrompt } : {}),
@@ -316,6 +317,19 @@ export class ChatPanel implements AskTarget {
           break;
         case "setRole":
           await this.rooms.setRole(m.roomId, m.rolePrompt, m.botId);
+          break;
+        case "addBot":
+          await this.rooms.addBot(m.roomId, {
+            agentId: m.agentId,
+            ...(m.rolePrompt ? { rolePrompt: m.rolePrompt } : {}),
+          });
+          break;
+        case "removeBot":
+          try {
+            await this.rooms.removeBot(m.roomId, m.botId);
+          } catch (err) {
+            this.post({ t: "notice", roomId: m.roomId, message: describeErr(err) });
+          }
           break;
         case "retryFork": {
           const got = await this.rooms.retryFork(m.roomId);
@@ -738,4 +752,9 @@ function mimeFromPath(p: string): string {
   if (["mp3", "wav", "ogg", "m4a", "flac"].includes(ext)) return `audio/${ext}`;
   if (ext === "pdf") return "application/pdf";
   return "text/plain";
+}
+
+/** 부르는 쪽에게 보여줄 한 줄 */
+function describeErr(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
