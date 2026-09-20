@@ -10,6 +10,7 @@ import type {
   RoomUsage,
   ToolActivity,
 } from "../core/types.js";
+import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 import type {
   AgentBrief,
   AskCard,
@@ -900,6 +901,8 @@ interface ChatEls {
   chips: HTMLElement;
   box: HTMLTextAreaElement;
   perm: HTMLElement;
+  /** 단체방의 «누구에게 가나» 줄 (v2.0). 1:1에서는 숨어 있다 */
+  compose: HTMLElement;
 }
 let chat: ChatEls | null = null;
 
@@ -910,6 +913,241 @@ function renderChat(): void {
   paintChat(r);
 }
 
+// ── 멘션 칩 입력창 (§4.1.2) ────────────────────────────────────────────
+
+/**
+ * **단체방의 입력창** — 칩으로 지목한다.
+ *
+ * 1:1에서는 안 쓴다. 봇이 하나인데 `@`를 치게 할 이유가 없다 — 지목이 뜻을 갖는
+ * 것은 **고를 상대가 있을 때**부터다.
+ *
+ * ✅ **한글이 안 깨진다** (2026-09-21 실측, §4.1.2). 조합 이벤트가 `textarea`와
+ * 한 글자도 다르지 않았고, 칩은 백스페이스 한 번에 통째로 지워진다. 그래서
+ * `contenteditable`을 그대로 쓴다.
+ *
+ * 🔴 **칩만 멘션이다.** 직접 친 `@gmail.com`은 그냥 글자다. 칩은 `botId`를 들고
+ * 있어서 **이름을 바꿔도 라우팅이 유지된다** — 보이는 이름과 가리키는 대상이
+ * 따로 놀 수 있다는 뜻이고, 그게 칩을 쓰는 진짜 이유다.
+ */
+function makeChipBox(): HTMLElement {
+  const box = el("div", {
+    class: "box chipbox",
+    contenteditable: "true",
+    role: "textbox",
+    "aria-multiline": "true",
+    "data-empty": "메시지 입력…  @로 지목",
+  });
+  return box;
+}
+
+/**
+ * **보내기 전에 누구에게 가는지 보여준다** (§4.1.2).
+ *
+ * «보이는데 봇은 모른다»가 이 설계의 유일한 위험이다(§4.1.1). 그런데
+ * 그 간극은 **보내기 전에** 줄이는 게 제일 싸다 — 보내고 나서 «안 갔다»는
+ * 이미 한 번 틀린 뒤다.
+ */
+function paintCompose(r: Room, box: HTMLElement): void {
+  const bar = chat?.compose;
+  if (!bar) return;
+  box.dataset.filled = box.textContent?.trim() || box.querySelector(".chip") ? "1" : "";
+
+  const parsed = parseCompose(readTokens(box), r.participants);
+  if (!box.dataset.filled) { bar.replaceChildren(); bar.hidden = true; return; }
+
+  bar.hidden = false;
+  if (parsed.blocked) {
+    bar.className = "compose-note bad";
+    bar.replaceChildren(el("span", { text: parsed.blocked }));
+    return;
+  }
+  bar.className = "compose-note";
+  const summary = parsed.blocks
+    .map((b) => {
+      const names = b.botIds
+        .map((id) => r.participants.find((p) => p.id === id)?.name ?? id)
+        .join("·");
+      return `${names}에게 1블록`;
+    })
+    .join(" · ");
+  bar.replaceChildren(
+    el("span", { text: summary }),
+    ...parsed.warnings.map((w) => el("span", { class: "bad", text: w })),
+  );
+}
+
+/** 칩 하나. `botId`가 진짜 값이고 글자는 보여주기용이다 */
+function mentionChip(botId: string, name: string): HTMLElement {
+  return el("span", {
+    class: "chip",
+    contenteditable: "false",
+    "data-bot": botId,
+    text: `@${name}`,
+  });
+}
+
+/**
+ * 입력창을 **토큰으로 읽는다** — 코어가 규칙을 적용할 수 있게 (§4.1.2).
+ *
+ * 화면이 하는 일은 여기까지다. «줄 맨 앞인가», «연속인가», «누가 받나»는
+ * `parseCompose`가 정한다.
+ */
+function readTokens(box: HTMLElement): ComposeToken[] {
+  const out: ComposeToken[] = [];
+  const push = (t: string) => {
+    if (!t) return;
+    const last = out[out.length - 1];
+    if (last?.kind === "text") last.text += t;
+    else out.push({ kind: "text", text: t });
+  };
+  const walk = (node: Node): void => {
+    for (const kid of [...node.childNodes]) {
+      if (kid.nodeType === Node.TEXT_NODE) {
+        push((kid as Text).data.replace(/ /g, " "));
+        continue;
+      }
+      const elm = kid as HTMLElement;
+      if (elm.dataset?.bot) {
+        out.push({ kind: "mention", botId: elm.dataset.bot });
+        continue;
+      }
+      // 줄바꿈은 브라우저가 <div>·<br>로 만든다 — 글자로 되돌린다
+      if (elm.tagName === "BR") { push("\n"); continue; }
+      if (elm.tagName === "DIV" || elm.tagName === "P") push("\n");
+      walk(elm);
+    }
+  };
+  walk(box);
+  return out;
+}
+
+/** 지금 커서 앞에 `@검색어`가 열려 있나 — 자동완성을 띄울지 정한다 */
+function openQuery(box: HTMLElement): { node: Text; at: number; q: string } | null {
+  const sel = box.ownerDocument.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
+  const node = sel.anchorNode;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !box.contains(node)) return null;
+
+  const text = (node as Text).data.slice(0, sel.anchorOffset);
+  const at = text.lastIndexOf("@");
+  if (at < 0) return null;
+  const q = text.slice(at + 1);
+  // 공백이 들어가면 더는 이름을 고르는 중이 아니다
+  if (/\s/.test(q)) return null;
+  return { node: node as Text, at, q };
+}
+
+/**
+ * 자동완성 목록 (§4.1.2).
+ *
+ * 맨 위에 **직전 그룹**이 온다 — 같은 상대에게 이어서 말하는 것이 가장 흔한데,
+ * 스티키(마지막 대상을 기억)는 «지금 누구에게 말하는지»가 숨은 상태가 되므로
+ * 쓰지 않는다. `@`+Tab은 **사용자가 요청할 때만** 채워지므로 명시성을 안 잃는다.
+ */
+function paintPicker(r: Room, box: HTMLElement): void {
+  closePicker();
+  const found = openQuery(box);
+  if (!found) return;
+
+  const q = found.q.toLowerCase();
+  // 이미 이 그룹에 넣은 봇은 뺀다 — `(@Claude) @`에서 Claude가 또 뜨면 안 된다
+  const already = new Set(
+    [...box.querySelectorAll<HTMLElement>(".chip")].map((c) => c.dataset.bot ?? ""),
+  );
+  const hits = r.participants.filter(
+    (b) => !already.has(b.id) && b.name.toLowerCase().includes(q),
+  );
+
+  type Row = { label: string; ids: string[]; hint?: string };
+  const rows: Row[] = [];
+  // 글자를 치기 시작하면 직전 그룹은 사라진다 — 특정 봇을 찾는 중이므로
+  if (q === "" && lastGroup.length > 0 && lastGroup.every((id) => !already.has(id))) {
+    const names = lastGroup
+      .map((id) => r.participants.find((b) => b.id === id)?.name)
+      .filter((n): n is string => n !== undefined);
+    if (names.length > 0) {
+      rows.push({ label: names.map((n) => `@${n}`).join(" "), ids: [...lastGroup], hint: "직전 그룹" });
+    }
+  }
+  for (const b of hits) rows.push({ label: `@${b.name}`, ids: [b.id] });
+  if ("everyone".includes(q) && r.participants.length > 1) {
+    rows.push({ label: "@everyone", ids: [EVERYONE], hint: "전원" });
+  }
+  // 맞는 게 없으면 목록을 닫는다. 친 글자는 그대로 남고 **칩이 아니므로 멘션도 아니다**
+  if (rows.length === 0) return;
+
+  pickerRows = rows.map((row) => () => {
+    // `@검색어`를 지우고 그 자리에 칩을 넣는다
+    const text = found.node;
+    const rest = text.data.slice(found.at + 1 + found.q.length);
+    text.data = text.data.slice(0, found.at);
+    const after = box.ownerDocument.createTextNode(rest);
+    let mark: Node = text;
+    for (const id of row.ids) {
+      const name = id === EVERYONE ? "everyone" : (r.participants.find((b) => b.id === id)?.name ?? id);
+      const chip = mentionChip(id, name);
+      mark.parentNode?.insertBefore(chip, mark.nextSibling);
+      const gap = box.ownerDocument.createTextNode(" ");
+      chip.parentNode?.insertBefore(gap, chip.nextSibling);
+      mark = gap;
+    }
+    mark.parentNode?.insertBefore(after, mark.nextSibling);
+    caretAfter(box, mark);
+    closePicker();
+    box.dispatchEvent(new Event("input"));
+  });
+
+  pickerAt = 0;
+  const menu = el(
+    "div",
+    { class: "picker" },
+    ...rows.map((row, n) =>
+      el(
+        "button",
+        {
+          class: n === 0 ? "on" : "",
+          onclick: () => pickerRows[n]?.(),
+          onmouseenter: () => movePicker(n),
+        },
+        el("span", { text: row.label }),
+        row.hint ? el("span", { class: "dim", text: row.hint }) : null,
+      ),
+    ),
+  );
+  screens.chat.append(menu);
+}
+
+let pickerRows: Array<() => void> = [];
+let pickerAt = 0;
+/** 마지막으로 지목한 그룹 — 자동완성 맨 위에 올린다 */
+let lastGroup: string[] = [];
+
+function closePicker(): void {
+  screens.chat.querySelector(".picker")?.remove();
+  pickerRows = [];
+  pickerAt = 0;
+}
+
+function movePicker(to: number): void {
+  const menu = screens.chat.querySelector(".picker");
+  if (!menu) return;
+  const btns = [...menu.querySelectorAll("button")];
+  if (btns.length === 0) return;
+  pickerAt = (to + btns.length) % btns.length;
+  btns.forEach((b, n) => b.classList.toggle("on", n === pickerAt));
+}
+
+/** 커서를 이 노드 뒤로 */
+function caretAfter(box: HTMLElement, node: Node): void {
+  const doc = box.ownerDocument;
+  const range = doc.createRange();
+  range.setStartAfter(node);
+  range.collapse(true);
+  const sel = doc.getSelection();
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
 function mountChat(r: Room): void {
   // 방이 바뀌면 이전 방의 말풍선을 들고 있을 이유가 없다
   nodeCache.clear();
@@ -917,14 +1155,44 @@ function mountChat(r: Room): void {
   const head = el("header", { class: "bar" });
   const list = el("div", { class: "messages" });
   const status = el("div", { class: "status" });
-  const box = el("textarea", { rows: 1, placeholder: "메시지 입력…" }) as HTMLTextAreaElement;
+  // 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다
+  const group = r.participants.length > 1;
+  const box = (group
+    ? makeChipBox()
+    : el("textarea", { rows: 1, placeholder: "메시지 입력…" })) as HTMLTextAreaElement;
   const perm = el("button", { class: "icon perm" }, icon("shield"));
   const chips = el("div", { class: "chips", hidden: true });
+  const compose = el("div", { class: "compose-note", hidden: true });
 
-  box.value = r.draft ?? "";
-  autoGrow(box);
+  if (!group) {
+    box.value = r.draft ?? "";
+    autoGrow(box);
+  }
 
   const send = () => {
+    if (group) {
+      const tokens = readTokens(box);
+      const parsed = parseCompose(tokens, r.participants);
+      // 막힐 줄을 알고 보내지 않는다 — 화면이 먼저 말해준다
+      if (parsed.blocked) { paintCompose(r, box); return; }
+      if (parsed.blocks.length === 0 && pending.length === 0) return;
+      // 다음번 «직전 그룹»은 지금 보낸 첫 블록이다
+      lastGroup = parsed.blocks[0]?.botIds ?? [];
+      const attachments = pending;
+      pending = [];
+      paintChips();
+      box.replaceChildren();
+      closePicker();
+      paintCompose(r, box);
+      post({
+        t: "sendCompose",
+        roomId: r.id,
+        tokens,
+        ...(attachments.length ? { attachments } : {}),
+      });
+      return;
+    }
+
     const text = box.value.trim();
     // 첨부만 보내는 것도 메신저에서는 자연스럽다
     if (!text && pending.length === 0) return;
@@ -942,16 +1210,54 @@ function mountChat(r: Room): void {
   };
 
   box.addEventListener("input", () => {
+    if (group) {
+      paintPicker(r, box);
+      paintCompose(r, box);
+      return;
+    }
     autoGrow(box);
     clearTimeout(draftTimer);
     draftTimer = setTimeout(() => post({ t: "draft", roomId: r.id, text: box.value }), 400);
   });
   box.addEventListener("keydown", (e) => {
+    /*
+     * ★ **목록이 열려 있으면 Enter는 «고르기»다** (§4.1.2).
+     *
+     * 안 나누면 봇을 고르려다 메시지가 날아간다. 그래서 이 가지가
+     * 한글 조합 검사보다 **먼저** 온다 — 목록이 열려 있는 동안에는
+     * 전송이란 게 아예 없다.
+     */
+    if (pickerRows.length > 0) {
+      if (e.key === "ArrowDown") { e.preventDefault(); movePicker(pickerAt + 1); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); movePicker(pickerAt - 1); return; }
+      if (e.key === "Escape") { e.preventDefault(); closePicker(); return; }
+      if ((e.key === "Enter" || e.key === "Tab") && !e.isComposing) {
+        e.preventDefault();
+        pickerRows[pickerAt]?.();
+        return;
+      }
+    }
     // **한글 입력 중의 Enter는 조합 확정이다.** 여기서 보내면 글자가 잘린다.
     if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     e.preventDefault();
     send();
   });
+  // 붙여넣기는 **글자로만** — 칩으로 자동 변환하지 않는다(§4.1.2).
+  // 웹에서 복사한 서식이 그대로 들어오면 토큰을 읽을 수 없게 된다.
+  if (group) {
+    box.addEventListener("paste", (e) => {
+      const ev = e as ClipboardEvent;
+      const text = ev.clipboardData?.getData("text/plain");
+      if (text === undefined) return;
+      ev.preventDefault();
+      box.ownerDocument.getSelection()?.getRangeAt(0).deleteContents();
+      const node = box.ownerDocument.createTextNode(text);
+      box.ownerDocument.getSelection()?.getRangeAt(0).insertNode(node);
+      caretAfter(box, node);
+      box.dispatchEvent(new Event("input"));
+    });
+    box.addEventListener("blur", () => setTimeout(closePicker, 120));
+  }
 
   // 스크린샷 붙여넣기 (I1) — 코딩 대화에서 가장 많이 쓰는 경로다
   box.addEventListener("paste", (e) => {
@@ -974,6 +1280,7 @@ function mountChat(r: Room): void {
     head,
     list,
     status,
+    compose,
     chips,
     el(
       "div",
@@ -989,7 +1296,7 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, list, status, chips, box, perm };
+  chat = { roomId: r.id, head, list, status, chips, box, perm, compose };
   pending = [];
   paintChips();
   // 단체방에서는 **봇마다 에이전트가 다르다** — 전부 물어봐야 누가 뭐를 못 하는지 안다

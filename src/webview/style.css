@@ -2132,3 +2132,88 @@ fieldset.bot .bot-drop {
   right: 8px;
   font-size: 11px;
 }
+
+/*
+ * 멘션 칩 입력창 (§4.1.2) — 단체방에서만.
+ *
+ * 한글 조합이 안 깨지는 것을 실측으로 확인하고 고른 구조다(2026-09-21).
+ */
+.chipbox {
+  flex: 1 1 auto;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  outline: none;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 비어 있을 때만 안내를 띄운다 — 칩이 하나라도 있으면 안 보인다 */
+.chipbox:not([data-filled])::before {
+  content: attr(data-empty);
+  color: var(--chat-dim);
+  pointer-events: none;
+}
+
+.chipbox .chip {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 11px;
+  user-select: none;
+}
+
+/* 자동완성 — 입력창 바로 위에서 올라온다 */
+.picker {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 56px;
+  z-index: 25;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--vscode-menu-background, var(--bubble-bot-bg));
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.28);
+}
+
+.picker button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--chat-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker button.on {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+/*
+ * 「누구에게 가나」 — 보내기 전에 줄인다.
+ *
+ * 보내고 나서 「안 갔다」는 이미 한 번 틀린 뒤다(§4.1.1).
+ */
+.compose-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 3px 12px 0;
+  font-size: 11px;
+  color: var(--chat-dim);
+}
+
+.compose-note.bad,
+.compose-note .bad {
+  color: var(--vscode-errorForeground, #f14c4c);
+}

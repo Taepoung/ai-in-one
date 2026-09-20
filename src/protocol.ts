@@ -12,6 +12,7 @@ import type {
   RoomStatus,
   RoomUsage,
 } from "./core/types.js";
+import type { ComposeToken } from "./core/mentions.js";
 
 /** 방 만들기 화면에 필요한 만큼만 추린 에이전트 정보. `command`·`env`는 보내지 않는다 */
 export interface AgentBrief {
@@ -155,6 +156,12 @@ export type FromWebview =
       answerPolicy?: AnswerPolicy;
     }
   | { t: "send"; roomId: string; text: string; attachments?: Attachment[] }
+  /**
+   * 단체방 전송 (v2.0) — **칩과 글자를 늘어놓은 것**을 그대로 보낸다.
+   *
+   * 화면은 규칙을 모른다 — «줄 맨 앞인가»«연속인가»는 코어가 정한다(§4.1.2).
+   */
+  | { t: "sendCompose"; roomId: string; tokens: ComposeToken[]; attachments?: Attachment[] }
   /** 붙여넣기·드롭으로 들어온 바이트. 셀이 blob으로 저장해 `attached`로 돌려준다 */
   | { t: "attach"; roomId: string; items: Array<{ name: string; mimeType: string; base64: string }> }
   /** 파일 탐색기에서 끌어다 놓았거나 첨부 버튼을 눌렀다 */
