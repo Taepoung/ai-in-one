@@ -1001,7 +1001,13 @@ function paintChat(r: Room): void {
         "h1",
         {},
         r.title,
-        el("span", { class: "sub", text: `${agent?.label ?? "?"} · ${shortenPath(r.cwd)}` }),
+        // 줄인 경로만 보이므로 **전체는 툴팁에** — 비슷한 폴더 두 방을 헷갈리면
+        // 엉뚱한 데서 일하게 된다. 서랍에서 뻐는 대신 이 자리가 받아준다.
+        el("span", {
+          class: "sub",
+          title: r.cwd,
+          text: `${agent?.label ?? "?"} · ${shortenPath(r.cwd)}`,
+        }),
       ),
       // 참여자 서랍 — 봇에 관한 것이 모이는 자리 (§4.2.1)
       el(
@@ -2571,44 +2577,16 @@ function toggleMenu(e: Event, r: Room): void {
   const item = (text: string, onclick: () => void, cls = "") =>
     el("button", { class: cls, text, onclick: () => (close(), onclick()) });
 
-  const options = optionsFor(r.participants[0]?.agentId ?? "", r.id) ?? [];
-  const models = options.find((o) => o.category === "model");
-  const kids = childrenOf(r.id);
 
   const menu = el(
     "div",
     { class: "menu" },
-    item("방 정보·참여자", () => paintDrawer(r)),
+    // 🔴 **⋮는 마지막 서랍이 아니다.** 한때 모델·압축·분기·계보가 전부 여기
+    // 있었는데, 그것들에게 **제 자리가 생기면서** 둘 다 가진 항목이 됐다 — 같은 걸
+    // 두 군데 두면 «어디서 하는 게 맞지»만 남는다. 모델·압축은 서랍으로, 분기는
+    // 헤더로, 계보는 방 정보로 갔다. 여기 남는 것은 **방에 대한 설정·정보·끝내기**뿐.
     item("이름 바꾸기", () => startRename(r)),
-    ...(models?.values?.length
-      ? [
-          el("hr"),
-          el("div", { class: "group", text: labelOf(models) }),
-          ...models.values.map((v) =>
-            item(`${v.id === models.current ? "✓ " : "　"}${v.name}`, () =>
-              post({ t: "setConfig", roomId: r.id, configId: models.configId, value: v.id }),
-            ),
-          ),
-        ]
-      : []),
-    ...(compactable
-      ? [el("hr"), item("대화 압축하기", () => post({ t: "compact", roomId: r.id }))]
-      : []),
-    el("hr"),
-    // 진행 중인 턴이 있으면 분기 안 된다 (D4) — 누르고 실패하게 두지 않는다
-    ...(isBusyHere(r) || !r.messages.some((m) => m.role !== "system")
-      ? [el("button", { class: "off", text: "여기서 분기", disabled: true,
-            title: isBusyHere(r) ? "응답이 끝난 뒤에 분기할 수 있습니다" : "아직 나눌 대화가 없습니다" })]
-      : [item("여기서 분기", () => askFork(r))]),
-    ...(r.forkedFromRoomId && metas.some((x) => x.id === r.forkedFromRoomId)
-      ? [item("원본으로 가기", () => jumpToOrigin(r))]
-      : []),
-    ...(kids.length > 0
-      ? [
-          el("div", { class: "group", text: `분기 ${kids.length}개` }),
-          ...kids.map((k) => item(k.title, () => openRoom(k.id))),
-        ]
-      : []),
+    item("방 정보", () => showRoomInfo(r)),
     el("hr"),
     item("방 나가기 (세션도 삭제)", () => confirmLeave(r), "danger"),
   );
@@ -2661,6 +2639,62 @@ function sessionRow(bot: BotInstance | undefined): HTMLElement | null {
         : el("span", { class: "dim", text: " · 아직 대화 전이라 복구 대상이 아닙니다" }),
     ),
   );
+}
+
+/**
+ * 방 정보 (B12) — **방에 대한 것만**.
+ *
+ * 참여자 서랍과 **섞지 않는다.** 한때 서랍 머리에 얹어봤는데, 서랍은 *"이 봇이
+ * 뭘 쓰고 얼마나 찼나"* 를 보러 오는 곳이라 그 앞에 방 정보가 쌓이면 **정작
+ * 보러 온 봇이 아래로 밀린다.** 찾는 것이 다르면 자리도 달라야 한다.
+ *
+ * | 여기 | 서랍 |
+ * |---|---|
+ * | 작업 디렉터리 · 만든 때 · 계보 | 봇 · 모델 · 컨텍스트 · 권한 · 압축 · 역할 · 세션 |
+ * | 방을 만들 때 정해진 것 | 지금 이 봇이 어떤 상태인가 |
+ */
+function showRoomInfo(r: Room): void {
+  const row = (label: string, value: string) =>
+    el("div", { class: "info-row" }, el("span", { class: "dim", text: label }), el("span", { text: value }));
+
+  // 계보 — 어디서 갈라져 나왔고 무엇이 갈라져 나갔나 (D3)
+  const kids = childrenOf(r.id);
+  const lineage: Kids = [];
+  if (kids.length > 0) {
+    const links = el("span", { class: "forks" });
+    for (const k of kids) {
+      const one = el("span", { class: "link-ish", text: k.title, title: "그 방으로" });
+      one.addEventListener("click", () => openRoom(k.id));
+      links.append(one);
+    }
+    lineage.push(
+      el("div", { class: "info-row" }, el("span", { class: "dim", text: `분기 ${kids.length}개` }), links),
+    );
+  }
+
+  const card = el(
+    "div",
+    { class: "card" },
+    el("div", { class: "card-title" }, icon("info"), " 방 정보"),
+    el(
+      "div",
+      { class: "card-body info" },
+      row("작업 디렉터리", r.cwd),
+      row("만든 때", new Date(r.createdAt).toLocaleString()),
+      ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
+      ...lineage,
+    ),
+    el(
+      "div",
+      { class: "card-actions" },
+      // 봇에 대한 것을 찾아 여기까지 온 사람을 **되돌려 보내지 않는다**
+      el("button", { text: "참여자 보기", onclick: () => (renderChat(), paintDrawer(r)) }),
+      el("button", { text: "닫기", onclick: () => renderChat() }),
+    ),
+  );
+
+  chat?.list.append(card);
+  if (chat?.list) scrollInside(chat.list, card, "end");
 }
 
 /**
@@ -3129,16 +3163,6 @@ function paintDrawer(r: Room): void {
       { class: "sheet-bar" },
       el("span", {}, icon("organization"), ` 참여자 ${r.participants.length}`),
       el("button", { class: "icon", title: "닫기", onclick: () => closeDrawer() }, icon("close")),
-    ),
-    el(
-      "div",
-      { class: "info" },
-      el("div", { class: "info-row" },
-        el("span", { class: "dim", text: "작업 디렉터리" }), el("span", { text: r.cwd })),
-      ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
-      el("div", { class: "info-row" },
-        el("span", { class: "dim", text: "만든 때" }),
-        el("span", { text: new Date(r.createdAt).toLocaleString() })),
     ),
     ...r.participants.map((bot) => drawerBot(r, bot)),
     sharedMemoryRow(r),

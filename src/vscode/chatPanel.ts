@@ -317,6 +317,12 @@ export class ChatPanel implements AskTarget {
         case "setRole":
           await this.rooms.setRole(m.roomId, m.rolePrompt, m.botId);
           break;
+        case "renameBot":
+          await this.rooms.renameBot(m.roomId, m.botId, m.name);
+          break;
+        case "setAgent":
+          await this.rooms.setAgent(m.roomId, m.botId, m.agentId);
+          break;
         case "fork": {
           /*
            * **분기하면 그 방으로 들어간다.**

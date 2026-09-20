@@ -2088,3 +2088,10 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-color: var(--vscode-errorForeground, #f14c4c);
   color: var(--vscode-errorForeground, #f14c4c);
 }
+
+/* 방 정보의 분기 목록 — 여러 개면 줄바꿈해서 쌓인다 */
+.info-row .forks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

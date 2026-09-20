@@ -172,6 +172,22 @@ export type FromWebview =
   | { t: "retry"; roomId: string; messageId?: string }
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string; botId?: string }
+  /**
+   * 봇 이름 바꾸기 (v2.2 준비).
+   *
+   * 이름이 곧 멘션 이름이라 방 안에서 유일해야 한다 — 겹치면 코어가 뒤에
+   * 수를 붙여 돌려준다. **아직 화면은 없다**(배선만).
+   */
+  | { t: "renameBot"; roomId: string; botId: string; name: string }
+  /**
+   * 봇의 에이전트 바꾸기 (§8.1(b) 준비).
+   *
+   * 🔴 **세션을 버리는 일이다.** 세션은 그 CLI의 것이라 새 에이전트가 이어받을
+   * 수 없고, 바꾸면 «위 대화를 모르는» 상태가 된다(`contextLost`). 그래서
+   * «바꿨더니 다 잊었다»가 되지 않게 묻는 흐름이 필요한데, 그건 컨텍스트
+   * 이동(§8.1)과 함께 설계한다. **아직 화면은 없다**(배선만).
+   */
+  | { t: "setAgent"; roomId: string; botId: string; agentId: string }
   | { t: "leave"; roomId: string }
   /**
    * 대화를 그 지점에서 갈라 새 방을 만든다 (v1.1).

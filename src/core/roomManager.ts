@@ -373,6 +373,21 @@ function mergeStatus(all: RoomStatus[]): RoomStatus {
 }
 
 /** 설정 캐시의 열쇠. **방 하나 안에서도 봇마다 다르다** (B1) */
+/**
+ * 방 안에서 **겹치지 않는 봇 이름**을 만든다.
+ *
+ * 이름이 곧 멘션 이름이라(B1) 둘이 같으면 `@Claude`가 누구를 가리키는지
+ * 우리가 정할 수 없다. 겹치면 뒤에 수를 붙인다 — `Claude`, `Claude 2`, ...
+ */
+function uniqueName(wanted: string, others: BotInstance[]): string {
+  const taken = new Set(others.map((b) => b.name));
+  if (!taken.has(wanted)) return wanted;
+  for (let n = 2; ; n++) {
+    const tryThis = `${wanted} ${n}`;
+    if (!taken.has(tryThis)) return tryThis;
+  }
+}
+
 function configKeyOf(roomId: string, botId: string): string {
   return `${roomId}:${botId}`;
 }
@@ -658,6 +673,112 @@ export class RoomManager extends EventEmitter<Events> {
 
     await this.saveProps(room, { participants: room.participants });
     this.emit("room", room);
+  }
+
+  /**
+   * 봇 이름을 바꾼다 (v2.2 준비).
+   *
+   * **표시 이름이 곧 멘션 이름이다**(`BotInstance.name`). 그래서 방 안에서
+   * 유일해야 하고, 겹치면 `Claude 2`처럼 뒤에 수를 붙인다 — 단체방에서
+   * `@Claude`가 둘을 가리키면 어느 쪽에 보낼지 우리가 정할 수 없게 된다.
+   *
+   * 세션은 건드리지 않는다. 이름은 **우리 쪽 이름표**일 뿐이고 에이전트는
+   * 모르는 값이다.
+   */
+  async renameBot(roomId: string, botId: string, name: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const bot = room.participants.find((b) => b.id === botId);
+    if (!bot) return;
+
+    const wanted = name.trim();
+    if (!wanted || wanted === bot.name) return;
+
+    bot.name = uniqueName(wanted, room.participants.filter((b) => b.id !== botId));
+    await this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+    this.emitMetas();
+  }
+
+  /**
+   * 봇의 에이전트를 바꾼다 (§8.1(b) 준비 — **구조만**).
+   *
+   * 🔴 **이것은 «설정 바꾸기»가 아니라 «세션을 버리는 일»이다.** 세션은 그
+   * 에이전트의 CLI 것이라 Claude 세션을 Codex가 이어받을 방법이 없다. 그래서
+   * 바꾸는 순간 **새 에이전트는 지금까지의 대화를 하나도 모른다.**
+   *
+   * 그 상태를 표현할 자리는 이미 있다 — `contextLost`(F7). 세션을 못 이어받아
+   * 새로 열었을 때와 **화면에 보이는 것과 에이전트가 아는 것이 어긋난다**는
+   * 점이 똑같으므로, 되먹임 제안(«대화 넘겨서 시작») 기계를 그대로 쓴다.
+   *
+   * **이전 세션 id는 지우지 않고 기록에 남긴다.** 우리는 기록자다(§0) — 바꾼
+   * 뒤에 «전에 쓰던 세션이 뭐였지»를 물을 자리가 있어야 하고, 그 CLI에서
+   * `--resume`으로 열어볼 수도 있다.
+   *
+   * ⚠️ **아직 화면이 없다.** 이 흐름은 «바꿨더니 다 잊었다»가 되지 않게 묻는
+   * 단계가 필요한데, 그건 컨텍스트 이동(§8.1)과 함께 설계한다. 여기서는
+   * 코어가 할 일만 정해둔다.
+   */
+  async setAgent(roomId: string, botId: string, agentId: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const bot = room.participants.find((b) => b.id === botId);
+    if (!bot) return;
+    if (bot.agentId === agentId) return;
+
+    const next = this.agentOrThrow(agentId);
+    const before = this.opts.agents.find((a) => a.id === bot.agentId)?.label ?? bot.agentId;
+
+    // 돌고 있으면 바꾸지 않는다 — 답이 오는 중에 세션을 갈면 그 답은 갈 곳이 없다
+    if (this.statusOf(roomId, botId) !== "idle" && this.statusOf(roomId, botId) !== "error") {
+      throw new Error("답하는 중에는 에이전트를 바꿀 수 없습니다.");
+    }
+
+    const bt = this.botRuntime(roomId, botId);
+    const old = bt.sessionId ?? bot.sessionId ?? undefined;
+
+    // 붙어 있던 세션에서 손을 뗀다. **지우지는 않는다** — 그 CLI에 그대로 두고
+    // 우리만 놓는다. 사용자가 되돌리고 싶어질 수도 있고, 남의 기록을 우리가
+    // 치울 이유도 없다.
+    if (old) await this.connections.get(bot.agentId)?.cancel(old).catch(() => undefined);
+    bt.sessionId = undefined;
+    bt.commands = [];
+    bt.roleInjected = false;
+    delete bt.turn;
+
+    bot.agentId = agentId;
+    bot.sessionId = null;
+    bot.sessionPrompted = false;
+    // 모델·권한·설정값은 **그 에이전트의 것**이라 같이 버린다. 남겨두면 새
+    // 에이전트에 없는 id를 들고 있다가 복구 때 엉뚱한 값을 밀어 넣는다.
+    delete bot.model;
+    delete bot.modelLabel;
+    delete bot.agentMode;
+    delete bot.configValues;
+    delete bot.usage;
+    // 이름을 손대지 않은 사람에게는 에이전트 이름이 곧 봇 이름이었다 — 따라 바꾼다
+    if (bot.name === before) {
+      bot.name = uniqueName(next.label, room.participants.filter((b) => b.id !== botId));
+    }
+
+    // **화면과 에이전트가 어긋난 상태**다 (F7과 같은 자리)
+    room.contextLost = true;
+    if (old) room.lostSessionId = old;
+
+    this.noteRoom(
+      room,
+      old
+        ? `에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ` +
+            `${next.label}은(는) 위 대화를 모릅니다. 이전 세션 ${old}은(는) ${before} 쪽에 그대로 있습니다.`
+        : `에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ${next.label}은(는) 위 대화를 모릅니다.`,
+      "info",
+    );
+
+    await this.saveProps(room, {
+      participants: room.participants,
+      contextLost: true,
+      ...(old ? { lostSessionId: old } : {}),
+    });
+    this.emit("room", room);
+    this.emitMetas();
   }
 
   async renameRoom(roomId: string, title: string): Promise<void> {
