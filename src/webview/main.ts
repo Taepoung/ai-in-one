@@ -2304,10 +2304,30 @@ function filesNode(m: Message): HTMLElement {
   const changed = files.filter((f) => f.kind !== "read").length;
   const label = changed > 0 ? `파일 ${changed}개 변경` : `파일 ${files.length}개 읽음`;
 
+  /*
+   * ★ **누가 고쳤나** (§4.2).
+   *
+   * 봇이 여럿이면 카드가 «누구의 것»인지 말해야 한다. 이름은 바로 위
+   * 말풍선에 있지만, **이어 말하면 이름이 안 나오고**(`grouped`) 카드는
+   * 접혀 있어서 펼 때쯤엔 이름이 화면 밖일 수 있다. 되돌릴 일이 생겼을 때
+   * 제일 먼저 묻는 게 *"누가 건드렸지"* 다.
+   *
+   * 봇이 하나면 안 붙인다 — 답이 하나뿐인 질문이다.
+   */
+  const who = manyBots() && m.authorBotId
+    ? room?.participants.find((b) => b.id === m.authorBotId)?.name
+    : undefined;
+
   return el(
     "details",
     { class: "tool" },
-    el("summary", {}, icon("chevron-right"), ` ${label}`),
+    el(
+      "summary",
+      {},
+      icon("chevron-right"),
+      who ? el("span", { class: "by", text: ` ${who}` }) : null,
+      ` ${label}`,
+    ),
     el(
       "div",
       { class: "files" },

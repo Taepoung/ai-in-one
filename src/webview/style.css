@@ -2366,3 +2366,9 @@ fieldset.bot .bot-drop {
   font-size: 10px;
   padding: 0;
 }
+
+/* 파일 카드에 붙는 **누가 고쳤나** (§4.2). 봇이 여럿일 때만 나온다 */
+.tool > summary .by {
+  color: var(--chat-fg);
+  font-weight: 600;
+}

@@ -165,6 +165,13 @@ interface RoomRuntime {
   pendingWrites: Promise<unknown>[];
   /** 봇별 상태. 열쇠는 `BotInstance.id` */
   bots: Map<string, BotRuntime>;
+  /**
+   * **이미 말한 충돌** — 경로와 봇들을 묶은 열쇠 (§4.3).
+   *
+   * 한 파일을 스무 줄 고치면 diff 이벤트도 여러 번 온다. 그때마다 «충돌»을
+   * 적으면 대화가 경고로 덮인다 — 한 번 말하면 사용자는 이미 안다.
+   */
+  clashed: Set<string>;
 }
 
 /** 스트리밍 델타마다 전체 방을 내보내면 웹뷰가 감당하지 못한다 */
@@ -2705,8 +2712,15 @@ export class RoomManager extends EventEmitter<Events> {
     const change: FileChange = existing ?? {
       path: ev.path,
       kind: ev.oldText === null ? "create" : "edit",
+      // **누가 고쳤나** (v2.0). 메시지의 `authorBotId`로도 알 수 있지만, 파일
+      // 카드는 메시지 밖으로 새어 나갈 수 있는 것이라(diff·검색) 자기 자리에
+      // 들고 있어야 한다.
+      ...(reply.authorBotId ? { byBotId: reply.authorBotId } : {}),
     };
     if (!existing) files.push(change);
+
+    // 다른 봇이 **지금 같은 파일을 고치는 중**이면 말해준다 (§4.3)
+    this.noteClash(room, reply, ev.path);
 
     // 줄 수는 즉시 계산해 카드에 바로 보여준다
     const counts = countChangedLines(ev.oldText ?? "", ev.newText);
@@ -2723,6 +2737,68 @@ export class RoomManager extends EventEmitter<Events> {
     })().catch((err) => this.opts.host.log(`blob 저장 실패: ${describe(err)}`));
 
     this.runtime(room.id).pendingWrites.push(write);
+  }
+
+  /**
+   * ★ **두 봇이 같은 파일을 동시에 고쳤다** (§4.3).
+   *
+   * 턴은 봇 단위로만 직렬이고 **방 단위로는 병렬**이다. 그래서 «둘 다 이거
+   * 고쳐줘»가 그대로 통하는데, 같은 파일이면 **나중에 끝난 쪽이 앞의 변경을
+   * 통째로 덮어쓴다** — 에이전트는 자기가 읽은 시점의 내용을 기준으로 쓰기
+   * 때문이다. 조용히 지나가면 사용자는 **한쪽 작업이 사라진 줄도 모른다.**
+   *
+   * 🔴 **막지 않는다.** 우리는 연결·전달 서비스고, 어느 쪽을 살릴지는 사용자가
+   * 안다. 우리가 할 일은 **일어났다고 적는 것**이다 — 그래야 git으로 되살리든
+   * 한쪽을 다시 시키든 할 수 있다.
+   *
+   * **지금 도는 턴만 본다.** 앞 봇이 이미 끝났으면 뒤 봇은 그 결과를 읽고
+   * 고친 것이라 충돌이 아니다 — 그것까지 경고하면 «순서대로 시킨 일»마다
+   * 경고가 뜬다.
+   */
+  private noteClash(room: Room, reply: Message, filePath: string): void {
+    const mine = reply.authorBotId;
+    if (!mine || room.participants.length < 2) return;
+    const rt = this.runtimes.get(room.id);
+    if (!rt) return;
+
+    const others: string[] = [];
+    for (const [id, bt] of rt.bots) {
+      if (id === mine || !bt.turn) continue;
+      /*
+       * 🔴 **`bt.turn`만 보면 안 된다.** 응답이 온 뒤에도 `TURN_TAIL_MS`(1.5초)
+       * 동안 자리를 붙들고 있다 — 늦게 오는 조각을 그 턴의 말로 받으려고
+       * 일부러 둔 유예다(`scheduleRelease`). 그걸 «도는 중»으로 읽으면
+       * **순서대로 시킨 일**에도 경고가 뜬다. 실제로 그렇게 나왔다.
+       *
+       * 실제로 도는지는 상태가 말한다.
+       */
+      if (isBusy(this.statusOf(room.id, id)) !== true) continue;
+      const touched = (bt.turn.files ?? []).some(
+        (f) => f.path === filePath && f.kind !== "read",
+      );
+      if (touched) others.push(id);
+    }
+    if (others.length === 0) return;
+
+    const who = [mine, ...others].sort();
+    const key = `${filePath}::${who.join(",")}`;
+    if (rt.clashed.has(key)) return;
+    rt.clashed.add(key);
+
+    const names = who.map(
+      (id) => room.participants.find((b) => b.id === id)?.name ?? id,
+    );
+    const note: Message = {
+      id: messageId(),
+      role: "system",
+      text:
+        `${names.join("·")}가 같은 파일을 동시에 고치고 있습니다 — ${filePath}. ` +
+        `나중에 끝나는 쪽이 앞의 변경을 덮어쓸 수 있습니다.`,
+      deliveredTo: [],
+      createdAt: Date.now(),
+    };
+    this.append(room, note);
+    void this.saveNewMessage(room, note);
   }
 
   /**
@@ -3233,7 +3309,7 @@ export class RoomManager extends EventEmitter<Events> {
   private runtime(roomId: string): RoomRuntime {
     let rt = this.runtimes.get(roomId);
     if (!rt) {
-      rt = { status: "idle", pendingWrites: [], bots: new Map() };
+      rt = { status: "idle", pendingWrites: [], bots: new Map(), clashed: new Set() };
       this.runtimes.set(roomId, rt);
     }
     return rt;
