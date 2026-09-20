@@ -33,6 +33,16 @@ export interface ComposeBlock {
   botIds: string[];
   /** 그 그룹에게 갈 지시 */
   text: string;
+  /**
+   * 이 블록을 **연 칩들**이 `tokens`의 몇 번째였나.
+   *
+   * 🔴 화면이 «어느 칩이 어느 그룹인가»를 **혼자 다시 계산하면 안 된다** —
+   * 그러면 «줄 맨 앞인가», «연속인가»가 두 군데 살게 되고, 한 쪽만 고치는
+   * 날이 온다. 규칙은 여기 하나고(§4.1.2) 화면은 **결과를 받아 칠한다.**
+   *
+   * 지목 없이 전원에게 가는 첫 블록은 연 칩이 없으므로 비어 있다.
+   */
+  mentionAt: number[];
 }
 
 export interface ComposeParse {
@@ -100,10 +110,10 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
       warnings.push(`${nameOf(b.botIds, known)}에게 보낼 내용이 없어 건너뜁니다.`);
       return;
     }
-    blocks.push({ botIds: b.botIds, text });
+    blocks.push({ botIds: b.botIds, text, mentionAt: b.mentionAt });
   };
 
-  for (const tk of tokens) {
+  for (const [n, tk] of tokens.entries()) {
     if (tk.kind === "mention") {
       const routing = atLineHead;
       const ids = tk.botId === EVERYONE ? bots.map((b) => b.id) : [tk.botId];
@@ -132,9 +142,10 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
       if (chaining && open) {
         // 연속 칩 — 같은 그룹에 더한다. 중복은 한 번만 (같은 봇에게 두 번 보낼 이유가 없다)
         for (const id of ids) if (!open.botIds.includes(id)) open.botIds.push(id);
+        open.mentionAt.push(n);
       } else {
         push(open);
-        open = { botIds: [...ids], text: "" };
+        open = { botIds: [...ids], text: "", mentionAt: [n] };
       }
       chaining = true;
       atLineHead = true;
@@ -203,7 +214,8 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
         warnings,
       };
     }
-    blocks.unshift({ botIds: bots.map((b) => b.id), text: head });
+    // 지목 없이 전원에게 — 연 칩이 없다
+    blocks.unshift({ botIds: bots.map((b) => b.id), text: head, mentionAt: [] });
   }
 
   const blocked =

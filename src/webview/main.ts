@@ -996,29 +996,104 @@ function paintCompose(r: Room, box: HTMLElement): void {
   if (!bar) return;
   box.dataset.filled = box.textContent?.trim() || box.querySelector(".chip") ? "1" : "";
 
-  const parsed = parseCompose(readTokens(box), r.participants);
+  const tokens = readTokens(box);
+  const parsed = parseCompose(tokens, r.participants);
   if (!box.dataset.filled) { bar.replaceChildren(); bar.hidden = true; return; }
 
   bar.hidden = false;
   if (parsed.blocked) {
+    /*
+     * ★ **아직 안 쓴 것은 잘못이 아니다.**
+     *
+     * 🔴 칩을 꽂자마자 빨간 «보낼 내용이 없습니다»가 떴다. 자동완성으로
+     * 고르든 서랍에서 꽂든 **지목이 먼저고 지시가 나중**인데, 그 사이의
+     * 한 박자를 오류로 찍은 것이다. 틀린 말은 아니지만 **사용자가 뭘 잘못한
+     * 것처럼** 보이고, 매번 뜨면 진짜 경고까지 같이 무시하게 된다.
+     *
+     * 지목만 있으면 **다음에 할 일을 알려준다.**
+     */
+    const named = tokens.filter((t) => t.kind === "mention");
+    const nothingYet =
+      named.length > 0 &&
+      tokens.every((t) => t.kind === "mention" || t.text.trim() === "");
+    if (nothingYet) {
+      const names = named
+        .map((t) =>
+          t.kind === "mention" && t.botId !== EVERYONE
+            ? (r.participants.find((p) => p.id === t.botId)?.name ?? "?")
+            : "전원",
+        )
+        .join("·");
+      bar.className = "compose-note";
+      bar.replaceChildren(el("span", { text: `${names}에게 — 무엇을 시킬지 적어주세요` }));
+      return;
+    }
     bar.className = "compose-note bad";
     bar.replaceChildren(el("span", { text: parsed.blocked }));
     return;
   }
   bar.className = "compose-note";
-  const summary = parsed.blocks
-    .map((b) => {
-      const names = b.botIds
-        .map((id) => r.participants.find((p) => p.id === id)?.name ?? id)
-        .join("·");
-      return `${names}에게 1블록`;
-    })
-    .join(" · ");
+
+  /*
+   * ★ **그룹을 색으로 가른다** (§4.1.2의 «실시간 하이라이트»).
+   *
+   * 한 번에 쓴 글이 여러 봇에게 **서로 다른 지시**로 갈라지는데, 어디서
+   * 갈라지는지가 안 보였다. 요약은 «둘에게 1블록»이라고만 했지 *"어느 글이
+   * 누구에게"* 는 말하지 않았다 — 줄이 몇 개만 되어도 못 따라간다.
+   *
+   * 🔴 **글자에는 손대지 않는다.** 칠하려면 텍스트 노드를 `<span>`으로
+   * 감싸야 하는데, `contenteditable` 안에서 그러면 **한글 조합이 그 경계에서
+   * 깨진다** — 칩 입력창을 쓰기로 한 근거(조합이 `textarea`와 한 글자도 다르지
+   * 않다)를 우리 손으로 무너뜨리는 일이다.
+   *
+   * 그래서 **칩만 칠하고**(칩은 원래 엘리먼트다) 글은 **요약 줄에 옮겨 적어**
+   * 같은 색을 준다. 「어느 칩 — 어떤 글 — 누구에게」가 한 줄로 맞춰진다.
+   *
+   * 어느 칩이 어느 그룹인지는 **코어가 알려준다**(`mentionAt`) — 화면이 다시
+   * 계산하면 규칙이 두 군데 살게 된다.
+   */
+  const chips = [...box.querySelectorAll<HTMLElement>(".chip")];
+  let seen = 0;
+  const chipOfToken = new Map<number, HTMLElement>();
+  for (const [n, t] of tokens.entries()) {
+    if (t.kind !== "mention") continue;
+    const node = chips[seen++];
+    if (node) chipOfToken.set(n, node);
+  }
+  for (const c of chips) delete c.dataset.group;
+
+  const rows: HTMLElement[] = [];
+  parsed.blocks.forEach((b, at) => {
+    const tint = String(at % GROUP_TINTS);
+    for (const n of b.mentionAt) chipOfToken.get(n)?.setAttribute("data-group", tint);
+
+    const names = b.botIds
+      .map((id) => r.participants.find((p) => p.id === id)?.name ?? id)
+      .join("·");
+    rows.push(
+      el(
+        "div",
+        { class: "note-row", "data-group": tint },
+        el("span", { class: "to", text: names }),
+        // **무엇이 갈지 그대로 보여준다** — 「어느 글이 누구에게」가 요점이다
+        el("span", { class: "what", text: b.text, title: b.text }),
+      ),
+    );
+  });
+
   bar.replaceChildren(
-    el("span", { text: summary }),
+    ...rows,
     ...parsed.warnings.map((w) => el("span", { class: "bad", text: w })),
   );
 }
+
+/**
+ * 그룹을 가르는 색이 몇 가지인가.
+ *
+ * 다 쓰면 처음으로 돌아간다 — **이웃한 그룹만 달라 보이면 된다.** 그룹이
+ * 넷을 넘는 일은 드물고, 색을 무한히 늘리면 서로 구별이 안 되는 색이 나온다.
+ */
+const GROUP_TINTS = 4;
 
 /** 칩 하나. `botId`가 진짜 값이고 글자는 보여주기용이다 */
 function mentionChip(botId: string, name: string): HTMLElement {
@@ -1551,8 +1626,20 @@ function paintChat(r: Room): void {
       // 참여자 서랍 — 봇에 관한 것이 모이는 자리 (§4.2.1)
       el(
         "button",
-        { class: "icon", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
+        { class: "icon with-count", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
         icon("organization"),
+        /*
+         * ★ **몇 명인지 눈에 보여야 한다** (§4.2.1).
+         *
+         * 🔴 수가 **툴팁에만** 있었다. 단체방에서 제일 먼저 알아야 할 것이
+         * «지금 몇이 듣고 있나»인데, 그걸 보려고 서랍을 열어야 했다 —
+         * 멘션이 누구에게 갈지를 가늠하는 근거가 한 겹 뒤에 있었던 셈이다.
+         *
+         * 1:1에서는 안 붙인다 — 언제나 1이라 숫자가 뜻을 못 갖는다.
+         */
+        r.participants.length > 1
+          ? el("span", { class: "count", text: String(r.participants.length) })
+          : null,
       ),
       // 분기는 서랍 옆에 — «지금 여기서 갈라진다»는 대화를 보며 정하는 것이라
       // ⋮ 안에 두면 떠올리기 어렵다. 모든 조건은 ⋮의 «여기서 분기»와 같다.
@@ -4049,6 +4136,98 @@ function askInvite(r: Room): void {
  * 방에 하나로 걸어두면 봇이 둘일 때 누구 숫자인지 알 수 없다 — 실제로 나중에
  * 온 봇이 앞 봇의 숫자를 덮어쓰고 있었다.
  */
+/**
+ * ★ **이 봇이 무엇까지 할 수 있나 — 한 줄로** (§4.2.2).
+ *
+ * 권한은 봇마다 다르다(D2). 그런데 여태 그걸 보려면 **봇마다 시트를 열어**
+ * 세 칸을 읽어야 했다 — 봇이 넷이면 네 번이다. 「리뷰어는 읽기만, 구현 봇은
+ * 편집까지」가 이 기능의 요점인데, **그 대비가 한눈에 안 보이면 요점이 없다.**
+ *
+ * 세 가지를 순서대로 잇는다: **모드**(무엇까지 자동) · **주체**(막히면 누가
+ * 답하나) · **질문**(갈림길에서). 「봇 : 범위 : 대상」(D2)이 그대로다.
+ */
+function policyLine(r: Room, bot: BotInstance): string {
+  const options = optionsFor(bot.agentId, r.id);
+  const mode = options?.find((o) => o.category === "mode");
+  const bits: string[] = [];
+
+  if (mode?.values?.length) {
+    const now = bot.configValues?.[mode.configId] ?? mode.current;
+    bits.push(mode.values.find((v) => v.id === now)?.name ?? String(now));
+  } else if (options === undefined) {
+    // 🔴 «아직 안 왔다»와 «없다»는 다른 화면이어야 한다 — 하나로 뭉치면
+    // CLI가 안 뜬 걸 «이 에이전트는 권한 모드가 없다»로 읽게 된다
+    bits.push("모드 불러오는 중…");
+  }
+
+  bits.push(
+    bot.approver.kind === "user"
+      ? "사용자가 승인"
+      : `${r.participants.find((b) => b.id === (bot.approver as { botId?: string }).botId)?.name ?? "다른 봇"}이 승인`,
+  );
+  bits.push(bot.answerPolicy === "auto" ? "질문은 알아서" : "질문은 물어봄");
+  return bits.join(" · ");
+}
+
+/**
+ * **이름을 제자리에서 고친다** (§4.2.1).
+ *
+ * 🔴 **이름은 라우팅이다.** 멘션 칩은 `botId`를 들고 있어서 이름을 바꿔도
+ * 가리키는 대상이 안 바뀌지만, 사람이 `@`를 눌러 고를 때 보는 것은 이름이다.
+ * 「Claude」와 「Claude 2」로는 누가 리뷰어인지 알 수 없다.
+ */
+function renameBotInline(r: Room, bot: BotInstance, host: HTMLElement): void {
+  const input = el("input", { type: "text", value: bot.name }) as HTMLInputElement;
+  const restore = () => paintDrawer(r);
+  const commit = () => {
+    const name = input.value.trim();
+    const changed = name !== "" && name !== bot.name;
+    restore();
+    if (changed) post({ t: "renameBot", roomId: r.id, botId: bot.id, name });
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing) commit();
+    if (e.key === "Escape") restore();
+  });
+  input.addEventListener("blur", commit);
+  host.replaceChildren(input);
+  input.focus();
+  input.select();
+}
+
+/**
+ * ★ **서랍에서 봇을 누르면 입력창에 멘션이 꽂힌다** (§4.2.1).
+ *
+ * v2.1의 «봇별 1:1 뷰»가 들어오기 전까지의 자리다. 그때까지는 서랍이
+ * *"이 봇에게 말 걸기"* 의 유일한 입구고, **멘션을 손으로 치는 것이
+ * v2.0의 제일 큰 피로**(§4.5)이므로 여기서 덜어준다.
+ *
+ * 칩으로 꽂는다 — 글자로 넣으면 `@이름`은 **그냥 글자**라 라우팅이 안 된다.
+ */
+function insertMention(bot: BotInstance): void {
+  const box = chat?.box;
+  if (!box || !box.classList.contains("chipbox")) return;
+  closeDrawer();
+
+  const doc = box.ownerDocument;
+  /*
+   * **줄 맨 앞에만 꽂는다.** 문장 중간 칩은 라우팅이 아니라 참조이므로
+   * (§4.1.2) 거기 넣으면 «지목했는데 안 간다»가 된다. 쓰던 글이 있으면
+   * 줄을 바꿔 새 그룹을 연다.
+   */
+  const last = box.lastChild;
+  const tail = last?.nodeType === Node.TEXT_NODE ? (last as Text).data : "";
+  if (box.childNodes.length > 0 && tail.trim() !== "") box.append(doc.createElement("br"));
+
+  const chip = mentionChip(bot.id, bot.name);
+  box.append(chip);
+  const gap = doc.createTextNode(" ");
+  box.append(gap);
+  caretAfter(box, gap);
+  box.focus();
+  box.dispatchEvent(new Event("input"));
+}
+
 function drawerBot(r: Room, bot: BotInstance): HTMLElement {
   const agent = agentById.get(bot.agentId);
   const options = optionsFor(bot.agentId, r.id) ?? [];
@@ -4057,11 +4236,28 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
   const busy = status !== "idle" && status !== "error";
 
   // ── 첫 줄: 색 점 · 이름 · 작업 중 · 사용량
+  // 이름은 **누를 수 있다** — 입력창에 멘션을 꽂아준다 (단체방에서만 뜻이 있다)
+  const nameCell = el("span", { class: "name" });
+  const nameBtn = r.participants.length > 1
+    ? el("button", {
+        class: "link name-go",
+        text: bot.name,
+        title: "입력창에 이 봇을 지목합니다",
+        onclick: () => insertMention(bot),
+      })
+    : el("span", { text: bot.name });
+  nameCell.append(nameBtn);
+
   const head = el(
     "div",
     { class: "who" },
     el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
-    el("span", { class: "name", text: bot.name }),
+    nameCell,
+    el("button", {
+      class: "icon tiny",
+      title: "이름 바꾸기",
+      onclick: () => renameBotInline(r, bot, nameCell),
+    }, icon("edit")),
     busy ? el("span", { class: "typing" }, el("i"), el("i"), el("i")) : null,
     usageChip(bot),
   );
@@ -4071,7 +4267,13 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
     text: bot.modelLabel ? `${bot.modelLabel} · ${agent?.label ?? "?"}` : (agent?.label ?? "?"),
   }));
 
-  const rows: Kids = [head, sub];
+  // ── 셋째 줄: 권한을 한 줄로 (§4.2.2) — 봇마다 시트를 열어보지 않아도 되게
+  const perm = el("div", { class: "sub perm" }, el("span", {
+    text: policyLine(r, bot),
+    title: "권한 모드 · 막혔을 때 누가 답하나 · 갈림길에서 물어보나",
+  }));
+
+  const rows: Kids = [head, sub, perm];
 
   // ── 모델 바꾸기 — 에이전트가 목록을 줄 때만
   if (model?.values?.length) {

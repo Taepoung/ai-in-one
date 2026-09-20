@@ -2372,3 +2372,108 @@ fieldset.bot .bot-drop {
   color: var(--chat-fg);
   font-weight: 600;
 }
+
+/*
+ * 이름을 **누를 수 있게** — 입력창에 멘션을 꽂아준다 (§4.2.1).
+ * 줄 안에서 튀지 않게 링크 티를 죽이고 굵기만 남긴다.
+ */
+.drawer-bot .who .name-go {
+  padding: 0;
+  font-weight: 500;
+  font-size: inherit;
+  color: var(--chat-fg);
+  text-decoration: none;
+}
+
+.drawer-bot .who .name-go:hover {
+  text-decoration: underline;
+}
+
+/* 이름 바꾸기 연필 — 이름 옆에서 눈에 안 띄게 */
+.drawer-bot .who .icon.tiny {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  opacity: 0.5;
+}
+
+.drawer-bot .who .icon.tiny:hover {
+  opacity: 1;
+}
+
+.drawer-bot .who input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--focus);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  font: inherit;
+}
+
+/* 권한 한 줄 (§4.2.2) — 모델 줄 바로 아래, 같은 단 */
+.drawer-bot > .sub.perm {
+  margin-top: -6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * **멘션 그룹을 색으로 가른다** (§4.1.2).
+ *
+ * 칩과 요약 줄이 **같은 색**을 쓴다 — 「어느 칩 — 어떤 글 — 누구에게」가
+ * 한 줄로 맞춰져야 뜻이 있다. 글자 자체는 칠하지 않는다(한글 조합이 깨진다).
+ */
+.compose-note .note-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding-left: 6px;
+  border-left: 3px solid var(--g-tint, var(--focus));
+}
+
+.compose-note .note-row .to {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--g-tint, var(--chat-fg));
+}
+
+/* 지시는 길 수 있다 — 한 줄로 자르고 전문은 툴팁에 */
+.compose-note .note-row .what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--chat-dim);
+}
+
+.chip[data-group] {
+  box-shadow: inset 0 0 0 1px var(--g-tint);
+}
+
+[data-group="0"] { --g-tint: var(--vscode-charts-blue, #4a9eff); }
+[data-group="1"] { --g-tint: var(--vscode-charts-green, #3fb950); }
+[data-group="2"] { --g-tint: var(--vscode-charts-purple, #a371f7); }
+[data-group="3"] { --g-tint: var(--vscode-charts-orange, #e3803a); }
+
+/* 참여 봇 수 — 서랍 버튼 모서리에 (§4.2.1). 1:1에서는 안 뜬다 */
+.icon.with-count {
+  position: relative;
+}
+
+.icon.with-count .count {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  min-width: 12px;
+  padding: 0 2px;
+  border-radius: 6px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font-size: 9px;
+  line-height: 12px;
+  text-align: center;
+}
