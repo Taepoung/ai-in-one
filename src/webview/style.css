@@ -2059,3 +2059,32 @@ details.advanced[open] > summary .codicon-chevron-right {
 .usage.full .bar i {
   background: currentColor;
 }
+
+/*
+ * 흐르는 말풍선의 «중단».
+ *
+ * 밑줄 링크로 두었더니 10px 글씨가 활동 목록에 묻혀 **어디 있는지 물어보게**
+ * 됐다. 멈추려는 사람은 급한 사람이므로 한눈에 잡혀야 한다 — 테두리를 주되
+ * 색은 죽여, 눌러야 할 것처럼 보이되 대화를 가리지는 않게 한다.
+ */
+.stop-bot.link {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--chat-bg);
+  color: var(--chat-fg);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.stop-bot.link::before {
+  content: "■";
+  margin-right: 4px;
+  font-size: 8px;
+  vertical-align: 1px;
+}
+
+.stop-bot.link:hover {
+  border-color: var(--vscode-errorForeground, #f14c4c);
+  color: var(--vscode-errorForeground, #f14c4c);
+}
