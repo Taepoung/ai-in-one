@@ -107,11 +107,13 @@ function html(): string {
   const verdict = document.getElementById("verdict");
   const ceLen = document.getElementById("ceLen");
 
-  const seen = { compositions: 0, enterWhileComposing: 0, enterAfterCommit: 0, enterClean: 0,
-                 chipWholeDelete: 0, chipPartial: 0 };
+  const seen = { compositions: 0, enterWhileComposing: 0, enterClean: 0,
+                 enterSafe: 0, enterLost: 0, chipWholeDelete: 0, chipPartial: 0 };
   let composing = false;
   /** 마지막 조합이 끝난 시각 — Enter가 «확정용»인지 가리는 단서다 */
   let lastEnd = 0;
+  /** 마지막으로 확정된 글자 */
+  let lastData = "";
 
   const say = (s) => {
     log.textContent += s + "\\n";
@@ -131,8 +133,11 @@ function html(): string {
     } else if (seen.chipWholeDelete > 0) {
       lines.push('<span class="ok">칩이 <b>한 번에</b> 지워집니다</span>');
     }
-    if (seen.enterAfterCommit > 0) {
-      lines.push('<span class="bad">확정용 Enter를 <b>전송으로 읽은 것이 ' + seen.enterAfterCommit + '번</b> — isComposing만으로는 못 걸러냅니다</span>');
+    if (seen.enterLost > 0) {
+      lines.push('<span class="bad">확정 직후 Enter에서 <b>글자가 ' + seen.enterLost + '번 빠졌습니다</b></span>');
+    }
+    if (seen.enterSafe > 0) {
+      lines.push('<span class="ok">확정 직후 Enter ' + seen.enterSafe + '번 — 방금 짠 글자까지 들어 있습니다</span>');
     }
     if (seen.enterWhileComposing > 0) {
       lines.push('<span class="ok">조합 중 Enter ' + seen.enterWhileComposing + '번은 isComposing으로 걸렸습니다</span>');
@@ -154,20 +159,25 @@ function html(): string {
     el.addEventListener("compositionend", (e) => {
       composing = false;
       lastEnd = Date.now();
+      lastData = e.data || "";
       say(who + "  조합 끝: " + JSON.stringify(e.data));
       paint();
     });
     el.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         /*
-         * ★ **여기가 진짜 시험이다.**
+         * ★ **재야 할 것은 «잘렸나»이다.**
          *
-         * 우리 규칙은 «Enter && !isComposing → 전송»이다. 그런데 Windows IME는
-         * **조합을 끝내는 Enter**에서도 «compositionend»를 먼저 보내고, 뒤따라오는
-         * keydown에는 «isComposing=false»를 실을 수 있다. 그러면 «확정하려는 Enter»와
-         * «보내려는 Enter»가 구별되지 않는다.
+         * 우리 규칙은 «Enter && !isComposing → 전송»이다. 한글은 마지막 글자가
+         * 조합 중인 채 Enter를 누르는 게 보통인데, Windows IME는 그때
+         * **«compositionend» 를 먼저** 보낸다. 그러면 우리가 Enter를 볼 때는
+         * 이미 글자가 들어와 있어 **잘리지 않는다** — 원하는 순서다.
          *
-         * 그래서 **직전 조합이 언제 끝났는지**를 함께 재서 둘을 가른다.
+         * 그래서 «확정 직후의 Enter» 자체는 문제가 아니다. 재는 것은 그 순간
+         * 상자 안에 **방금 짠 글자가 있는가**다. 없으면 그제서야 진짜 문제다.
+         *
+         * «isComposing=true» 로 오는 경우(한자 변환 후보 창, 일본어·중국어)는
+         * 규칙이 이미 걸러낸다 — 그쪽은 Enter가 «후보 선택»이라 진짜로 다르다.
          */
         const since = Date.now() - lastEnd;
         const commit = lastEnd > 0 && since < 60;
@@ -175,9 +185,13 @@ function html(): string {
           seen.enterWhileComposing++;
           say(who + "  조합 중 Enter (isComposing=true) — 규칙이 걸러낸다");
         } else if (commit) {
-          seen.enterAfterCommit++;
-          say(who + "  [!] Enter (isComposing=false) 인데 " + since + "ms 전에 조합이 끝났다"
-              + " — **확정용 Enter를 전송으로 읽는다**");
+          // 방금 확정된 글자가 정말 상자 안에 있나 — 그게 유일한 질문이다
+          const now = (el === ce ? textOf(ce) : ta.value).replace(/ /g, " ");
+          const kept = lastData !== "" && now.includes(lastData);
+          if (kept) seen.enterSafe++;
+          else seen.enterLost++;
+          say(who + "  Enter (확정 " + since + "ms 뒤) — 방금 짠 "
+              + JSON.stringify(lastData) + (kept ? " 가 들어 있다. 보내도 안 잘린다" : " 가 **없다 — 잘린다**"));
         } else {
           seen.enterClean++;
           say(who + "  Enter (조합과 무관"
@@ -215,7 +229,7 @@ function html(): string {
     ta.value = "";
     log.textContent = "";
     seen.compositions = 0; seen.enterWhileComposing = 0;
-    seen.enterAfterCommit = 0; seen.enterClean = 0; lastEnd = 0;
+    seen.enterSafe = 0; seen.enterLost = 0; seen.enterClean = 0; lastEnd = 0; lastData = "";
     seen.chipWholeDelete = 0; seen.chipPartial = 0;
     paint();
   });
