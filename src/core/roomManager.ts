@@ -1624,7 +1624,7 @@ export class RoomManager extends EventEmitter<Events> {
    * (@claude) (@codex)          →  블록 1 : 두 봇에게
    * 이 코드 리뷰해줘
    *
-   * (@gemini)                   →  블록 2 : 한 봇에게
+   * (@리뷰어)                  →  블록 2 : 한 봇에게
    * 문서도 업데이트해줘
    * ```
    *
