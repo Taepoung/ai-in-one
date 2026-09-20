@@ -1070,6 +1070,46 @@ function openQuery(box: HTMLElement): { node: Text; at: number; q: string } | nu
 }
 
 /**
+ * **지금 모으고 있는 그룹**의 봇들 (§4.1.2 규칙 3).
+ *
+ * 🔴 예전엔 **상자 안의 칩을 전부** 뺐다. 그러면 첫 줄에 `@Claude`를 쓴 뒤
+ * 아래에 새 그룹을 열면 **Claude가 목록에 안 뜬다** — «다들 이거 보고,
+ * Claude는 이것도»가 안 된다. 그건 단체방에서 제일 하고 싶은 일 중 하나다.
+ *
+ * 빼자고 정한 것은 **그 그룹**이다 — `(@Claude) @`에서 Claude가 또 뜨면 안 된다는
+ * 뜻이지, 아래에서 다시 부를 수 없다는 뜻이 아니다.
+ *
+ * 커서 앞에서 거슬러 올라가며 **공백만 끼고 늘어선 칩**만 모은다. 글자가 끼어
+ * 있으면 거기서 그룹이 끝난 것이다.
+ */
+function groupSoFar(box: HTMLElement, from: Node): Set<string> {
+  const ids = new Set<string>();
+  let node: Node | null = from;
+  while (node && node !== box) {
+    const prev: Node | null = node.previousSibling;
+    if (!prev) {
+      node = node.parentNode;
+      continue;
+    }
+    node = prev;
+    if (prev.nodeType === Node.TEXT_NODE) {
+      // 공백만이면 아직 같은 그룹이다
+      if ((prev as Text).data.trim() !== "") return ids;
+      continue;
+    }
+    const elm = prev as HTMLElement;
+    if (elm.dataset?.bot) {
+      ids.add(elm.dataset.bot);
+      continue;
+    }
+    if (elm.tagName === "BR") continue;
+    return ids;
+  }
+  return ids;
+}
+
+
+/**
  * 자동완성 목록 (§4.1.2).
  *
  * 맨 위에 **직전 그룹**이 온다 — 같은 상대에게 이어서 말하는 것이 가장 흔한데,
@@ -1082,10 +1122,7 @@ function paintPicker(r: Room, box: HTMLElement): void {
   if (!found) return;
 
   const q = found.q.toLowerCase();
-  // 이미 이 그룹에 넣은 봇은 뺀다 — `(@Claude) @`에서 Claude가 또 뜨면 안 된다
-  const already = new Set(
-    [...box.querySelectorAll<HTMLElement>(".chip")].map((c) => c.dataset.bot ?? ""),
-  );
+  const already = groupSoFar(box, found.node);
   const hits = r.participants.filter(
     (b) => !already.has(b.id) && b.name.toLowerCase().includes(q),
   );
