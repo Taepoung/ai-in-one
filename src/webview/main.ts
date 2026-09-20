@@ -51,6 +51,18 @@ const statuses = new Map<string, RoomStatus>();
  * 목록은 합친 값하나면 충분하다.
  */
 let botStatus: Record<string, RoomStatus> = {};
+/**
+ * **아직 안 보낸 것들** — `botId` → 줄 서 있는 메시지 id들 (§4.3).
+ *
+ * 상태와 같은 이유로 **지금 보는 방의 것만** 들고 있다. 큐에 쌓인 말풍선은
+ * 보낸 것과 똑같이 생겨서, 이게 없으면 «보냈는데 왜 조용하지»가 된다.
+ */
+let queued: Record<string, string[]> = {};
+
+/** 이 메시지가 **어느 봇의 줄에** 서 있나 */
+function waitingFor(messageId: string): string[] {
+  return Object.keys(queued).filter((id) => queued[id]?.includes(messageId));
+}
 const configs = new Map<string, ConfigOptionBrief[]>();
 /**
  * 설정을 못 불러온 이유.
@@ -1398,6 +1410,77 @@ function lostLine(m: Message, r: Room): string {
     : "여기부터 전달되지 않았습니다";
 }
 
+/**
+ * ★ **이 말이 누구에게 갔나** (§4.1.1 · §4.2).
+ *
+ * 🔴 **이 설계의 유일한 위험**이 «화면엔 다 보이는데 봇은 서로 모른다»는
+ * 것이다. 우리는 멘션된 봇에게만 전달하므로(§4.1.1), 단체방의 말풍선은
+ * 보이는 것보다 **좁게** 갔다. 그 차이를 안 적으면 사용자는 *"방금 Claude가
+ * 한 말 이어서 해줘"* 를 Codex에게 시키고, Codex는 그 말을 본 적이 없다.
+ *
+ * 그래서 **보낸 쪽에 받는 이를 적는다.** 메신저의 «읽음»이 있는 자리다.
+ *
+ * 함께 세 가지를 한 줄에 담는다 — 셋 다 «지금 이 말이 어디까지 갔나»다:
+ *
+ * | 표시 | 뜻 |
+ * |---|---|
+ * | `→ Claude` | 갔다 |
+ * | `⏳ Codex` | **아직 줄에 서 있다** — 앞 턴이 끝나면 간다 |
+ * | (없음) | 못 갔다 — 위의 끊김 줄(`lostLine`)이 이미 말하고 있다 |
+ *
+ * 1:1에서는 **받는 이를 적지 않는다** — 상대가 하나뿐이라 자명하고, 매
+ * 말풍선에 같은 이름이 붙으면 읽는 데 방해만 된다. 대기 표시는 1:1에서도
+ * 나온다 — 거기서도 «보냈는데 조용하다»는 똑같이 불안하다.
+ */
+function deliveryNode(m: Message, r: Room): HTMLElement | null {
+  if (m.role !== "user") return null;
+
+  const here = (id: string) => r.participants.find((b) => b.id === id);
+  const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
+  const wait = new Set(waitingFor(m.id));
+
+  const went: string[] = [];
+  const held: string[] = [];
+  for (const id of m.deliveredTo) {
+    const bot = here(id);
+    if (!bot || lost.has(id)) continue;
+    (wait.has(id) ? held : went).push(bot.name);
+  }
+  if (went.length === 0 && held.length === 0) return null;
+
+  const many = r.participants.length > 1;
+  // 1:1이고 줄도 안 섰으면 적을 게 없다 — «→ Claude»만 남는데 자명하다
+  if (!many && held.length === 0) return null;
+
+  const row = el("div", { class: "meta delivery" });
+  if (many && went.length > 0) row.append(el("span", { text: `→ ${went.join(" · ")}` }));
+  if (held.length > 0) {
+    row.append(
+      el("span", {
+        class: "held",
+        text: many
+          ? `⏳ ${held.join(" · ")} 대기 중`
+          : "⏳ 앞 대화가 끝나면 보냅니다",
+        title: "앞 턴이 아직 돌고 있습니다. 끝나면 묶어서 한 번에 전달합니다.",
+      }),
+      /*
+       * ★ **아직 안 보냈으니 뺄 수 있다** (§4.3).
+       *
+       * 여태 물릴 길은 «중단»뿐이었는데, 그건 **진행 중인 턴까지 끊는다** —
+       * 안 보낸 한 줄을 물리려고 이미 보낸 것을 죽이는 셈이었다.
+       */
+      el("button", {
+        class: "link",
+        text: "빼기",
+        title: "이 메시지를 줄에서 뺍니다. 진행 중인 답변은 그대로 둡니다.",
+        onclick: () =>
+          room && post({ t: "unqueue", roomId: room.id, messageId: m.id }),
+      }),
+    );
+  }
+  return row;
+}
+
 /** 앞 말풍선과 **같은 봇들에게** 못 간 것인가 — 그러면 줄을 또 그여도 소용없다 */
 function lostAlike(above: Message | undefined, m: Message): boolean {
   if (!above?.sendFailed) return false;
@@ -1821,6 +1904,10 @@ function sigOf(m: Message): string {
     usagePct(m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : undefined),
     // 이름을 바꾸면 말풍선도 따라가야 한다
     (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.name : "") ?? "",
+    // 배달 표시 — 받는 이가 바뀌거나 줄에서 빠지면 다시 그려야 한다
+    m.deliveredTo.join(","),
+    (m.notSentTo ?? []).join(","),
+    waitingFor(m.id).join(","),
   ].join(" ");
 }
 
@@ -2001,6 +2088,12 @@ function messageNode(
           : `↩ 질문 ${n}개에 한 번에 답합니다`,
       }),
     );
+  }
+
+  // 누구에게 갔고 누가 아직 줄에 서 있나 (§4.1.1)
+  if (room) {
+    const sent = deliveryNode(m, room);
+    if (sent) node.append(sent);
   }
 
   // 계획은 **결과가 아니라 약속**이다 — 접지 않고 말풍선 아래 그대로 보여준다
@@ -4154,6 +4247,8 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
 
     case "room": {
       const switching = room?.id !== m.room.id;
+      // 🔴 큐는 **방마다**다. 안 비우면 옆 방의 «대기 중»이 여기 붙는다.
+      if (switching) queued = {};
       room = m.room;
       usage = m.room.usage;
       compactable = m.compactable;
@@ -4186,6 +4281,13 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (room?.id === m.roomId) {
         if (m.usage) usage = m.usage;
         applyDelta(m.message);
+      }
+      break;
+
+    case "queued":
+      if (room?.id === m.roomId) {
+        queued = m.bots;
+        renderChat();
       }
       break;
 

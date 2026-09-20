@@ -103,6 +103,15 @@ export type ToWebview =
    * 단체방에서 «Claude는 답하는 중, Codex는 끝»을 말하려면 둘 다 필요하다.
    */
   | { t: "status"; roomId: string; status: RoomStatus; bots?: Record<string, RoomStatus> }
+  /**
+   * **아직 안 보낸 것들** (§4.3) — `botId` → 줄 서 있는 메시지 id들.
+   *
+   * 큐에 쌓인 메시지는 화면에 **보낸 것과 똑같이** 떠 있다. 이게 없으면
+   * «보냈는데 왜 조용하지»가 되고, 그 자리에서 할 수 있는 일도 없다.
+   *
+   * 비어 있는 방도 보낸다 — «이제 다 나갔다»를 알려야 표시가 걷힌다.
+   */
+  | { t: "queued"; roomId: string; bots: Record<string, string[]> }
   | { t: "roomError"; roomId: string; message: string }
   | { t: "notice"; roomId: string; message: string }
   | {
@@ -184,6 +193,12 @@ export type FromWebview =
    */
   | { t: "cancel"; roomId: string; botId?: string }
   | { t: "retry"; roomId: string; messageId?: string }
+  /**
+   * **줄에서 빼낸다** — 아직 안 보낸 메시지 하나만 물린다 (§4.3).
+   *
+   * 「중단」과 다르다: 중단은 **진행 중인 턴까지 끊고**, 이건 안 보낸 것만 뺀다.
+   */
+  | { t: "unqueue"; roomId: string; messageId: string; botId?: string }
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string; botId?: string }
   /**

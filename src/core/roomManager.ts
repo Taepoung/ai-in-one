@@ -454,6 +454,17 @@ type Events = {
    */
   status: [string, RoomStatus, Record<string, RoomStatus>];
   /**
+   * **아직 안 보낸 것들** (roomId, botId → messageId[]) — §4.3.
+   *
+   * 큐에 쌓인 메시지는 화면에 **이미 말풍선으로 떠 있다.** 보낸 것과 똑같이
+   * 생겼으니 사용자는 갔다고 믿는데, 실제로는 앞 턴이 끝나기를 기다리는 중이다.
+   * 그 사이에 «왜 조용하지»가 되고, 그때 할 수 있는 일이 하나도 없다.
+   *
+   * 🔴 **상태(`status`)에 얹지 않는다.** 큐에 쌓이는 순간은 그 봇이 이미
+   * 바쁠 때라 상태가 **안 바뀐다** — 얹어두면 영영 안 나가는 신호가 된다.
+   */
+  queued: [string, Record<string, string[]>];
+  /**
    * 방에서 일어난 오류 (roomId, 메시지).
    *
    * **이름이 `error`가 아닌 이유**: Node의 `EventEmitter`는 `'error'`를 특별 취급해
@@ -1601,6 +1612,7 @@ export class RoomManager extends EventEmitter<Events> {
     const mine = this.statusOf(roomId, bot.id);
     if (mine !== "idle" && mine !== "error") {
       bt.queue.push(sent);
+      this.emitQueued(roomId);
       return;
     }
 
@@ -1611,6 +1623,7 @@ export class RoomManager extends EventEmitter<Events> {
       await this.runQueue(room, batch, bot.id);
       if (bt.queue.length === 0) return;
       batch = bt.queue.splice(0, bt.queue.length);
+      this.emitQueued(roomId);
     }
   }
 
@@ -1698,6 +1711,7 @@ export class RoomManager extends EventEmitter<Events> {
         const mine = this.statusOf(roomId, botId);
         if (mine !== "idle" && mine !== "error") {
           bt.queue.push(...batch);
+          this.emitQueued(roomId);
           return;
         }
         /*
@@ -1713,7 +1727,9 @@ export class RoomManager extends EventEmitter<Events> {
         for (const one of batch) await this.runQueue(room, [one], botId);
         for (;;) {
           if (bt.queue.length === 0) return;
-          await this.runQueue(room, bt.queue.splice(0, bt.queue.length), botId);
+          const next = bt.queue.splice(0, bt.queue.length);
+          this.emitQueued(roomId);
+          await this.runQueue(room, next, botId);
         }
       }),
     );
@@ -1766,6 +1782,7 @@ export class RoomManager extends EventEmitter<Events> {
           await this.runQueue(room, run, botId);
           if (bt.queue.length === 0) return;
           run = bt.queue.splice(0, bt.queue.length);
+          this.emitQueued(roomId);
         }
       }),
     );
@@ -1817,23 +1834,52 @@ export class RoomManager extends EventEmitter<Events> {
       // 영영 답이 안 와서 "왜 조용하지"가 된다. 다시 보낼 수 있게 표시한다(C5).
       const dropped = bt.queue.splice(0, bt.queue.length);
       for (const m of dropped) {
-        // ★ **안 간 것은 이 봇에게만이다.** 같은 메시지가 옆 봇에게는
-        // 멀줦히 갔을 수 있고, 그걸 다시 보내면 **두 번 일하게 된다**.
-        m.notSentTo = [...new Set([...(m.notSentTo ?? []), bot.id])];
-        m.sendFailed =
-          room.participants.length > 1
-            ? `${m.notSentTo
-                .map((id) => room.participants.find((b) => b.id === id)?.name ?? id)
-                .join("·")}에게 보내기 전에 중단했습니다.`
-            : "보내기 전에 중단했습니다.";
-        await this.saveMessage(room, {
-          id: m.id,
-          sendFailed: m.sendFailed,
-          notSentTo: m.notSentTo,
-        });
+        await this.markNotSent(room, m, bot.id, "보내기 전에 중단했습니다.");
       }
+      if (dropped.length > 0) this.emitQueued(roomId);
       await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
     }
+  }
+
+  /**
+   * **줄에서 빼낸다** — 아직 안 보냈으니 그냥 빼면 된다 (§4.3).
+   *
+   * 답을 기다리는 동안 마음이 바뀌는 건 흔하다. 그런데 지금은 길이 «중단»뿐이라,
+   * 큐에 쌓인 한 줄을 물리려면 **진행 중인 턴까지 끊어야** 했다 — 아직 안 보낸
+   * 것을 물리는 대가로 **이미 보낸 것을 죽이는** 셈이다.
+   *
+   * 🔴 **조용히 지우지 않는다** (§0). 말풍선은 그대로 두고 «안 갔다»만 적는다 —
+   * 지워버리면 *"내가 뭐라고 썼더라"* 에 답할 수 없고, 다시 보낼 수도 없다.
+   *
+   * @returns 실제로 뺀 게 있으면 `true`
+   */
+  async unqueue(roomId: string, messageId: string, botId?: string): Promise<boolean> {
+    const room = this.open.get(roomId);
+    const rt = this.runtimes.get(roomId);
+    if (!room || !rt) return false;
+
+    let pulled = false;
+    for (const [id, bt] of rt.bots) {
+      if (botId && id !== botId) continue;
+      const at = bt.queue.findIndex((m) => m.id === messageId);
+      if (at < 0) continue;
+      const [m] = bt.queue.splice(at, 1);
+      if (!m) continue;
+      await this.markNotSent(room, m, id, "보내기 전에 뺐습니다.");
+      pulled = true;
+    }
+    if (pulled) this.emitQueued(roomId);
+    return pulled;
+  }
+
+  /** 지금 줄 서 있는 것들 — 방을 새로 열었을 때 한 번에 실어 보낸다 */
+  queuedIds(roomId: string): Record<string, string[]> {
+    const rt = this.runtimes.get(roomId);
+    const out: Record<string, string[]> = {};
+    for (const [id, bt] of rt?.bots ?? []) {
+      if (bt.queue.length > 0) out[id] = bt.queue.map((m) => m.id);
+    }
+    return out;
   }
 
   /** 에이전트가 압축 명령을 제공하는지 (C11). 없으면 버튼을 숨긴다 */
@@ -3251,6 +3297,55 @@ export class RoomManager extends EventEmitter<Events> {
     const same = rt.status === merged;
     rt.status = merged;
     if (!same || botId !== undefined) this.emit("status", roomId, merged, bots);
+  }
+
+  /**
+   * 봇마다 **줄 서 있는 메시지**를 화면에 알린다.
+   *
+   * 큐를 건드린 자리마다 부른다 — 쌓을 때, 꺼낼 때, 중단으로 버릴 때.
+   * 비어 있어도 보낸다: «이제 다 나갔다»도 알려줘야 표시가 걷힌다.
+   */
+  private emitQueued(roomId: string): void {
+    const rt = this.runtimes.get(roomId);
+    if (!rt) return;
+    const out: Record<string, string[]> = {};
+    for (const [id, bt] of rt.bots) {
+      if (bt.queue.length > 0) out[id] = bt.queue.map((m) => m.id);
+    }
+    this.emit("queued", roomId, out);
+  }
+
+  /**
+   * **이 봇에게는 안 갔다**고 메시지에 적는다 (C5 · §0의 뺄셈 규칙).
+   *
+   * 큐에 있던 것을 버리는 길은 둘이다 — 중단(`cancel`)과 빼내기(`unqueue`).
+   * 둘 다 «화면에는 떠 있는데 영영 답이 없는» 말풍선을 남기므로 **같은 자국**을
+   * 남겨야 한다. 이유만 다르다.
+   *
+   * 🔴 **안 간 것은 이 봇에게만이다.** 같은 메시지가 옆 봇에게는 멀쩡히 갔을 수
+   * 있고, 그걸 다시 보내면 **두 번 일하게 된다** — 코딩 에이전트에서는 파일을
+   * 두 번 고치는 일이다.
+   */
+  private async markNotSent(
+    room: Room,
+    m: Message,
+    botId: string,
+    why: string,
+  ): Promise<void> {
+    m.notSentTo = [...new Set([...(m.notSentTo ?? []), botId])];
+    m.sendFailed =
+      room.participants.length > 1
+        ? `${m.notSentTo
+            .map((id) => room.participants.find((b) => b.id === id)?.name ?? id)
+            .join("·")}에게 ${why}`
+        : why;
+    await this.saveMessage(room, {
+      id: m.id,
+      sendFailed: m.sendFailed,
+      notSentTo: m.notSentTo,
+    });
+    // 🔴 저장만 하고 알리지 않으면 **방을 다시 열기 전까지 화면이 모른다.**
+    this.emit("message", room.id, m);
   }
 
   private append(room: Room, message: Message): void {
