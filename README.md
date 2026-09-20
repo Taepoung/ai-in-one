@@ -91,9 +91,9 @@ npm run watch      # esbuild watch
 
 | | |
 |---|---|
-| **[docs/ROADMAP.md](docs/ROADMAP.md)** | 버전별 기능 계획 · 설계 결정 · 리스크 |
-| **[docs/USAGE.md](docs/USAGE.md)** | 사용법. 버전을 낼 때마다 갱신한다 |
-| **[docs/RELEASE.md](docs/RELEASE.md)** | 배포와 설치 — `.vsix` · 마켓플레이스 · Open VSX |
+| **`docs/ROADMAP.md`** | 버전별 기능 계획 · 설계 결정 · 리스크 |
+| **`docs/USAGE.md`** | 사용법. 버전을 낼 때마다 갱신한다 |
+| **`docs/RELEASE.md`** | 배포와 설치 — `.vsix` · 마켓플레이스 · Open VSX |
 
 ---
 
