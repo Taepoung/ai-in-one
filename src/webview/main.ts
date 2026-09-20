@@ -1424,6 +1424,15 @@ function paintChat(r: Room): void {
   // 서랍이 열려 있으면 **같이 갱신된다** — 사용량과 작업 중 표시가
   // 멈춰 있으면 서랍을 보는 동안에는 아무 일도 안 일어나는 것처럼 보인다.
   if (screens.chat.querySelector(".drawer")) paintDrawer(r);
+  /*
+   * ★ **권한 시트도 같이 갱신된다.**
+   *
+   * 서랍에서 봇을 불렀는데 시트를 열면 **아까 그 봇이 없었다** — 열던
+   * 순간의 참여자로 그려둔 채로 멈춰 있었기 때문이다. 내보낸 봇이 남아
+   * 있는 것도 같은 이유다. 시트는 «지금 방에 누가 있나»를 보여주는 곳이므로
+   * 방이 바뀌면 따라가야 한다.
+   */
+  if (screens.chat.querySelector(".sheet")) paintPermissionSheet(r);
 
   const atBottom = stick;
   const nodes: Node[] = [];
@@ -2810,12 +2819,17 @@ function cardNode(card: AskCard): HTMLElement {
  * `⋮` 안에 숨기지 않는다.
  */
 function togglePermissionSheet(r: Room): void {
-  const open = screens.chat.querySelector(".sheet");
-  if (open) {
-    open.remove();
+  if (screens.chat.querySelector(".sheet")) {
+    closeSheet();
     return;
   }
   paintPermissionSheet(r);
+}
+
+/** 시트와 덮개를 함께 걱는다 — 하나만 남으면 화면이 먹힌다 */
+function closeSheet(): void {
+  screens.chat.querySelector(".sheet-veil")?.remove();
+  screens.chat.querySelector(".sheet")?.remove();
 }
 
 /**
@@ -2840,15 +2854,29 @@ function paintPermissionSheet(r: Room): void {
       el("span", {}, icon("shield"), " 권한 설정"),
       el(
         "button",
-        { class: "icon", title: "닫기", onclick: () => sheet.remove() },
+        { class: "icon", title: "닫기", onclick: () => closeSheet() },
         icon("close"),
       ),
     ),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
     sharedMemoryRow(r),
   );
-  screens.chat.querySelector(".sheet")?.replaceWith(sheet);
-  if (!sheet.isConnected) screens.chat.append(sheet);
+  const was = screens.chat.querySelector(".sheet");
+  if (was) {
+    was.replaceWith(sheet);
+  } else {
+    /*
+     * ★ **덮개를 깔고 올린다** — 서랍과 같은 이유다.
+     *
+     * 시트 배경은 테마에 따라 대화 배경과 거의 같은 색이 된다. 그러면
+     * 시트인지 대화인지 경계가 안 보여 **위에 떠 있다는 것자체가 안 읽힌다.**
+     * 그림자만으로는 부족했다 — 뒤를 깔아야 앞이 떠오른다.
+     */
+    screens.chat.append(
+      el("div", { class: "sheet-veil", onclick: () => closeSheet() }),
+      sheet,
+    );
+  }
 }
 
 /** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
