@@ -939,7 +939,10 @@ function mountChat(r: Room): void {
   chat = { roomId: r.id, head, list, status, chips, box, perm };
   pending = [];
   paintChips();
-  post({ t: "needCaps", agentId: r.participants[0]?.agentId ?? "" });
+  // 단체방에서는 **봇마다 에이전트가 다르다** — 전부 물어봐야 누가 뭐를 못 하는지 안다
+  for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
+    post({ t: "needCaps", agentId });
+  }
   // 권한 시트가 봇마다 모드를 보여주므로 **참여자 전부** 필요하다 (캐시가 있으면 즉시 온다)
   for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
     post({ t: "needConfig", agentId, roomId: r.id });
@@ -2026,8 +2029,34 @@ function renderInline(host: HTMLElement, text: string): void {
 /** 보낼 준비가 된 첨부들. 전송하면 비워진다 */
 let pending: Attachment[] = [];
 /** 에이전트가 받아주는 종류 (I5). 연결 전이면 전부 허용으로 온다 */
-let caps: { image: boolean; audio: boolean; embeddedContext: boolean; fork: "yes" | "no" | "unknown" } =
-  { image: true, audio: true, embeddedContext: true, fork: "unknown" };
+type Caps = { image: boolean; audio: boolean; embeddedContext: boolean; fork: "yes" | "no" | "unknown" };
+const ANY: Caps = { image: true, audio: true, embeddedContext: true, fork: "unknown" };
+
+/**
+ * **에이전트마다 따로 들고 있는다** (v2.0).
+ *
+ * ⚠ 예전엔 칸이 하나였고 `participants[0]`의 것만 담았다. 단체방에서는
+ * 그게 **거짓말이 된다** — Claude·Gemini 방에서 분기 다이얼로그가 Claude를 보고
+ * «그대로 갈라집니다»라고 말하는 사이 Gemini는 조용히 폴백으로 떨어졌다.
+ * 잡는 것은 D1이 정한 «폴백은 미리 명시한다»이다.
+ */
+const capsBy = new Map<string, Caps>();
+const capsOf = (agentId: string): Caps => capsBy.get(agentId) ?? ANY;
+/** 방의 봇들을 합친 값 — 첨부처럼 **전원이 받아야** 보낼 수 있는 것에 쓴다 */
+function capsAll(r: Room | null | undefined): Caps {
+  const list = (r?.participants ?? []).map((b) => capsOf(b.agentId));
+  if (list.length === 0) return ANY;
+  return {
+    image: list.every((c) => c.image),
+    audio: list.every((c) => c.audio),
+    embeddedContext: list.every((c) => c.embeddedContext),
+    fork: list.every((c) => c.fork === "yes")
+      ? "yes"
+      : list.some((c) => c.fork === "no")
+        ? "no"
+        : "unknown",
+  };
+}
 
 /** sha256 → data: URI. 같은 이미지를 두 번 받아오지 않는다 */
 const blobCache = new Map<string, string>();
@@ -2049,7 +2078,8 @@ async function attachFiles(roomId: string, files: File[]): Promise<void> {
     const isImage = file.type.startsWith("image/");
     const isAudio = file.type.startsWith("audio/");
     // 못 받는 종류는 **보내기 전에** 말해준다 — 보내고 조용히 버리면 기다리게 된다
-    if ((isImage && !caps.image) || (isAudio && !caps.audio)) {
+    const able = capsAll(room);
+    if ((isImage && !able.image) || (isAudio && !able.audio)) {
       rejected.push(`${file.name} — 이 에이전트는 ${isImage ? "이미지" : "오디오"}를 받지 못합니다`);
       continue;
     }
@@ -2887,8 +2917,24 @@ function askFork(r: Room, atMessageId?: string): void {
    * 못 한다고 모함하게 된다.
    */
   const past = at < r.messages.length - 1;
-  const cannot = caps.fork === "no";
-  const lossy = past || cannot;
+  /*
+   * ★ **누가 잃는지까지 말한다** (v2.0).
+   *
+   * 단체방은 봇마다 에이전트가 다르다. «일부는 잃습니다»만 써두면
+   * **누구에게 다시 설명해야 하는지** 모른 채로 고르게 된다.
+   *
+   * 과거 지점은 프로토콜상 전원이 폴백이다 — `ForkSessionRequest`에 «어느
+   * 지점에서»가 없기 때문이다. 끝에서 가를 때만 봇마다 갈린다.
+   */
+  const losers = past
+    ? r.participants
+    : r.participants.filter((b) => capsOf(b.agentId).fork === "no");
+  const lossy = losers.length > 0;
+  // 봇이 하나면 이름을 안 붙인다 — 군더더기다. 조사도 그에 따라 갈린다.
+  const subject =
+    r.participants.length > 1 && !past && lossy
+      ? `${losers.map((b) => b.name).join("·")}는 계획과 파일 기억을`
+      : "계획과 파일 기억은";
   const title = el("input", {
     type: "text",
     placeholder: `비우면 «${r.title.replace(/\s*\(\d+\)\s*$/, "")} (2)»`,
@@ -2922,10 +2968,13 @@ function askFork(r: Room, atMessageId?: string): void {
           "div",
           { class: "warn-row" },
           icon("warning"),
-          ` 계획과 파일 기억은 물려받지 못합니다 — 대화만 글로 옮깁니다. ` +
+          ` ${subject} 물려받지 못합니다 — 대화만 글로 옮깁니다. ` +
             (past
               ? "과거 지점은 세션을 복제할 수 없습니다."
-              : `${agentById.get(r.participants[0]?.agentId ?? "")?.label ?? "이 에이전트"}는 세션 분기를 지원하지 않습니다."`) +
+              : `${[...new Set(losers.map((b) => agentById.get(b.agentId)?.label ?? "이 에이전트"))].join("·")}는 세션 분기를 지원하지 않습니다.`) +
+            (r.participants.length > losers.length
+              ? ` 나머지 봇은 그대로 갈라집니다.`
+              : "") +
             " 다음 메시지에 실려 가므로 토큰이 듭니다.",
         )
       : null,
@@ -3512,9 +3561,9 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       break;
 
     case "caps":
-      if (room?.participants[0]?.agentId === m.agentId) {
-        caps = { image: m.image, audio: m.audio, embeddedContext: m.embeddedContext, fork: m.fork };
-      }
+      capsBy.set(m.agentId, {
+        image: m.image, audio: m.audio, embeddedContext: m.embeddedContext, fork: m.fork,
+      });
       break;
 
     case "cwdPicked": {
