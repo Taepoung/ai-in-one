@@ -565,13 +565,22 @@ interface DraftBot {
   picks: Map<string, string | boolean>;
   role: string;
 }
-const draftBots: DraftBot[] = [{ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" }];
+let draftBots: DraftBot[] = [{ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" }];
 /** 방금 손대던 봇 — 빼기를 누른 뒤 범위를 안전하게 유지하려고 둔다 */
 let draftAt = 0;
 let draftCwd = "";
 
 function openNewRoom(): void {
   draftCwd = "";
+  /*
+   * 🔴 **초안을 들고 있지 않는다.**
+   *
+   * 봇을 셋 넣어 방을 만든 뒤에 다시 «새 대화방»을 열면 그 셋이 그대로
+   * 남아 있었다 — 방을 만드는 것은 **매번 새로 정하는 일**이지 직전을 이어가는
+   * 일이 아니다. 제목·역할은 매번 비워 주면서 봇 수만 남겨두면 더 이상하다.
+   */
+  draftBots = [{ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" }];
+  draftAt = 0;
   renderNew();
   go("new");
   for (const b of draftBots) if (b.agentId) post({ t: "needConfig", agentId: b.agentId });
@@ -3669,21 +3678,118 @@ function paintDrawer(r: Room): void {
  * 폼을 달면 «부르기 전에 다 정해야 한다»가 되고, 그건 사실이 아니다.
  */
 function inviteRow(r: Room): HTMLElement {
-  const pick = el("select", { class: "invite" }) as HTMLSelectElement;
-  for (const a of boot.agents) pick.append(el("option", { value: a.id, text: a.label }));
   return el(
     "div",
     { class: "invite-row" },
-    pick,
     el("button", {
       class: "ghost",
       text: "+ 봇 부르기",
-      onclick: () => {
-        closeDrawer();
-        post({ t: "addBot", roomId: r.id, agentId: pick.value });
-      },
+      onclick: () => (closeDrawer(), askInvite(r)),
     }),
   );
+}
+
+/**
+ * **부를 봇을 고른다** (v2.0).
+ *
+ * 예전엔 서랍 바닥에 드롭다운 하나만 두었는데, 그러면 **에이전트밖에 못
+ * 고른다.** 모델과 역할은 봇에 붙는 값인데(D2·B3) 부르고 나서 따로 찾아가
+ * 정하게 하는 것은 «부를 때 정하는» 방 만들기와 엇나간다.
+ *
+ * 그래서 **방 만들 때와 같은 모양**을 카드로 띄운다 — 새로 배울 게 없다.
+ */
+function askInvite(r: Room): void {
+  const draft: DraftBot = { agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" };
+  if (!configs.has(draft.agentId)) post({ t: "needConfig", agentId: draft.agentId });
+
+  const paint = (): void => {
+    const role = el("textarea", {
+      class: "role",
+      placeholder: "역할 (선택) — 예) 너는 코드 리뷰어다.",
+    }) as HTMLTextAreaElement;
+    role.value = draft.role;
+    role.addEventListener("input", () => (draft.role = role.value));
+
+    const card = el(
+      "div",
+      { class: "card" },
+      el("div", { class: "card-title" }, icon("organization"), " 봇 부르기"),
+      el(
+        "div",
+        { class: "card-body" },
+        el(
+          "div",
+          { class: "field" },
+          el("label", { text: "에이전트" }),
+          el(
+            "div",
+            { class: "agents" },
+            ...boot.agents.map((a) =>
+              el(
+                "button",
+                {
+                  class: "agent",
+                  "aria-pressed": a.id === draft.agentId,
+                  onclick: () => {
+                    if (a.id === draft.agentId) return;
+                    draft.agentId = a.id;
+                    // 모델은 에이전트마다 다르다 — 압은 것을 두면 없는 id를 보낸다
+                    draft.picks.clear();
+                    if (!configs.has(a.id)) post({ t: "needConfig", agentId: a.id });
+                    paint();
+                  },
+                },
+                el("span", { class: "dot", style: { background: a.color } }),
+                el(
+                  "span",
+                  { class: "agent-main" },
+                  el("span", { class: "agent-name", text: a.label }),
+                  a.description ? el("span", { class: "agent-desc", text: a.description }) : null,
+                ),
+              ),
+            ),
+          ),
+        ),
+        ...configFields(configs.get(draft.agentId), draft.picks),
+        role,
+      ),
+      // 부르기 전에 **무엇을 모를지** 알려준다 (§4.1.1)
+      r.messages.some((m) => m.role !== "system")
+        ? el(
+            "div",
+            { class: "warn-row" },
+            icon("warning"),
+            " 새 봇은 **위 대화를 모릅니다** — 화면에는 보이지만 전달되지는 않았습니다. "
+              + "필요한 것은 부른 뒤에 다시 알려주세요.",
+          )
+        : null,
+      el(
+        "div",
+        { class: "card-actions" },
+        el("button", {
+          class: "primary",
+          text: "부르기",
+          onclick: () => {
+            post({
+              t: "addBot",
+              roomId: r.id,
+              agentId: draft.agentId,
+              ...(draft.role.trim() ? { rolePrompt: draft.role.trim() } : {}),
+              ...(draft.picks.size > 0 ? { configValues: Object.fromEntries(draft.picks) } : {}),
+            });
+            renderChat();
+          },
+        }),
+        el("button", { text: "취소", onclick: () => renderChat() }),
+      ),
+    );
+
+    const old = chat?.list.querySelector(".card");
+    if (old) old.replaceWith(card);
+    else chat?.list.append(card);
+    if (chat?.list) scrollInside(chat.list, card, "end");
+  };
+  paint();
 }
 
 

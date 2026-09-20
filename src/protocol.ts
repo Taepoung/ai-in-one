@@ -195,7 +195,14 @@ export type FromWebview =
   /** 분기를 한 번 더 — 되면 계획·파일 기억까지 돌아온다 (v1.1 보완) */
   | { t: "retryFork"; roomId: string }
   /** 방에 봇을 부른다 (v2.0). 1:1을 단체방으로 올리는 길이기도 하다 */
-  | { t: "addBot"; roomId: string; agentId: string; rolePrompt?: string }
+  | {
+      t: "addBot";
+      roomId: string;
+      agentId: string;
+      rolePrompt?: string;
+      /** 모델·추론 강도 — 부를 때 정한다 (B15) */
+      configValues?: Record<string, string | boolean>;
+    }
   | { t: "removeBot"; roomId: string; botId: string }
   | { t: "renameBot"; roomId: string; botId: string; name: string }
   /**

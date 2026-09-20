@@ -329,6 +329,7 @@ export class ChatPanel implements AskTarget {
           await this.rooms.addBot(m.roomId, {
             agentId: m.agentId,
             ...(m.rolePrompt ? { rolePrompt: m.rolePrompt } : {}),
+            ...(m.configValues ? { configValues: m.configValues } : {}),
           });
           break;
         case "removeBot":
