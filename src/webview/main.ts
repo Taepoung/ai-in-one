@@ -1759,6 +1759,8 @@ function sigOf(m: Message): string {
     // 이름 옆 사용량 — **반올림한 값**만 넣는다. 토큰 하나마다 다시
     // 그리면 스트리밍 중에 말풍선을 초당 열몇 번씩 다시 만들게 된다.
     usagePct(m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : undefined),
+    // 이름을 바꾸면 말풍선도 따라가야 한다
+    (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.name : "") ?? "",
   ].join(" ");
 }
 
@@ -1833,7 +1835,14 @@ function messageNode(
         "div",
         { class: "who" },
         el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
-        agent?.label ?? "에이전트",
+        /*
+         * 🔴 **봇 이름이지 에이전트 이름이 아니다.**
+         *
+         * 에이전트 라벨을 쓰고 있었는데, 그러면 같은 에이전트로 봇을 둘 두면
+         * «알파»와 «알파 2»가 **둘 다 «알파»로** 보인다 — 누가 말했는지를
+         * 구별할 수 없게 된다. 이름은 봇에 붙고(B1) 멘션도 그 이름으로 간다.
+         */
+        who?.name ?? agent?.label ?? "에이전트",
         usageChip(who),
       ),
     );
@@ -3214,13 +3223,28 @@ function showRoomInfo(r: Room): void {
       "div",
       { class: "card-actions" },
       // 봇에 대한 것을 찾아 여기까지 온 사람을 **되돌려 보내지 않는다**
-      el("button", { text: "참여자 보기", onclick: () => (renderChat(), paintDrawer(r)) }),
-      el("button", { text: "닫기", onclick: () => renderChat() }),
+      el("button", { text: "참여자 보기", onclick: () => (closeModal(), paintDrawer(r)) }),
+      el("button", { text: "닫기", onclick: () => closeModal() }),
     ),
   );
 
-  chat?.list.append(card);
-  if (chat?.list) scrollInside(chat.list, card, "end");
+  /*
+   * ★ **방 정보는 팔업이다** — 대화에 붙이지 않는다.
+   *
+   * 대화 아래에 붙는 카드들(승인·분기 다이얼로그)는 **답할 때까지 눈에
+   * 보여야 하는 것**이라 거기 있는다. 방 정보는 반대다 — 보고 닫는 것이고,
+   * 대화에 끼어들면 스크롤에 밀려 사라지고 기록처럼 보이기까지 한다.
+   */
+  screens.chat.append(
+    el("div", { class: "modal-veil", onclick: () => closeModal() }),
+    el("div", { class: "modal" }, card),
+  );
+}
+
+/** 팔업과 덮개를 함께 걱는다 */
+function closeModal(): void {
+  screens.chat.querySelector(".modal-veil")?.remove();
+  screens.chat.querySelector(".modal")?.remove();
 }
 
 /**

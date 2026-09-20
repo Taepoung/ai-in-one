@@ -2302,3 +2302,39 @@ fieldset.bot .bot-drop {
   border: 1px solid var(--line);
   border-bottom: none;
 }
+
+/*
+ * 팝업 — 보고 닫는 것 (방 정보).
+ *
+ * 대화 아래에 붙는 카드는 «답할 때까지 눈에 보여야 하는 것»이라 거기 있다.
+ * 보고 닫는 것을 거기 두면 스크롤에 밀려 사라지고, 지나간 기록처럼 읽힌다.
+ */
+.modal-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / 0.32);
+}
+
+.modal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 31;
+  width: min(420px, calc(100% - 32px));
+  max-height: 76%;
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--vscode-menu-background, var(--bubble-bot-bg));
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.36);
+}
+
+/* 팝업 안의 카드는 이미 상자 안이므로 테두리를 두 번 그리지 않는다 */
+.modal > .card {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
