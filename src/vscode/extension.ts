@@ -85,7 +85,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   // 먼저 «느렸다»를 알아야 한다. 빠를 때는 조용하다.
   if (took >= SLOW_ACTIVATE_MS) {
     out.appendLine(
-      `⚠ 활성화가 느렸습니다. 디스크가 바쁜거나 기록이 많을 수 있습니다.`,
+      `⚠ 활성화가 느렸습니다. 디스크가 바쁘거나 기록이 많을 수 있습니다.`,
     );
   }
 }
