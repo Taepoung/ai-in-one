@@ -1632,19 +1632,42 @@ export class RoomManager extends EventEmitter<Events> {
     );
     if (targets.length === 0) return;
 
-    for (const m of targets) delete m.sendFailed;
-    for (const m of targets) await this.saveMessage(room, { id: m.id, sendFailed: undefined });
-    for (const m of targets) this.emit("message", room.id, m);
-
-    const bot = this.soleBot(room);
-    if (!bot) return;
-    const bt = this.botRuntime(roomId, bot.id);
-    let batch = targets;
-    for (;;) {
-      await this.runQueue(room, batch, bot.id);
-      if (bt.queue.length === 0) return;
-      batch = bt.queue.splice(0, bt.queue.length);
+    /*
+     * ★ **안 간 봇에게만 다시 보낸다** (v2.0).
+     *
+     * 한 메시지가 여럿에게 갈 수 있고(`@알파 @베타`), 그중 한 쪽만 끊길 수
+     * 있다. 전원에게 다시 보내면 **이미 받은 봇이 같은 일을 두 번 한다** —
+     * 코딩 에이전트에서는 파일을 두 번 고치는 일이다.
+     */
+    const byBot = new Map<string, Message[]>();
+    for (const m of targets) {
+      const who = m.notSentTo?.length ? m.notSentTo : m.deliveredTo;
+      for (const id of who) {
+        if (!room.participants.some((b) => b.id === id)) continue;
+        const list = byBot.get(id) ?? [];
+        list.push(m);
+        byBot.set(id, list);
+      }
     }
+    for (const m of targets) {
+      delete m.sendFailed;
+      delete m.notSentTo;
+      await this.saveMessage(room, { id: m.id, sendFailed: undefined, notSentTo: undefined });
+      this.emit("message", room.id, m);
+    }
+    if (byBot.size === 0) return;
+
+    await Promise.all(
+      [...byBot].map(async ([botId, batch]) => {
+        const bt = this.botRuntime(roomId, botId);
+        let run = batch;
+        for (;;) {
+          await this.runQueue(room, run, botId);
+          if (bt.queue.length === 0) return;
+          run = bt.queue.splice(0, bt.queue.length);
+        }
+      }),
+    );
   }
 
   /** 다시 보낼 수 있는 메시지가 있는지 (UI의 `↻` 표시 여부) */
@@ -1693,8 +1716,20 @@ export class RoomManager extends EventEmitter<Events> {
       // 영영 답이 안 와서 "왜 조용하지"가 된다. 다시 보낼 수 있게 표시한다(C5).
       const dropped = bt.queue.splice(0, bt.queue.length);
       for (const m of dropped) {
-        m.sendFailed = "보내기 전에 중단했습니다.";
-        await this.saveMessage(room, { id: m.id, sendFailed: m.sendFailed });
+        // ★ **안 간 것은 이 봇에게만이다.** 같은 메시지가 옆 봇에게는
+        // 멀줦히 갔을 수 있고, 그걸 다시 보내면 **두 번 일하게 된다**.
+        m.notSentTo = [...new Set([...(m.notSentTo ?? []), bot.id])];
+        m.sendFailed =
+          room.participants.length > 1
+            ? `${m.notSentTo
+                .map((id) => room.participants.find((b) => b.id === id)?.name ?? id)
+                .join("·")}에게 보내기 전에 중단했습니다.`
+            : "보내기 전에 중단했습니다.";
+        await this.saveMessage(room, {
+          id: m.id,
+          sendFailed: m.sendFailed,
+          notSentTo: m.notSentTo,
+        });
       }
       await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
     }

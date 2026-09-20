@@ -950,6 +950,30 @@ function mountChat(r: Room): void {
 }
 
 /**
+ * «여기부터 안 갔다» 줄의 글 — **누구에게** 안 갔는지까지.
+ *
+ * 한 메시지가 여럿에게 갈 수 있고(`@알파 @베타`) 그중 한 쪽만 끊길 수 있다.
+ * 그럴 때 «전달되지 않았습니다»만 써두면 **멀줦히 받은 봇에게까지 다시 쓰게** 된다.
+ */
+function lostLine(m: Message, r: Room): string {
+  if (r.participants.length < 2) return "여기부터 전달되지 않았습니다";
+  const ids = m.notSentTo?.length ? m.notSentTo : m.deliveredTo;
+  const names = ids
+    .map((id) => r.participants.find((b) => b.id === id)?.name)
+    .filter((n): n is string => n !== undefined);
+  return names.length > 0
+    ? `여기부터 ${names.join("·")}에게 전달되지 않았습니다`
+    : "여기부터 전달되지 않았습니다";
+}
+
+/** 앞 말풍선과 **같은 봇들에게** 못 간 것인가 — 그러면 줄을 또 그여도 소용없다 */
+function lostAlike(above: Message | undefined, m: Message): boolean {
+  if (!above?.sendFailed) return false;
+  const key = (x: Message) => (x.notSentTo?.length ? x.notSentTo : x.deliveredTo).join();
+  return key(above) === key(m);
+}
+
+/**
  * **이 말을 한 봇의 에이전트** (v2.0 준비).
  *
  * 🔴 예전에는 어느 말풍선이든 `participants[0]`의 에이전트를 썼다. 1:1에서는
@@ -1041,6 +1065,17 @@ function paintChat(r: Room): void {
     if (key !== day) {
       nodes.push(dayLine(m.createdAt));
       day = key;
+      broken = true;
+    }
+    /*
+     * ★ **여기부터 안 갔다** — 끊긴 자리에 줄을 그어 보여준다.
+     *
+     * 답하는 중에 중단하면 큐에 쌓여 있던 메시지들은 **보내지도 못한 채**
+     * 남는다. 말풍선마다 작게 «안 보냈음»이 붙기는 하지만, 여럿이면 **어디서부터**
+     * 끊겼는지가 안 보인다 — 앞에 보낸 것까지 안 간 줄 알고 전부 다시 쓰게 된다.
+     */
+    if (m.sendFailed && !lostAlike(above, m)) {
+      nodes.push(el("div", { class: "cut-line lost", text: lostLine(m, r) }));
       broken = true;
     }
     if (m.id === firstUnreadId) {
