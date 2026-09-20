@@ -30,6 +30,10 @@
       {
         "command": "aiInOne.attachSelection",
         "title": "AI in One에 보내기"
+      },
+      {
+        "command": "aiInOne.imeProbe",
+        "title": "AI in One: 한글 입력 시험 (개발용)"
       }
     ],
     "keybindings": [

@@ -5,6 +5,7 @@ import { RoomStore } from "../core/store.js";
 import type { AgentDef } from "../core/types.js";
 import { BLOB_SCHEME, BlobDocuments } from "./blobDocuments.js";
 import { ChatPanel } from "./chatPanel.js";
+import { openImeProbe } from "./imeProbe.js";
 import { VscodeHost } from "./vscodeHost.js";
 
 /**
@@ -61,6 +62,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     { dispose: () => rooms.dispose() },
     vscode.commands.registerCommand("aiInOne.open", () => show()),
     vscode.commands.registerCommand("aiInOne.newRoom", () => show("new")),
+    // v2.0 선결 과제를 재는 시험판 — 답이 나오면 지운다
+    vscode.commands.registerCommand("aiInOne.imeProbe", () => openImeProbe(ctx)),
     vscode.commands.registerCommand("aiInOne.attachSelection", async () => {
       if (!(await show().attachSelection())) {
         void vscode.window.showInformationMessage(
