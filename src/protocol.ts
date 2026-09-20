@@ -73,7 +73,20 @@ export type AskAnswer =
 
 export type ToWebview =
   | { t: "metas"; rooms: RoomMeta[] }
-  | { t: "room"; room: Room; firstUnreadId?: string; compactable: boolean }
+  | {
+      t: "room";
+      room: Room;
+      firstUnreadId?: string;
+      /** 방에 압축할 수 있는 봇이 하나라도 있나 */
+      compactable: boolean;
+      /**
+       * 그 중 **어느 봇**이 되나 — 압축은 세션마다이고 세션은 봇 단위다(B1).
+       *
+       * 에이전트가 섞인 방에서는 **한 쪽만 압축을 아는** 게 보통이라,
+       * 봇마다 버튼을 보일지 말지를 이걸로 정한다.
+       */
+      compactableBots?: string[];
+    }
   /**
    * 메시지 하나만 바뀜다 — 스트리밍의 기본 경로.
    *
@@ -158,7 +171,7 @@ export type FromWebview =
   | { t: "cancel"; roomId: string; botId?: string }
   | { t: "retry"; roomId: string; messageId?: string }
   | { t: "rename"; roomId: string; title: string }
-  | { t: "setRole"; roomId: string; rolePrompt: string }
+  | { t: "setRole"; roomId: string; rolePrompt: string; botId?: string }
   | { t: "leave"; roomId: string }
   /**
    * 대화를 그 지점에서 갈라 새 방을 만든다 (v1.1).
@@ -200,7 +213,7 @@ export type FromWebview =
     }
   /** 대화 중에 모델·추론 강도를 바꾼다 (B12·B15) */
   | { t: "setConfig"; roomId: string; configId: string; value: string | boolean }
-  | { t: "compact"; roomId: string }
+  | { t: "compact"; roomId: string; botId?: string }
   | { t: "pickCwd" }
   | { t: "openFile"; path: string; line?: number }
   /**

@@ -31,6 +31,8 @@ const boot: Boot = JSON.parse(document.getElementById("boot")!.textContent!);
 let metas: RoomMeta[] = boot.rooms;
 let room: Room | null = null;
 let compactable = false;
+/** 압축을 시킬 수 있는 봇들 — 에이전트마다 다르다 */
+let compactableBots: string[] = [];
 /**
  * 방의 컨텍스트 점유.
  *
@@ -1001,6 +1003,15 @@ function paintChat(r: Room): void {
         r.title,
         el("span", { class: "sub", text: `${agent?.label ?? "?"} · ${shortenPath(r.cwd)}` }),
       ),
+      // 참여자 서랍 — 봇에 관한 것이 모이는 자리 (§4.2.1)
+      el(
+        "button",
+        { class: "icon", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
+        icon("organization"),
+      ),
+      // 분기는 서랍 옆에 — «지금 여기서 갈라진다»는 대화를 보며 정하는 것이라
+      // ⋮ 안에 두면 떠올리기 어렵다. 모든 조건은 ⋮의 «여기서 분기»와 같다.
+      forkHeadButton(r),
       el(
         "button",
         { class: "icon", title: "메뉴", onclick: (e: Event) => toggleMenu(e, r) },
@@ -1008,6 +1019,9 @@ function paintChat(r: Room): void {
       ),
     );
   }
+  // 서랍이 열려 있으면 **같이 갱신된다** — 사용량과 작업 중 표시가
+  // 멈춰 있으면 서랍을 보는 동안에는 아무 일도 안 일어나는 것처럼 보인다.
+  if (screens.chat.querySelector(".drawer")) paintDrawer(r);
 
   const atBottom = stick;
   const nodes: Node[] = [];
@@ -2559,7 +2573,7 @@ function toggleMenu(e: Event, r: Room): void {
   const menu = el(
     "div",
     { class: "menu" },
-    item("방 정보", () => showRoomInfo(r)),
+    item("방 정보·참여자", () => paintDrawer(r)),
     item("이름 바꾸기", () => startRename(r)),
     ...(models?.values?.length
       ? [
@@ -2644,57 +2658,25 @@ function sessionRow(bot: BotInstance | undefined): HTMLElement | null {
   );
 }
 
-function showRoomInfo(r: Room): void {
-  const bot = r.participants[0];
-  const agent = agentById.get(bot?.agentId ?? "");
-  const options = optionsFor(bot?.agentId ?? "", r.id) ?? [];
-  const model = options.find((o) => o.category === "model");
-  const chosen = model?.values?.find((v) => v.id === model.current);
-
-  const row = (label: string, value: string) =>
-    el("div", { class: "info-row" }, el("span", { class: "dim", text: label }), el("span", { text: value }));
-
-  const card = el(
-    "div",
-    { class: "card" },
-    el("div", { class: "card-title" }, icon("info"), " 방 정보"),
-    el(
-      "div",
-      { class: "card-body info" },
-      row("에이전트", agent?.label ?? "?"),
-      chosen ? row(labelOf(model!), chosen.name) : null,
-      row("작업 디렉터리", r.cwd),
-      sharedMemoryRow(r),
-      row("만든 때", new Date(r.createdAt).toLocaleString()),
-      ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
-      bot?.agentMode ? row("권한", bot.agentMode) : null,
-      sessionRow(bot),
-      el("div", { class: "info-row" }, el("span", { class: "dim", text: "역할" })),
-      roleEditor(r),
-    ),
-    el(
-      "div",
-      { class: "card-actions" },
-      el("button", { text: "닫기", onclick: () => renderChat() }),
-    ),
-  );
-
-  chat?.list.append(card);
-  if (chat?.list) scrollInside(chat.list, card, "end");
-}
-
-function roleEditor(r: Room): HTMLElement {
+/**
+ * 역할 편집기 — **봇마다**.
+ *
+ * 역할은 첫 프롬프트 앞에 붙는 프리픽스라(B3) 세션에 갇힌다 — 즉 **봇의
+ * 것이다.** 실측해보니 같은 폴더의 다른 세션으로 새지 않았다(§13.2).
+ * 기억과 달리 역할은 봇마다 나눠 줄 수 있다 — 그래서 여기 놓는다.
+ */
+function roleEditor(r: Room, bot: BotInstance): HTMLElement {
   const box = el("textarea", {
     class: "role",
     placeholder: "역할 없음. 적으면 다음 프롬프트부터 반영됩니다.",
   }) as HTMLTextAreaElement;
-  box.value = r.participants[0]?.rolePrompt ?? "";
+  box.value = bot.rolePrompt ?? "";
 
   const save = el("button", {
     class: "primary",
     text: "역할 저장",
     onclick: () => {
-      post({ t: "setRole", roomId: r.id, rolePrompt: box.value.trim() });
+      post({ t: "setRole", roomId: r.id, rolePrompt: box.value.trim(), botId: bot.id });
       save.textContent = "저장됨";
     },
   });
@@ -2777,6 +2759,32 @@ function jumpToOrigin(r: { forkedFromRoomId?: string; forkedAtMessageId?: string
   if (!r.forkedFromRoomId || !metas.some((x) => x.id === r.forkedFromRoomId)) return;
   if (r.forkedAtMessageId) jumpToMessageId = r.forkedAtMessageId;
   openRoom(r.forkedFromRoomId);
+}
+
+/**
+ * 헤더의 «여기서 분기» 버튼 — 서랍 버튼 옆.
+ *
+ * ⋮ 안에도 같은 것이 있지만, **분기는 대화를 보며 정하는 것**이라 메뉴를 열어
+ * 찾게 하면 떠올리기 어렵다. 조건은 ⋮의 것과 **똑같이** 쓴다 — 한쪽에서만
+ * 막히면 «왜 저기선 되는데»가 된다.
+ *
+ * 🔴 **못 할 때는 지우지 않고 죽여 둔다.** 버튼이 사라졌다 나타나면 헤더가
+ * 들썩이고, 무엇보다 *"아까 있던 게 어디 갔지"* 가 된다. 이유는 툴팁에 적는다.
+ */
+function forkHeadButton(r: Room): HTMLElement {
+  const busy = isBusyHere(r);
+  const empty = !r.messages.some((m) => m.role !== "system");
+  const why = busy
+    ? "응답이 끝난 뒤에 분기할 수 있습니다"
+    : empty
+      ? "아직 나눌 대화가 없습니다"
+      : "여기서 분기";
+  return el("button", {
+    class: "icon",
+    title: why,
+    disabled: busy || empty,
+    onclick: () => askFork(r),
+  }, icon("git-branch"));
 }
 
 /**
@@ -2929,9 +2937,15 @@ function openMessageMenu(e: MouseEvent, m: Message): void {
   screens.chat.querySelector(".menu")?.remove();
 
   const close = () => screens.chat.querySelector(".menu")?.remove();
-  const menu = el(
-    "div",
-    { class: "menu at" },
+  /**
+   * 🔴 **말풍선은 곧 봇 하나다.** 단체방에서 «압축»이나 «중단»을 방 단위로 걸면
+   * *"누구를?"* 이 남는다. 여기서 누른 것은 **이 말을 한 봇**에 대한 것이므로
+   * 물을 필요가 없다 — 이미 손가락으로 가리킨 셈이다.
+   *
+   * 봇을 모르는 말풍선(내 말·시스템 알림)에는 분기만 있다.
+   */
+  const bot = m.authorBotId ? r.participants.find((b) => b.id === m.authorBotId) : undefined;
+  const kids: Kids = [
     el("button", {
       text: "여기서 분기",
       onclick: () => {
@@ -2939,7 +2953,58 @@ function openMessageMenu(e: MouseEvent, m: Message): void {
         askFork(r, m.id);
       },
     }),
-  );
+  ];
+
+  if (bot) {
+    const status = botStatus[bot.id] ?? "idle";
+    const busy = status !== "idle" && status !== "error";
+    const u = bot.usage;
+    const pct =
+      u?.contextUsed && u.contextSize
+        ? Math.round((u.contextUsed / u.contextSize) * 100)
+        : undefined;
+
+    kids.unshift(
+      el("div", {
+        class: "group",
+        text: pct === undefined ? bot.name : `${bot.name} · 컨텍스트 ${pct}%`,
+      }),
+    );
+    if (busy) {
+      kids.push(
+        el("button", {
+          text: "이 봇만 중단",
+          onclick: () => {
+            close();
+            post({ t: "cancel", roomId: r.id, botId: bot.id });
+          },
+        }),
+      );
+    }
+    if (compactableBots.includes(bot.id)) {
+      kids.push(
+        el("button", {
+          text: "대화 압축",
+          title: "지금까지를 요약으로 바꿔 컨텍스트를 비웁니다. 이 봇만.",
+          onclick: () => {
+            close();
+            post({ t: "compact", roomId: r.id, botId: bot.id });
+          },
+        }),
+      );
+    }
+    kids.push(
+      el("button", {
+        text: "참여자 서랍",
+        onclick: () => {
+          close();
+          paintDrawer(r);
+        },
+      }),
+    );
+  }
+
+  const menu = el("div", { class: "menu at" }, ...kids);
 
   const box = screens.chat.getBoundingClientRect();
   menu.style.top = `${e.clientY - box.top}px`;
@@ -2956,10 +3021,10 @@ function isBusyHere(r: Room): boolean {
 }
 
 /**
- * **봉을 나눠도 기억은 나뉘지 않는다** — 다중 봉 방의 공지.
+ * **봇을 나눠도 기억은 나뉘지 않는다** — 다중 봇 방의 공지.
  *
  * 에이전트의 기억은 `~/.claude/projects/<cwd 슬러그>/memory/` 에 쌓인다(§13.2 실측).
- * **열쇠가 cwd**라서, 방을 나눠도 봉을 나눠도 폴더가 같으면 같은 기억을 읽는다.
+ * **열쇠가 cwd**라서, 방을 나눠도 봇을 나눠도 폴더가 같으면 같은 기억을 읽는다.
  * 설정 디렉터리를 가르는 길은 인증이 죽어 닫혔고(자격증명을 복사하는 것은 §0 P3 위반),
  * 남는 길은 cwd를 가르는 것뿐이다.
  *
@@ -3005,6 +3070,179 @@ function forkInfoRows(r: Room): Kids {
         + "대화 내용은 갈라집니다.",
     ),
   ];
+}
+
+// ── 참여자 서랍 ────────────────────────────────────────────────────────
+
+/**
+ * 참여자 서랍 — **봇에 관한 것이 전부 모이는 자리** (§4.2.1).
+ *
+ * v2.0 설계를 앞당겨 1:1에서도 연다. 봇이 하나뿐이어도 «이 봇이 무슨 모델로
+ * 얼마나 차 있고 뭘 할 수 있나»를 볼 자리는 필요하고, 단체방이 되면 **줄이
+ * 늘어날 뿐** 화면이 새로 생기지 않는다.
+ *
+ * 🔴 **입력창 옆 권한 버튼을 없애지 않는다.** 권한은 «켜둔 걸 잊으면 안 되는
+ * 종류»라 보낼 때마다 눈에 들어와야 한다(D2). 서랍에도 두는 건 *"이 봇에 대해
+ * 뭘 할 수 있지"* 로 찾아온 사람을 위한 것이지, 그 자리를 대신하려는 게 아니다.
+ * 둘은 같은 시트를 연다 — 구현이 하나라 어긋날 수가 없다.
+ */
+function toggleDrawer(r: Room): void {
+  const open = screens.chat.querySelector(".drawer");
+  if (open) {
+    closeDrawer();
+    return;
+  }
+  paintDrawer(r);
+}
+
+function closeDrawer(): void {
+  screens.chat.querySelector(".drawer-veil")?.remove();
+  screens.chat.querySelector(".drawer")?.remove();
+}
+
+/**
+ * 서랍을 그린다 — 시트와 같이 **제자리에서 갈아 끼운다**.
+ *
+ * 설정(모델 목록)은 CLI를 한 번 띄워야 오므로 서랍보다 늦게 도착한다. 처음
+ * 한 번만 그리면 그 늦은 응답이 갈 곳이 없어 «모델을 알려주지 않습니다»에
+ * 영원히 머문다 — 권한 시트에서 실제로 겪은 일이다.
+ */
+function paintDrawer(r: Room): void {
+  for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
+    if (!optionsFor(agentId, r.id)) post({ t: "needConfig", agentId, roomId: r.id });
+  }
+
+  const veil = el("div", { class: "drawer-veil", onclick: () => closeDrawer() });
+  const drawer = el(
+    "div",
+    { class: "drawer" },
+    el(
+      "div",
+      { class: "sheet-bar" },
+      el("span", {}, icon("organization"), ` 참여자 ${r.participants.length}`),
+      el("button", { class: "icon", title: "닫기", onclick: () => closeDrawer() }, icon("close")),
+    ),
+    el(
+      "div",
+      { class: "info" },
+      el("div", { class: "info-row" },
+        el("span", { class: "dim", text: "작업 디렉터리" }), el("span", { text: r.cwd })),
+      ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
+      el("div", { class: "info-row" },
+        el("span", { class: "dim", text: "만든 때" }),
+        el("span", { text: new Date(r.createdAt).toLocaleString() })),
+    ),
+    ...r.participants.map((bot) => drawerBot(r, bot)),
+    sharedMemoryRow(r),
+  );
+
+  const was = screens.chat.querySelector(".drawer");
+  if (was) {
+    was.replaceWith(drawer);
+  } else {
+    screens.chat.append(veil, drawer);
+  }
+}
+
+/**
+ * 봇 한 줄.
+ *
+ * **이름 옆이 사용량 자리다.** 컨텍스트는 세션마다 차고 세션은 봇 단위라(B1),
+ * 방에 하나로 걸어두면 봇이 둘일 때 누구 숫자인지 알 수 없다 — 실제로 나중에
+ * 온 봇이 앞 봇의 숫자를 덮어쓰고 있었다.
+ */
+function drawerBot(r: Room, bot: BotInstance): HTMLElement {
+  const agent = agentById.get(bot.agentId);
+  const options = optionsFor(bot.agentId, r.id) ?? [];
+  const model = options.find((o) => o.category === "model");
+  const status = botStatus[bot.id] ?? "idle";
+  const busy = status !== "idle" && status !== "error";
+
+  // ── 첫 줄: 색 점 · 이름 · 작업 중 · 사용량
+  const head = el(
+    "div",
+    { class: "who" },
+    el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
+    el("span", { class: "name", text: bot.name }),
+    busy ? el("span", { class: "typing" }, el("i"), el("i"), el("i")) : null,
+    usageChip(bot),
+  );
+
+  // ── 둘째 줄: 모델(주) · 에이전트(부) — 모델이 앞에 온다 (§4.2.1)
+  const sub = el("div", { class: "sub" }, el("span", {
+    text: bot.modelLabel ? `${bot.modelLabel} · ${agent?.label ?? "?"}` : (agent?.label ?? "?"),
+  }));
+
+  const rows: Kids = [head, sub];
+
+  // ── 모델 바꾸기 — 에이전트가 목록을 줄 때만
+  if (model?.values?.length) {
+    const select = el("select") as HTMLSelectElement;
+    for (const v of model.values) {
+      select.append(el("option", { value: v.id, text: v.name, selected: v.id === model.current }));
+    }
+    select.addEventListener("change", () =>
+      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: select.value }),
+    );
+    rows.push(el("div", { class: "field" }, el("label", { text: labelOf(model) }), select));
+  }
+
+  // ── 이 봇에 할 수 있는 것
+  const acts: Kids = [
+    el("button", {
+      class: "ghost",
+      text: "권한 설정",
+      title: "입력창 옆 방패 버튼과 같은 화면입니다",
+      onclick: () => (closeDrawer(), paintPermissionSheet(r)),
+    }),
+  ];
+  // 압축 — **이 봇이** 명령을 광고할 때만 (에이전트가 섞인 방에서는 한 쪽만 안다)
+  if (compactableBots.includes(bot.id)) {
+    acts.push(
+      el("button", {
+        class: "ghost",
+        text: "대화 압축",
+        title: "지금까지를 요약으로 바꿔 컨텍스트를 비웁니다. 이 봇만.",
+        onclick: () => (closeDrawer(), post({ t: "compact", roomId: r.id, botId: bot.id })),
+      }),
+    );
+  }
+  if (busy) {
+    acts.push(
+      el("button", {
+        class: "ghost",
+        text: "중단",
+        onclick: () => post({ t: "cancel", roomId: r.id, botId: bot.id }),
+      }),
+    );
+  }
+  rows.push(el("div", { class: "acts" }, ...acts));
+  // 세션 id는 **그 봇의 것**이다 — 방이 아니라 여기가 제자리다
+  const sess = sessionRow(bot);
+  if (sess) rows.push(sess);
+  rows.push(el("div", { class: "info-row" }, el("span", { class: "dim", text: "역할" })));
+  rows.push(roleEditor(r, bot));
+
+  return el("div", { class: "drawer-bot" }, ...rows);
+}
+
+/**
+ * 컨텍스트가 얼마나 찼나 — **이름 바로 옆**.
+ *
+ * 에이전트가 안 알려주면 **자리를 비운다.** 우리가 글자 수로 짐작하지 않는다 —
+ * 토크나이저가 에이전트마다 다르고, 틀린 숫자는 없는 것보다 나쁘다(§0).
+ */
+function usageChip(bot: BotInstance): HTMLElement | null {
+  const u = bot.usage;
+  if (!u?.contextUsed || !u.contextSize) return null;
+  const pct = Math.round((u.contextUsed / u.contextSize) * 100);
+  const tokens = `${u.contextUsed.toLocaleString()} / ${u.contextSize.toLocaleString()} 토큰`;
+  return el(
+    "span",
+    { class: pct >= 90 ? "usage full" : "usage", title: `컨텍스트 ${tokens}` },
+    el("span", { class: "bar" }, el("i", { style: { width: `${Math.min(pct, 100)}%` } })),
+    el("span", { text: `${pct}%` }),
+  );
 }
 
 // ── 스크롤 ──────────────────────────────────────────────────────────────
@@ -3103,6 +3341,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       room = m.room;
       usage = m.room.usage;
       compactable = m.compactable;
+      compactableBots = m.compactableBots ?? [];
       // 구분선은 방에 **들어올 때 한 번만** 잡는다. 스트리밍마다 다시 그으면 화면이 튄다.
       if (switching) {
         firstUnreadId = m.firstUnreadId;

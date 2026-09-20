@@ -647,9 +647,9 @@ export class RoomManager extends EventEmitter<Events> {
    * 이미 대화 중이면 이번 세션에 **다시 주입해야** 반영된다 —
    * 역할은 프롬프트 프리픽스라 한 번 보낸 뒤에는 다시 보내지 않는다.
    */
-  async setRole(roomId: string, rolePrompt: string): Promise<void> {
+  async setRole(roomId: string, rolePrompt: string, botId?: string): Promise<void> {
     const room = await this.openRoom(roomId);
-    const bot = room.participants[0];
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
 
     bot.rolePrompt = rolePrompt || undefined;
@@ -1147,10 +1147,16 @@ export class RoomManager extends EventEmitter<Events> {
    * 하나씩 순차로 보내면 턴이 여러 번 도는데, 묶으면 한 번이고 에이전트가
    * 전체 요구를 한 번에 본다.
    */
-  async send(roomId: string, text: string, attachments?: Attachment[]): Promise<void> {
+  async send(
+    roomId: string,
+    text: string,
+    attachments?: Attachment[],
+    /** 보낼 봇. 안 주면 방의 유일한 봇 (v2.0에서는 멘션이 정한다) */
+    botId?: string,
+  ): Promise<void> {
     const room = await this.openRoom(roomId);
     // v1.0은 방에 봇이 하나다. 단체방에서는 **멘션된 봇마다** 이 아래가 돈다.
-    const bot = this.soleBot(room);
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
     const bt = this.botRuntime(roomId, bot.id);
 
@@ -1163,7 +1169,7 @@ export class RoomManager extends EventEmitter<Events> {
       id: messageId(),
       role: "user",
       text,
-      deliveredTo: room.participants.map((b) => b.id),
+      deliveredTo: botId ? [bot.id] : room.participants.map((b) => b.id),
       createdAt: Date.now(),
       ...(attachments?.length ? { attachments } : {}),
     };
@@ -1185,7 +1191,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 스택이 쌓인다.
     let batch = [sent];
     for (;;) {
-      await this.runQueue(room, batch);
+      await this.runQueue(room, batch, bot.id);
       if (bt.queue.length === 0) return;
       batch = bt.queue.splice(0, bt.queue.length);
     }
@@ -1213,7 +1219,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bt = this.botRuntime(roomId, bot.id);
     let batch = targets;
     for (;;) {
-      await this.runQueue(room, batch);
+      await this.runQueue(room, batch, bot.id);
       if (bt.queue.length === 0) return;
       batch = bt.queue.splice(0, bt.queue.length);
     }
@@ -1273,11 +1279,23 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /** 에이전트가 압축 명령을 제공하는지 (C11). 없으면 버튼을 숨긴다 */
-  compactCommand(roomId: string): string | undefined {
+  compactCommand(roomId: string, botId?: string): string | undefined {
     const room = this.open.get(roomId);
-    const bot = room ? this.soleBot(room) : undefined;
+    const bot = botId
+      ? room?.participants.find((b) => b.id === botId)
+      : room
+        ? this.soleBot(room)
+        : undefined;
     const names = bot ? (this.runtimes.get(roomId)?.bots.get(bot.id)?.commands ?? []) : [];
     return names.find((n) => /^(compact|compress)$/i.test(n));
+  }
+
+  /** 압축을 시킬 수 있는 봇들 — 화면이 버튼을 어디 보일지 정하는 근거 */
+  compactableBots(roomId: string): string[] {
+    const room = this.open.get(roomId);
+    return (room?.participants ?? [])
+      .filter((b) => this.compactCommand(roomId, b.id))
+      .map((b) => b.id);
   }
 
   /**
@@ -1286,14 +1304,15 @@ export class RoomManager extends EventEmitter<Events> {
    * **ACP에 압축 요청 메서드가 없다.** 에이전트가 광고한 슬래시 명령을 프롬프트로
    * 보내는 게 유일한 경로다.
    */
-  async compact(roomId: string): Promise<void> {
-    const cmd = this.compactCommand(roomId);
-    if (!cmd) throw new Error("이 에이전트는 압축을 지원하지 않습니다.");
+  async compact(roomId: string, botId?: string): Promise<void> {
     const room = await this.openRoom(roomId);
-    await this.send(roomId, `/${cmd}`);
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
+    if (!bot) return;
+    const cmd = this.compactCommand(roomId, bot.id);
+    if (!cmd) throw new Error(`${bot.name}은(는) 압축을 지원하지 않습니다.`);
+    await this.send(roomId, `/${cmd}`, undefined, bot.id);
     // 압축되면 역할이 요약에 안 남을 수 있다. 다음 턴에 다시 주입한다 (B3).
-    const bot = this.soleBot(room);
-    if (bot) this.botRuntime(room.id, bot.id).roleInjected = false;
+    this.botRuntime(room.id, bot.id).roleInjected = false;
   }
 
   /**
@@ -1504,10 +1523,11 @@ export class RoomManager extends EventEmitter<Events> {
   // ── 내부 ──────────────────────────────────────────────────────────────
 
 
-  private async runQueue(room: Room, batch: Message[]): Promise<void> {
+  private async runQueue(room: Room, batch: Message[], botId?: string): Promise<void> {
     const rt = this.runtime(room.id);
     // 단체방에서는 **멘션된 봇마다** 이 함수가 돈다. 지금은 하나뿐이다.
-    const bot = room.participants[0]!;
+    const bot = (botId ? room.participants.find((b) => b.id === botId) : undefined)
+      ?? room.participants[0]!;
     const bt = this.botRuntime(room.id, bot.id);
     const conn = this.connection(bot.agentId);
 
@@ -1559,7 +1579,7 @@ export class RoomManager extends EventEmitter<Events> {
       const res = await conn.prompt(sessionId, prompt);
       // **이제 이 세션은 디스크에 남는다** — 되살릴 값이 여기서 확정된다 (F7)
       this.notePrompted(room, bot, sessionId);
-      if (res.usage) this.applyUsage(room, res.usage);
+      if (res.usage) this.applyUsage(room, bot, res.usage);
       // 왜 끝났는지 알려준다. 그냥 두면 거부나 길이 초과가 **짧은 응답**으로 보인다.
       const note = stopReasonNote(res.stopReason);
       if (note) reply.error = note;
@@ -1617,9 +1637,9 @@ export class RoomManager extends EventEmitter<Events> {
     if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
   }
 
-  private applyUsage(room: Room, usage: acp.Usage): void {
-    room.usage = {
-      ...room.usage,
+  private applyUsage(room: Room, bot: BotInstance, usage: acp.Usage): void {
+    bot.usage = {
+      ...bot.usage,
       totalTokens: usage.totalTokens,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -1631,6 +1651,46 @@ export class RoomManager extends EventEmitter<Events> {
         ? { cachedWriteTokens: usage.cachedWriteTokens }
         : {}),
     };
+    this.rollUpUsage(room);
+  }
+
+  /**
+   * 컨텍스트가 얼마나 찼는지 **그 봇에** 적는다.
+   *
+   * 봇을 모르면(턴에 주인이 없는 희귀한 경우) 방 하나뿐인 봇으로 본다 —
+   * 1:1에서는 언제나 맞고, 단체방에서는 모르는 채로 아무 봇에게 씌우지 않는다.
+   */
+  private noteUsage(
+    room: Room,
+    botId: string | undefined,
+    ev: Extract<AgentEvent, { type: "usage" }>,
+  ): void {
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
+    if (!bot) return;
+    bot.usage = {
+      ...bot.usage,
+      contextUsed: ev.used,
+      contextSize: ev.size,
+      ...(ev.cost ? { cost: ev.cost } : {}),
+    };
+    this.rollUpUsage(room);
+  }
+
+  /**
+   * 봇들의 사용량을 **방 하나의 눈금**으로 접는다.
+   *
+   * 목록의 고리와 «거의 찼다» 경고는 방당 하나뿐이라 숫자가 하나여야 한다.
+   * 더하지 않고 **가장 많이 찬 봇**을 고른다 — 셋이 30%씩이라고 90%가 아니다.
+   * 컨텍스트는 세션마다 따로 차고, 급한 것은 제일 많이 찬 쪽이다.
+   */
+  private rollUpUsage(room: Room): void {
+    const filled = (u: RoomUsage | undefined): number =>
+      u?.contextUsed && u.contextSize ? u.contextUsed / u.contextSize : -1;
+    const worst = room.participants.reduce<BotInstance | undefined>(
+      (a, b) => (a && filled(a.usage) >= filled(b.usage) ? a : b),
+      undefined,
+    );
+    if (worst?.usage) room.usage = worst.usage;
   }
 
   private applyEvent(room: Room, reply: Message, ev: AgentEvent): void {
@@ -1653,13 +1713,9 @@ export class RoomManager extends EventEmitter<Events> {
         this.recordDiff(room, reply, ev);
         break;
 
+      // 🔴 **세션마다 오는 값이다.** 방에 적으면 봇이 둘일 때 서로 덮어쓴다
       case "usage":
-        room.usage = {
-          ...room.usage,
-          contextUsed: ev.used,
-          contextSize: ev.size,
-          ...(ev.cost ? { cost: ev.cost } : {}),
-        };
+        this.noteUsage(room, reply.authorBotId, ev);
         break;
 
       case "commands":
@@ -1876,13 +1932,8 @@ export class RoomManager extends EventEmitter<Events> {
         break;
 
       case "usage":
-        room.usage = {
-          ...room.usage,
-          contextUsed: ev.used,
-          contextSize: ev.size,
-          ...(ev.cost ? { cost: ev.cost } : {}),
-        };
-        void this.saveProps(room, { usage: room.usage });
+        this.noteUsage(room, bot.id, ev);
+        void this.saveProps(room, { usage: room.usage, participants: room.participants });
         break;
 
       case "compaction":

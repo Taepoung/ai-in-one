@@ -315,7 +315,7 @@ export class ChatPanel implements AskTarget {
           await this.rooms.renameRoom(m.roomId, m.title);
           break;
         case "setRole":
-          await this.rooms.setRole(m.roomId, m.rolePrompt);
+          await this.rooms.setRole(m.roomId, m.rolePrompt, m.botId);
           break;
         case "fork": {
           /*
@@ -378,7 +378,7 @@ export class ChatPanel implements AskTarget {
           break;
         }
         case "compact":
-          await this.rooms.compact(m.roomId);
+          await this.rooms.compact(m.roomId, m.botId);
           break;
         case "pickCwd": {
           const picked = await vscode.window.showOpenDialog({
@@ -580,6 +580,7 @@ ${hint}` : reason,
         return id ? { firstUnreadId: id } : {};
       })(),
       compactable: this.rooms.compactCommand(room.id) !== undefined,
+      compactableBots: this.rooms.compactableBots(room.id),
     });
   }
 
