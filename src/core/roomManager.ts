@@ -1177,7 +1177,11 @@ export class RoomManager extends EventEmitter<Events> {
     if (tail && tail.id !== room.forkedAtMessageId) {
       return {
         ok: false,
-        reason: "원본이 그 뒤로 더 대화해서, 지금 분기하면 그때 지점이 아닙니다.",
+        reason:
+          "원본이 그 뒤로 더 대화해서 다시 분기할 수 없습니다. " +
+          "세션 분기는 **지금 상태를 통째로 복제**하는 것이라, " +
+          "여기서 다시 하면 이 방에 안 보이는 원본의 뒤 대화까지 알게 됩니다. " +
+          "그때 지점을 원하면 «대화 넘겨서 시작»이 유일한 길입니다.",
       };
     }
 
