@@ -928,7 +928,20 @@ function renderChat(): void {
    */
   const wantChips = r.participants.length > 1;
   const hasChips = chat?.box.classList.contains("chipbox") === true;
-  if (chat?.roomId !== r.id || wantChips !== hasChips) mountChat(r);
+  if (chat?.roomId !== r.id || wantChips !== hasChips) {
+    /*
+     * 다시 붙이면 `screens.chat`을 통째로 갈아끼우므로 **열려 있던 것까지
+     * 같이 날아간다.** 하필 그 순간이 «서랍에서 봇을 부른 직후»라,
+     * 부르자마자 보던 화면이 사라지게 된다. 되살려둔다.
+     */
+    const wasDrawer = screens.chat.querySelector(".drawer") !== null;
+    const wasSheet = screens.chat.querySelector(".sheet") !== null;
+    mountChat(r);
+    paintChat(r);
+    if (wasDrawer) paintDrawer(r);
+    if (wasSheet) paintPermissionSheet(r);
+    return;
+  }
   paintChat(r);
 }
 
