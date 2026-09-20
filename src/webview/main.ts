@@ -2924,11 +2924,46 @@ function forkLine(r: Room): HTMLElement {
 }
 
 /**
- * 메시지 하나에서 분기한다 (D2).
+ * 말풍선에서 코드 펜스만 걷어낸다.
  *
- * 우클릭으로 연다 — 말풍선마다 버튼을 붙이면 대화가 도구 모음이 된다.
- * «지금까지»로 가르는 흔한 쪽은 방 메뉴(⋮)에도 있으므로, 이 길을 못 찾아도
- * 막히지는 않는다.
+ * 붙여넣으려는 것은 설명이 아니라 **코드**다. 펜스가 여럿이면 빈 줄로 잇는다 —
+ * 어느 것 하나를 고르게 하면 «둘째 거였나»를 다시 열어봐야 한다.
+ */
+function codeOf(text: string): string {
+  const parts = text.split("```");
+  const blocks: string[] = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const part = parts[i]!;
+    const nl = part.indexOf("\n");
+    blocks.push((nl >= 0 ? part.slice(nl + 1) : part).replace(/\n$/, ""));
+  }
+  return blocks.join("\n\n");
+}
+
+/** 복사하고 **복사했다고 말해준다** — 클립보드는 눈에 안 보이는 곳이라 확인이 필요하다 */
+function copyThen(text: string, btn: HTMLElement, close: () => void): void {
+  void navigator.clipboard.writeText(text).then(
+    () => {
+      btn.textContent = "복사했습니다";
+      setTimeout(close, 600);
+    },
+    () => {
+      btn.textContent = "복사하지 못했습니다";
+      setTimeout(close, 1200);
+    },
+  );
+}
+
+/**
+ * 말풍선 메뉴 — **그 메시지에 대한 것만** 둔다.
+ *
+ * 🔴 한때 여기에 압축·중단·참여자 서랍까지 달았다가 걷어냈다. 전부 **봇에 대한
+ * 것**이라 서랍이 제자리이고, 헤더에 이미 버튼이 있는 것을 여기 또 두면 «어디서
+ * 하는 게 맞지»만 남는다. 메뉴는 짧을수록 고르기 쉽다.
+ *
+ * 남긴 분기는 다르다 — 헤더의 것은 **대화 끝에서** 갈라지고, 여기 것은 **이
+ * 지점에서** 갈라진다. 중간부터 다시 가보는 길은 여기에만 있으므로, 이름에
+ * «이 메시지에서»를 넣어 차이를 드러낸다.
  */
 function openMessageMenu(e: MouseEvent, m: Message): void {
   const r = room;
@@ -2937,72 +2972,40 @@ function openMessageMenu(e: MouseEvent, m: Message): void {
   screens.chat.querySelector(".menu")?.remove();
 
   const close = () => screens.chat.querySelector(".menu")?.remove();
-  /**
-   * 🔴 **말풍선은 곧 봇 하나다.** 단체방에서 «압축»이나 «중단»을 방 단위로 걸면
-   * *"누구를?"* 이 남는다. 여기서 누른 것은 **이 말을 한 봇**에 대한 것이므로
-   * 물을 필요가 없다 — 이미 손가락으로 가리킨 셈이다.
-   *
-   * 봇을 모르는 말풍선(내 말·시스템 알림)에는 분기만 있다.
-   */
-  const bot = m.authorBotId ? r.participants.find((b) => b.id === m.authorBotId) : undefined;
-  const kids: Kids = [
+  const kids: Kids = [];
+
+  // ── 복사 — 코딩 대화에서 제일 자주 하는 일
+  if (m.text.trim()) {
+    const copy = el("button", { text: "복사" });
+    copy.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      copyThen(m.text, copy, close);
+    });
+    kids.push(copy);
+
+    const code = codeOf(m.text);
+    if (code) {
+      const only = el("button", { text: "코드만 복사" });
+      only.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        copyThen(code, only, close);
+      });
+      kids.push(only);
+    }
+  }
+
+  // ── 분기 — 헤더 버튼이 못 하는 것: **이 지점에서**
+  if (kids.length > 0) kids.push(el("hr"));
+  kids.push(
     el("button", {
-      text: "여기서 분기",
+      text: "이 메시지에서 분기",
+      title: "여기까지를 물려받은 새 방을 만듭니다",
       onclick: () => {
         close();
         askFork(r, m.id);
       },
     }),
-  ];
-
-  if (bot) {
-    const status = botStatus[bot.id] ?? "idle";
-    const busy = status !== "idle" && status !== "error";
-    const u = bot.usage;
-    const pct =
-      u?.contextUsed && u.contextSize
-        ? Math.round((u.contextUsed / u.contextSize) * 100)
-        : undefined;
-
-    kids.unshift(
-      el("div", {
-        class: "group",
-        text: pct === undefined ? bot.name : `${bot.name} · 컨텍스트 ${pct}%`,
-      }),
-    );
-    if (busy) {
-      kids.push(
-        el("button", {
-          text: "이 봇만 중단",
-          onclick: () => {
-            close();
-            post({ t: "cancel", roomId: r.id, botId: bot.id });
-          },
-        }),
-      );
-    }
-    if (compactableBots.includes(bot.id)) {
-      kids.push(
-        el("button", {
-          text: "대화 압축",
-          title: "지금까지를 요약으로 바꿔 컨텍스트를 비웁니다. 이 봇만.",
-          onclick: () => {
-            close();
-            post({ t: "compact", roomId: r.id, botId: bot.id });
-          },
-        }),
-      );
-    }
-    kids.push(
-      el("button", {
-        text: "참여자 서랍",
-        onclick: () => {
-          close();
-          paintDrawer(r);
-        },
-      }),
-    );
-  }
+  );
 
   const menu = el("div", { class: "menu at" }, ...kids);
 
@@ -3207,15 +3210,9 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       }),
     );
   }
-  if (busy) {
-    acts.push(
-      el("button", {
-        class: "ghost",
-        text: "중단",
-        onclick: () => post({ t: "cancel", roomId: r.id, botId: bot.id }),
-      }),
-    );
-  }
+  // 🔴 **중단은 여기 안 둔다.** 흔드는 말풍선 아래에 이미 «…만 중단»이 있고,
+  // 그것이 본래 자리다 — 멈추려는 순간 보는 것은 그 말풍선이지 서랍이 아니다.
+  // 서랍을 열고 봇을 찾는 사이에 답이 끝나면 버튼만 헛돌게 된다.
   rows.push(el("div", { class: "acts" }, ...acts));
   // 세션 id는 **그 봇의 것**이다 — 방이 아니라 여기가 제자리다
   const sess = sessionRow(bot);
