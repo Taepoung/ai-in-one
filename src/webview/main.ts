@@ -2048,6 +2048,8 @@ function sigOf(m: Message): string {
     m.files?.length ?? 0,
     // 활동은 같은 id로 상태만 바뀌며 여러 번 온다 — 개수만으로는 못 잡는다
     (m.tools ?? []).map((t) => t.status).join(""),
+    // 승인 결과가 나중에 그 활동에 붙는다 (D3)
+    (m.tools ?? []).map((t) => t.decision?.mark ?? "").join(""),
     // 봇 수가 바뀌면 «이 봇만 중단»이 생기거나 사라진다
     manyBots() ? "m" : "",
     // 이름 옆 사용량 — **반올림한 값**만 넣는다. 토큰 하나마다 다시
@@ -2415,9 +2417,29 @@ function toolsNode(list: ToolActivity[]): HTMLElement {
    * 접혀 있으면 안 된다.
    */
   const row = (t: ToolActivity) => {
+    /*
+     * ★ **승인 결과는 그 활동 줄에 붙는다** (D3).
+     *
+     * 🔴 예전에는 승인할 때마다 대화에 시스템 줄이 하나씩 쌓였다. 스무 번
+     * 물으면 **읽을 내 대화가 그 사이에 묻힌다.** 승인은 활동의 일종이므로
+     * 그 도구 옆이 제자리다 — «무엇을 승인했나»가 한 자리에서 읽힌다.
+     *
+     * 봇이 정했으면 이름을 붙인다. **사람 결정과 구분되어야 한다**(§4.2.2).
+     */
+    const seal = t.decision
+      ? el("span", {
+          class: `seal ${t.decision.mark === "✓" ? "ok" : t.decision.mark === "✕" ? "no" : ""}`,
+          text: `${t.decision.mark} ${t.decision.label}${t.decision.by ? ` · ${t.decision.by}` : ""}`,
+          title: t.decision.by
+            ? `${t.decision.by}이(가) 정했습니다`
+            : "사용자가 정했습니다",
+        })
+      : null;
+
     const head: Kids = [
       icon(permIcon(t.kind)),
       ` ${t.title}`,
+      seal,
       t.at ? el("span", { class: "at", text: hhmm(t.at) }) : null,
     ];
 

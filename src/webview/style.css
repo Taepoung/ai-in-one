@@ -2539,3 +2539,21 @@ fieldset.bot .bot-drop {
 .card.review-wait .card-title {
   font-weight: 500;
 }
+
+/*
+ * **활동 줄에 붙는 승인 결과** (D3).
+ *
+ * 제목과 시각 사이에 작게. 허용·거절이 **색으로 갈려야** 한다 —
+ * 기록을 훑으며 «이게 통과했었나»를 볼 때가 이게 필요한 순간이다.
+ */
+.activity .seal {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.activity .seal.ok { color: var(--vscode-charts-green, #3fb950); }
+.activity .seal.no { color: var(--danger); }

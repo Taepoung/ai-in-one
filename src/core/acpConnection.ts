@@ -126,6 +126,22 @@ const SLOW_START_MS = 4000;
  * 대신 `session/update`를 sessionId로 직접 라우팅한다 — 새 세션과 복구 세션을
  * 똑같이 다루게 된다.
  */
+/**
+ * **승인 하나가 어떻게 끝났나** (D3).
+ *
+ * `toolCallId` 가 있으면 그 활동에 접어 넣고(`ToolActivity.decision`),
+ * 없으면 대화에 한 줄로 남긴다 — **어느 쪽이든 버리지는 않는다.**
+ */
+export interface DecisionNote {
+  toolCallId?: string;
+  title: string;
+  /** `✓` 허용 · `✕` 거절 · `·` 모르는 종류 */
+  mark: string;
+  label: string;
+  /** 사람이 아니라 봇이 정했으면 그 이름 (§4.2.2) */
+  by?: string;
+}
+
 export class AcpConnection {
   private proc?: ChildProcessWithoutNullStreams;
   private conn?: acp.ClientConnection;
@@ -156,7 +172,7 @@ export class AcpConnection {
      */
     private readonly onCrash?: (reason: string) => void,
     /** 권한·질문의 결과를 방 기록으로 남긴다 (D3) */
-    private readonly onDecision?: (sessionId: string, note: string) => void,
+    private readonly onDecision?: (sessionId: string, note: DecisionNote) => void,
     /**
      * 자동 승인이 아니면 **누구에게 물을지**를 정해 답을 받아온다 (D2).
      *
@@ -736,6 +752,7 @@ export class AcpConnection {
     params: acp.RequestPermissionRequest,
   ): Promise<acp.RequestPermissionResponse> {
     const req: PermissionRequest = {
+      ...(params.toolCall.toolCallId ? { toolCallId: String(params.toolCall.toolCallId) } : {}),
       title: params.toolCall.title ?? "도구 사용",
       readOnly: isReadOnly(params.toolCall.kind),
       ...describeToolCall(params.toolCall),
@@ -773,10 +790,12 @@ export class AcpConnection {
         : /^reject|^deny/i.test(picked.kind)
           ? "✕"
           : "·";
-    this.onDecision?.(
-      params.sessionId,
-      picked ? `${mark} ${req.title} — ${picked.name}` : `✕ ${req.title} — 거부했습니다`,
-    );
+    this.onDecision?.(params.sessionId, {
+      toolCallId: req.toolCallId,
+      title: req.title,
+      mark: picked ? mark : "✕",
+      label: picked ? picked.name : "거부했습니다",
+    });
 
     return decision.outcome === "selected"
       ? { outcome: { outcome: "selected", optionId: decision.optionId } }

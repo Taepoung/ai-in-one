@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
 
-import { AcpConnection, describe, type AgentEvent } from "./acpConnection.js";
+import { AcpConnection, type DecisionNote, describe, type AgentEvent } from "./acpConnection.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -3386,13 +3386,44 @@ export class RoomManager extends EventEmitter<Events> {
     this.emit("message", room.id, msg);
   }
 
-  private recordDecision(sessionId: string, note: string): void {
-    const room = this.roomForSession(sessionId);
-    if (!room) return;
+  /**
+   * ★ **승인 결과는 그 «활동»에 접어 넣는다** (D3).
+   *
+   * 🔴 예전에는 승인할 때마다 시스템 메시지를 한 줄씩 붙였다. 한두 번이면
+   * 괜찮은데 에이전트가 스무 번 물으면 **대화가 시스템 줄로 덮이고**
+   * 정작 읽을 내 대화가 그 사이에 묻힌다.
+   *
+   * 승인은 **활동의 일종**이다. 그 도구 옆에 붙어 있을 때 «무엇을 승인했나»가
+   * 한 자리에서 읽히고, 활동 목록은 원래 접혀 있다(C3).
+   *
+   * 못 붙이는 경우(그 활동이 아직 안 왔거나 `toolCallId` 가 없을 때)에는
+   * **예전처럼 한 줄로 남긴다** — 어느 쪽이든 §0대로 버리지는 않는다.
+   */
+  private recordDecision(sessionId: string, note: DecisionNote): void {
+    const found = this.botForSession(sessionId);
+    if (!found) return;
+    const { room, bot } = found;
+
+    const turn = this.botRuntime(room.id, bot.id).turn;
+    const hit = note.toolCallId
+      ? (turn?.tools ?? []).find((t) => t.id === note.toolCallId)
+      : undefined;
+
+    if (hit && turn) {
+      hit.decision = {
+        mark: note.mark,
+        label: note.label,
+        ...(note.by ? { by: note.by } : {}),
+      };
+      void this.saveMessage(room, turn);
+      this.emit("message", room.id, turn);
+      return;
+    }
+
     const msg: Message = {
       id: messageId(),
       role: "system",
-      text: note,
+      text: `${note.mark} ${note.title} — ${note.label}`,
       deliveredTo: [],
       createdAt: Date.now(),
     };
@@ -3854,9 +3885,6 @@ export class RoomManager extends EventEmitter<Events> {
     return undefined;
   }
 
-  private roomForSession(sessionId: string): Room | undefined {
-    return this.botForSession(sessionId)?.room;
-  }
 
   private agentOrThrow(agentId: string): AgentDef {
     const agent = this.opts.agents.find((a) => a.id === agentId);

@@ -377,6 +377,26 @@ export interface ToolActivity {
    * 길면 잘라서 담고 **잘랐다고 적는다**(`acpConnection.outputOf`).
    */
   output?: string;
+  /**
+   * ★ **이 활동의 승인 결과** (D3).
+   *
+   * 🔴 예전에는 승인할 때마다 **시스템 메시지 한 줄**을 대화에 붙였다.
+   * 한두 번이면 괜찮은데 에이전트가 스무 번 물으면 **대화가 시스템 줄로
+   * 덮인다** — 정작 읽을 내 대화가 그 사이에 묻힌다.
+   *
+   * 승인도 **활동의 일종**이다. 그 도구가 무엇이었는지 옆에 붙어 있을 때
+   * 제일 읽기 쉽고(«무엇을 승인했나»가 한 자리에), 평소에는 접혀 있다.
+   *
+   * `toolCallId` 로 잇는다 — `session/request_permission` 이 그걸 실어 온다.
+   */
+  decision?: {
+    /** `✓` 허용 · `✕` 거절 · `·` 모르는 종류 */
+    mark: string;
+    /** 고른 선택지의 이름. 답을 안 했으면 «거부했습니다» */
+    label: string;
+    /** 사람이 아니라 봇이 정했으면 그 이름 (§4.2.2) */
+    by?: string;
+  };
   /** 시작 시각. 타임라인으로 읽으려면 필요하다 */
   at?: number;
   /**
@@ -713,6 +733,13 @@ export type AnswerPolicy = "ask" | "auto";
 
 /** 권한 요청 — 에이전트가 도구를 쓰기 전에 사용자에게 묻는다 */
 export interface PermissionRequest {
+  /**
+   * 어느 도구 호출에 대한 승인인가.
+   *
+   * 결정을 **그 활동에 붙이려면**(`ToolActivity.decision`) 이게 있어야 한다 —
+   * 없으면 제목으로 넘겨짚는 수밖에 없고, 같은 제목이 여러 번 나온다.
+   */
+  toolCallId?: string;
   title: string;
   /** 읽기 전용 작업인지. 자동 승인 정책 판단에 쓴다 */
   readOnly: boolean;
