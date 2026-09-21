@@ -751,13 +751,31 @@ export class AcpConnection {
       ? await this.askApprover(params.sessionId, req)
       : await this.host.requestPermission(req);
 
-    const chosen =
+    /*
+     * ★ **표시는 «답했나»가 아니라 «어느 쪽인가»다** (D3).
+     *
+     * 🔴 예전에는 고른 게 있으면 무조건 `✓` 였다. 그래서 **거절을 골라도
+     * «✓ 위험한 것 — 이번만 거절»** 로 찍혔다 — 표시는 «답하긴 했다»는
+     * 뜻이었지만 사람은 `✓` 를 **«허용»으로 읽는다.** 나중에 기록을 훑으며
+     * *"이게 통과했었나"* 를 볼 때 정확히 거꾸로 읽히는 자리다.
+     *
+     * 방향은 `kind` 가 말해준다(`allow_*` · `reject_*`). 모르면 중립으로 둔다 —
+     * 지어내지 않는다.
+     */
+    const picked =
       decision.outcome === "selected"
-        ? req.options.find((o) => o.optionId === decision.optionId)?.name
+        ? req.options.find((o) => o.optionId === decision.optionId)
         : undefined;
+    const mark = !picked
+      ? "✕"
+      : /^allow/i.test(picked.kind)
+        ? "✓"
+        : /^reject|^deny/i.test(picked.kind)
+          ? "✕"
+          : "·";
     this.onDecision?.(
       params.sessionId,
-      chosen ? `✓ ${req.title} — ${chosen}` : `✕ ${req.title} — 거부했습니다`,
+      picked ? `${mark} ${req.title} — ${picked.name}` : `✕ ${req.title} — 거부했습니다`,
     );
 
     return decision.outcome === "selected"
