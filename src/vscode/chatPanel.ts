@@ -408,7 +408,15 @@ export class ChatPanel implements AskTarget {
         case "setConfig": {
           const updated = await this.rooms.setConfig(m.roomId, m.configId, m.value, m.botId);
           // 하나를 바꾸면 다른 선택지가 함께 바뀔 수 있다 — 응답에 온 전체를 다시 내려준다.
-          const agentId = (await this.rooms.openRoom(m.roomId)).participants[0]?.agentId;
+          /*
+           * 🔴 **바꾼 봇의 에이전트여야 한다.** 언제나 `participants[0]` 을
+           * 썼으므로, 단체방에서 Codex의 모델을 바꾸면 **Claude 캐시에 Codex의
+           * 선택지가 들어갔다** — 두 봇의 칸이 한꺼번에 엉킨다.
+           */
+          const here = await this.rooms.openRoom(m.roomId);
+          const agentId = (m.botId
+            ? here.participants.find((b) => b.id === m.botId)
+            : here.participants[0])?.agentId;
           if (agentId) {
             this.post({ t: "config", agentId, roomId: m.roomId, options: updated.map(brief) });
           }

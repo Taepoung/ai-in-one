@@ -2157,6 +2157,15 @@ export class RoomManager extends EventEmitter<Events> {
     // 다르면 에이전트 쪽이 이긴다.
     this.noteRoomConfig(room, bot, updated);
     await this.saveProps(room, { participants: room.participants });
+    /*
+     * 🔴 **방을 다시 내보내야 한다.**
+     *
+     * `noteRoomConfig` 가 `bot.model`·`modelLabel` 을 고치는데, 그걸 안 알리면
+     * 화면은 **낡은 방 스냅샷**을 계속 들고 있다. 서랍의 모델 칸은
+     * `bot.model ?? model.current` 로 읽으므로 **낡은 쪽이 이겨서**, 모델을
+     * 바꿔도 칸은 그대로였다 — 방을 다시 열기 전까지.
+     */
+    this.emit("room", room);
 
     // 왜 응답 성향이 바뀌었는지 나중에 알 수 있어야 한다
     const opt = updated.find((o) => o.id === configId);
