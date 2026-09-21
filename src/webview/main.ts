@@ -7,6 +7,7 @@ import type {
   RoomMeta,
   RoomStatus,
   RoomUsage,
+  PermissionRequest,
   ReviewWait,
   ToolActivity,
 } from "../core/types.js";
@@ -931,6 +932,14 @@ interface ChatEls {
   perm: HTMLElement;
   /** 단체방의 «누구에게 가나» 줄 (v2.0). 1:1에서는 숨어 있다 */
   compose: HTMLElement;
+  /**
+   * **승인 큐** — 헤더 바로 아래 (D1).
+   *
+   * 🔴 카드를 대화 맨 아래에 쌓았더니 **둘만 넘어가도 답할 것이 뭔지 흐려졌고**,
+   * 대화는 자동으로 바닥까지 스크롤되는데 카드는 그 아래라 오히려 밀렸다.
+   * 답해야 하는 것은 **대화와 같이 흐르면 안 된다** — 붙박이여야 한다.
+   */
+  queue: HTMLElement;
 }
 let chat: ChatEls | null = null;
 
@@ -1316,6 +1325,7 @@ function mountChat(r: Room): void {
   nodeCache.clear();
 
   const head = el("header", { class: "bar" });
+  const queue = el("div", { class: "approvals", hidden: true });
   const list = el("div", { class: "messages" });
   const status = el("div", { class: "status" });
   // 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다
@@ -1441,6 +1451,7 @@ function mountChat(r: Room): void {
   replace(
     screens.chat,
     head,
+    queue,
     list,
     status,
     compose,
@@ -1459,7 +1470,7 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, list, status, chips, box, perm, compose };
+  chat = { roomId: r.id, head, queue, list, status, chips, box, perm, compose };
   pending = [];
   paintChips();
   // 단체방에서는 **봇마다 에이전트가 다르다** — 전부 물어봐야 누가 뭐를 못 하는지 안다
@@ -1766,11 +1777,7 @@ function paintChat(r: Room): void {
       above = undefined;
     }
   }
-  // 카드는 대화 아래에 붙는다 — 답할 때까지 눈에 보여야 한다
-  for (const card of cards.filter((x) => x.roomId === r.id || x.roomId === "")) {
-    nodes.push(cardNode(card));
-  }
-  // 줄 서 있는 심사도 같은 자리에 — 이것도 «끝나야 넘어가는» 것이다
+  // 줄 서 있는 심사는 대화 아래에 — 이건 **기다리는 것**이지 답할 것이 아니다
   for (const w of reviews) nodes.push(reviewNode(w, r));
   // 다른 프로젝트의 방이면 열자마자 알려준다 — 엉뚱한 디렉터리에서 일하게 하면 안 된다 (B5)
   // 🔴 **열린 폴더가 없으면 «다른 프로젝트»라는 말 자체가 성립하지 않는다.**
@@ -1943,6 +1950,7 @@ function paintChat(r: Room): void {
     }
   }
 
+  paintApprovals(r);
   c.list.replaceChildren(...nodes);
   if (atBottom) c.list.scrollTop = c.list.scrollHeight;
 
@@ -3134,80 +3142,161 @@ function reviewNode(w: ReviewWait, r: Room): HTMLElement {
   );
 }
 
-function cardNode(card: AskCard): HTMLElement {
-  const node = el("div", { class: "card" });
+/** 큐에서 체크해 둔 것들 — 다시 그려도 살아남아야 한다 */
+const ticked = new Set<string>();
 
-  /**
-   * 답하면 **카드를 치운다.**
-   *
-   * 🔴 예전에는 «답함» 표시만 붙이고 목록에 남겨뒀는데, 그러면 승인할 때마다
-   * 대화 아래에 카드가 **한 장씩 쌓인다.** 카드는 «지금 답해야 할 것»이고
-   * 답하고 나면 그건 지나간 일이다.
-   *
-   * **기록이 사라지는 게 아니다** — 무엇을 허용·거부했는지는 D3가 대화에
-   * 시스템 메시지로 남긴다. 카드는 그 기록의 자리가 아니다.
-   */
-  const answer = (send: () => void) => {
+/**
+ * 이 요청에서 **«이번만»에 해당하는 선택지**를 찾는다.
+ *
+ * 🔴 **일괄 처리에는 «항상»을 쓰지 않는다.** 여러 개를 한 번에 넘길 때는
+ * 하나하나를 읽지 않는다는 뜻인데, 거기에 «앞으로 전부»까지 걸면 **읽지 않은
+ * 것이 영구 규칙이 된다.** «항상»은 하나씩 펴서 볼 때만 고를 수 있다 —
+ * 봇 심사에 `*_once` 만 준 것과 같은 이유다(§4.2.2).
+ */
+function onceOption(req: PermissionRequest, allow: boolean): string | undefined {
+  const want = allow ? "allow_once" : "reject_once";
+  return req.options.find((o) => o.kind === want)?.optionId;
+}
+
+/**
+ * ★ **승인 큐** — 헤더 바로 아래 (D1).
+ *
+ * 🔴 카드를 대화 맨 아래에 쌓고 있었다. 둘만 넘어가도 **답할 것이 뭔지
+ * 흐려지고**, 대화는 자동으로 바닥까지 스크롤되는데 카드는 그보다 아래라
+ * 오히려 밀렸다. **답해야 하는 것은 대화와 같이 흐르면 안 된다.**
+ *
+ * 한 줄 = 한 요청. 펴면 무엇을 승인하는지 전부 보이고(D1), 거기서는
+ * 에이전트가 준 선택지를 **그대로** 고를 수 있다 — «항상»도 거기 있다.
+ * 줄에서 바로 누르는 «허용/거절»은 **«이번만»** 이다.
+ */
+function paintApprovals(r: Room): void {
+  const host = chat?.queue;
+  if (!host) return;
+
+  const mine = cards.filter((c) => c.roomId === r.id || c.roomId === "");
+  for (const id of [...ticked]) if (!mine.some((c) => c.id === id)) ticked.delete(id);
+
+  if (mine.length === 0) {
+    host.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+  host.hidden = false;
+
+  const answer = (card: AskCard, optionId?: string) => {
     if (!dropCard(card.id)) return;
-    send();
+    ticked.delete(card.id);
+    post({ t: "answer", id: card.id, answer: { kind: "permission", optionId } });
+  };
+  /** 여러 개를 한 번에 — **«이번만»만** 쓴다 */
+  const sweep = (list: AskCard[], allow: boolean) => {
+    for (const c of list) answer(c, onceOption(c.req, allow));
     renderChat();
   };
 
-  if (card.kind === "permission") {
-    const r = card.req;
+  const rows = mine.map((card) => {
+    const req = card.req;
+    const tick = el("input", { type: "checkbox" }) as HTMLInputElement;
+    tick.checked = ticked.has(card.id);
+    tick.addEventListener("change", () => {
+      if (tick.checked) ticked.add(card.id);
+      else ticked.delete(card.id);
+      paintApprovals(r);
+    });
+
+    const quick = el(
+      "span",
+      { class: "quick" },
+      el("button", {
+        class: "primary",
+        text: "허용",
+        title: "이번만 허용합니다. «항상»은 펴서 고르세요.",
+        onclick: () => (answer(card, onceOption(req, true)), renderChat()),
+      }),
+      el("button", {
+        text: "거절",
+        onclick: () => (answer(card, onceOption(req, false)), renderChat()),
+      }),
+    );
+
+    // 펴면 **무엇을 승인하는지** 전부 (D1) — 제목만으로는 rm -rf 와 ls 가 같다
     const body = el("div", { class: "card-body" });
-
-    // **무엇을 승인하는지 보여준다** (D1). 제목만으로는 `rm -rf`와 `ls`가 같아 보인다.
-    if (r.command) {
-      body.append(el("pre", { class: "perm-cmd" }, el("code", { text: r.command })));
+    if (req.command) body.append(el("pre", { class: "perm-cmd" }, el("code", { text: req.command })));
+    for (const path of req.paths ?? []) {
+      body.append(el("button", {
+        class: "file", text: shortenPath(path), title: "에디터에서 열기",
+        onclick: () => post({ t: "openFile", path }),
+      }));
     }
-    for (const p of r.paths ?? []) {
-      body.append(
-        el(
-          "button",
-          {
-            class: "file",
-            text: `${shortenPath(p)}`,
-            title: "에디터에서 열기",
-            onclick: () => post({ t: "openFile", path: p }),
-          },
-        ),
-      );
+    if (req.diff) {
+      body.append(el("pre", { class: "preview" }, el("code", { text: req.diff.newText })));
     }
-    if (r.diff) {
-      body.append(
-        el(
-          "details",
-          { class: "tool" },
-          el("summary", {}, icon("diff"), " 바뀔 내용 보기"),
-          el("pre", { class: "preview" }, el("code", { text: r.diff.newText })),
-        ),
-      );
-    }
-
-    node.append(
-      el("div", { class: "card-title" }, icon(permIcon(r.kind)), ` ${r.title}`),
-      body,
+    body.append(
       el(
         "div",
         { class: "card-actions" },
-        ...r.options.map((o) =>
+        ...req.options.map((o) =>
           el("button", {
-            class: o.kind === "allow_always" || o.kind === "allow_once" ? "primary" : "",
+            class: /^allow/.test(o.kind) ? "primary" : "",
             text: o.name,
-            onclick: () =>
-              answer(() =>
-                post({ t: "answer", id: card.id, answer: { kind: "permission", optionId: o.optionId } }),
-              ),
+            onclick: () => (answer(card, o.optionId), renderChat()),
           }),
         ),
       ),
     );
-    return node;
-  }
 
-  return node;
+    return el(
+      "div",
+      { class: "approval" },
+      el(
+        "div",
+        { class: "approval-head" },
+        tick,
+        el(
+          "details",
+          { class: "act" },
+          el(
+            "summary",
+            { class: "activity" },
+            icon("chevron-right"),
+            icon(permIcon(req.kind)),
+            ` ${req.title}`,
+          ),
+          body,
+        ),
+        quick,
+      ),
+    );
+  });
+
+  const picked = mine.filter((c) => ticked.has(c.id));
+  host.replaceChildren(
+    el(
+      "div",
+      { class: "approvals-head" },
+      el("span", { class: "count", text: `승인 대기 ${mine.length}` }),
+      picked.length > 0
+        ? el("button", {
+            text: `선택 ${picked.length}개 허용`,
+            title: "고른 것들을 **이번만** 허용합니다",
+            onclick: () => sweep(picked, true),
+          })
+        : null,
+      picked.length > 0
+        ? el("button", { text: "선택 거절", onclick: () => sweep(picked, false) })
+        : null,
+      mine.length > 1
+        ? el("button", {
+            text: "전부 허용",
+            title: `${mine.length}개를 **이번만** 허용합니다. «항상»은 하나씩 펴서 고르세요.`,
+            onclick: () => sweep(mine, true),
+          })
+        : null,
+    ),
+    ...rows,
+  );
 }
+
 
 /**
  * 권한 설정 시트 (D2).
