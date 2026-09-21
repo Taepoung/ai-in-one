@@ -2633,3 +2633,42 @@ fieldset.bot .bot-drop {
   font-size: 10px;
   color: var(--warn);
 }
+
+/* 에이전트 바꾸기 — 고를 것들 */
+.agent-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.agent-pick .pick.on {
+  border-color: var(--focus);
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+}
+
+/*
+ * **무엇이 사라지고 무엇이 남나** — 나란히 둬야 견줘진다.
+ * 좁으면 위아래로 쌓인다.
+ */
+.swap-what {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+  font-size: 11px;
+}
+
+.swap-what > div {
+  flex: 1 1 150px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--code-bg);
+}
+
+.swap-what .gone { border-left: 3px solid var(--danger); }
+.swap-what .kept { border-left: 3px solid var(--vscode-charts-green, #3fb950); }
+.swap-what b { display: block; margin-bottom: 3px; }
+.swap-what > div > div { color: var(--chat-dim); }
