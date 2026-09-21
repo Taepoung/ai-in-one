@@ -163,6 +163,8 @@ export type FromWebview =
       /** 단체방 (v2.0) — 봇마다 에이전트·모델·역할을 따로 고른다 */
       bots?: Array<{
         agentId: string;
+        /** 부를 이름. 비우면 에이전트 이름 (v2.2 앞당김) */
+        name?: string;
         rolePrompt?: string;
         configValues?: Record<string, string | boolean>;
       }>;
@@ -226,6 +228,8 @@ export type FromWebview =
       t: "addBot";
       roomId: string;
       agentId: string;
+      /** 부를 이름. 비우면 에이전트 이름 (v2.2 앞당김) */
+      name?: string;
       rolePrompt?: string;
       /** 모델·추론 강도 — 부를 때 정한다 (B15) */
       configValues?: Record<string, string | boolean>;
@@ -396,7 +400,8 @@ function shortenPath(p: string): string {
 function whoText(r: RoomMeta, agents: AgentBrief[]): string {
   return r.agentIds
     .map((id, i) => {
-      const label = agents.find((a) => a.id === id)?.label ?? id;
+      // **부를 이름이 먼저다** — 멘션도 그 이름으로 간다. 에이전트는 툴팁에 남는다
+      const label = r.names?.[i] || (agents.find((a) => a.id === id)?.label ?? id);
       const model = r.models?.[i];
       return model ? `${label} · ${model}` : label;
     })

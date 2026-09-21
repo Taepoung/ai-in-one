@@ -30,6 +30,7 @@ import {
   type RoomUsage,
   type ToolActivity,
   type Clash,
+  uniqueBotName,
   type SearchHit,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
@@ -55,6 +56,14 @@ export interface BotSpec {
   answerPolicy?: AnswerPolicy;
   /** 그 봇의 세션에 적용할 설정 — 모델·추론 강도 (B15) */
   configValues?: Record<string, string | boolean>;
+  /**
+   * ★ **부를 이름** (v2.2 앞당김). 비우면 에이전트 이름을 쓴다.
+   *
+   * 같은 에이전트로 봇을 둘 넣으면 `Claude`·`Claude 2` 가 되는데, 그러면
+   * **@로 지목할 때 누가 누군지 알 수가 없다.** 만들 때 정할 수 있어야
+   * 나중에 하나씩 고치지 않는다.
+   */
+  name?: string;
 }
 
 export interface CreateRoomOptions {
@@ -518,12 +527,7 @@ function mergeStatus(all: RoomStatus[]): RoomStatus {
  * 우리가 정할 수 없다. 겹치면 뒤에 수를 붙인다 — `Claude`, `Claude 2`, ...
  */
 function uniqueName(wanted: string, others: BotInstance[]): string {
-  const taken = new Set(others.map((b) => b.name));
-  if (!taken.has(wanted)) return wanted;
-  for (let n = 2; ; n++) {
-    const tryThis = `${wanted} ${n}`;
-    if (!taken.has(tryThis)) return tryThis;
-  }
+  return uniqueBotName(wanted, new Set(others.map((b) => b.name)));
 }
 
 function configKeyOf(roomId: string, botId: string): string {
@@ -741,6 +745,7 @@ export class RoomManager extends EventEmitter<Events> {
     const participants = specs.map((spec) => {
       const bot = createBotInstance(this.agentOrThrow(spec.agentId), {
         taken,
+        ...(spec.name?.trim() ? { name: spec.name.trim() } : {}),
         ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
         ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
         ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
@@ -917,6 +922,7 @@ export class RoomManager extends EventEmitter<Events> {
     const taken = new Set(room.participants.map((b) => b.name));
     const bot = createBotInstance(agent, {
       taken,
+      ...(spec.name?.trim() ? { name: spec.name.trim() } : {}),
       ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
       ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
       ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),

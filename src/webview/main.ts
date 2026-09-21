@@ -13,6 +13,9 @@ import type {
   Clash,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
+// 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
+//    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
+import { uniqueBotName } from "../core/types.js";
 import type {
   AgentBrief,
   AskCard,
@@ -277,6 +280,7 @@ function roomNode(m: RoomMeta): HTMLElement {
         left.append(el("span", { class: "draft", text: "초안:" }), ` ${m.draftPreview}`);
       } else {
         left.textContent = whoText(m);
+        left.title = whoTitle(m);
       }
 
       return el(
@@ -600,8 +604,31 @@ interface DraftBot {
   /** 모델·추론 강도 — 봇마다 따로 고른다 */
   picks: Map<string, string | boolean>;
   role: string;
+  /** 부를 이름. 비우면 에이전트 이름이 된다 */
+  name: string;
 }
-let draftBots: DraftBot[] = [{ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" }];
+let draftBots: DraftBot[] = [newDraftBot()];
+
+function newDraftBot(): DraftBot {
+  return { agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "", name: "" };
+}
+
+/**
+ * ★ **실제로 붙을 이름을 미리 계산한다** — 코어와 **같은 순서, 같은 규칙**으로.
+ *
+ * 이름은 방 안에서 유일해야 해서 겹치면 뒤에 수가 붙는다(`uniqueBotName`).
+ * 그걸 만들고 나서야 알게 되면 **«내가 친 것과 다른 이름»** 을 방에 들어가서
+ * 발견하게 된다. 미리 보여주면 고칠 기회가 있다.
+ */
+function draftNames(): string[] {
+  const taken = new Set<string>();
+  return draftBots.map((b) => {
+    const label = boot.agents.find((a) => a.id === b.agentId)?.label ?? b.agentId;
+    const name = uniqueBotName(b.name.trim() || label, taken);
+    taken.add(name);
+    return name;
+  });
+}
 /** 방금 손대던 봇 — 빼기를 누른 뒤 범위를 안전하게 유지하려고 둔다 */
 let draftAt = 0;
 let draftCwd = "";
@@ -615,7 +642,7 @@ function openNewRoom(): void {
    * 남아 있었다 — 방을 만드는 것은 **매번 새로 정하는 일**이지 직전을 이어가는
    * 일이 아니다. 제목·역할은 매번 비워 주면서 봇 수만 남겨두면 더 이상하다.
    */
-  draftBots = [{ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" }];
+  draftBots = [newDraftBot()];
   draftAt = 0;
   renderNew();
   go("new");
@@ -624,6 +651,9 @@ function openNewRoom(): void {
 }
 
 function renderNew(error?: string): void {
+  // 화면을 다시 만들므로 «이렇게 됩니다» 줄도 새로 모은다 — 옛 노드를 들고
+  // 있으면 화면에 없는 것을 계속 고치게 된다
+  draftBent.length = 0;
 
   const title = el("input", { type: "text", id: "new-title", placeholder: "비우면 «새 대화»" });
   const cwdInput = el("input", {
@@ -651,6 +681,8 @@ function renderNew(error?: string): void {
   };
   cwdInput.addEventListener("input", syncCreate);
   syncCreate();
+  // 다 그린 뒤 한 번 — 처음부터 겹쳐 있을 수 있다 (같은 에이전트를 둘 고른 채로)
+  queueMicrotask(syncDraftNames);
 
   create.addEventListener("click", () => {
     if (needsFolder()) return;
@@ -663,6 +695,7 @@ function renderNew(error?: string): void {
       ...(cwdInput.value.trim() ? { cwd: cwdInput.value.trim() } : {}),
       bots: draftBots.map((b) => ({
         agentId: b.agentId,
+        ...(b.name.trim() ? { name: b.name.trim() } : {}),
         ...(b.role.trim() ? { rolePrompt: b.role.trim() } : {}),
         ...(b.picks.size > 0 ? { configValues: Object.fromEntries(b.picks) } : {}),
       })),
@@ -688,7 +721,7 @@ function renderNew(error?: string): void {
           class: "ghost",
           text: "+ 봇 추가",
           onclick: () => {
-            draftBots.push({ agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" });
+            draftBots.push(newDraftBot());
             draftAt = draftBots.length - 1;
             renderNew();
           },
@@ -736,6 +769,22 @@ function renderNew(error?: string): void {
  * 전부 봇에 붙는 값이라(D2·B3) 봇마다 따로 받아야 한다.
  */
 function botFieldset(b: DraftBot, n: number): HTMLElement {
+  const label = boot.agents.find((a) => a.id === b.agentId)?.label ?? b.agentId;
+  const name = el("input", {
+    type: "text",
+    value: b.name,
+    // 비워두면 에이전트 이름이 된다 — 빈 칸이 «이름 없음»이 아니라고 말해준다
+    placeholder: label,
+  }) as HTMLInputElement;
+  // 고유 클래스 — 봇 상자 안에는 «흐린 글씨»가 여럿이라 그것만으로는 못 고른다
+  const bent = el("span", { class: "dim bot-bent", hidden: true });
+  name.addEventListener("input", () => {
+    b.name = name.value;
+    // 앞 봇의 이름이 바뀌면 **뒤 봇의 최종 이름도 바뀐다** — 전부 다시 본다
+    syncDraftNames();
+  });
+  draftBent.push({ b, hint: bent });
+
   const role = el("textarea", {
     placeholder: "예) 너는 코드 리뷰어다. 구현하지 말고 지적만 해라.",
     ...(n === 0 ? { id: "new-role" } : {}),
@@ -764,10 +813,36 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
       el("label", { text: "에이전트" }),
       el("div", { class: "agents" }, ...boot.agents.map((a) => agentButton(a, b, n))),
     ),
+    /*
+     * ★ **부를 이름** — 에이전트 바로 아래 (v2.2 앞당김).
+     *
+     * 🔴 같은 에이전트로 봇을 둘 넣으면 `Claude`·`Claude 2` 가 된다. 그러면
+     * **@로 지목할 때 누가 누군지 알 수가 없고**, 방에 들어가서 하나씩 고치게
+     * 된다. 이름은 에이전트를 고른 «그 자리»에서 정하는 게 맞다 —
+     * 기본값이 에이전트 이름이라 붙어 있어야 뜻이 통한다.
+     */
+    el("div", { class: "field" },
+      el("label", { text: "이름 (선택)" }),
+      name,
+      bent),
     // 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15)
     ...configFields(configs.get(b.agentId), b.picks),
     el("div", { class: "field" }, el("label", { text: "역할 (선택)" }), role),
   );
+}
+
+/** 겹쳐서 **수가 붙는 봇**에게만 «이렇게 됩니다»를 단다 */
+const draftBent: Array<{ b: DraftBot; hint: HTMLElement }> = [];
+
+function syncDraftNames(): void {
+  const names = draftNames();
+  for (const [n, { b, hint }] of draftBent.entries()) {
+    const label = boot.agents.find((a) => a.id === b.agentId)?.label ?? b.agentId;
+    const wanted = b.name.trim() || label;
+    const got = names[n] ?? wanted;
+    hint.hidden = got === wanted;
+    hint.textContent = `«${wanted}»은(는) 이미 있어서 «${got}»이(가) 됩니다.`;
+  }
 }
 
 function agentButton(a: AgentBrief, b: DraftBot, n: number): HTMLElement {
@@ -1434,8 +1509,16 @@ function mountChat(r: Room): void {
 
   box.addEventListener("input", () => {
     if (group) {
-      paintPicker(r, box);
-      paintCompose(r, box);
+      /*
+       * 🔴 **`r` 은 붙일 때의 방이다 — 그 뒤로 안 바뀐다.**
+       *
+       * 이름을 바꿔도 참여자 수는 그대로라 다시 붙지 않으므로, 이 처리기는
+       * **옛 이름이 박힌 방을 계속 들고 있었다.** 그래서 자동완성 목록과
+       * «누구에게 가나» 줄에 **옛 이름이 그대로 떴다.** 지금 방을 본다.
+       */
+      const live = room ?? r;
+      paintPicker(live, box);
+      paintCompose(live, box);
       return;
     }
     autoGrow(box);
@@ -4455,7 +4538,7 @@ function inviteRow(r: Room): HTMLElement {
  * 그래서 **방 만들 때와 같은 모양**을 카드로 띄운다 — 새로 배울 게 없다.
  */
 function askInvite(r: Room): void {
-  const draft: DraftBot = { agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "" };
+  const draft: DraftBot = newDraftBot();
   if (!configs.has(draft.agentId)) post({ t: "needConfig", agentId: draft.agentId });
 
   const paint = (): void => {
@@ -4465,6 +4548,33 @@ function askInvite(r: Room): void {
     }) as HTMLTextAreaElement;
     role.value = draft.role;
     role.addEventListener("input", () => (draft.role = role.value));
+
+    /*
+     * ★ **부를 때도 이름을 정한다** — 방 만들기와 같은 자리(에이전트 바로 아래).
+     *
+     * 🔴 여기서 못 정하면 **부르자마자 서랍을 열어 이름부터 고치게 된다.**
+     * 특히 같은 에이전트를 하나 더 부르는 경우가 그런데, 그때가 이름이 제일
+     * 필요한 순간이다 — `Claude` 와 `Claude 2` 는 구별이 안 되므로.
+     */
+    const label = boot.agents.find((a) => a.id === draft.agentId)?.label ?? draft.agentId;
+    const taken = new Set(r.participants.map((b) => b.name));
+    const name = el("input", {
+      type: "text",
+      class: "bot-name",
+      value: draft.name,
+      placeholder: uniqueBotName(label, taken),
+    }) as HTMLInputElement;
+    const bent = el("span", { class: "dim bot-bent", hidden: true });
+    const syncName = () => {
+      draft.name = name.value;
+      const wanted = name.value.trim();
+      if (!wanted) { bent.hidden = true; return; }
+      const got = uniqueBotName(wanted, taken);
+      bent.hidden = got === wanted;
+      bent.textContent = `«${wanted}»은(는) 이미 있어서 «${got}»이(가) 됩니다.`;
+    };
+    name.addEventListener("input", syncName);
+    syncName();
 
     const card = el(
       "div",
@@ -4506,6 +4616,10 @@ function askInvite(r: Room): void {
             ),
           ),
         ),
+        el("div", { class: "field" },
+          el("label", { text: "이름 (선택)" }),
+          name,
+          bent),
         ...configFields(configs.get(draft.agentId), draft.picks),
         role,
       ),
@@ -4530,6 +4644,7 @@ function askInvite(r: Room): void {
               t: "addBot",
               roomId: r.id,
               agentId: draft.agentId,
+              ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
               ...(draft.role.trim() ? { rolePrompt: draft.role.trim() } : {}),
               ...(draft.picks.size > 0 ? { configValues: Object.fromEntries(draft.picks) } : {}),
             });
@@ -5295,12 +5410,34 @@ function shortenPath(p: string): string {
  * 모델은 세션이 실제로 쓰는 값이라(`BotInstance.modelLabel`) 한 번도 안 연
  * 방에는 없다 — 그러면 에이전트 이름만 나온다.
  */
+/**
+ * 목록 둘째 줄 — 「구현 · Opus 5, 리뷰어 · Sonnet 5」.
+ *
+ * 🔴 여태 **에이전트 이름**을 썼다. 그런데 봇 이름은 사용자가 정하는 것이고
+ * **부를 때 쓰는 이름도 그쪽이다**(멘션). 「구현」과 「리뷰어」로 갈라 놓고
+ * 목록에서 «Claude, Codex» 만 보면 **어느 방이 무슨 방이었는지 알 수가 없다.**
+ *
+ * 이름을 안 바꾼 봇은 기본값이 에이전트 이름이라 **예전과 똑같이 보인다.**
+ * 바꾼 경우에만 달라지고, 에이전트는 툴팁에 남는다(§0 — 접는 건 되지만
+ * 버리는 건 안 된다).
+ */
 function whoText(m: RoomMeta): string {
   return m.agentIds
     .map((id, i) => {
-      const label = agentById.get(id)?.label ?? id;
+      const label = m.names?.[i] || (agentById.get(id)?.label ?? id);
       const model = m.models?.[i];
       return model ? `${label} · ${model}` : label;
+    })
+    .join(", ");
+}
+
+/** 이름을 바꿨으면 «무슨 에이전트인지»가 목록에서 사라진다 — 툴팁에 남긴다 */
+function whoTitle(m: RoomMeta): string {
+  return m.agentIds
+    .map((id, i) => {
+      const agent = agentById.get(id)?.label ?? id;
+      const name = m.names?.[i];
+      return name && name !== agent ? `${name} (${agent})` : agent;
     })
     .join(", ");
 }

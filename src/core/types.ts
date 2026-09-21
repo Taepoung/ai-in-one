@@ -639,6 +639,17 @@ export interface RoomMeta {
    * 아직 세션을 안 연 방이나 모델을 안 알려주는 에이전트는 빈 문자열이다.
    */
   models?: string[];
+  /**
+   * ★ **봇 이름.** `agentIds` 와 **같은 순서**다.
+   *
+   * 🔴 목록은 여태 **에이전트 이름**을 썼다. 그런데 봇 이름은 사용자가 정하는
+   * 것이고(방 만들 때·서랍에서), **부를 때 쓰는 이름도 그쪽이다**(멘션). 「구현」과
+   * 「리뷰어」로 갈라 놓고 목록에서 «Claude, Codex» 만 보면 **어느 방이 무슨
+   * 방이었는지 목록에서 알 수가 없다.**
+   *
+   * 에이전트는 안 버린다 — 툴팁에 남긴다(§0).
+   */
+  names?: string[];
   unread: number;
   /** 쓰다 만 초안이 있는지. 목록에 `초안: …`으로 표시한다 (WhatsApp 방식) */
   draftPreview?: string;
@@ -683,6 +694,7 @@ export function toMeta(room: Room): RoomMeta {
     kind: roomKind(room),
     cwd: room.cwd,
     agentIds: room.participants.map((b) => b.agentId),
+    names: room.participants.map((b) => b.name),
     ...(room.participants.some((b) => b.modelLabel)
       ? { models: room.participants.map((b) => b.modelLabel ?? "") }
       : {}),
@@ -865,10 +877,30 @@ export interface ReviewWait {
 /** 질문 정책의 기본값. 에이전트가 물으면 사용자에게 띄운다 */
 export const DEFAULT_ANSWER_POLICY: AnswerPolicy = "ask";
 
+/**
+ * 방 안에서 **겹치지 않는 봇 이름**을 만든다.
+ *
+ * 이름이 곧 멘션 이름이라(B1) 둘이 같으면 `@Claude` 가 누구를 가리키는지
+ * 우리가 정할 수 없다. 겹치면 뒤에 수를 붙인다 — `Claude`, `Claude 2`, …
+ *
+ * 🔴 **규칙이 세 군데에 흩어져 있었다** — 봇을 만들 때, 이름을 바꿀 때,
+ * 그리고 방 만들기 화면이 «이렇게 됩니다»를 미리 보여줄 때. 셋이 어긋나면
+ * **화면이 약속한 이름과 실제 이름이 달라진다.** 한 곳에서만 정한다.
+ */
+export function uniqueBotName(wanted: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(wanted)) return wanted;
+  for (let n = 2; ; n++) {
+    const tryThis = `${wanted} ${n}`;
+    if (!taken.has(tryThis)) return tryThis;
+  }
+}
+
 export function createBotInstance(
   agent: AgentDef,
   opts: {
     taken?: ReadonlySet<string>;
+    /** 사용자가 방 만들 때 정한 이름. 비우면 에이전트 이름을 쓴다 */
+    name?: string;
     rolePrompt?: string;
     agentMode?: string;
     approver?: Approver;
@@ -876,10 +908,7 @@ export function createBotInstance(
   } = {},
 ): BotInstance {
   const taken = opts.taken ?? new Set<string>();
-  let name = agent.label;
-  for (let n = 2; taken.has(name); n++) {
-    name = `${agent.label} ${n}`;
-  }
+  const name = uniqueBotName(opts.name?.trim() || agent.label, taken);
   return {
     // 🔴 시각만 쓰면 **같은 에이전트로 봇을 둘 만들 때 같은 ms에 걸려 id가 겹친다.**
     // 그러면 멘션도 상태도 둘이 섞인다 — 단체방에서는 정상 경로다(v2.0).
