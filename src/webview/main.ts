@@ -1486,6 +1486,56 @@ function lostLine(m: Message, r: Room): string {
 }
 
 /**
+ * ★ **받는 이를 말풍선 안에** (§4.1.1 · §4.1.2).
+ *
+ * 🔴 아래에 «→ Claude» 한 줄로 적어봤더니 **안 읽혔다.** 10px 회색 글씨가
+ * 말풍선 밖에 붙어 있으면 눈이 그냥 지나간다 — 그런데 이건 *"화면엔 보이는데
+ * 봇은 서로 모른다"* 를 막으라고 넣은 표시다. **안 읽히면 없는 것과 같다.**
+ *
+ * 그래서 **쓸 때 보이던 그 칩 그대로** 글 앞에 놓는다. 입력창에서 보던 것과
+ * 말풍선이 같아지고(WYSIWYG), 받는 이가 **글의 일부로** 읽힌다.
+ *
+ * 🔴 **`Message.text` 에는 안 넣는다.** 라우팅 칩은 파서가 소비한 것이라
+ * (§4.1.2) 글에는 없고, 넣으면 **에이전트에게 가는 프롬프트가 바뀐다** —
+ * 게다가 여럿에게 간 블록이면 «Codex도 이걸 받았다»를 Claude에게 알려주는
+ * 꼴이라 §4.1.1을 우리 손으로 깬다. **그릴 때만** 만든다.
+ *
+ * 1:1에서는 안 만든다 — 상대가 하나뿐이라 자명하다.
+ */
+function deliveryChips(m: Message, r: Room): HTMLElement | null {
+  if (m.role !== "user" || r.participants.length < 2) return null;
+  if (m.deliveredTo.length === 0) return null;
+
+  const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
+  const wait = new Set(waitingFor(m.id));
+
+  const row = el("span", { class: "to-chips" });
+  for (const id of m.deliveredTo) {
+    /*
+     * 내보낸 봇의 이름은 **안 남는다** — `removeBot`이 `participants`에서
+     * 빼기 때문이다. 그래도 **자리는 남긴다**: 둘에게 간 말이 하나에게만
+     * 간 것처럼 보이면 안 된다(§0의 뺄셈 규칙).
+     */
+    const bot = r.participants.find((b) => b.id === id);
+    const state = lost.has(id) ? " lost" : wait.has(id) ? " held" : "";
+    row.append(
+      el("span", {
+        class: `chip to${state}${bot ? "" : " gone"}`,
+        text: bot ? `@${bot.name}` : "@나간 봇",
+        title: lost.has(id)
+          ? "이 봇에게는 전달되지 않았습니다"
+          : wait.has(id)
+            ? "아직 줄에 서 있습니다"
+            : bot
+              ? `${bot.name}에게 전달되었습니다`
+              : "이 봇은 방에서 나갔습니다",
+      }),
+    );
+  }
+  return row;
+}
+
+/**
  * ★ **이 말이 누구에게 갔나** (§4.1.1 · §4.2).
  *
  * 🔴 **이 설계의 유일한 위험**이 «화면엔 다 보이는데 봇은 서로 모른다»는
@@ -1514,22 +1564,27 @@ function deliveryNode(m: Message, r: Room): HTMLElement | null {
   const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
   const wait = new Set(waitingFor(m.id));
 
-  const went: string[] = [];
   const held: string[] = [];
   for (const id of m.deliveredTo) {
-    const bot = here(id);
-    if (!bot || lost.has(id)) continue;
-    (wait.has(id) ? held : went).push(bot.name);
+    if (lost.has(id) || !wait.has(id)) continue;
+    held.push(here(id)?.name ?? "나간 봇");
   }
-  if (went.length === 0 && held.length === 0) return null;
+  /*
+   * ★ **여기는 «지나가는 것»만 맡는다.**
+   *
+   * 🔴 처음에는 받는 이도 여기 «→ Claude · Codex»로 적었다. 그런데 10px 회색
+   * 글씨가 말풍선 **밖 아래**에 붙으니 **안 읽혔다** — §4.1.1의 유일한 위험을
+   * 막으려고 넣은 표시인데, 막으려면 눈에 들어와야 한다.
+   *
+   * 받는 이는 **말풍선 안으로** 옮겼다(`deliveryChips`). 거기가 제자리다 —
+   * 사용자가 칩으로 **직접 쓴 것**이고, 지워지지 않는 메시지의 일부다.
+   * 여기 남는 것은 **곧 사라질 상태**뿐이다: 줄 서 있음, 그리고 물리기.
+   */
+  if (held.length === 0) return null;
 
   const many = r.participants.length > 1;
-  // 1:1이고 줄도 안 섰으면 적을 게 없다 — «→ Claude»만 남는데 자명하다
-  if (!many && held.length === 0) return null;
-
   const row = el("div", { class: "meta delivery" });
-  if (many && went.length > 0) row.append(el("span", { text: `→ ${went.join(" · ")}` }));
-  if (held.length > 0) {
+  {
     row.append(
       el("span", {
         class: "held",
@@ -2116,6 +2171,8 @@ function messageNode(
    * «다 말하고 → 그 밑에 한 일 목록»이 되어, **무엇 때문에 그렇게 했는지**가
    * 끊겼다. 활동이 글의 어디쯤이었는지는 `ToolActivity.textAt`에 있다.
    */
+  /** 받는 이 칩은 **첫 말풍선에만** — 조각마다 붙으면 같은 말을 여러 번 한다 */
+  let headed = false;
   for (const part of weave(m)) {
     if (part.kind === "tools") {
       node.append(toolsNode(part.tools));
@@ -2128,6 +2185,22 @@ function messageNode(
 
     const bubble = el("div", { class: "bubble" });
     renderMarkdown(bubble, part.text);
+    /*
+     * **받는 이를 첫 문단 앞에 꽂는다** — 글과 한 줄로 흐르게.
+     *
+     * `renderBlocks`가 문단을 `<p>`로 쌓으므로, 말풍선에 그냥 붙이면 칩이
+     * 자기 줄을 차지해 «머리말»처럼 보인다. 메신저의 멘션은 **문장 안에**
+     * 있다. 첫 `<p>`가 없는 글(코드 블록·목록으로 시작)이면 맨 앞에 둔다.
+     */
+    if (!headed && room) {
+      const to = deliveryChips(m, room);
+      if (to) {
+        const first = bubble.querySelector("p");
+        if (first) first.prepend(to, " ");
+        else bubble.prepend(to);
+      }
+      headed = true;
+    }
     // 타이핑 표시와 시각은 **마지막 조각에만** — 중간에 붙으면 말이 끝난 것처럼 보인다
     if (m.streaming && part.last) {
       bubble.append(el("span", { class: "typing" }, el("i"), el("i"), el("i")));
