@@ -4558,18 +4558,36 @@ function policyLine(r: Room, bot: BotInstance): string {
  */
 function renameBotInline(r: Room, bot: BotInstance, host: HTMLElement): void {
   const input = el("input", { type: "text", value: bot.name }) as HTMLInputElement;
-  const restore = () => paintDrawer(r);
-  const commit = () => {
+
+  /*
+   * 🔴 **포커스를 먼저 놓아야 다시 그려진다.**
+   *
+   * `paintDrawer` 에는 «입력 중이면 건드리지 않는다»는 규칙이 있다 — 안 그러면
+   * 상태가 올 때마다 **치던 글자가 통째로 날아가기** 때문이다. 그런데 이
+   * 입력창이 포커스를 쥔 채로 부르면 **그 규칙에 우리가 걸린다**: 서랍이
+   * 안 그려지고, 이어서 방 갱신이 와도 또 안 그려져서 **엔터를 쳐도 아무 일도
+   * 안 일어난 것처럼 보인다.** (이름은 실제로 바뀌어 있었다.)
+   *
+   * `done` 으로 한 번만 돌게 막는다 — `blur()` 가 blur 처리기를 다시 부른다.
+   */
+  let done = false;
+  const finish = (send: boolean) => {
+    if (done) return;
+    done = true;
     const name = input.value.trim();
-    const changed = name !== "" && name !== bot.name;
-    restore();
-    if (changed) post({ t: "renameBot", roomId: r.id, botId: bot.id, name });
+    input.blur();
+    paintDrawer(r);
+    if (send && name !== "" && name !== bot.name) {
+      post({ t: "renameBot", roomId: r.id, botId: bot.id, name });
+    }
   };
+
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.isComposing) commit();
-    if (e.key === "Escape") restore();
+    // `isComposing` — 한글은 조합 중에도 Enter 가 온다. 그때 끝내면 글자가 깨진다
+    if (e.key === "Enter" && !e.isComposing) finish(true);
+    if (e.key === "Escape") finish(false);
   });
-  input.addEventListener("blur", commit);
+  input.addEventListener("blur", () => finish(true));
   host.replaceChildren(input);
   input.focus();
   input.select();

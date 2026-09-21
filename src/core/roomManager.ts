@@ -999,6 +999,19 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * ★ **누구 이야기인지** 앞에 붙인다 (§4).
+   *
+   * 🔴 단체방에서 *"모델이 Haiku 4.5(으)로 바뀌었습니다"* 는 **어느 봇인지
+   * 알 수가 없다.** 봇마다 모델이 따로고(B1) 바꾸는 자리도 봇마다라서,
+   * 이름이 없으면 기록을 나중에 읽을 때 **무엇이 왜 바뀌었는지 못 짚는다.**
+   *
+   * 1:1에서는 안 붙인다 — 봇이 하나뿐인데 이름을 적으면 군더더기다.
+   */
+  private whose(room: Room, bot: BotInstance): string {
+    return room.participants.length > 1 ? `${bot.name}의 ` : "";
+  }
+
+  /**
    * 봇 이름을 바꾼다 (v2.2 준비).
    *
    * **표시 이름이 곧 멘션 이름이다**(`BotInstance.name`). 그래서 방 안에서
@@ -1016,8 +1029,33 @@ export class RoomManager extends EventEmitter<Events> {
     const wanted = name.trim();
     if (!wanted || wanted === bot.name) return;
 
+    const before = bot.name;
     bot.name = uniqueName(wanted, room.participants.filter((b) => b.id !== botId));
     await this.saveProps(room, { participants: room.participants });
+
+    /*
+     * ★ **바꿨다고 적는다.**
+     *
+     * 🔴 **멘션 칩은 `botId` 를 들고 있어서 지난 메시지도 새 이름으로 다시
+     * 그려진다.** 그래서 위로 올려보면 «@구현» 이라고 보냈던 것이 «@리뷰어» 로
+     * 보인다 — 공지가 없으면 **기억이 틀린 것처럼 느껴진다.**
+     *
+     * 🔴 그리고 **우리가 이름을 고쳤을 수 있다.** 방 안에서 유일해야 해서
+     * 겹치면 뒤에 수를 붙이는데(`uniqueName`), 사용자가 친 것과 다른 값이
+     * 되므로 **«달라졌다»가 어딘가에 남아야 한다**(§0 뺄셈 규칙).
+     */
+    const msg: Message = {
+      id: messageId(),
+      role: "system",
+      text:
+        `«${before}»의 이름을 «${bot.name}»(으)로 바꿨습니다.` +
+        (bot.name !== wanted ? ` «${wanted}»은(는) 이미 있어서 뒤에 수를 붙였습니다.` : ""),
+      deliveredTo: [],
+      createdAt: Date.now(),
+    };
+    this.append(room, msg);
+    await this.saveNewMessage(room, msg);
+
     this.emit("room", room);
     this.emitMetas();
   }
@@ -1110,10 +1148,9 @@ export class RoomManager extends EventEmitter<Events> {
 
     this.noteRoom(
       room,
-      old
-        ? `에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ` +
-            `${next.label}은(는) 위 대화를 모릅니다. 이전 세션 ${old}은(는) ${before} 쪽에 그대로 있습니다.`
-        : `에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ${next.label}은(는) 위 대화를 모릅니다.`,
+      `${this.whose(room, bot)}에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ` +
+        `${next.label}은(는) 위 대화를 모릅니다.` +
+        (old ? ` 이전 세션 ${old}은(는) ${before} 쪽에 그대로 있습니다.` : ""),
       "info",
     );
 
@@ -2211,7 +2248,9 @@ export class RoomManager extends EventEmitter<Events> {
         id: messageId(),
         role: "system",
         // id가 아니라 **보이는 이름으로** 남긴다 — 사용자가 고른 건 그쪽이다
-        text: `모델이 ${bot.modelLabel ?? String(value)}(으)로 바뀌었습니다.`,
+        text:
+          `${this.whose(room, bot)}모델이 ` +
+          `${bot.modelLabel ?? String(value)}(으)로 바뀌었습니다.`,
         deliveredTo: [],
         createdAt: Date.now(),
       };
