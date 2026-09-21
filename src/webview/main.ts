@@ -4460,92 +4460,58 @@ function insertMention(bot: BotInstance): void {
 }
 
 /**
- * ★ **에이전트 바꾸기 — 바꾸기 전에 무엇을 잃는지 말한다** (§4.2.1).
+ * ★ **에이전트를 바꾸면 무엇을 잃나** — 고른 자리 바로 아래에 편다 (§4.2.1).
  *
  * 🔴 이건 «설정 바꾸기»가 아니라 **세션을 버리는 일**이다. 세션은 그 CLI의
- * 것이라 알파의 세션을 베타가 이어받을 수 없다. 그래서 되돌릴 수 없는 것이
- * 여럿 사라지는데, **누르고 나서 알게 되면 늦는다.**
+ * 것이라 이어받을 수 없고, 되돌릴 수 없는 것이 여럿 사라진다 —
+ * **누르고 나서 알게 되면 늦는다.**
  *
  * 🔴 그리고 **폴백이라는 것을 미리 말한다.** 바꾸고 나면 F7 배너가 «대화
  * 넘겨서 시작»을 권하는데, 그건 **글자만** 옮긴다 — 계획과 읽은 파일 기억은
- * 안 따라온다. 분기 폴백과 같은 길이고 같은 한계다. 그걸 알고 고르는 것과
- * 모르고 겪는 것은 다르다.
+ * 안 따라온다. 분기 폴백과 같은 길이고 같은 한계다. **알고 고르는 것과
+ * 모르고 겪는 것은 다르다.**
  *
- * 되돌릴 길도 같이 적는다 — **세션을 지우지는 않으므로** 그 CLI에서
- * `--resume` 으로 열어볼 수 있다.
+ * 목록은 `setAgent` 가 실제로 하는 그대로다 — 지어내면 안 되는 자리다.
  */
-function askSwapAgent(r: Room, bot: BotInstance): void {
-  const now = agentById.get(bot.agentId);
-  const others = [...agentById.values()].filter((a) => a.id !== bot.agentId);
+function swapWarning(r: Room, bot: BotInstance, pick: HTMLSelectElement): Kids {
   const at = botStatus[bot.id] ?? "idle";
   const busy = at !== "idle" && at !== "error";
+  const next = agentById.get(pick.value)?.label ?? pick.value;
 
-  let picked: string | undefined;
-  const swap = el("button", {
+  const go = el("button", {
     class: "primary",
-    text: "바꾸기",
-    onclick: () => {
-      if (!picked) return;
-      closeModal();
-      post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: picked });
-    },
+    text: `${next}(으)로 바꾸기`,
+    onclick: () => post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: pick.value }),
   }) as HTMLButtonElement;
-  swap.disabled = true;
+  go.disabled = busy;
 
-  const choices = el("div", { class: "agent-pick" });
-  for (const a of others) {
-    const one = el("button", { class: "pick", text: a.label }) as HTMLButtonElement;
-    one.addEventListener("click", () => {
-      picked = a.id;
-      for (const b of choices.querySelectorAll("button")) b.classList.remove("on");
-      one.classList.add("on");
-      swap.disabled = busy;
-    });
-    choices.append(one);
-  }
-
-  const row = (label: string, value: string) =>
-    el("div", { class: "info-row" },
-       el("span", { class: "dim", text: label }), el("span", { text: value }));
-
-  const card = el(
-    "div",
-    { class: "card" },
-    el("div", { class: "card-title" }, icon("arrow-swap"), ` ${bot.name}의 에이전트 바꾸기`),
-    el(
-      "div",
-      { class: "card-body info" },
-      row("지금", now?.label ?? bot.agentId),
-      choices,
-      /*
-       * 무엇이 사라지고 무엇이 남는지 — **`setAgent` 가 실제로 하는 그대로**다.
-       * 지어내면 안 되는 자리라 코어와 같은 목록을 쓴다.
-       */
-      el("div", { class: "swap-what" },
-        el("div", { class: "gone" },
-          el("b", { text: "사라지는 것" }),
-          el("div", { text: "이 봇의 세션 — 세운 계획과 읽은 파일 기억" }),
-          el("div", { text: "모델 · 권한 모드 · 설정값 · 사용량" })),
-        el("div", { class: "kept" },
-          el("b", { text: "남는 것" }),
-          el("div", { text: "지금까지의 대화 — 말풍선은 하나도 안 지운다" }),
-          el("div", { text: "이전 세션 — 그 CLI에 그대로 있어 --resume 으로 열 수 있다" })),
-      ),
-      el("p", { class: "warn", text:
-        "바꾸면 새 에이전트는 위 대화를 모릅니다. 그때 «대화 넘겨서 시작»을 권하는데, " +
-        "그건 글자만 옮깁니다 — 계획과 읽은 파일 기억은 따라오지 않습니다." }),
-      busy
-        ? el("p", { class: "warn", text: "답하는 중에는 바꿀 수 없습니다. 끝나거나 중단한 뒤에 하세요." })
-        : null,
+  return [
+    el("div", { class: "swap-what" },
+      el("div", { class: "gone" },
+        el("b", { text: "사라지는 것" }),
+        el("div", { text: "이 봇의 세션 — 세운 계획과 읽은 파일 기억" }),
+        el("div", { text: "모델 · 권한 모드 · 설정값 · 사용량" })),
+      el("div", { class: "kept" },
+        el("b", { text: "남는 것" }),
+        el("div", { text: "지금까지의 대화 — 말풍선은 하나도 안 지운다" }),
+        el("div", { text: "이전 세션 — 그 CLI에 그대로 있어 --resume 으로 열 수 있다" })),
     ),
-    el("div", { class: "card-actions" }, swap, el("button", { text: "취소", onclick: () => closeModal() })),
-  );
-
-  closeDrawer();
-  screens.chat.append(
-    el("div", { class: "modal-veil", onclick: () => closeModal() }),
-    el("div", { class: "modal" }, card),
-  );
+    el("p", { class: "warn", text:
+      `${next}은(는) 위 대화를 모릅니다. 바꾸면 «대화 넘겨서 시작»을 권하는데, ` +
+      "그건 글자만 옮깁니다 — 계획과 읽은 파일 기억은 따라오지 않습니다." }),
+    busy
+      ? el("p", { class: "warn", text: "답하는 중에는 바꿀 수 없습니다. 끝나거나 중단한 뒤에 하세요." })
+      : null,
+    el("div", { class: "acts" },
+      go,
+      el("button", {
+        class: "ghost",
+        text: "그대로 두기",
+        // 고른 것을 **되돌린다** — 안 바꿨는데 칸만 바뀌어 있으면 거짓말이다
+        onclick: () => paintDrawer(r),
+      }),
+    ),
+  ];
 }
 
 function drawerBot(r: Room, bot: BotInstance): HTMLElement {
@@ -4595,6 +4561,38 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
 
   const rows: Kids = [head, sub, perm];
 
+  /*
+   * ── 에이전트 바꾸기 — **모델 바로 위** (§4.2.1)
+   *
+   * 🔴 처음에는 «할 수 있는 것» 버튼 줄에 넣고 **모달**을 띄웠다. 두 군데가
+   * 틀렸다:
+   *
+   * 1. **자리.** 에이전트는 모델과 **같은 종류**다 — «이 봇이 무엇으로
+   *    도는가». 서랍의 둘째 줄이 이미 «Opus · Claude Code»로 둘을 나란히
+   *    적고 있는데, 고치는 자리만 따로 떨어져 있었다
+   * 2. **모달.** 서랍을 닫고 떠서 **맥락을 잃었다.** 서랍은 «이 봇에 대한
+   *    것이 다 모이는 자리»인데(§4.2.1) 거기서 튕겨 나오면 안 된다
+   *
+   * 다만 **바꾸는 것 자체는 여전히 세션을 버리는 일**이라 바로 안 바꾼다.
+   * 고르면 **그 자리 아래에** 무엇을 잃는지 펴고, 거기서 확인받는다.
+   */
+  if (agentById.size > 1) {
+    const pick = el("select") as HTMLSelectElement;
+    for (const a of agentById.values()) {
+      pick.append(el("option", { value: a.id, text: a.label, selected: a.id === bot.agentId }));
+    }
+    const confirm = el("div", { class: "swap-ask", hidden: true });
+    pick.addEventListener("change", () => {
+      if (pick.value === bot.agentId) { confirm.hidden = true; return; }
+      confirm.hidden = false;
+      replace(confirm, ...swapWarning(r, bot, pick));
+    });
+    rows.push(
+      el("div", { class: "field" }, el("label", { text: "에이전트" }), pick),
+      confirm,
+    );
+  }
+
   // ── 모델 바꾸기 — 에이전트가 목록을 줄 때만
   if (model?.values?.length) {
     const select = el("select") as HTMLSelectElement;
@@ -4626,20 +4624,6 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       onclick: () => (closeDrawer(), paintPermissionSheet(r)),
     }),
   ];
-  /*
-   * ★ **에이전트 바꾸기**는 «설정 바꾸기»가 아니라 **세션을 버리는 일**이다.
-   * 그래서 바로 바꾸지 않고 **무엇을 잃는지 먼저 보여준다**(`askSwapAgent`).
-   */
-  if (agentById.size > 1) {
-    acts.push(
-      el("button", {
-        class: "ghost",
-        text: "에이전트 바꾸기",
-        title: "세션을 버리고 다른 CLI로 갈아탑니다. 무엇을 잃는지 먼저 보여줍니다.",
-        onclick: () => askSwapAgent(r, bot),
-      }),
-    );
-  }
   // 압축 — **이 봇이** 명령을 광고할 때만 (에이전트가 섞인 방에서는 한 쪽만 안다)
   if (compactableBots.includes(bot.id)) {
     acts.push(

@@ -2634,19 +2634,6 @@ fieldset.bot .bot-drop {
   color: var(--warn);
 }
 
-/* 에이전트 바꾸기 — 고를 것들 */
-.agent-pick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0;
-}
-
-.agent-pick .pick.on {
-  border-color: var(--focus);
-  background: var(--badge-bg);
-  color: var(--badge-fg);
-}
 
 /*
  * **무엇이 사라지고 무엇이 남나** — 나란히 둬야 견줘진다.
@@ -2672,3 +2659,26 @@ fieldset.bot .bot-drop {
 .swap-what .kept { border-left: 3px solid var(--vscode-charts-green, #3fb950); }
 .swap-what b { display: block; margin-bottom: 3px; }
 .swap-what > div > div { color: var(--chat-dim); }
+
+/*
+ * 에이전트를 바꾸면 무엇을 잃나 — **고른 칸 바로 아래**에 편다.
+ *
+ * 모달로 띄우지 않는 이유는 서랍이 «이 봇에 대한 것이 다 모이는 자리»라서다
+ * (§4.2.1). 거기서 튕겨 나오면 맥락을 잃는다.
+ */
+.swap-ask {
+  margin: -2px 0 6px;
+  padding: 8px;
+  border-left: 3px solid var(--warn);
+  border-radius: 0 6px 6px 0;
+  background: var(--code-bg);
+}
+
+.swap-ask .warn {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.swap-ask .acts {
+  margin-top: 8px;
+}
