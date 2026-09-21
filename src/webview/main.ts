@@ -3478,19 +3478,23 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
     }
   }
 
-  // ── 승인 주체 — 물어봐야 할 때 누구에게
-  const others = r.participants.filter((b) => b.id !== bot.id);
+  /*
+   * ── 승인 주체 — 물어봐야 할 때 누구에게
+   *
+   * 🔴 **v2.0에서는 «사용자»뿐이다.** 봇에게 맡기는 길(§4.2.2의 심사)은
+   * 코어·테스트까지 다 있지만 **v3.0으로 미뤘다.**
+   *
+   * 심사는 «봇이 봇에게 물어보는 것»이라 **v3.0의 정의 그 자체**고
+   * («봇끼리 멘션해 주고받는다»), 붙을 배선도 §7이 v3.0으로 잡아둔 같은
+   * MCP 서버다. 무엇보다 §4.1.1이 *"v2.0을 작게 유지해 빨리 내고"* 라고
+   * 적어뒀는데, **제품에서 제일 위험한 면**(프롬프트 인젝션·상관된 실수)을
+   * 첫 다중봇 릴리스에 실을 이유가 없다.
+   *
+   * 칸은 남긴다 — «대상»이라는 축이 있다는 것 자체가 D2의 모델이고,
+   * 없애면 v3.0에서 다시 설명해야 한다.
+   */
   const who = el("select") as HTMLSelectElement;
-  who.append(el("option", { value: "user", text: "사용자", selected: bot.approver.kind === "user" }));
-  for (const o of others) {
-    who.append(
-      el("option", {
-        value: o.id,
-        text: o.name,
-        selected: bot.approver.kind === "bot" && bot.approver.botId === o.id,
-      }),
-    );
-  }
+  who.append(el("option", { value: "user", text: "사용자", selected: true }));
   who.addEventListener("change", () =>
     post({
       t: "setPolicy",
@@ -3505,9 +3509,12 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       { class: "field" },
       el("label", { text: "승인 주체" }),
       who,
-      others.length === 0
-        ? el("span", { class: "dim", text: "방에 다른 봇이 있으면 그 봇에게 맡길 수 있습니다.", title: "방에 다른 봇이 있으면 그 봇에게 맡길 수 있습니다." })
-        : null,
+      el("span", {
+        class: "dim",
+        text: "다른 봇에게 맡기는 것은 v3.0에서.",
+        // 🔴 툴팁은 **보이는 글을 품어야** 한다 — 한 줄로 잘리기 때문이다
+        title: "다른 봇에게 맡기는 것은 v3.0에서. 봇이 봇의 승인을 심사하는 것은 «봇 간 대화»에 속합니다.",
+      }),
     ),
   );
 
