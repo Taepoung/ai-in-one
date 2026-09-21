@@ -3672,11 +3672,24 @@ export class RoomManager extends EventEmitter<Events> {
     const verdict = readVerdict(reply.text);
     if (!verdict) return hand(`${judge.name}의 답을 읽을 수 없어`);
 
-    const pick = req.options.find((o) =>
-      verdict === "allow" ? /allow/i.test(o.kind) : /reject|deny/i.test(o.kind),
-    );
+    /*
+     * ★ **«항상»은 봇에게 주지 않는다** (§4.2.2의 «되돌리기 어려운 범위»).
+     *
+     * `PermissionOptionKind` 는 넷이다 — 방향(allow·reject) × 범위(once·always).
+     * 그중 `*_always` 는 **이 요청 하나를 넘어 앞으로를 바꾼다.** 심사 봇이
+     * 그걸 고르면 이후 같은 종류의 요청은 **아무에게도 안 물어보고** 지나간다.
+     * 프롬프트 인젝션 한 번의 값이 «이번 편집»이 아니라 «앞으로 전부»가 된다.
+     *
+     * 🔴 예전에는 `/allow/i.test(o.kind)` 로 골랐다. 그러면 `allow_always` 에도
+     * 걸려서, **에이전트가 선택지를 어떤 순서로 주느냐에 따라** 봇이 «항상
+     * 허용»을 집었다 — 우리가 고른 적 없는 값이 순서로 정해지고 있었다.
+     *
+     * 사람은 «항상»을 고를 수 있다. 그건 **사람이 스스로에게 준 권한**이다.
+     */
+    const want = verdict === "allow" ? "allow_once" : "reject_once";
+    const pick = req.options.find((o) => o.kind === want);
     // 에이전트가 그런 선택지를 안 줬으면 **우리가 지어내지 않는다**
-    if (!pick) return hand(`${judge.name}의 판단에 맞는 선택지가 없어`);
+    if (!pick) return hand(`${judge.name}의 판단에 맞는 «이번만» 선택지가 없어`);
 
     /*
      * ★ **누가 정했는지 기록에 남긴다** (D3).
