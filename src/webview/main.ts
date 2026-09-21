@@ -994,7 +994,32 @@ function renderChat(): void {
     if (wasSheet) paintPermissionSheet(r);
     return;
   }
+  refreshMentionChips(r);
   paintChat(r);
+}
+
+/**
+ * ★ **입력창에 이미 꽂힌 칩의 이름을 고친다** (§4.1.2).
+ *
+ * 🔴 칩은 `data-bot` 을 들고 있어서 **라우팅은 멀쩡하다** — 이름을 바꿔도
+ * 그 봇에게 간다. 그런데 **글자는 만들 때 박아 넣은 옛 이름 그대로**라,
+ * 「@구현」이라 적힌 칩을 보내면 화면에는 「@리뷰어」에게 간 것으로 나온다.
+ * 보이는 것과 가는 곳이 어긋나면 **어디를 믿어야 할지 알 수 없다.**
+ *
+ * 글자가 실제로 다를 때만 손댄다 — contenteditable 안이라 건드리면 커서가
+ * 튈 수 있고, 이름 바꾸기는 어차피 드물다.
+ */
+function refreshMentionChips(r: Room): void {
+  const box = chat?.box;
+  if (!box) return;
+  for (const chip of box.querySelectorAll<HTMLElement>(".chip[data-bot]")) {
+    const id = chip.getAttribute("data-bot") ?? "";
+    const name = id === EVERYONE
+      ? "everyone"
+      : (r.participants.find((b) => b.id === id)?.name ?? id);
+    const want = `@${name}`;
+    if (chip.textContent !== want) chip.textContent = want;
+  }
 }
 
 // ── 멘션 칩 입력창 (§4.1.2) ────────────────────────────────────────────
@@ -2084,6 +2109,16 @@ function paintStatus(bar: HTMLElement, r: Room, status: RoomStatus): void {
  */
 const nodeCache = new Map<string, { sig: string; node: HTMLElement }>();
 
+/**
+ * 방 안 **모든 봇 이름**을 한 줄로. 하나라도 바뀌면 말풍선을 전부 다시 그린다.
+ *
+ * 이름은 드물게 바뀌고, 바뀌면 **여러 자리에 동시에** 영향을 준다.
+ * 자리마다 서명을 다는 것보다 이게 안전하다.
+ */
+function nameStamp(): string {
+  return (room?.participants ?? []).map((b) => `${b.id}=${b.name}`).join(";");
+}
+
 function sigOf(m: Message): string {
   // 스트리밍 중 텍스트는 뒤로만 자라므로 길이+꼬리면 변화를 잡아낸다.
   return [
@@ -2103,8 +2138,18 @@ function sigOf(m: Message): string {
     // 이름 옆 사용량 — **반올림한 값**만 넣는다. 토큰 하나마다 다시
     // 그리면 스트리밍 중에 말풍선을 초당 열몇 번씩 다시 만들게 된다.
     usagePct(m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : undefined),
-    // 이름을 바꾸면 말풍선도 따라가야 한다
-    (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.name : "") ?? "",
+    /*
+     * ★ **누가 이름을 바꾸든 전부 다시 그린다.**
+     *
+     * 🔴 예전에는 **글쓴이 이름만** 넣었다. 그런데 말풍선 안에는 이름이 더
+     * 있다 — 받는 이 칩(`@리뷰어`), «…에게 전달되지 않았습니다», 심사 대상.
+     * 그것들은 **id 로만 서명에 들어가서**(`deliveredTo`) 이름을 바꿔도
+     * 서명이 그대로였고, 캐시가 **옛 이름이 박힌 말풍선을 그대로 돌려줬다.**
+     *
+     * 자리를 하나씩 서명에 넣다 보면 **반드시 하나를 빠뜨린다.** 이름 바꾸기는
+     * 드문 일이라 통째로 다시 그려도 싸다 — 도장 하나로 끝낸다.
+     */
+    nameStamp(),
     // 멈춰 있나 — 타이핑 점이 붙고 떨어진다
     m.authorBotId ? (botStatus[m.authorBotId] ?? "") : "",
     // 배달 표시 — 받는 이가 바뀌거나 줄에서 빠지면 다시 그려야 한다
