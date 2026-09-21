@@ -1773,6 +1773,10 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-radius: 10px 10px 0 0;
   background: var(--vscode-menu-background, var(--bubble-bot-bg));
   box-shadow: 0 -6px 20px rgb(0 0 0 / 0.28);
+  /* 올라오는 것도 **열 때만** — `.opening` 참조 */
+}
+
+.sheet.opening {
   animation: sheet-up 0.2s cubic-bezier(0.22, 0.8, 0.24, 1);
 }
 
@@ -1980,6 +1984,10 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-left: 1px solid var(--line);
   background: var(--vscode-menu-background, var(--bubble-bot-bg));
   box-shadow: -6px 0 20px rgb(0 0 0 / 0.28);
+  /* 애니메이션은 **열 때만** — `.opening` 참조. 갱신은 갈아끼우기라 매번 다시 돈다 */
+}
+
+.drawer.opening {
   animation: drawer-in 160ms ease-out;
 }
 

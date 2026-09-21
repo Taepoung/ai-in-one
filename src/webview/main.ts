@@ -3390,7 +3390,8 @@ function paintPermissionSheet(r: Room): void {
 
   const sheet = el(
     "div",
-    { class: "sheet" },
+    // 열 때만 밀려 올라온다 — 갱신 때는 `.opening` 을 뗀다 (`paintPermissionSheet` 끝)
+    { class: "sheet opening" },
     el(
       "div",
       { class: "sheet-bar" },
@@ -3406,7 +3407,11 @@ function paintPermissionSheet(r: Room): void {
   );
   const was = screens.chat.querySelector(".sheet");
   if (was) {
+    // 서랍과 같은 이유 — 갱신은 갈아끼우기라 매번 다시 올라왔다
+    sheet.classList.remove("opening");
+    const top = was.scrollTop;
     was.replaceWith(sheet);
+    sheet.scrollTop = top;
   } else {
     /*
      * ★ **덮개를 깔고 올린다** — 서랍과 같은 이유다.
@@ -4218,10 +4223,29 @@ function paintDrawer(r: Room): void {
     if (!optionsFor(agentId, r.id)) post({ t: "needConfig", agentId, roomId: r.id });
   }
 
+  const was = screens.chat.querySelector(".drawer");
+
+  /*
+   * 🔴 **글을 쓰는 중이면 건드리지 않는다.**
+   *
+   * 이 함수는 상태·메시지가 올 때마다 도는데(`paintChat`), 갈아끼우면
+   * **역할 입력과 이름 고치기가 통째로 날아간다.** 방 제목을 고치는 중에
+   * 헤더를 안 건드리는 것과 같은 이유다.
+   */
+  const focus = document.activeElement;
+  if (was && focus && was.contains(focus) && /^(INPUT|TEXTAREA)$/.test(focus.tagName)) return;
+
   const veil = el("div", { class: "drawer-veil", onclick: () => closeDrawer() });
   const drawer = el(
     "div",
-    { class: "drawer" },
+    /*
+     * ★ **열 때만 밀려 들어온다.**
+     *
+     * 🔴 `animation` 이 `.drawer` 에 붙어 있었다. 그런데 갱신은 **새 엘리먼트로
+     * 갈아끼우는** 것이라, 상태가 한 번 바뀔 때마다 **서랍이 오른쪽에서 다시
+     * 슬라이드됐다.** 보고 있는 중에 화면이 계속 새로 나타나는 꼴이다.
+     */
+    { class: was ? "drawer" : "drawer opening" },
     el(
       "div",
       { class: "sheet-bar" },
@@ -4233,9 +4257,11 @@ function paintDrawer(r: Room): void {
     inviteRow(r),
   );
 
-  const was = screens.chat.querySelector(".drawer");
   if (was) {
+    // 갈아끼우면 스크롤이 맨 위로 돌아간다 — 보던 자리를 지킨다
+    const top = was.scrollTop;
     was.replaceWith(drawer);
+    drawer.scrollTop = top;
   } else {
     screens.chat.append(veil, drawer);
   }
