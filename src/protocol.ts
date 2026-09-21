@@ -375,7 +375,7 @@ export function roomListHtml(boot: Boot): string {
   <span class="room-icon"><i class="codicon codicon-${kindIcon(r.kind)}"></i></span>
   <span class="room-main">
     <span class="room-top"><span class="room-title">${esc(r.title)}</span><span class="room-time">${when(r.lastActivityAt)}</span></span>
-    <span class="room-sub"><span class="room-who">${left}</span><span class="${here ? "room-cwd" : "room-cwd elsewhere"}" title="${esc(r.cwd)}">${esc(shortenPath(r.cwd))}</span></span>
+    <span class="room-sub"><span class="room-who" title="${esc(whoTitle(r, boot.agents))}">${left}</span><span class="${here ? "room-cwd" : "room-cwd elsewhere"}" title="${esc(r.cwd)}">${esc(shortenPath(r.cwd))}</span></span>
     ${lineage ? `<span class="room-fork" title="원본으로 가기">${esc(lineage)}</span>` : ""}
   </span>
   ${r.unread > 0 ? `<span class="badge">${r.unread}</span>` : ""}
@@ -396,14 +396,27 @@ function shortenPath(p: string): string {
   return cut.length > 3 ? `…/${cut.slice(-2).join("/")}` : p;
 }
 
-/** 「Claude · Opus 5」 (B5). `main.ts`의 같은 이름 함수와 결과가 같아야 한다 */
+/**
+ * 「구현, 리뷰어」 — **부를 이름만** (B5). `main.ts`의 같은 이름 함수와 결과가 같아야 한다.
+ *
+ * 🔴 모델까지 적었더니 줄이 길어져 **정작 이름이 안 읽혔다.** 모델·에이전트는
+ * 툴팁으로 접는다 — 버리는 게 아니다(§0).
+ */
 function whoText(r: RoomMeta, agents: AgentBrief[]): string {
   return r.agentIds
+    .map((id, i) => r.names?.[i] || (agents.find((a) => a.id === id)?.label ?? id))
+    .join(", ");
+}
+
+/** 줄에서 뺀 것 — 모델과 에이전트는 툴팁에 남는다 */
+function whoTitle(r: RoomMeta, agents: AgentBrief[]): string {
+  return r.agentIds
     .map((id, i) => {
-      // **부를 이름이 먼저다** — 멘션도 그 이름으로 간다. 에이전트는 툴팁에 남는다
-      const label = r.names?.[i] || (agents.find((a) => a.id === id)?.label ?? id);
+      const agent = agents.find((a) => a.id === id)?.label ?? id;
       const model = r.models?.[i];
-      return model ? `${label} · ${model}` : label;
+      const sub = model ? `${agent} · ${model}` : agent;
+      const name = r.names?.[i];
+      return name && name !== agent ? `${name} (${sub})` : sub;
     })
     .join(", ");
 }

@@ -1448,6 +1448,25 @@ function mountChat(r: Room): void {
   // 방이 바뀌면 이전 방의 말풍선을 들고 있을 이유가 없다
   nodeCache.clear();
 
+  /**
+   * ★ **지금 방.** 처리기 안에서는 `r` 대신 이것을 쓴다.
+   *
+   * 🔴 `r` 은 **붙일 때의 방이고 그 뒤로 안 바뀐다.** 다시 붙는 것은 방이
+   * 바뀌거나 1:1↔단체가 뒤집힐 때뿐이라, **이름을 바꿔도 그대로다.** 그래서
+   * 여기 걸린 처리기들이 옛 이름이 박힌 방을 계속 봤다:
+   *
+   * ```
+   * 멘션 자동완성       고른 이름이 화면 어디에도 없는 이름이었다
+   * «누구에게 가나» 줄  옛 이름으로 «…에게 갑니다»
+   * 권한 설정 시트      열 때마다 옛 이름                  ← 열려 있으면 갱신되는데
+   *                                                          «열 때»가 옛 방이었다
+   * ```
+   *
+   * 열려 있는 동안은 `paintChat` 이 갱신해 주므로 **«열 때»만 어긋났다** —
+   * 그래서 더 찾기 어려웠다.
+   */
+  const live = (): Room => (room?.id === r.id ? room : r);
+
   const head = el("header", { class: "bar" });
   const queue = el("div", { class: "approvals", hidden: true });
   const clash = el("div", { class: "clashes", hidden: true });
@@ -1470,9 +1489,9 @@ function mountChat(r: Room): void {
   const send = () => {
     if (group) {
       const tokens = readTokens(box);
-      const parsed = parseCompose(tokens, r.participants);
+      const parsed = parseCompose(tokens, live().participants);
       // 막힐 줄을 알고 보내지 않는다 — 화면이 먼저 말해준다
-      if (parsed.blocked) { paintCompose(r, box); return; }
+      if (parsed.blocked) { paintCompose(live(), box); return; }
       if (parsed.blocks.length === 0 && pending.length === 0) return;
       // 다음번 «직전 그룹»은 지금 보낸 첫 블록이다
       lastGroup = parsed.blocks[0]?.botIds ?? [];
@@ -1481,7 +1500,7 @@ function mountChat(r: Room): void {
       paintChips();
       box.replaceChildren();
       closePicker();
-      paintCompose(r, box);
+      paintCompose(live(), box);
       post({
         t: "sendCompose",
         roomId: r.id,
@@ -1509,16 +1528,9 @@ function mountChat(r: Room): void {
 
   box.addEventListener("input", () => {
     if (group) {
-      /*
-       * 🔴 **`r` 은 붙일 때의 방이다 — 그 뒤로 안 바뀐다.**
-       *
-       * 이름을 바꿔도 참여자 수는 그대로라 다시 붙지 않으므로, 이 처리기는
-       * **옛 이름이 박힌 방을 계속 들고 있었다.** 그래서 자동완성 목록과
-       * «누구에게 가나» 줄에 **옛 이름이 그대로 떴다.** 지금 방을 본다.
-       */
-      const live = room ?? r;
-      paintPicker(live, box);
-      paintCompose(live, box);
+      const now = live();
+      paintPicker(now, box);
+      paintCompose(now, box);
       return;
     }
     autoGrow(box);
@@ -1579,7 +1591,7 @@ function mountChat(r: Room): void {
   // 권한 설정은 ⋮ 안에 숨기지 않는다 — **켜둔 걸 잊으면 안 되는 종류**다.
   // 입력창 옆이면 보낼 때마다 눈에 들어온다.
   perm.setAttribute("title", "권한 설정");
-  perm.addEventListener("click", () => togglePermissionSheet(r));
+  perm.addEventListener("click", () => togglePermissionSheet(live()));
 
   replace(
     screens.chat,
@@ -5423,21 +5435,25 @@ function shortenPath(p: string): string {
  */
 function whoText(m: RoomMeta): string {
   return m.agentIds
-    .map((id, i) => {
-      const label = m.names?.[i] || (agentById.get(id)?.label ?? id);
-      const model = m.models?.[i];
-      return model ? `${label} · ${model}` : label;
-    })
+    .map((id, i) => m.names?.[i] || (agentById.get(id)?.label ?? id))
     .join(", ");
 }
 
-/** 이름을 바꿨으면 «무슨 에이전트인지»가 목록에서 사라진다 — 툴팁에 남긴다 */
+/**
+ * 툴팁 — 「구현 (Claude · Opus 5)」.
+ *
+ * 🔴 **줄에서 뺀 것은 여기 남긴다**(§0 뺄셈 규칙). 목록 둘째 줄은 **부를
+ * 이름만** 두기로 했는데(줄이 길어지면 정작 이름이 안 읽힌다), 모델과
+ * 에이전트는 **버리는 게 아니라 접는 것**이다.
+ */
 function whoTitle(m: RoomMeta): string {
   return m.agentIds
     .map((id, i) => {
       const agent = agentById.get(id)?.label ?? id;
+      const model = m.models?.[i];
+      const sub = model ? `${agent} · ${model}` : agent;
       const name = m.names?.[i];
-      return name && name !== agent ? `${name} (${agent})` : agent;
+      return name && name !== agent ? `${name} (${sub})` : sub;
     })
     .join(", ");
 }
