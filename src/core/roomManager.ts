@@ -13,6 +13,7 @@ import {
   sendsContent,
   type AgentDef,
   type AnswerPolicy,
+  type ReviewWait,
   type Approver,
   ASK_USER,
   type BotInstance,
@@ -219,6 +220,18 @@ const TURN_TAIL_MS = 1500;
  * 일어난다»가 되고, 그때 사용자는 뭘 기다리는지도 모른다.
  */
 const REVIEW_TIMEOUT_MS = 15_000;
+
+/**
+ * **줄에서 기다리는 데 쓸 수 있는 시간** (§4.2.2).
+ *
+ * 물어본 뒤 답을 기다리는 것(`REVIEW_TIMEOUT_MS`)보다 넉넉하다 — 줄 서는
+ * 동안 심사 봇은 **다른 유용한 일을 하고 있고**, 끊으면 그 일이 자동으로
+ * 이어지지 않기 때문이다. 그래도 끝은 있어야 한다: 기다리는 동안
+ * **요청한 봇의 턴은 얼어 있다.**
+ *
+ * 사람은 이 시간을 안 기다려도 된다 — 화면에서 가로챌 수 있다.
+ */
+const REVIEW_WAIT_MS = 90_000;
 
 /**
  * 심사 봇에게 보낼 글 (§4.2.2).
@@ -550,6 +563,17 @@ type Events = {
    */
   queued: [string, Record<string, string[]>];
   /**
+   * **줄 서 있는 심사들** (roomId, 목록) — §4.2.2.
+   *
+   * 심사 봇의 세션은 하나라 직렬이다(B1). 그래서 승인 요청이 여럿이면
+   * **기다려야 한다.** 기다리는 것 자체는 옳다 — 남의 턴을 끊으면 그 일은
+   * **자동으로 다시 이어지지 않기** 때문이다.
+   *
+   * 다만 기다리는 동안 **요청한 봇의 턴은 얼어 있다.** 그래서 보이게 한다:
+   * 무엇이 누구를 기다리는지 보이면 사람이 **가로챌** 수 있다.
+   */
+  reviews: [string, ReviewWait[]];
+  /**
    * 방에서 일어난 오류 (roomId, 메시지).
    *
    * **이름이 `error`가 아닌 이유**: Node의 `EventEmitter`는 `'error'`를 특별 취급해
@@ -625,6 +649,14 @@ export class RoomManager extends EventEmitter<Events> {
    * 묻는 고리가 생긴다.
    */
   private readonly judging = new Set<string>();
+  /**
+   * **줄 서 있는 심사들.** 열쇠는 `ReviewWait.id`.
+   *
+   * 사람이 가로채면 여기서 `takenOver` 를 세우고, 기다리던 쪽이 그걸 보고
+   * 물러난다 — 중간에 프라미스를 깨우는 것보다 **상태 하나를 보는 편**이
+   * 취소·타임아웃과 한 군데서 다뤄진다.
+   */
+  private readonly reviews = new Map<string, ReviewWait & { takenOver?: boolean }>();
 
   constructor(private readonly opts: RoomManagerOptions) {
     super();
@@ -1963,6 +1995,35 @@ export class RoomManager extends EventEmitter<Events> {
     }
     if (pulled) this.emitQueued(roomId);
     return pulled;
+  }
+
+  /** 줄 서 있는 심사들을 화면에 알린다 */
+  private emitReviews(roomId: string): void {
+    this.emit("reviews", roomId, this.reviewsIn(roomId));
+  }
+
+  /** 그 방에서 줄 서 있는 심사들 — 방을 새로 열었을 때도 실어 보낸다 */
+  reviewsIn(roomId: string): ReviewWait[] {
+    return [...this.reviews.values()]
+      .filter((r) => r.roomId === roomId)
+      .map(({ takenOver: _drop, ...rest }) => rest);
+  }
+
+  /**
+   * ★ **사람이 가로챈다** (§4.2.2).
+   *
+   * 기다리는 동안 **요청한 봇의 턴은 얼어 있다.** 심사 봇이 언제 한가해질지는
+   * 알 수 없으므로, 기다림이 보이는 것만으로는 부족하다 — **빠져나올 길**이
+   * 있어야 한다. 누르면 그 심사는 물러나고 승인 카드가 사람에게 뜬다.
+   *
+   * 이미 물어본 뒤(`asking`)라면 가로채지 않는다 — 그 턴은 이미 돌고 있고,
+   * 끊어도 **자동으로 다시 이어지지 않는다.**
+   */
+  takeOverReview(reviewId: string): boolean {
+    const wait = this.reviews.get(reviewId);
+    if (!wait || wait.state !== "waiting") return false;
+    wait.takenOver = true;
+    return true;
   }
 
   /** 지금 줄 서 있는 것들 — 방을 새로 열었을 때 한 번에 실어 보낸다 */
@@ -3626,39 +3687,61 @@ export class RoomManager extends EventEmitter<Events> {
     if (!sessionId) return hand(`${judge.name}의 세션이 아직 열리지 않아`);
 
     /*
-     * ★ **자기 일을 하는 중이면 끼어들지 않는다** (§4.3).
+     * ★ **심사를 재귀시키지 않는다** (§4.2.2).
      *
-     * 🔴 이 검사가 없었다. `askBotApprover` 는 `send()` 가 아니라 `runQueue` 를
-     * 직접 부르는데(답 메시지를 받아야 해서), `runQueue` 는 들어가자마자
-     * `releaseTurn` 으로 **그 봇이 돌던 턴을 닫고 자리를 가져간다.** 그래서
-     * 심사 봇이 마침 일하는 중이면 **사용자가 시킨 일의 답 자리에 심사 판결이
-     * 들어앉았다** — 실제로 «긴 일 좀 해줘»의 답이 `ALLOW` 로 찍혔다.
+     * 심사를 맡고 있는 봇이 스스로 권한을 요청하면 그 요청은 **사용자에게**
+     * 간다. 안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다.
      *
-     * 턴은 봇 단위로만 직렬이고 방 단위로는 병렬이므로(§4.3), 요청한 봇이
-     * 도는 동안 심사 봇도 자기 일을 하고 있는 것은 **드문 일이 아니다.**
+     * 이것만은 **기다려서 풀릴 일이 아니므로** 줄을 안 세운다.
      */
-    if (isBusy(this.statusOf(room.id, judge.id))) {
-      return hand(`${judge.name} 쪽이 다른 일을 하는 중이라`);
-    }
+    if (this.judging.has(asker.id)) return hand("심사를 맡고 있는 중이라");
 
     /*
-     * ★ **심사는 한 번에 하나다** (§4.2.2).
+     * ★ **줄을 선다 — 끼어들지 않는다** (§4.2.2 · §4.3).
      *
-     * 두 가지를 한꺼번에 막는다:
+     * 🔴 `askBotApprover` 는 `send()` 가 아니라 `runQueue` 를 직접 부른다(답
+     * 메시지를 받아야 해서). `runQueue` 는 들어가자마자 `releaseTurn` 으로
+     * **그 봇이 돌던 턴을 닫고 자리를 가져간다.** 검사가 없던 동안 **사용자가
+     * 시킨 일의 답 자리에 심사 판결이 들어앉았다** — 실측에서 «긴 일 좀 해줘»의
+     * 답이 심사 프롬프트의 메아리로 찍혔다.
      *
-     * 1. **재귀** — 심사 중인 봇이 스스로 권한을 요청하면 그 요청은 사용자에게.
-     *    안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다
-     * 2. **쌓임** — 봇이 여럿이면 승인 요청도 여럿이 동시에 뜰 수 있는데,
-     *    심사 봇의 세션은 **하나**라 직렬이다(B1). 줄을 세우면 요청한 봇들이
-     *    그만큼 멈춰 서 있게 되므로, **기다리게 하지 않고 사람에게 넘긴다**
+     * 🔴 그래서 한때 «바쁘면 사람에게»로 막았는데, 그건 **급할 때마다 위임이
+     * 꺼지는** 것이었다. 기다리는 게 맞다 — **끊은 일은 자동으로 다시
+     * 이어지지 않으므로** 끝낼 때까지 두는 편이 언제나 옳다.
      *
-     * 🔴 `add` 를 **검사 바로 뒤**에 둔다. 예전에는 `saveNewMessage` 를
-     * `await` 한 뒤에 넣었는데, 그 사이에 두 번째 심사가 검사를 통과했다.
+     * 대신 **기다리는 동안 요청한 봇의 턴은 얼어 있다.** 그래서 보이게 하고
+     * (`reviews` 이벤트) 사람이 **가로챌 수 있게** 한다(`takeOverReview`).
      */
-    if (this.judging.size > 0) return hand("이미 다른 심사가 도는 중이라");
-    this.judging.add(judge.id);
+    const wait: ReviewWait & { takenOver?: boolean } = {
+      id: messageId(),
+      roomId: room.id,
+      askerBotId: asker.id,
+      judgeBotId: judge.id,
+      title: req.title,
+      state: "waiting",
+      since: Date.now(),
+    };
+    this.reviews.set(wait.id, wait);
+    this.emitReviews(room.id);
 
-    this.emit("notice", room.id, `${judge.name}에게 물어보는 중… — «${req.title}»`);
+    const free = () => {
+      this.reviews.delete(wait.id);
+      this.emitReviews(room.id);
+    };
+
+    // 심사 봇이 **자기 일을 끝내고** 앞선 심사도 비울 때까지
+    const until = Date.now() + REVIEW_WAIT_MS;
+    for (;;) {
+      if (wait.takenOver) { free(); return hand("사람이 직접 답하기로 해서"); }
+      if (Date.now() > until) { free(); return hand(`${judge.name} 쪽이 오래 바빠서`); }
+      const busy = this.judging.has(judge.id) || isBusy(this.statusOf(room.id, judge.id));
+      if (!busy) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    this.judging.add(judge.id);
+    wait.state = "asking";
+    this.emitReviews(room.id);
 
     const ask: Message = {
       id: messageId(),
@@ -3690,6 +3773,7 @@ export class RoomManager extends EventEmitter<Events> {
       clearTimeout(bell);
     } finally {
       this.judging.delete(judge.id);
+      free();
     }
     if (!reply) return hand(`${judge.name} 쪽이 제때 답하지 않아`);
 

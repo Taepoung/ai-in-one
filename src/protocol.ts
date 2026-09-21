@@ -1,5 +1,6 @@
 import type {
   AnswerPolicy,
+  ReviewWait,
   Approver,
   Attachment,
   SearchHit,
@@ -110,6 +111,13 @@ export type ToWebview =
    * 비어 있는 방도 보낸다 — «이제 다 나갔다»를 알려야 표시가 걷힌다.
    */
   | { t: "queued"; roomId: string; bots: Record<string, string[]> }
+  /**
+   * **줄 서 있는 심사들** (§4.2.2).
+   *
+   * 심사 봇의 세션은 하나라 직렬이다(B1). 기다리는 동안 **요청한 봇의 턴은
+   * 얼어 있으므로**, 무엇이 누구를 기다리는지 보이고 **가로챌 수 있어야** 한다.
+   */
+  | { t: "reviews"; roomId: string; list: ReviewWait[] }
   | { t: "roomError"; roomId: string; message: string }
   | { t: "notice"; roomId: string; message: string }
   | {
@@ -197,6 +205,8 @@ export type FromWebview =
    * 「중단」과 다르다: 중단은 **진행 중인 턴까지 끊고**, 이건 안 보낸 것만 뺀다.
    */
   | { t: "unqueue"; roomId: string; messageId: string; botId?: string }
+  /** **이 심사는 내가 답한다** — 줄에서 빼고 승인 카드를 띄운다 (§4.2.2) */
+  | { t: "takeOverReview"; roomId: string; reviewId: string }
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string; botId?: string }
   /**

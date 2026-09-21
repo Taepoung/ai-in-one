@@ -741,6 +741,32 @@ export type PermissionDecision =
   | { outcome: "selected"; optionId: string }
   | { outcome: "cancelled" };
 
+/**
+ * **심사 하나가 줄에 서 있는 상태** (§4.2.2).
+ *
+ * 디스크에 안 남긴다 — 켜져 있는 동안만 뜻이 있는 것이고, 껐다 켜면
+ * 그 승인 요청 자체가 사라진다(세션이 끊기므로).
+ */
+export interface ReviewWait {
+  id: string;
+  roomId: string;
+  /** 승인을 요청한 봇 */
+  askerBotId: string;
+  /** 맡은 심사 봇 */
+  judgeBotId: string;
+  /** 무엇을 승인하려는지 */
+  title: string;
+  /**
+   * `waiting` 은 **심사 봇이 한가해지길 기다리는 중**,
+   * `asking` 은 **물어보고 답을 기다리는 중**이다.
+   *
+   * 둘을 가르는 이유는 사람이 볼 화면이 다르기 때문이다 — 앞엣것은
+   * «언제 시작될지 모른다»고, 뒤엣것은 «곧 끝난다»고 읽혀야 한다.
+   */
+  state: "waiting" | "asking";
+  since: number;
+}
+
 /** 질문 정책의 기본값. 에이전트가 물으면 사용자에게 띄운다 */
 export const DEFAULT_ANSWER_POLICY: AnswerPolicy = "ask";
 

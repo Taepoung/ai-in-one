@@ -7,6 +7,7 @@ import type {
   RoomMeta,
   RoomStatus,
   RoomUsage,
+  ReviewWait,
   ToolActivity,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
@@ -57,6 +58,13 @@ let botStatus: Record<string, RoomStatus> = {};
  * 보낸 것과 똑같이 생겨서, 이게 없으면 «보냈는데 왜 조용하지»가 된다.
  */
 let queued: Record<string, string[]> = {};
+/**
+ * **줄 서 있는 심사들** (§4.2.2) — 지금 보는 방의 것만.
+ *
+ * 심사 봇의 세션은 하나라 직렬이다(B1). 기다리는 동안 **요청한 봇의 턴은
+ * 얼어 있으므로**, 안 보이면 «아무 일도 안 일어난다»가 된다.
+ */
+let reviews: ReviewWait[] = [];
 
 /** 이 메시지가 **어느 봇의 줄에** 서 있나 */
 function waitingFor(messageId: string): string[] {
@@ -1762,6 +1770,8 @@ function paintChat(r: Room): void {
   for (const card of cards.filter((x) => x.roomId === r.id || x.roomId === "")) {
     nodes.push(cardNode(card));
   }
+  // 줄 서 있는 심사도 같은 자리에 — 이것도 «끝나야 넘어가는» 것이다
+  for (const w of reviews) nodes.push(reviewNode(w, r));
   // 다른 프로젝트의 방이면 열자마자 알려준다 — 엉뚱한 디렉터리에서 일하게 하면 안 된다 (B5)
   // 🔴 **열린 폴더가 없으면 «다른 프로젝트»라는 말 자체가 성립하지 않는다.**
   // `boot.cwd`는 워크스페이스가 없으면 홈으로 떨어지므로(B9), 그것만 보면
@@ -3045,6 +3055,53 @@ function noticeInChat(text: string): void {
 }
 
 // ── 물어보는 카드 (D1·D4) ───────────────────────────────────────────────
+
+/**
+ * ★ **줄 서 있는 심사 한 줄** (§4.2.2).
+ *
+ * 심사 봇의 세션은 하나라 직렬이다(B1) — 그 봇이 자기 일을 하는 중이면
+ * 심사는 기다려야 한다. **끼어들지 않는 것이 맞다**: 끊은 일은 자동으로
+ * 다시 이어지지 않는다.
+ *
+ * 🔴 그런데 기다리는 동안 **요청한 봇의 턴은 얼어 있다.** 그래서 안 보이면
+ * «왜 아무 일도 안 일어나지»가 되고, 그때 할 수 있는 일도 없다.
+ * 보여주고, **빠져나올 길**을 준다.
+ *
+ * 이미 물어본 뒤(`asking`)에는 가로채기를 안 준다 — 그 턴은 이미 돌고 있고
+ * 끊어도 되돌아오지 않는다. 그때는 «곧 끝난다»만 말해주면 된다.
+ */
+function reviewNode(w: ReviewWait, r: Room): HTMLElement {
+  const name = (id: string) => r.participants.find((b) => b.id === id)?.name ?? "봇";
+  const waiting = w.state === "waiting";
+  return el(
+    "div",
+    { class: "card review-wait" },
+    el(
+      "div",
+      { class: "card-title" },
+      icon(waiting ? "watch" : "law"),
+      ` ${name(w.askerBotId)}의 «${w.title}»`,
+    ),
+    el("div", {
+      class: "dim",
+      text: waiting
+        ? `${name(w.judgeBotId)} 쪽이 하던 일을 끝내면 물어봅니다.`
+        : `${name(w.judgeBotId)}에게 물어보는 중…`,
+    }),
+    waiting
+      ? el(
+          "div",
+          { class: "card-actions" },
+          el("button", {
+            text: "내가 답할게",
+            title: "기다리지 않고 승인 카드를 지금 띄웁니다",
+            onclick: () =>
+              room && post({ t: "takeOverReview", roomId: room.id, reviewId: w.id }),
+          }),
+        )
+      : null,
+  );
+}
 
 function cardNode(card: AskCard): HTMLElement {
   const node = el("div", { class: "card" });
@@ -4463,7 +4520,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
     case "room": {
       const switching = room?.id !== m.room.id;
       // 🔴 큐는 **방마다**다. 안 비우면 옆 방의 «대기 중»이 여기 붙는다.
-      if (switching) queued = {};
+      if (switching) { queued = {}; reviews = []; }
       room = m.room;
       usage = m.room.usage;
       compactable = m.compactable;
@@ -4502,6 +4559,13 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
     case "queued":
       if (room?.id === m.roomId) {
         queued = m.bots;
+        renderChat();
+      }
+      break;
+
+    case "reviews":
+      if (room?.id === m.roomId) {
+        reviews = m.list;
         renderChat();
       }
       break;

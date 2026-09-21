@@ -132,6 +132,8 @@ export class ChatPanel implements AskTarget {
       this.post({ t: "status", roomId, status, bots })) as never);
     on("queued", ((roomId: string, bots: never) =>
       this.post({ t: "queued", roomId, bots })) as never);
+    on("reviews", ((roomId: string, list: never) =>
+      this.post({ t: "reviews", roomId, list })) as never);
     on("roomError", ((roomId: string, message: string) =>
       this.post({ t: "roomError", roomId, message })) as never);
     on("notice", ((roomId: string, message: string) =>
@@ -306,6 +308,9 @@ export class ChatPanel implements AskTarget {
           break;
         case "unqueue":
           await this.rooms.unqueue(m.roomId, m.messageId, m.botId);
+          break;
+        case "takeOverReview":
+          this.rooms.takeOverReview(m.reviewId);
           break;
         case "rename":
           await this.rooms.renameRoom(m.roomId, m.title);
@@ -614,6 +619,7 @@ ${hint}` : reason,
     // 🔴 방 스냅샷에는 큐가 안 실린다(런타임 상태다). 따로 한 번 더 보내야
     // **다시 그릴 때 «대기 중»이 사라지지 않는다.**
     this.post({ t: "queued", roomId: room.id, bots: this.rooms.queuedIds(room.id) });
+    this.post({ t: "reviews", roomId: room.id, list: this.rooms.reviewsIn(room.id) });
   }
 
   private post(msg: ToWebview): void {
