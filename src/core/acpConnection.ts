@@ -5,8 +5,6 @@ import * as acp from "@agentclientprotocol/sdk";
 import type {
   AgentDef,
   PermissionDecision,
-  AnswerPolicy,
-  ElicitationField,
   PermissionRequest,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
@@ -150,7 +148,6 @@ export class AcpConnection {
     readonly agent: AgentDef,
     private readonly host: WorkspaceHost,
     /** 질문 정책도 방 단위다 (D5). 권한과 같은 이유로 sessionId를 넘겨 되묻는다 */
-    private readonly answerPolicy: (sessionId: string) => AnswerPolicy,
     /**
      * 프로세스가 죽었을 때 (A5).
      *
@@ -269,9 +266,6 @@ export class AcpConnection {
       .onRequest(acp.methods.client.session.requestPermission, (ctx) =>
         this.decidePermission(ctx.params),
       )
-      .onRequest(acp.methods.client.elicitation.create, (ctx) =>
-        this.askUser(ctx.params),
-      )
       .onNotification(acp.methods.client.session.update, (ctx) => {
         this.dispatch(ctx.params);
       })
@@ -288,8 +282,17 @@ export class AcpConnection {
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: true, writeTextFile: true },
-          // 광고하지 않으면 에이전트가 질문을 시도조차 하지 않는다 (D4)
-          elicitation: { form: {}, url: {} },
+          /*
+           * 🔴 **elicitation 을 일부러 광고하지 않는다** (2026-09-21 실측).
+           *
+           * 광고하면 Claude Code 가 폼을 띄워 온다. 그런데 **안 광고하면 그냥
+           * 글로 묻는다** — 그것도 더 깔끔하게. 거절하는 것과 다르다:
+           * 거절하면 «답변이 아직 안 왔네요»라는 어정쩡한 상태를 보고하고,
+           * 없으면 처음부터 자기 평소 길로 간다.
+           *
+           * 우리는 **메신저**다. 묻고 답하는 것이 이 제품의 본래 모양이고,
+           * 폼은 그 위에 얹은 다른 문법이었다. 자세한 근거는 ROADMAP §D4.
+           */
           // 🔴 **이걸 안 보내면 압축 알림이 아예 안 온다** (C11).
           //
           // 에이전트는 컨텍스트가 차면 **스스로 압축한다.** 그 사실을 모르면
@@ -720,51 +723,6 @@ export class AcpConnection {
   // ── 권한 ──────────────────────────────────────────────────────────────
 
   /**
-   * 에이전트의 질문을 사용자에게 넘긴다 (D4).
-   *
-   * 질문 정책이 `auto`면 취소로 답해 에이전트가 스스로 판단하게 한다(D5).
-   * **조용히 삼키지 않는다** — 무엇을 건너뛰었는지 방에 남긴다.
-   */
-  private async askUser(
-    params: acp.CreateElicitationRequest,
-  ): Promise<acp.CreateElicitationResponse> {
-    const sessionId = "sessionId" in params ? String(params.sessionId) : "";
-
-    if (this.answerPolicy(sessionId) === "auto") {
-      this.onDecision?.(
-        sessionId,
-        "― 에이전트가 물어봤지만 자율 모드여서 직접 판단하도록 넘겼습니다.",
-      );
-      return { action: "cancel" };
-    }
-
-    const isUrl = acp.CreateElicitationRequest.isUrl(params);
-    const decision = await this.host.askUser({
-      id: "elicitationId" in params ? String(params.elicitationId) : "",
-      fields: isUrl ? [] : toFields(params),
-      ...(isUrl ? { url: params.url } : {}),
-    });
-
-    // 🔴 **답한 것도 기록으로 남긴다** (D3).
-    //
-    // 카드는 답하면 사라지므로, 남기지 않으면 **무엇을 물었고 뭐라 답했는지**가
-    // 통째로 없어진다. 나중에 대화를 되짚을 때 에이전트가 왜 그렇게 움직였는지
-    // 알 길이 없어진다 — 권한과 똑같은 이유다.
-    const asked = summarize(params);
-    switch (decision.outcome) {
-      case "accepted":
-        this.onDecision?.(sessionId, `✓ ${asked} — ${describeValues(decision.values)}`);
-        return { action: "accept", content: decision.values };
-      case "declined":
-        this.onDecision?.(sessionId, `✕ ${asked} — 답하지 않았습니다`);
-        return { action: "decline" };
-      default:
-        this.onDecision?.(sessionId, `✕ ${asked} — 취소했습니다`);
-        return { action: "cancel" };
-    }
-  }
-
-  /**
    * 권한 요청을 사용자(또는 대상)에게 넘긴다 (D1·D2).
    *
    * **우리가 자동 승인을 판단하지 않는다.** 무엇을 자동으로 넘길지는 **에이전트
@@ -978,75 +936,8 @@ function translate(update: acp.SessionUpdate): AgentEvent[] {
  * **모르는 타입은 버리지 않고 `unsupported`로 넘긴다.** 스펙이 확장 가능하므로
  * (`_` 접두어는 구현별 확장) 새 타입이 와도 렌더러가 죽지 않아야 한다.
  */
-/**
- * 에이전트가 무엇을 물었는지 한 줄로 (D3).
- *
- * 스키마의 `title`→`description`→필드 이름 순으로 집는다.
- * 아무것도 없으면 그냥 «질문»이다 — 빈 줄을 남기는 것보다 낫다.
- */
-function summarize(params: acp.CreateElicitationRequest): string {
-  if (acp.CreateElicitationRequest.isUrl(params)) return `브라우저 인증 (${params.url})`;
-  const schema = (params as { requestedSchema?: Record<string, unknown> }).requestedSchema;
-  const title = schema?.["title"];
-  const desc = schema?.["description"];
-  if (typeof title === "string" && title.trim()) return title.trim();
-  if (typeof desc === "string" && desc.trim()) return desc.trim();
-  const names = Object.keys((schema?.["properties"] as object) ?? {});
-  return names.length > 0 ? names.join(", ") : "질문";
-}
 
-/**
- * 고른 값을 짧게 (D3).
- *
- * **전문을 남기지 않는다** — 긴 입력을 통째로 박으면 대화가 기록에
- * 묻힌다. 그리고 자격증명을 입력받는 경우도 있어 **그대로 남기면 위험하다.**
- */
-function describeValues(values: unknown): string {
-  if (!values || typeof values !== "object") return "답함";
-  const parts = Object.entries(values as Record<string, unknown>).map(([k, v]) => {
-    const text = typeof v === "string" ? v : JSON.stringify(v);
-    const short = text.length > 40 ? `${text.slice(0, 40)}…` : text;
-    return `${k}: ${short}`;
-  });
-  return parts.length > 0 ? parts.join(" · ") : "답함";
-}
 
-function toFields(params: acp.CreateElicitationRequest): ElicitationField[] {
-  if (!acp.CreateElicitationRequest.isForm(params)) return [];
-  const schema = params.requestedSchema;
-  if (!schema.properties) return [];
-
-  return Object.entries(schema.properties).map(([name, raw]) => {
-    const prop = raw as Record<string, unknown>;
-    const title = typeof prop.title === "string" ? prop.title : name;
-    const enumValues = Array.isArray(prop.enum) ? (prop.enum as unknown[]) : undefined;
-    const base = {
-      name,
-      label: title,
-      ...(typeof prop.description === "string" ? { description: prop.description } : {}),
-      ...(schema.required?.includes(name) ? { required: true } : {}),
-    };
-
-    if (enumValues) {
-      return {
-        ...base,
-        type: "select" as const,
-        options: enumValues.map((v) => ({ value: String(v), label: String(v) })),
-      };
-    }
-    switch (prop.type) {
-      case "string":
-      case "number":
-      case "integer":
-      case "boolean":
-        return { ...base, type: prop.type };
-      case "array":
-        return { ...base, type: "multiselect" as const };
-      default:
-        return { ...base, type: "unsupported" as const };
-    }
-  });
-}
 
 /**
  * 부작용이 없는 도구인지 (D2의 `reads` 정책 기준).

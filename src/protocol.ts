@@ -2,7 +2,6 @@ import type {
   AnswerPolicy,
   Approver,
   Attachment,
-  ElicitationRequest,
   SearchHit,
   ForkFallback,
   Message,
@@ -65,12 +64,11 @@ export interface Boot {
 /** 답을 기다리는 카드 하나 (D1·D4). 둘이 UI 인프라를 공유한다 */
 export type AskCard =
   | { id: string; kind: "permission"; roomId: string; req: PermissionRequest }
-  | { id: string; kind: "elicitation"; roomId: string; req: ElicitationRequest };
+  ;
 
 export type AskAnswer =
   | { kind: "permission"; optionId?: string }
-  | { kind: "elicitation"; outcome: "accepted"; values: Record<string, unknown> }
-  | { kind: "elicitation"; outcome: "declined" | "cancelled" };
+  ;
 
 export type ToWebview =
   | { t: "metas"; rooms: RoomMeta[] }

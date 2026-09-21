@@ -1,6 +1,4 @@
 import type {
-  ElicitationDecision,
-  ElicitationRequest,
   PermissionDecision,
   PermissionRequest,
 } from "./types.js";
@@ -24,12 +22,6 @@ export interface WorkspaceHost {
 
   requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
 
-  /**
-   * 에이전트의 질문을 사용자에게 띄운다 (D4).
-   *
-   * 권한 요청과 UI 인프라를 공유한다 — 둘 다 인라인 카드 + 응답 대기다.
-   */
-  askUser(req: ElicitationRequest): Promise<ElicitationDecision>;
 
   /** 진단/로그용. 사용자에게 보이는 채널 */
   log(message: string): void;

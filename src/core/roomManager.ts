@@ -468,7 +468,6 @@ function retryable(reason: string): boolean {
  */
 const STATUS_RANK: RoomStatus[] = [
   "permission",
-  "asking",
   "tool",
   "streaming",
   "waiting",
@@ -3379,7 +3378,6 @@ export class RoomManager extends EventEmitter<Events> {
       conn = new AcpConnection(
         this.agentOrThrow(agentId),
         this.opts.host,
-        (sessionId) => this.answerPolicyForSession(sessionId),
         (reason) => this.onAgentCrash(agentId, reason),
         (sessionId, note) => this.recordDecision(sessionId, note),
         (sessionId, req) => this.askApprover(sessionId, req),
@@ -3704,11 +3702,6 @@ export class RoomManager extends EventEmitter<Events> {
     return { outcome: "selected", optionId: pick.optionId };
   }
 
-
-  /** 그 세션의 질문 정책 (D5). 같은 이유로 봇에서 읽는다 */
-  private answerPolicyForSession(sessionId: string): AnswerPolicy {
-    return this.botForSession(sessionId)?.bot.answerPolicy ?? "ask";
-  }
 
   /** 세션 하나는 봇 하나에 속한다 (B1). 방까지 함께 돌려준다 */
   private botForSession(sessionId: string): { room: Room; bot: BotInstance } | undefined {

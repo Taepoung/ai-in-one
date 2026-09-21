@@ -1,7 +1,5 @@
 ﻿import * as vscode from "vscode";
 import type {
-  ElicitationDecision,
-  ElicitationRequest,
   PermissionDecision,
   PermissionRequest,
 } from "../core/types.js";
@@ -15,7 +13,6 @@ import type { WorkspaceHost } from "../core/workspaceHost.js";
  */
 export interface AskTarget {
   permission(req: PermissionRequest): Promise<PermissionDecision>;
-  elicit(req: ElicitationRequest): Promise<ElicitationDecision>;
 }
 
 export class VscodeHost implements WorkspaceHost {
@@ -90,26 +87,6 @@ export class VscodeHost implements WorkspaceHost {
     return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
   }
 
-  async askUser(req: ElicitationRequest): Promise<ElicitationDecision> {
-    if (this.target) return this.target.elicit(req);
-
-    if (req.url) {
-      const go = await vscode.window.showInformationMessage(
-        "에이전트가 링크 열기를 요청합니다.",
-        { modal: true, detail: req.url },
-        "열기",
-      );
-      if (!go) return { outcome: "declined" };
-      await vscode.env.openExternal(vscode.Uri.parse(req.url));
-      return { outcome: "accepted", values: {} };
-    }
-
-    // 폼은 모달로 만들 수 없다. 채팅을 열도록 안내하고 취소로 답한다.
-    void vscode.window.showWarningMessage(
-      "에이전트가 질문했지만 채팅이 닫혀 있어 넘겼습니다. 채팅을 열어두면 답할 수 있습니다.",
-    );
-    return { outcome: "cancelled" };
-  }
 
   log(message: string): void {
     this.out.appendLine(`[${new Date().toLocaleTimeString()}] ${message}`);

@@ -1,7 +1,6 @@
 import type {
   Attachment,
   BotInstance,
-  ElicitationField,
   SearchHit,
   Message,
   Room,
@@ -3119,74 +3118,6 @@ function cardNode(card: AskCard): HTMLElement {
     return node;
   }
 
-  // 질문 — URL 모드는 링크 버튼 하나면 된다
-  if (card.req.url) {
-    node.append(
-      el("div", { class: "card-title" }, icon("link-external"), " 에이전트가 링크 열기를 요청합니다"),
-      el("div", { class: "dim", text: card.req.url }),
-      el(
-        "div",
-        { class: "card-actions" },
-        el("button", {
-          class: "primary",
-          text: "열기",
-          onclick: () =>
-            answer(() =>
-              post({
-                t: "answer",
-                id: card.id,
-                answer: { kind: "elicitation", outcome: "accepted", values: {} },
-              }),
-            ),
-        }),
-        el("button", {
-          text: "거절",
-          onclick: () =>
-            answer(() =>
-              post({ t: "answer", id: card.id, answer: { kind: "elicitation", outcome: "declined" } }),
-            ),
-        }),
-      ),
-    );
-    return node;
-  }
-
-  const inputs = new Map<string, () => unknown>();
-  const body = el("div", { class: "card-body" });
-  for (const f of card.req.fields) {
-    const row = fieldRow(f, inputs, false);
-    if (row) body.append(row);
-  }
-
-  node.append(
-    el("div", { class: "card-title" }, icon("question"), " 에이전트가 묻습니다"),
-    body,
-    el(
-      "div",
-      { class: "card-actions" },
-      el("button", {
-        class: "primary",
-        text: "확인",
-        onclick: () =>
-          answer(() => {
-            const values: Record<string, unknown> = {};
-            for (const [name, read] of inputs) values[name] = read();
-            post({
-              t: "answer",
-              id: card.id,
-              answer: { kind: "elicitation", outcome: "accepted", values },
-            });
-          }),
-      }),
-      el("button", {
-        text: "건너뛰기",
-        onclick: () =>
-          answer(() =>
-            post({ t: "answer", id: card.id, answer: { kind: "elicitation", outcome: "declined" } }),
-          ),
-      }),
-    ),
-  );
   return node;
 }
 
@@ -3414,48 +3345,6 @@ function permIcon(kind: string | undefined): string {
   }
 }
 
-function fieldRow(
-  f: ElicitationField,
-  inputs: Map<string, () => unknown>,
-  disabled: boolean,
-): HTMLElement | null {
-  // 스펙이 확장 가능하다. 모르는 타입이 오면 건너뛰지 말고 사실을 보여준다 (D4)
-  if (f.type === "unsupported") {
-    return el("div", { class: "dim", text: `${f.label}: 지원하지 않는 입력입니다` });
-  }
-
-  const label = el("label", { text: f.label + (f.required ? " *" : "") });
-
-  if (f.type === "boolean") {
-    const box = el("input", { type: "checkbox", disabled }) as HTMLInputElement;
-    inputs.set(f.name, () => box.checked);
-    return el("div", { class: "field" }, el("label", {}, box, ` ${f.label}`));
-  }
-
-  if (f.type === "select" || f.type === "multiselect") {
-    const sel = el("select", { disabled, multiple: f.type === "multiselect" }) as HTMLSelectElement;
-    for (const o of f.options ?? []) sel.append(el("option", { value: o.value, text: o.label }));
-    inputs.set(f.name, () =>
-      f.type === "multiselect"
-        ? [...sel.selectedOptions].map((o) => o.value)
-        : sel.value,
-    );
-    return el("div", { class: "field" }, label, sel);
-  }
-
-  const input = el("input", {
-    type: f.type === "string" ? "text" : "number",
-    disabled,
-  }) as HTMLInputElement;
-  inputs.set(f.name, () => (f.type === "string" ? input.value : Number(input.value)));
-  return el(
-    "div",
-    { class: "field" },
-    label,
-    input,
-    f.description ? el("span", { class: "dim", text: f.description }) : null,
-  );
-}
 
 // ── 메뉴 ────────────────────────────────────────────────────────────────
 

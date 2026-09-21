@@ -671,8 +671,6 @@ export type RoomStatus =
   | "tool"
   /** 권한 요청 응답 대기 */
   | "permission"
-  /** 에이전트의 질문(elicitation) 응답 대기 */
-  | "asking"
   | "error";
 
 /** 상태가 idle이 아니면 에이전트가 일하는 중 = 중단 버튼 활성화 */
@@ -701,7 +699,16 @@ export type Approver =
 export const ASK_USER: Approver = { kind: "user" };
 
 
-/** 에이전트의 질문(elicitation)을 어떻게 처리할지 (D5) */
+/**
+ * **사용자가 자리에 있나** (D5).
+ *
+ * 🔴 예전 이름은 «질문 정책»이었고 `elicitation` 을 어떻게 받을지였다.
+ * 그 채널을 없앴으므로(ROADMAP §D4) 이제 남은 뜻은 하나다 —
+ * **`auto` 면 프롬프트에 «묻지 말고 스스로 판단해 진행하라»를 붙인다.**
+ *
+ * 없애려다 말았다. 구조화된 질문이 사라진 뒤로는 **이것이 «묻지 마»를
+ * 말할 수 있는 유일한 자리**라서, 빼면 대신할 것이 없다.
+ */
 export type AnswerPolicy = "ask" | "auto";
 
 /** 권한 요청 — 에이전트가 도구를 쓰기 전에 사용자에게 묻는다 */
@@ -732,36 +739,6 @@ export interface PermissionRequest {
 
 export type PermissionDecision =
   | { outcome: "selected"; optionId: string }
-  | { outcome: "cancelled" };
-
-/**
- * 에이전트가 사용자에게 던지는 질문 (D4).
- *
- * ACP 스키마를 그대로 노출하지 않고 셸이 렌더링할 만큼만 추린다 — core가
- * UI 구현을 강요하지 않도록.
- */
-export interface ElicitationRequest {
-  id: string;
-  /** 폼 필드. JSON Schema에서 추린 것 */
-  fields: ElicitationField[];
-  /** URL 모드면 여기로 보낸다 (OAuth 등) */
-  url?: string;
-}
-
-export interface ElicitationField {
-  name: string;
-  label: string;
-  /** 렌더링할 수 없는 타입이면 `unsupported` — 건너뛰거나 안내를 띄운다 */
-  type: "string" | "number" | "integer" | "boolean" | "select" | "multiselect" | "unsupported";
-  description?: string;
-  required?: boolean;
-  /** `select`·`multiselect`일 때의 선택지 */
-  options?: Array<{ value: string; label: string }>;
-}
-
-export type ElicitationDecision =
-  | { outcome: "accepted"; values: Record<string, unknown> }
-  | { outcome: "declined" }
   | { outcome: "cancelled" };
 
 /** 질문 정책의 기본값. 에이전트가 물으면 사용자에게 띄운다 */

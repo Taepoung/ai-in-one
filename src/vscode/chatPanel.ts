@@ -7,8 +7,6 @@ import { sendsContent } from "../core/types.js";
 import type {
   AgentDef,
   Attachment,
-  ElicitationDecision,
-  ElicitationRequest,
   PermissionDecision,
   PermissionRequest,
   Room,
@@ -167,14 +165,6 @@ export class ChatPanel implements AskTarget {
     );
   }
 
-  elicit(req: ElicitationRequest): Promise<ElicitationDecision> {
-    return this.ask({ kind: "elicitation", req }, (answer) => {
-      if (answer.kind !== "elicitation") return { outcome: "cancelled" };
-      return answer.outcome === "accepted"
-        ? { outcome: "accepted", values: answer.values }
-        : { outcome: answer.outcome };
-    });
-  }
 
   /**
    * 카드를 띄우고 답을 기다린다.
@@ -704,7 +694,7 @@ ${hint}` : reason,
 
     // **기다리던 카드를 방치하면 에이전트가 영원히 멈춘다.** 취소로 풀어준다.
     for (const resolve of this.pending.values()) {
-      resolve({ kind: "elicitation", outcome: "cancelled" });
+      resolve({ kind: "permission" });
     }
     this.pending.clear();
 
