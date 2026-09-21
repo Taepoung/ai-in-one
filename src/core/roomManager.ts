@@ -147,6 +147,19 @@ interface BotRuntime {
   turn?: Message;
   /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
   tail?: ReturnType<typeof setTimeout>;
+  /**
+   * ★ **이 봇이 아직 못 적은 blob 쓰기들** (E6).
+   *
+   * 파일 변경 전문은 대화에 안 담는다 — 100KB짜리를 스무 번 고치면 방 파일이
+   * 4MB가 되어 열기도 검색도 망가진다. 대신 `blobs/<sha256>` 에 쓰고 **해시만**
+   * 기록한다. 그 쓰기가 비동기라, **끝나기 전에 메시지를 저장하면 해시가 빈
+   * 채로 남아 diff를 영영 못 본다.**
+   *
+   * 🔴 예전에는 `RoomRuntime` 에 있었다. 봇이 나란히 돌면 **한 봇이 «다
+   * 기다렸다»며 목록을 비울 때 다른 봇의 영수증까지 지웠다** — 그 봇은
+   * 기다릴 것이 없다고 보고 해시가 빈 채로 저장할 수 있었다.
+   */
+  pendingWrites: Promise<unknown>[];
 }
 
 /**
@@ -157,13 +170,6 @@ interface BotRuntime {
  */
 interface RoomRuntime {
   status: RoomStatus;
-  /**
-   * 이번 턴에 걸린 blob 쓰기들.
-   *
-   * 파일 변경 내용은 비동기로 저장되는데, 이걸 기다리지 않고 방을 저장하면
-   * **해시가 비어 있는 채로 기록되어 diff를 영영 못 본다.**
-   */
-  pendingWrites: Promise<unknown>[];
   /** 봇별 상태. 열쇠는 `BotInstance.id` */
   bots: Map<string, BotRuntime>;
   /**
@@ -2358,7 +2364,6 @@ export class RoomManager extends EventEmitter<Events> {
     batch: Message[],
     botId?: string,
   ): Promise<Message | undefined> {
-    const rt = this.runtime(room.id);
     // 단체방에서는 **멘션된 봇마다** 이 함수가 돈다. 지금은 하나뿐이다.
     const bot = (botId ? room.participants.find((b) => b.id === botId) : undefined)
       ?? room.participants[0]!;
@@ -2450,10 +2455,15 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
 
-    // blob 쓰기가 끝나야 해시가 채워진다. 기다리지 않고 저장하면 diff를 잃는다.
-    if (rt.pendingWrites.length > 0) {
-      await Promise.allSettled(rt.pendingWrites);
-      rt.pendingWrites.length = 0;
+    /*
+     * blob 쓰기가 끝나야 해시가 채워진다 — **이 봇 것만** 기다린다.
+     *
+     * 🔴 방 단위였을 때는 `length = 0` 이 **옆 봇의 영수증까지 지웠다.**
+     * 지워진 쪽은 기다릴 것이 없다고 보고 빈 해시로 저장할 수 있었다.
+     */
+    if (bt.pendingWrites.length > 0) {
+      const mine = bt.pendingWrites.splice(0, bt.pendingWrites.length);
+      await Promise.allSettled(mine);
     }
 
     reply.streaming = false;
@@ -2952,16 +2962,26 @@ export class RoomManager extends EventEmitter<Events> {
     change.added = counts.added;
     change.removed = counts.removed;
 
-    // blob 쓰기는 비동기지만 **턴이 끝나기 전에 반드시 끝나야 한다** —
-    // 안 그러면 해시가 빈 채로 저장되어 diff를 잃는다.
+    /*
+     * blob 쓰기는 비동기다. 턴 끝에서 기다리기는 하지만(`runQueue`),
+     * ★ **끝나면 스스로 적는다.**
+     *
+     * 🔴 기다리기만 하면 **기다릴 사람이 없어지는 순간 날아간다** — 에이전트가
+     * 죽거나, 창을 닫거나, 턴이 예외로 끊기면 해시가 빈 채로 남는다. 그러면
+     * blob은 디스크에 멀쩡히 있는데 **가리킬 번호가 없어** diff를 영영 못 본다.
+     *
+     * 트랜스크립트는 JSONL 병합이라 **같은 메시지에 한 줄 더 붙이면 그만**이다.
+     * 그래서 «턴이 기다려주면 빠르고, 못 기다려줘도 잃지 않는» 모양이 된다.
+     */
     const write = (async () => {
       if (ev.oldText !== null && !change.oldSha256) {
         change.oldSha256 = await store.putBlob(ev.oldText);
       }
       change.newSha256 = await store.putBlob(ev.newText);
+      await this.saveMessage(room, { id: reply.id, files: reply.files });
     })().catch((err) => this.opts.host.log(`blob 저장 실패: ${describe(err)}`));
 
-    this.runtime(room.id).pendingWrites.push(write);
+    if (reply.authorBotId) this.botRuntime(room.id, reply.authorBotId).pendingWrites.push(write);
   }
 
   /**
@@ -3584,7 +3604,7 @@ export class RoomManager extends EventEmitter<Events> {
   private runtime(roomId: string): RoomRuntime {
     let rt = this.runtimes.get(roomId);
     if (!rt) {
-      rt = { status: "idle", pendingWrites: [], bots: new Map(), clashed: new Set() };
+      rt = { status: "idle", bots: new Map(), clashed: new Set() };
       this.runtimes.set(roomId, rt);
     }
     return rt;
@@ -3604,6 +3624,7 @@ export class RoomManager extends EventEmitter<Events> {
         status: "idle",
         queue: [],
         roleInjected: false,
+      pendingWrites: [],
         commands: [],
         lastEmit: 0,
         lastSave: 0,
