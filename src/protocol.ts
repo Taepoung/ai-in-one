@@ -123,6 +123,8 @@ export type ToWebview =
   | {
       t: "config";
       agentId: string;
+      /** 어느 봇의 것인가. 없으면 **방과 무관한** 에이전트 기본값이다 */
+      botId?: string;
       /** 방의 세션에서 온 값이면 그 방. 없으면 에이전트 기본값(만들기 화면) */
       roomId?: string;
       options: ConfigOptionBrief[];
@@ -270,7 +272,15 @@ export type FromWebview =
       fallback?: ForkFallback;
     }
   | { t: "draft"; roomId: string; text: string }
-  | { t: "needConfig"; agentId: string; roomId?: string }
+  /**
+   * 설정을 달라 — **봇까지 지목한다**.
+   *
+   * 🔴 `agentId` 만 보냈더니 방 안에서 **봇을 구별할 수 없었다.** 설정은
+   * 세션에 걸리고 세션은 봇 단위다(B1). `botId` 가 없으면 **방과 무관한**
+   * 에이전트 기본값을 묻는 것이다 — 방 만들기 화면과, 아직 방에 없는
+   * 에이전트(갈아타기 미리보기)가 그 길을 쓴다.
+   */
+  | { t: "needConfig"; agentId: string; roomId?: string; botId?: string }
   /** 끊긴 맥락을 되먹일지 (F7). `accept`면 다음 메시지에 실어 보낸다 */
   | { t: "refeed"; roomId: string; accept: boolean }
   /** 못 이어받은 세션에 다시 붙어본다 (F7) */

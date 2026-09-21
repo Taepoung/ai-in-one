@@ -88,12 +88,25 @@ const configErrors = new Map<string, string>();
  * 하나면 방 A에서 계획 모드로 바꾼 게 방 B의 시트에도 «계획»로 나온다.
  * 방이 있으면 방이 열쇠고, 만들기 화면처럼 아직 방이 없을 때만 에이전트다.
  */
-function configKey(agentId: string, roomId?: string): string {
-  return roomId ? `room:${roomId}` : agentId;
+/**
+ * 설정 캐시의 열쇠 — **봇 단위**다.
+ *
+ * 🔴 예전에는 `room:<roomId>` 였다. 그래서 단체방의 Claude와 Codex가 **같은
+ * 칸을 나눠 썼고**, 나중에 온 쪽이 이겨서 **모델 목록이 서로 엉켰다.**
+ * 설정은 세션에 걸리고 세션은 봇 단위다(B1).
+ *
+ * 봇을 안 주면 **방과 무관한 에이전트 기본값**이다 — 방 만들기 화면과,
+ * 아직 방에 없는 에이전트를 미리 볼 때(갈아타기) 쓰는 길.
+ */
+function configKey(agentId: string, roomId?: string, botId?: string): string {
+  return roomId && botId ? `bot:${roomId}:${botId}` : agentId;
 }
-
-function optionsFor(agentId: string, roomId?: string): ConfigOptionBrief[] | undefined {
-  return configs.get(configKey(agentId, roomId));
+function optionsFor(
+  agentId: string,
+  roomId?: string,
+  botId?: string,
+): ConfigOptionBrief[] | undefined {
+  return configs.get(configKey(agentId, roomId, botId));
 }
 /** 답을 기다리는 카드들. 방을 나갔다 와도 남아 있어야 한다 */
 const cards: AskCard[] = [];
@@ -1477,9 +1490,10 @@ function mountChat(r: Room): void {
   for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
     post({ t: "needCaps", agentId });
   }
-  // 권한 시트가 봇마다 모드를 보여주므로 **참여자 전부** 필요하다 (캐시가 있으면 즉시 온다)
-  for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
-    post({ t: "needConfig", agentId, roomId: r.id });
+  // 권한 시트가 봇마다 모드를 보여주므로 **봇마다** 묻는다 — 같은 에이전트라도
+  // 세션이 다르면 고른 값이 다르다(B1)
+  for (const b of r.participants) {
+    post({ t: "needConfig", agentId: b.agentId, roomId: r.id, botId: b.id });
   }
   // 방에 **들어올 때 한 번만** 자리를 잡는다. 갱신마다 하면 화면이 계속 끌려간다.
   paintChat(r);
@@ -3384,8 +3398,11 @@ function closeSheet(): void {
  */
 function paintPermissionSheet(r: Room): void {
   // 열어 보는 것 자체가 «필요하다»는 신호다. 캐시가 있으면 바로 돌아온다.
-  for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
-    if (!optionsFor(agentId, r.id)) post({ t: "needConfig", agentId, roomId: r.id });
+  // 봇마다다 — 같은 에이전트로 봇이 둘이면 **고른 값도 둘**이다 (B1)
+  for (const b of r.participants) {
+    if (!optionsFor(b.agentId, r.id, b.id)) {
+      post({ t: "needConfig", agentId: b.agentId, roomId: r.id, botId: b.id });
+    }
   }
 
   const sheet = el(
@@ -3430,7 +3447,7 @@ function paintPermissionSheet(r: Room): void {
 /** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
 function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
   const agent = agentById.get(bot.agentId);
-  const options = optionsFor(bot.agentId, r.id) ?? [];
+  const options = optionsFor(bot.agentId, r.id, bot.id) ?? [];
   const mode = options.find((o) => o.category === "mode");
 
   const rows: Kids = [];
@@ -3456,13 +3473,13 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
     paint();
     rows.push(el("div", { class: "field" }, el("label", { text: "권한 모드" }), select, hint));
   } else {
-    const err = configErrors.get(configKey(bot.agentId, r.id));
+    const err = configErrors.get(configKey(bot.agentId, r.id, bot.id));
     rows.push(
       el("p", {
         class: err ? "warn" : "dim",
         text: err
           ? err
-          : optionsFor(bot.agentId, r.id) !== undefined
+          : optionsFor(bot.agentId, r.id, bot.id) !== undefined
             ? "이 에이전트는 권한 모드를 알려주지 않습니다."
             : "권한 모드를 불러오는 중…",
       }),
@@ -3474,8 +3491,8 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
           class: "link",
           text: "다시 시도",
           onclick: () => {
-            configs.delete(configKey(bot.agentId, r.id));
-            configErrors.delete(configKey(bot.agentId, r.id));
+            configs.delete(configKey(bot.agentId, r.id, bot.id));
+            configErrors.delete(configKey(bot.agentId, r.id, bot.id));
             // 다시 그리면서 «불러오는 중»으로 바뀌고, 그 김에 요청도 나간다
             paintPermissionSheet(r);
           },
@@ -4220,8 +4237,11 @@ function closeDrawer(): void {
  * 영원히 머문다 — 권한 시트에서 실제로 겪은 일이다.
  */
 function paintDrawer(r: Room): void {
-  for (const agentId of new Set(r.participants.map((b) => b.agentId))) {
-    if (!optionsFor(agentId, r.id)) post({ t: "needConfig", agentId, roomId: r.id });
+  // 봇마다다 — 같은 에이전트로 봇이 둘이면 **고른 값도 둘**이다 (B1)
+  for (const b of r.participants) {
+    if (!optionsFor(b.agentId, r.id, b.id)) {
+      post({ t: "needConfig", agentId: b.agentId, roomId: r.id, botId: b.id });
+    }
   }
 
   const was = screens.chat.querySelector(".drawer");
@@ -4409,7 +4429,7 @@ function askInvite(r: Room): void {
  * 답하나) · **질문**(갈림길에서). 「봇 : 범위 : 대상」(D2)이 그대로다.
  */
 function policyLine(r: Room, bot: BotInstance): string {
-  const options = optionsFor(bot.agentId, r.id);
+  const options = optionsFor(bot.agentId, r.id, bot.id);
   const mode = options?.find((o) => o.category === "mode");
   const bits: string[] = [];
 
@@ -4531,7 +4551,7 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
       title,
       onclick: () => {
         const model = swapModel.get(bot.id);
-        const opt = optionsFor(nextId, r.id)?.find((o) => o.category === "model");
+        const opt = optionsFor(nextId)?.find((o) => o.category === "model");
         swapping.delete(bot.id);
         swapModel.delete(bot.id);
         post({
@@ -4589,7 +4609,11 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
    */
   const pending = swapping.get(bot.id);
   const showAgent = pending ?? bot.agentId;
-  const options = optionsFor(showAgent, r.id) ?? [];
+  /*
+   * 갈아타는 중이면 **아직 이 방에 없는 에이전트**다 — 방 안이 아니라
+   * **에이전트 기본값**을 본다. 붙은 뒤에는 그 봇의 세션 값을 본다.
+   */
+  const options = (pending ? optionsFor(pending) : optionsFor(bot.agentId, r.id, bot.id)) ?? [];
   const model = options.find((o) => o.category === "model");
 
   // ── 첫 줄: 이름 · 작업 중 · 사용량
@@ -4651,7 +4675,8 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       else {
         swapping.set(bot.id, pick.value);
         // 그 에이전트의 모델 목록이 없으면 지금 물어본다 — 오면 다시 그린다
-        if (!optionsFor(pick.value, r.id)) post({ t: "needConfig", agentId: pick.value, roomId: r.id });
+        // 방에 없는 에이전트라 **방을 빼고** 묻는다 — 기본값이면 충분하다
+        if (!optionsFor(pick.value)) post({ t: "needConfig", agentId: pick.value });
       }
       paintDrawer(r);
     });
@@ -4946,7 +4971,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       break;
 
     case "config": {
-      const key = configKey(m.agentId, m.roomId);
+      const key = configKey(m.agentId, m.roomId, m.botId);
       configs.set(key, m.options);
       if (m.error) configErrors.set(key, m.error);
       else configErrors.delete(key);

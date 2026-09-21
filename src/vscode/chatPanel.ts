@@ -380,7 +380,7 @@ export class ChatPanel implements AskTarget {
           this.rooms.setDraft(m.roomId, m.text);
           break;
         case "needConfig":
-          await this.sendConfig(m.agentId, m.roomId);
+          await this.sendConfig(m.agentId, m.roomId, m.botId);
           break;
         case "refeed":
           await this.rooms.decideRefeed(m.roomId, m.accept);
@@ -414,11 +414,14 @@ export class ChatPanel implements AskTarget {
            * 선택지가 들어갔다** — 두 봇의 칸이 한꺼번에 엉킨다.
            */
           const here = await this.rooms.openRoom(m.roomId);
-          const agentId = (m.botId
+          const who = m.botId
             ? here.participants.find((b) => b.id === m.botId)
-            : here.participants[0])?.agentId;
-          if (agentId) {
-            this.post({ t: "config", agentId, roomId: m.roomId, options: updated.map(brief) });
+            : here.participants[0];
+          if (who) {
+            this.post({
+              t: "config", agentId: who.agentId, roomId: m.roomId, botId: who.id,
+              options: updated.map(brief),
+            });
           }
           break;
         }
@@ -581,15 +584,23 @@ export class ChatPanel implements AskTarget {
    * `roomId`를 주면 **그 방의 세션이 들고 있는 값**을, 없으면 에이전트 기본값을
    * 보낸다 (만들기 화면에는 아직 방이 없다).
    */
-  private async sendConfig(agentId: string, roomId?: string): Promise<void> {
+  private async sendConfig(agentId: string, roomId?: string, botId?: string): Promise<void> {
     try {
-      const options = roomId
-        ? await this.rooms.roomConfigOptions(roomId)
+      /*
+       * 🔴 **`agentId` 를 버리고 있었다.** `roomId` 만 있으면 무조건
+       * `roomConfigOptions(roomId)` 를 불렀는데, 그건 방의 **첫 봇**을 보므로
+       * — 단체방에서 Codex의 설정을 물어도 **Claude 것이 Codex 이름표를 달고**
+       * 돌아왔다. 아직 방에 없는 에이전트를 미리 볼 때도 마찬가지였다.
+       *
+       * 봇을 지목했을 때만 방 안을 보고, 아니면 **에이전트 기본값**을 준다.
+       */
+      const options = roomId && botId
+        ? await this.rooms.roomConfigOptions(roomId, botId)
         : await this.rooms.configOptions(agentId);
       this.post({
         t: "config",
         agentId,
-        ...(roomId ? { roomId } : {}),
+        ...(roomId && botId ? { roomId, botId } : {}),
         options: options.map(brief),
       });
     } catch (err) {
@@ -599,7 +610,7 @@ export class ChatPanel implements AskTarget {
       this.post({
         t: "config",
         agentId,
-        ...(roomId ? { roomId } : {}),
+        ...(roomId && botId ? { roomId, botId } : {}),
         options: [],
         error: hint ? `${reason}
 
