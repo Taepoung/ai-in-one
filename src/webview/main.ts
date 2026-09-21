@@ -3740,7 +3740,7 @@ function closeModal(): void {
  * 것이다.** 실측해보니 같은 폴더의 다른 세션으로 새지 않았다(§13.2).
  * 기억과 달리 역할은 봇마다 나눠 줄 수 있다 — 그래서 여기 놓는다.
  */
-function roleEditor(r: Room, bot: BotInstance): HTMLElement {
+function roleEditor(r: Room, bot: BotInstance, more: Kids = []): HTMLElement {
   const box = el("textarea", {
     class: "role",
     placeholder: "역할 없음. 적으면 다음 프롬프트부터 반영됩니다.",
@@ -3755,7 +3755,16 @@ function roleEditor(r: Room, bot: BotInstance): HTMLElement {
       save.textContent = "저장됨";
     },
   });
-  return el("div", { class: "role-edit" }, box, el("div", { class: "card-actions" }, save));
+  /*
+   * **역할 저장이 맨 오른쪽**이고 나머지는 왼쪽에 붙는다 — 역할은 «지금 쓴
+   * 것을 확정»하는 것이라 입력 바로 다음이고, 나머지는 그 봇에 대한 다른 일이다.
+   */
+  return el(
+    "div",
+    { class: "role-edit" },
+    box,
+    el("div", { class: "card-actions role-acts" }, ...more, el("span", { class: "gap" }), save),
+  );
 }
 
 function startRename(r: Room): void {
@@ -4473,15 +4482,18 @@ function insertMention(bot: BotInstance): void {
  *
  * 목록은 `setAgent` 가 실제로 하는 그대로다 — 지어내면 안 되는 자리다.
  */
-function swapWarning(r: Room, bot: BotInstance, pick: HTMLSelectElement): Kids {
+function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
   const at = botStatus[bot.id] ?? "idle";
   const busy = at !== "idle" && at !== "error";
-  const next = agentById.get(pick.value)?.label ?? pick.value;
+  const next = agentById.get(nextId)?.label ?? nextId;
 
   const go = el("button", {
     class: "primary",
     text: `${next}(으)로 바꾸기`,
-    onclick: () => post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: pick.value }),
+    onclick: () => {
+      swapping.delete(bot.id);
+      post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: nextId });
+    },
   }) as HTMLButtonElement;
   go.disabled = busy;
 
@@ -4508,21 +4520,32 @@ function swapWarning(r: Room, bot: BotInstance, pick: HTMLSelectElement): Kids {
         class: "ghost",
         text: "그대로 두기",
         // 고른 것을 **되돌린다** — 안 바꿨는데 칸만 바뀌어 있으면 거짓말이다
-        onclick: () => paintDrawer(r),
+        onclick: () => (swapping.delete(bot.id), paintDrawer(r)),
       }),
     ),
   ];
 }
 
 function drawerBot(r: Room, bot: BotInstance): HTMLElement {
-  const agent = agentById.get(bot.agentId);
-  const options = optionsFor(bot.agentId, r.id) ?? [];
-  const model = options.find((o) => o.category === "model");
   const status = botStatus[bot.id] ?? "idle";
   const busy = status !== "idle" && status !== "error";
 
-  // ── 첫 줄: 색 점 · 이름 · 작업 중 · 사용량
-  // 이름은 **누를 수 있다** — 입력창에 멘션을 꽂아준다 (단체방에서만 뜻이 있다)
+  /*
+   * ★ **갈아탈 에이전트를 고르는 중인가.**
+   *
+   * 고르기만 하고 아직 확인은 안 한 상태다. 이 동안 **모델 칸도 그쪽 것을
+   * 보여준다** — 안 그러면 Codex를 골라둔 채로 모델 칸엔 `Opus` 가 남아
+   * **없는 조합을 화면이 주장하게** 된다.
+   */
+  const pending = swapping.get(bot.id);
+  const showAgent = pending ?? bot.agentId;
+  const options = optionsFor(showAgent, r.id) ?? [];
+  const model = options.find((o) => o.category === "model");
+
+  // ── 첫 줄: 이름 · 작업 중 · 사용량
+  //
+  // 🔴 색 점을 뺐다. 에이전트를 **칸으로 직접 고르게 된 뒤로** 색은 같은 것을
+  // 한 번 더 말하는 것이 됐고, 이름이 작아 보이게만 했다.
   const nameCell = el("span", { class: "name" });
   const nameBtn = r.participants.length > 1
     ? el("button", {
@@ -4537,7 +4560,6 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
   const head = el(
     "div",
     { class: "who" },
-    el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
     nameCell,
     el("button", {
       class: "icon tiny",
@@ -4548,83 +4570,81 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
     usageChip(bot),
   );
 
-  // ── 둘째 줄: 모델(주) · 에이전트(부) — 모델이 앞에 온다 (§4.2.1)
-  const sub = el("div", { class: "sub" }, el("span", {
-    text: bot.modelLabel ? `${bot.modelLabel} · ${agent?.label ?? "?"}` : (agent?.label ?? "?"),
-  }));
-
-  // ── 셋째 줄: 권한을 한 줄로 (§4.2.2) — 봇마다 시트를 열어보지 않아도 되게
+  /*
+   * ── 권한을 한 줄로 (§4.2.2)
+   *
+   * 🔴 «모델 · 에이전트» 줄은 뺐다. 바로 아래 칸 둘이 **같은 것을 고를 수
+   * 있게** 보여주므로, 읽기 전용으로 한 번 더 적는 것은 줄만 늘린다.
+   */
   const perm = el("div", { class: "sub perm" }, el("span", {
     text: policyLine(r, bot),
     title: "권한 모드 · 막혔을 때 누가 답하나 · 갈림길에서 물어보나",
   }));
 
-  const rows: Kids = [head, sub, perm];
+  const rows: Kids = [head, perm];
 
   /*
-   * ── 에이전트 바꾸기 — **모델 바로 위** (§4.2.1)
+   * ── 에이전트 — **모델 바로 위** (§4.2.1)
    *
-   * 🔴 처음에는 «할 수 있는 것» 버튼 줄에 넣고 **모달**을 띄웠다. 두 군데가
-   * 틀렸다:
-   *
-   * 1. **자리.** 에이전트는 모델과 **같은 종류**다 — «이 봇이 무엇으로
-   *    도는가». 서랍의 둘째 줄이 이미 «Opus · Claude Code»로 둘을 나란히
-   *    적고 있는데, 고치는 자리만 따로 떨어져 있었다
-   * 2. **모달.** 서랍을 닫고 떠서 **맥락을 잃었다.** 서랍은 «이 봇에 대한
-   *    것이 다 모이는 자리»인데(§4.2.1) 거기서 튕겨 나오면 안 된다
-   *
-   * 다만 **바꾸는 것 자체는 여전히 세션을 버리는 일**이라 바로 안 바꾼다.
-   * 고르면 **그 자리 아래에** 무엇을 잃는지 펴고, 거기서 확인받는다.
+   * 에이전트와 모델은 «이 봇이 무엇으로 도는가»로 같은 종류다. 다만 바꾸는
+   * 것 자체는 **세션을 버리는 일**이라 바로 안 바꾼다 — 고르면 **모델 칸
+   * 아래에** 무엇을 잃는지 펴고 거기서 확인받는다.
    */
   if (agentById.size > 1) {
     const pick = el("select") as HTMLSelectElement;
     for (const a of agentById.values()) {
-      pick.append(el("option", { value: a.id, text: a.label, selected: a.id === bot.agentId }));
+      pick.append(el("option", { value: a.id, text: a.label, selected: a.id === showAgent }));
     }
-    const confirm = el("div", { class: "swap-ask", hidden: true });
     pick.addEventListener("change", () => {
-      if (pick.value === bot.agentId) { confirm.hidden = true; return; }
-      confirm.hidden = false;
-      replace(confirm, ...swapWarning(r, bot, pick));
+      if (pick.value === bot.agentId) swapping.delete(bot.id);
+      else {
+        swapping.set(bot.id, pick.value);
+        // 그 에이전트의 모델 목록이 없으면 지금 물어본다 — 오면 다시 그린다
+        if (!optionsFor(pick.value, r.id)) post({ t: "needConfig", agentId: pick.value, roomId: r.id });
+      }
+      paintDrawer(r);
     });
-    rows.push(
-      el("div", { class: "field" }, el("label", { text: "에이전트" }), pick),
-      confirm,
-    );
+    rows.push(el("div", { class: "field" }, el("label", { text: "에이전트" }), pick));
   }
 
-  // ── 모델 바꾸기 — 에이전트가 목록을 줄 때만
+  // ── 모델 — 그 에이전트가 목록을 줄 때만
   if (model?.values?.length) {
     const select = el("select") as HTMLSelectElement;
     /*
-     * 🔴 **봇이 실제로 든 값이 먼저다.**
+     * 🔴 **봇이 실제로 든 값이 먼저다.** `model.current` 는 방 단위 캐시라
+     * 봇이 둘이면 둘 다 같은 값을 보여주고, 설정이 늦게 오면 낡은 값이 남는다.
      *
-     * `model.current`는 **방 단위 캐시**라 봇이 둘이면 둘 다 같은 값을
-     * 보여준다. 그리고 설정이 늦게 오면 낡은 값이 남는다 — 실제로
-     * 이름 옆엔 Sonnet이 적힐는데 칸은 Opus로 보이는 일이 있었다.
-     *
-     * `bot.model`은 **그 봇의 세션이 들고 있는 값**이다(B1). 그걸 먼저 본다.
+     * 갈아타는 중이면 그 값은 **이 에이전트의 것이 아니므로** 안 쓴다.
      */
-    const now = bot.model ?? model.current;
+    const now = pending ? model.current : (bot.model ?? model.current);
     for (const v of model.values) {
       select.append(el("option", { value: v.id, text: v.name, selected: v.id === now }));
     }
+    // 버릴 세션의 모델을 고치는 것은 뜻이 없다 — 갈아탄 뒤에 고른다
+    select.disabled = pending !== undefined;
     select.addEventListener("change", () =>
       post({ t: "setConfig", roomId: r.id, configId: model.configId, value: select.value }),
     );
     rows.push(el("div", { class: "field" }, el("label", { text: labelOf(model) }), select));
+  } else if (pending) {
+    rows.push(el("div", { class: "sub", text: `${agentById.get(pending)?.label ?? pending}의 모델을 불러오는 중…` }));
   }
 
-  // ── 이 봇에 할 수 있는 것
-  const acts: Kids = [
-    el("button", {
-      class: "ghost",
-      text: "권한 설정",
-      title: "입력창 옆 방패 버튼과 같은 화면입니다",
-      onclick: () => (closeDrawer(), paintPermissionSheet(r)),
-    }),
-  ];
-  // 압축 — **이 봇이** 명령을 광고할 때만 (에이전트가 섞인 방에서는 한 쪽만 안다)
+  // ── 갈아타면 무엇을 잃나 — **모델 칸 아래**
+  if (pending) rows.push(el("div", { class: "swap-ask" }, ...swapWarning(r, bot, pending)));
+
+  /*
+   * ── 이 봇에 할 수 있는 것 + 역할
+   *
+   * 🔴 한 줄로 합쳤다. **역할 저장이 맨 오른쪽**이고 나머지는 왼쪽에 붙는다 —
+   * 역할은 «지금 쓴 것을 확정»하는 것이라 입력 바로 다음이고, 압축·내보내기는
+   * 그 봇에 대한 다른 일이다.
+   *
+   * 🔴 «권한 설정»은 뺐다. 입력창 옆 방패 버튼이 같은 화면을 여는데, 여기서
+   * 한 번 더 열면 **같은 곳으로 가는 문이 둘**이 된다. 권한이 어떤지는 위의
+   * 한 줄이 이미 말한다.
+   */
+  const acts: Kids = [];
   if (compactableBots.includes(bot.id)) {
     acts.push(
       el("button", {
@@ -4635,12 +4655,12 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       }),
     );
   }
-  // 내보내기 — 마지막 한 명은 코어가 막지만, 누르고 거절당하게 두지 않는다 —
-  // 애초에 안 보여준다
+  // 마지막 한 명은 코어가 막지만, 누르고 거절당하게 두지 않는다 — 애초에 안 보인다
   if (r.participants.length > 1) {
     acts.push(
       el("button", {
-        class: "ghost",
+        // 🔴 **되돌릴 수 없다.** 세션이 끝나므로 색으로도 말한다
+        class: "ghost danger",
         text: "내보내기",
         title: "이 봇과의 세션을 끝냅니다. 지금까지의 대화는 그대로 남습니다.",
         onclick: () => {
@@ -4651,18 +4671,18 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
     );
   }
 
-  // 🔴 **중단은 여기 안 둔다.** 흔드는 말풍선 아래에 이미 «…만 중단»이 있고,
-  // 그것이 본래 자리다 — 멈추려는 순간 보는 것은 그 말풍선이지 서랍이 아니다.
-  // 서랍을 열고 봇을 찾는 사이에 답이 끝나면 버튼만 헛돌게 된다.
-  rows.push(el("div", { class: "acts" }, ...acts));
+  rows.push(el("div", { class: "info-row" }, el("span", { class: "dim", text: "역할" })));
+  rows.push(roleEditor(r, bot, acts));
+
   // 세션 id는 **그 봇의 것**이다 — 방이 아니라 여기가 제자리다
   const sess = sessionRow(bot);
   if (sess) rows.push(sess);
-  rows.push(el("div", { class: "info-row" }, el("span", { class: "dim", text: "역할" })));
-  rows.push(roleEditor(r, bot));
 
   return el("div", { class: "drawer-bot" }, ...rows);
 }
+
+/** 갈아탈 에이전트를 고르는 중인 봇들 — `botId` → 고른 `agentId` */
+const swapping = new Map<string, string>();
 
 /**
  * 컨텍스트가 몇 퍼센트 찼나 — 모르면 `-1`.

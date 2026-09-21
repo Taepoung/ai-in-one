@@ -2011,15 +2011,10 @@ details.advanced[open] > summary .codicon-chevron-right {
   gap: 6px;
 }
 
+/* 이름이 이 줄의 주인공이다 — 색 점을 뺀 자리를 크기로 채운다 */
 .drawer-bot .who .name {
-  font-weight: 500;
-}
-
-.drawer-bot .who .dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  font-weight: 600;
+  font-size: 14px;
 }
 
 /* 모델(주) · 에이전트(부) — 이름보다 한 단 낮게 */
@@ -2379,7 +2374,7 @@ fieldset.bot .bot-drop {
  */
 .drawer-bot .who .name-go {
   padding: 0;
-  font-weight: 500;
+  font-weight: 600;
   font-size: inherit;
   color: var(--chat-fg);
   text-decoration: none;
@@ -2681,4 +2676,33 @@ fieldset.bot .bot-drop {
 
 .swap-ask .acts {
   margin-top: 8px;
+}
+
+/*
+ * 역할 저장은 **맨 오른쪽**, 나머지는 왼쪽 — 사이를 빈 칸이 민다.
+ * 역할은 «지금 쓴 것을 확정»이라 입력 바로 다음이고, 나머지는 다른 일이다.
+ */
+.role-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.role-acts .gap {
+  flex: 1 1 auto;
+}
+
+/* 되돌릴 수 없는 것은 색으로도 말한다 */
+.drawer-bot .ghost.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.drawer-bot .ghost.danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* 갈아타는 중에는 모델 칸이 잠긴다 — 버릴 세션의 모델을 고치는 건 뜻이 없다 */
+.drawer-bot select:disabled {
+  opacity: 0.55;
 }
