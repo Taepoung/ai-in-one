@@ -2604,6 +2604,78 @@ fieldset.bot .bot-drop {
  * 대화가 바닥까지 자동 스크롤되는 탓에 오히려 밀렸다. **답해야 하는 것은
  * 대화와 같이 흐르면 안 된다.**
  */
+/*
+ * ★ 부딪힘 띠 (§4.3) — 승인 큐 바로 아래.
+ *
+ * 승인 큐보다 **약하게** 보여야 한다. 승인은 답해야 진행되지만, 부딪힘은
+ * 알고만 있으면 되는 것이고 **저절로 풀린다.**
+ */
+.clashes {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.clash {
+  padding: 4px 10px;
+  border-left: 2px solid var(--line);
+}
+
+.clash.blocked {
+  border-left-color: var(--warn);
+}
+
+.clash-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.clash-line .codicon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.clash.blocked .clash-line .codicon {
+  color: var(--warn);
+  opacity: 1;
+}
+
+.clash-who {
+  font-weight: 600;
+}
+
+.clash-path {
+  opacity: 0.75;
+  font-family: var(--mono, monospace);
+}
+
+.clash-what {
+  margin-left: auto;
+  opacity: 0.75;
+}
+
+.clash-why {
+  margin-top: 2px;
+}
+
+.clash-why summary {
+  cursor: pointer;
+  opacity: 0.7;
+  list-style: none;
+}
+
+.clash-why pre {
+  margin: 4px 0 0;
+  padding: 4px 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bubble-bot-bg);
+  border-radius: 4px;
+  opacity: 0.85;
+}
+
 .approvals {
   flex: 0 0 auto;
   max-height: 44vh;

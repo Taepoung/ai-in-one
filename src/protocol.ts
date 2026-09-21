@@ -1,6 +1,7 @@
 import type {
   AnswerPolicy,
   ReviewWait,
+  Clash,
   Approver,
   Attachment,
   SearchHit,
@@ -118,6 +119,7 @@ export type ToWebview =
    * 얼어 있으므로**, 무엇이 누구를 기다리는지 보이고 **가로챌 수 있어야** 한다.
    */
   | { t: "reviews"; roomId: string; list: ReviewWait[] }
+  | { t: "clashes"; roomId: string; list: Clash[] }
   | { t: "roomError"; roomId: string; message: string }
   | { t: "notice"; roomId: string; message: string }
   | {

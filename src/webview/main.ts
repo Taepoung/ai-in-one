@@ -10,6 +10,7 @@ import type {
   PermissionRequest,
   ReviewWait,
   ToolActivity,
+  Clash,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 import type {
@@ -66,6 +67,8 @@ let queued: Record<string, string[]> = {};
  * 얼어 있으므로**, 안 보이면 «아무 일도 안 일어난다»가 된다.
  */
 let reviews: ReviewWait[] = [];
+/** 지금 부딪히는 파일들 (§4.3). 방을 옮기면 갈아 끼운다 */
+let clashes: Clash[] = [];
 
 /** 이 메시지가 **어느 봇의 줄에** 서 있나 */
 function waitingFor(messageId: string): string[] {
@@ -938,6 +941,14 @@ function flushDraft(): void {
 interface ChatEls {
   roomId: string;
   head: HTMLElement;
+  /**
+   * ★ **부딪힘 띠** — 승인 큐 바로 아래 (§4.3).
+   *
+   * 🔴 **입력창이 보이는 자리여야 한다.** 막을 수 있는 층은 사람뿐이라,
+   * 「@베타 api.ts 고쳐줘」를 **치기 전에** 보이는 것이 유일한 진짜 예방이다.
+   * 서랍에 넣으면 열어볼 생각이 든 시점에 이미 늦는다.
+   */
+  clash: HTMLElement;
   list: HTMLElement;
   status: HTMLElement;
   chips: HTMLElement;
@@ -1339,6 +1350,7 @@ function mountChat(r: Room): void {
 
   const head = el("header", { class: "bar" });
   const queue = el("div", { class: "approvals", hidden: true });
+  const clash = el("div", { class: "clashes", hidden: true });
   const list = el("div", { class: "messages" });
   const status = el("div", { class: "status" });
   // 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다
@@ -1465,6 +1477,7 @@ function mountChat(r: Room): void {
     screens.chat,
     head,
     queue,
+    clash,
     list,
     status,
     compose,
@@ -1483,7 +1496,7 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, queue, list, status, chips, box, perm, compose };
+  chat = { roomId: r.id, head, queue, clash, list, status, chips, box, perm, compose };
   pending = [];
   paintChips();
   // 단체방에서는 **봇마다 에이전트가 다르다** — 전부 물어봐야 누가 뭐를 못 하는지 안다
@@ -1977,6 +1990,7 @@ function paintChat(r: Room): void {
   }
 
   paintApprovals(r);
+  paintClashes(r);
   c.list.replaceChildren(...nodes);
   if (atBottom) c.list.scrollTop = c.list.scrollHeight;
 
@@ -3195,6 +3209,73 @@ function onceOption(req: PermissionRequest, allow: boolean): string | undefined 
  * 에이전트가 준 선택지를 **그대로** 고를 수 있다 — «항상»도 거기 있다.
  * 줄에서 바로 누르는 «허용/거절»은 **«이번만»** 이다.
  */
+/**
+ * ★ **부딪힘 띠** (§4.3 · 2026-09-22 실측).
+ *
+ * 무엇을 말하는가가 실측으로 바뀐 자리다. 예전 문구는 *"나중에 끝나는 쪽이 앞의
+ * 변경을 덮어쓸 수 있습니다"* 였는데 **사실이 아니다** — Edit·Write는 겹치면
+ * 거부당하고, 안 겹치면 둘 다 살아남는다. 진짜 일어나는 일은 **막혀서 다시 읽는
+ * 것**이고, 그건 안 망가지는 대신 **조용히 느려진다.**
+ *
+ * 그래서 두 단계로 말한다:
+ *
+ * ```
+ * 함께 고치는 중        아직 아무 일도 안 일어났다 — 겹치지 않으면 그냥 지나간다
+ * 막혀 다시 읽는 중     에이전트가 실제로 거부당했다고 신고했다
+ * ```
+ *
+ * ★ **«누가»는 우리만 안다.** 에이전트가 주는 사유는 *"by the user or by a
+ * linter"* 라 **어느 봇인지 모른다.** 그 자리를 채우는 것이 이 띠의 값이다.
+ */
+function paintClashes(r: Room): void {
+  const host = chat?.clash;
+  if (!host) return;
+  const mine = clashes;
+  if (mine.length === 0) {
+    host.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+  host.hidden = false;
+
+  const name = (id: string) => r.participants.find((b) => b.id === id)?.name ?? id;
+  host.replaceChildren(
+    ...mine.map((c) => {
+      const who = c.botIds.map(name).join("·");
+      const what = c.blocked
+        ? `${c.blockedBotId ? name(c.blockedBotId) : "한쪽"}가 막혀 다시 읽는 중`
+        : "함께 고치는 중";
+      return el(
+        "div",
+        { class: c.blocked ? "clash blocked" : "clash" },
+        el(
+          "div",
+          { class: "clash-line" },
+          icon("warning"),
+          el("span", { class: "clash-who", text: who }),
+          el("span", { class: "clash-path", text: shortPath(c.path), title: c.path }),
+          el("span", { class: "clash-what", text: what }),
+        ),
+        // **CLI가 준 말은 그대로 남긴다**(§0) — 접어두되 버리지 않는다
+        c.reason
+          ? el(
+              "details",
+              { class: "clash-why" },
+              el("summary", {}, icon("chevron-right"), " 에이전트가 말한 사유"),
+              el("pre", { text: c.reason }),
+            )
+          : false,
+      );
+    }),
+  );
+}
+
+/** 띠는 한 줄이라 경로 전체를 못 담는다. 제목(`title`)에는 전체가 남는다 */
+function shortPath(p: string): string {
+  const cut = p.replace(/\\/g, "/").split("/");
+  return cut.length > 2 ? `…/${cut.slice(-2).join("/")}` : p;
+}
+
 function paintApprovals(r: Room): void {
   const host = chat?.queue;
   if (!host) return;
@@ -4955,6 +5036,14 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (room?.id === m.roomId) {
         reviews = m.list;
         renderChat();
+      }
+      break;
+
+    case "clashes":
+      if (room?.id === m.roomId) {
+        clashes = m.list;
+        // 띠만 다시 그린다 — 대화를 통째로 다시 그릴 이유가 없다
+        if (chat) paintClashes(room);
       }
       break;
 

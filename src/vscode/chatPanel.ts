@@ -134,6 +134,8 @@ export class ChatPanel implements AskTarget {
       this.post({ t: "queued", roomId, bots })) as never);
     on("reviews", ((roomId: string, list: never) =>
       this.post({ t: "reviews", roomId, list })) as never);
+    on("clashes", ((roomId: string, list: never) =>
+      this.post({ t: "clashes", roomId, list })) as never);
     on("roomError", ((roomId: string, message: string) =>
       this.post({ t: "roomError", roomId, message })) as never);
     on("notice", ((roomId: string, message: string) =>
@@ -642,6 +644,7 @@ ${hint}` : reason,
     // **다시 그릴 때 «대기 중»이 사라지지 않는다.**
     this.post({ t: "queued", roomId: room.id, bots: this.rooms.queuedIds(room.id) });
     this.post({ t: "reviews", roomId: room.id, list: this.rooms.reviewsIn(room.id) });
+    this.post({ t: "clashes", roomId: room.id, list: this.rooms.clashesIn(room.id) });
   }
 
   private post(msg: ToWebview): void {

@@ -371,6 +371,46 @@ export function isInside(path: string, cwd: string): boolean {
  *
  * 파일 **변경**은 여기 넣지 않는다. 그건 과정이 아니라 결과라 카드로 따로 남긴다(E2).
  */
+/**
+ * ★ **지금 같은 파일에서 부딪히고 있는 봇들** (§4.3).
+ *
+ * 🔴 **«덮어쓴다»가 아니다** (2026-09-22 실측). 예전에는 *"나중에 끝나는 쪽이
+ * 앞의 변경을 덮어쓸 수 있습니다"* 라고 적었는데, 재보니 **그렇지 않다**:
+ *
+ * ```
+ * Edit  · 고치는 자리가 안 겹침  →  통과.  둘 다 살아남는다
+ * Edit  · 고치는 자리가 겹침    →  거부.  "File has been modified since read"
+ * Write                         →  거부.  항상
+ * bash (`> file`, `sed -i`)     →  덮어쓴다. 가드도 경고도 없다
+ * ```
+ *
+ * 그래서 진짜 위험은 «작업이 사라지는 것»이 아니라 **«막혀서 다시 읽느라 조용히
+ * 느려지는 것»** 이다. 안 망가지는 대신 아무도 이유를 모른다.
+ *
+ * ★ **그리고 여기가 우리 자리다.** 에이전트가 주는 사유는 *"by the user or by a
+ * linter"* 다 — **얘는 누가 바꿨는지 모른다.** 어느 봇이 이번 턴에 어느 파일을
+ * 건드렸는지 아는 것은 우리뿐이라, **«누가»를 채워 넣을 수 있는 것도 우리뿐이다.**
+ */
+export interface Clash {
+  /** 부딪힌 파일 */
+  path: string;
+  /** 부딪힌 봇들 (`BotInstance.id`) */
+  botIds: string[];
+  /**
+   * ★ **정황이 아니라 사실인가.**
+   *
+   * `false`면 «둘 다 이 파일을 만졌다»는 관찰일 뿐이다 — 고치는 자리가
+   * 안 겹치면 아무 일도 안 일어난다. `true`면 **에이전트가 실제로 거부당했다고
+   * 신고**한 것이다(`tool_call` 의 `status: "failed"`).
+   */
+  blocked?: boolean;
+  /** 거부 사유. **CLI가 준 말 그대로** 옮긴다 (§0) */
+  reason?: string;
+  /** 막힌 쪽 */
+  blockedBotId?: string;
+  at: number;
+}
+
 export interface ToolActivity {
   /** `toolCallId`. 같은 id로 여러 번 오므로 이걸로 합친다 */
   id: string;

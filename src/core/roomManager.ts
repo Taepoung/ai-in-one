@@ -29,6 +29,7 @@ import {
   type RoomStatus,
   type RoomUsage,
   type ToolActivity,
+  type Clash,
   type SearchHit,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
@@ -173,12 +174,18 @@ interface RoomRuntime {
   /** 봇별 상태. 열쇠는 `BotInstance.id` */
   bots: Map<string, BotRuntime>;
   /**
-   * **이미 말한 충돌** — 경로와 봇들을 묶은 열쇠 (§4.3).
+   * **지금 부딪히고 있는 파일들** — 열쇠는 경로 (§4.3).
    *
-   * 한 파일을 스무 줄 고치면 diff 이벤트도 여러 번 온다. 그때마다 «충돌»을
-   * 적으면 대화가 경고로 덮인다 — 한 번 말하면 사용자는 이미 안다.
+   * 한 파일을 스무 줄 고치면 이벤트도 여러 번 온다. 그때마다 적으면 대화가
+   * 경고로 덮이므로 **파일마다 하나만** 들고 상태만 갱신한다.
    */
-  clashed: Set<string>;
+  clashes: Map<string, ClashState>;
+}
+
+/** 방 안에서만 쓰는 여벌 — 「이미 기록했나」는 화면에 보낼 것이 아니다 */
+interface ClashState extends Clash {
+  /** 시스템 메시지를 이미 남겼나 — 같은 부딪힘으로 두 번 적지 않는다 */
+  noted?: boolean;
 }
 
 /** 스트리밍 델타마다 전체 방을 내보내면 웹뷰가 감당하지 못한다 */
@@ -579,6 +586,14 @@ type Events = {
    * 무엇이 누구를 기다리는지 보이면 사람이 **가로챌** 수 있다.
    */
   reviews: [string, ReviewWait[]];
+  /**
+   * **지금 부딪히는 파일들** (roomId, 목록) — §4.3.
+   *
+   * 🔴 **메시지로만 적으면 «지금»을 못 본다.** 시스템 메시지는 대화가 흐르면
+   * 위로 밀려 올라가서, 사용자는 **부딪히는 중인지 이미 끝났는지 알 수 없다.**
+   * 띠는 **지금 상태**고 메시지는 **그때 일어난 일**이다 — 둘 다 있어야 한다.
+   */
+  clashes: [string, Clash[]];
   /**
    * 방에서 일어난 오류 (roomId, 메시지).
    *
@@ -2552,7 +2567,7 @@ export class RoomManager extends EventEmitter<Events> {
 
       case "tool":
         this.setStatus(room.id, "tool", reply.authorBotId);
-        this.recordActivity(reply, ev);
+        this.recordActivity(room, reply, ev);
         break;
 
       case "diff":
@@ -2900,6 +2915,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 그러면 **자동 승인된 것들만 골라서 흔적이 없어진다.**
    */
   private recordActivity(
+    room: Room,
     reply: Message,
     ev: Extract<AgentEvent, { type: "tool" }>,
   ): void {
@@ -2928,6 +2944,9 @@ export class RoomManager extends EventEmitter<Events> {
 
     if (at >= 0) tools[at] = next;
     else tools.push(next);
+
+    // **막힌 수정**은 diff가 안 오므로 여기서만 볼 수 있다 (§4.3)
+    if (next.status === "failed") this.noteBlocked(room, reply, next);
   }
 
   /**
@@ -3026,24 +3045,119 @@ export class RoomManager extends EventEmitter<Events> {
     if (others.length === 0) return;
 
     const who = [mine, ...others].sort();
-    const key = `${filePath}::${who.join(",")}`;
-    if (rt.clashed.has(key)) return;
-    rt.clashed.add(key);
+    const had = rt.clashes.get(filePath);
+    // 봇 짝이 그대로면 그냥 둔다 — 같은 파일로 몇 번이고 다시 알릴 일이 아니다
+    if (had && had.botIds.join(",") === who.join(",")) return;
+    rt.clashes.set(filePath, {
+      ...(had ?? {}),
+      path: filePath,
+      botIds: who,
+      at: had?.at ?? Date.now(),
+    });
+    this.emitClashes(room.id);
+  }
 
-    const names = who.map(
-      (id) => room.participants.find((b) => b.id === id)?.name ?? id,
-    );
-    const note: Message = {
-      id: messageId(),
-      role: "system",
-      text:
-        `${names.join("·")}가 같은 파일을 동시에 고치고 있습니다 — ${filePath}. ` +
-        `나중에 끝나는 쪽이 앞의 변경을 덮어쓸 수 있습니다.`,
-      deliveredTo: [],
-      createdAt: Date.now(),
-    };
-    this.append(room, note);
-    void this.saveNewMessage(room, note);
+  /**
+   * ★ **에이전트가 «막혔다»고 신고했다** (§4.3 · 2026-09-22 실측).
+   *
+   * 여기가 `noteClash` 와 갈리는 자리다:
+   *
+   * ```
+   * noteClash    diff 두 개가 같은 파일에 왔다        → **정황**
+   * noteBlocked  tool_call 이 failed 로 돌아왔다      → **사실**
+   * ```
+   *
+   * 🔴 **정황만으로는 이 경우를 아예 못 본다.** 막힌 수정은 **아무것도 안 쓰므로
+   * diff가 안 온다** — 그래서 `noteClash` 의 «둘 다 이 파일을 만졌다» 조건에
+   * 영영 걸리지 않는다. 정작 사용자가 알아야 할 쪽이 안 보였던 것이다.
+   *
+   * 사유 글로 판별하지 않는다 — 영어고 버전 따라 바뀐다. **실패 + 그 파일을
+   * 지금 만지는 다른 봇**이면 충분하고, 문구는 **보여줄 때만** 쓴다.
+   */
+  private noteBlocked(room: Room, reply: Message, act: ToolActivity): void {
+    const mine = reply.authorBotId;
+    if (!mine || room.participants.length < 2) return;
+    const rt = this.runtimes.get(room.id);
+    if (!rt) return;
+    const paths = act.paths ?? [];
+    if (paths.length === 0) return;
+
+    for (const filePath of paths) {
+      // 그 파일을 **지금 도는 다른 봇**이 건드렸나 — `noteClash` 와 같은 잣대
+      const others: string[] = [];
+      for (const [id, bt] of rt.bots) {
+        if (id === mine || !bt.turn) continue;
+        if (isBusy(this.statusOf(room.id, id)) !== true) continue;
+        const touched = (bt.turn.files ?? []).some(
+          (f) => f.path === filePath && f.kind !== "read",
+        );
+        if (touched) others.push(id);
+      }
+      if (others.length === 0) continue;
+
+      const who = [mine, ...others].sort();
+      const had = rt.clashes.get(filePath);
+      const state: ClashState = {
+        ...(had ?? {}),
+        path: filePath,
+        botIds: who,
+        blocked: true,
+        blockedBotId: mine,
+        ...(act.output ? { reason: act.output } : {}),
+        at: had?.at ?? Date.now(),
+      };
+      rt.clashes.set(filePath, state);
+      this.emitClashes(room.id);
+
+      /*
+       * 기록은 **사실일 때만** 남긴다.
+       *
+       * 🔴 예전에는 **정황**에도 시스템 메시지를 적었다 — 그것도 «덮어쓸 수
+       * 있습니다»라는 **틀린 말**로. 자리가 안 겹치면 아무 일도 안 일어나는데
+       * 사용자는 그 말을 믿고 멀쩡한 작업을 다시 시킬 수 있었다.
+       * 정황은 이제 **띠로만** 보이고, 대화에는 진짜 막혔을 때만 남는다.
+       */
+      if (state.noted) continue;
+      state.noted = true;
+      const name = (id: string) =>
+        room.participants.find((b) => b.id === id)?.name ?? id;
+      const note: Message = {
+        id: messageId(),
+        role: "system",
+        text:
+          `${name(mine)}의 수정이 거부됐습니다 — ${filePath}. ` +
+          `${others.map(name).join("·")}가 먼저 바꿔서, 다시 읽고 시도합니다.`,
+        deliveredTo: [],
+        createdAt: Date.now(),
+      };
+      this.append(room, note);
+      void this.saveNewMessage(room, note);
+    }
+  }
+
+  /**
+   * 그 방에서 **살아 있는** 부딪힘만 — 방을 새로 열었을 때도 실어 보낸다.
+   *
+   * 「살아 있다」 = **그 봇들 중 둘 이상이 아직 도는 중**. 하나만 남으면 부딪힐
+   * 상대가 없으니 끝난 것이다. 이 잣대 덕에 따로 걷어낼 필요가 없다.
+   */
+  clashesIn(roomId: string): Clash[] {
+    const rt = this.runtimes.get(roomId);
+    if (!rt) return [];
+    const live: Clash[] = [];
+    for (const [path, c] of rt.clashes) {
+      const busy = c.botIds.filter(
+        (id) => isBusy(this.statusOf(roomId, id)) === true,
+      );
+      if (busy.length < 2) continue;
+      const { noted: _drop, ...rest } = c;
+      live.push({ ...rest, path });
+    }
+    return live;
+  }
+
+  private emitClashes(roomId: string): void {
+    this.emit("clashes", roomId, this.clashesIn(roomId));
   }
 
   /**
@@ -3604,7 +3718,7 @@ export class RoomManager extends EventEmitter<Events> {
   private runtime(roomId: string): RoomRuntime {
     let rt = this.runtimes.get(roomId);
     if (!rt) {
-      rt = { status: "idle", bots: new Map(), clashed: new Set() };
+      rt = { status: "idle", bots: new Map(), clashes: new Map() };
       this.runtimes.set(roomId, rt);
     }
     return rt;
@@ -3669,6 +3783,8 @@ export class RoomManager extends EventEmitter<Events> {
     const same = rt.status === merged;
     rt.status = merged;
     if (!same || botId !== undefined) this.emit("status", roomId, merged, bots);
+    // 띠가 살아 있는지는 **상태가 정한다**(`clashesIn`) — 바뀌었으면 다시 알린다
+    this.emit("clashes", roomId, this.clashesIn(roomId));
   }
 
   /**
