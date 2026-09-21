@@ -1837,7 +1837,19 @@ function paintChat(r: Room): void {
         { class: "banner warn" },
         el("span", {
           text:
-            `이전 세션이 끊겨 에이전트는 위 대화를 모릅니다. ` +
+            /*
+             * ★ **어느 봇인지 짚는다** (B1).
+             *
+             * 🔴 «에이전트는»이라고만 했다. 세션은 봇 단위라 한 봇만 끊겨도
+             * 이 배너가 뜨는데, 그러면 **멀쩡한 봇까지 못 미더워진다.**
+             */
+            (() => {
+              const hit = r.participants.filter((b) => b.contextLost);
+              if (r.participants.length > 1 && hit.length > 0) {
+                return `${hit.map((b) => b.name).join("·")}의 세션이 끊겨 위 대화를 모릅니다. `;
+              }
+              return `이전 세션이 끊겨 에이전트는 위 대화를 모릅니다. `;
+            })() +
             `지금까지의 대화(메시지 ${said.length}개 · 약 ${chars.toLocaleString()}자)를 ` +
             `다음 메시지에 함께 보낼까요? ` +
             `최근 것은 그대로, 오래된 긴 메시지는 가운데를 줄여서 보냅니다.` +

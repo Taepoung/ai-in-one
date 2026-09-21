@@ -1082,9 +1082,10 @@ export class RoomManager extends EventEmitter<Events> {
       bot.name = uniqueName(next.label, room.participants.filter((b) => b.id !== botId));
     }
 
-    // **화면과 에이전트가 어긋난 상태**다 (F7과 같은 자리)
-    room.contextLost = true;
-    if (old) room.lostSessionId = old;
+    // **화면과 에이전트가 어긋난 상태**다 (F7과 같은 자리) — **이 봇만**
+    bot.contextLost = true;
+    if (old) bot.lostSessionId = old;
+    this.rollUpLost(room);
 
     this.noteRoom(
       room,
@@ -1390,8 +1391,13 @@ export class RoomManager extends EventEmitter<Events> {
     if (won === 0) return { ok: false, reason: "다시 해봐도 갈라지지 않았습니다." };
 
     const left = room.participants.filter((b) => b.forkFallback);
-    // 전부 되살아났으면 되먹임 약속은 필요 없다 — 계획·기억까지 돌아왔다
-    if (left.length === 0) delete room.refeedPending;
+    /*
+     * 되살아난 봇은 **계획·기억까지 돌아왔으므로** 되먹임이 필요 없다.
+     * 🔴 방 값 하나를 지우면 **아직 폴백인 봇의 약속까지** 같이 지워진다.
+     */
+    for (const b of room.participants) {
+      if (!b.forkFallback) delete b.refeedPending;
+    }
 
     this.noteRoom(
       room,
@@ -1404,9 +1410,10 @@ export class RoomManager extends EventEmitter<Events> {
             `${left.map((b) => b.name).join("·")}는 여전히 글로만 옮깁니다.`,
       "info",
     );
+    this.rollUpLost(room);
     await this.saveProps(room, {
       participants: room.participants,
-      ...(left.length === 0 ? { refeedPending: undefined } : {}),
+      refeedPending: room.refeedPending,
     });
     this.emit("room", room);
     return { ok: true };
@@ -1474,8 +1481,14 @@ export class RoomManager extends EventEmitter<Events> {
       lastReadMessageId: at.id,
       forkedFromRoomId: parent.id,
       forkedAtMessageId: at.id,
-      // 폴백이면 에이전트가 백지다. **사용자가 고른 대로** — 글로 옮기거나 백지로 가거나
-      // 한 봇이라도 폴백이면 되먹임이 필요하다 — 그 봇은 백지에서 시작하므로
+      /*
+       * 폴백이면 에이전트가 백지다. **사용자가 고른 대로** — 글로 옮기거나 백지로.
+       *
+       * 🔴 여기 있는 것은 **요약**이다. 진짜 약속은 아래에서 **폴백한 봇에게만**
+       * 건다. 방에 하나로 두었더니 네이티브로 갈라져 **이미 계획·기억을
+       * 물려받은 봇에게도** 지난 대화가 통째로 다시 들어갔다 — 토큰만 쓰고
+       * 맥락은 두 겹이 된다.
+       */
       ...(forks.every((f) => f.forked.native) || fallback === "fresh"
         ? {}
         : { refeedPending: true }),
@@ -1488,6 +1501,8 @@ export class RoomManager extends EventEmitter<Events> {
 
     for (const [n, { forked }] of forks.entries()) {
       const fresh = room.participants[n]!;
+      // ★ **폴백한 봇에게만** 되먹임 약속 — 네이티브는 이미 다 물려받았다
+      if (fallback !== "fresh" && !forked.native) fresh.refeedPending = true;
       const bt = this.botRuntime(room.id, fresh.id);
       bt.sessionId = forked.sessionId;
       // 네이티브 분기는 역할을 이미 알고 있다 — 원본이 들은 것을 그대로 물려받았다
@@ -3031,7 +3046,7 @@ export class RoomManager extends EventEmitter<Events> {
       bt.roleInjected = true;
     }
     // 끊긴 맥락을 되먹인다 (F7). **역할보다 뒤, 실제 요청보다 앞.**
-    if (room.refeedPending) {
+    if (bot.refeedPending) {
       const history = transcriptText(room, batch);
       if (history) {
         parts.push(
@@ -3044,8 +3059,9 @@ export class RoomManager extends EventEmitter<Events> {
           "[기록 끝] 위는 참고용 맥락입니다. 아래가 지금 요청입니다.",
         );
       }
-      room.refeedPending = false;
-      void this.saveProps(room, { refeedPending: false });
+      delete bot.refeedPending;
+      this.rollUpLost(room);
+      void this.saveProps(room, { participants: room.participants, refeedPending: room.refeedPending });
     }
     if (bot.answerPolicy === "auto") {
       parts.push(
@@ -3161,15 +3177,17 @@ export class RoomManager extends EventEmitter<Events> {
          * 되먹임 약속도 함께 거둔다 — 세션이 이미 아는 대화를 글로 또 밀어넣으면
          * 돈만 쓴다.
          */
-        if (room.lostSessionId === bot.sessionId || room.contextLost) {
-          const promised = room.refeedPending === true;
-          room.contextLost = false;
-          delete room.lostSessionId;
-          delete room.refeedPending;
+        if (bot.lostSessionId === bot.sessionId || bot.contextLost) {
+          const promised = bot.refeedPending === true;
+          delete bot.contextLost;
+          delete bot.lostSessionId;
+          delete bot.refeedPending;
+          this.rollUpLost(room);
           await this.saveProps(room, {
-            contextLost: false,
-            lostSessionId: undefined,
-            refeedPending: undefined,
+            // 방 값은 **요약**이다 — 봇들에서 굴려 올린 것을 그대로 쓴다
+            contextLost: room.contextLost,
+            lostSessionId: room.lostSessionId,
+            refeedPending: room.refeedPending,
           });
           this.noteRoom(
             room,
@@ -3209,8 +3227,9 @@ export class RoomManager extends EventEmitter<Events> {
         void this.saveNewMessage(room, note);
 
         // **화면과 에이전트가 어긋났다.** 사용자가 고를 때까지 들고 있는다.
-        room.contextLost = true;
-        room.lostSessionId = bot.sessionId;
+        bot.contextLost = true;
+        bot.lostSessionId = bot.sessionId ?? undefined;
+        this.rollUpLost(room);
         await this.saveProps(room, { contextLost: true, lostSessionId: bot.sessionId });
         this.emit("room", room);
       }
@@ -3250,14 +3269,27 @@ export class RoomManager extends EventEmitter<Events> {
    */
   async decideRefeed(roomId: string, accept: boolean): Promise<void> {
     const room = await this.openRoom(roomId);
-    room.contextLost = false;
-    room.refeedPending = accept;
-    // 사용자가 정했으니 이제 옛 세션을 놓는다
-    delete room.lostSessionId;
+    /*
+     * ★ **맥락을 잃은 봇들에게만** 건다 (B1).
+     *
+     * 🔴 방에 하나로 두었더니 **먼저 말을 거는 봇이 남의 되먹임을 먹었다** —
+     * 알파가 잃은 맥락이 베타에게 들어가고, 한 번 쓰이면 꺼지므로 정작
+     * 알파는 못 받았다. 실측으로 확인한 자리다.
+     */
+    const lost = room.participants.filter((b) => b.contextLost);
+    for (const b of (lost.length > 0 ? lost : room.participants)) {
+      delete b.contextLost;
+      // 사용자가 정했으니 이제 옛 세션을 놓는다
+      delete b.lostSessionId;
+      if (accept) b.refeedPending = true;
+      else delete b.refeedPending;
+    }
+    this.rollUpLost(room);
     await this.saveProps(room, {
-      contextLost: false,
-      refeedPending: accept,
-      lostSessionId: undefined,
+      participants: room.participants,
+      contextLost: room.contextLost,
+      refeedPending: room.refeedPending,
+      lostSessionId: room.lostSessionId,
     });
     this.emit("room", room);
   }
@@ -3271,8 +3303,9 @@ export class RoomManager extends EventEmitter<Events> {
    */
   async retryResume(roomId: string): Promise<boolean> {
     const room = await this.openRoom(roomId);
-    const bot = this.soleBot(room);
-    const lost = room.lostSessionId;
+    // 맥락을 잃은 **그 봇**을 찾는다 — 방 값은 요약일 뿐이다
+    const bot = room.participants.find((b) => b.lostSessionId) ?? this.soleBot(room);
+    const lost = bot?.lostSessionId ?? room.lostSessionId;
     if (!bot || !lost) return false;
 
     const resumed = await this.connection(bot.agentId).resumeSession(lost, room.cwd);
@@ -3286,9 +3319,11 @@ export class RoomManager extends EventEmitter<Events> {
     bt.roleInjected = true;
     bot.sessionId = lost;
     bot.sessionPrompted = true;
-    room.contextLost = false;
-    delete room.refeedPending;
-    delete room.lostSessionId;
+    // 되살아난 것은 **이 봇**이다 — 다른 봇이 잃은 것까지 걷으면 안 된다
+    delete bot.contextLost;
+    delete bot.refeedPending;
+    delete bot.lostSessionId;
+    this.rollUpLost(room);
 
     if (resumed.options.length > 0) await this.restoreChoices(room, bot, lost, resumed.options);
     this.watchIdle(room, bot, lost);
@@ -3304,9 +3339,9 @@ export class RoomManager extends EventEmitter<Events> {
     await this.saveNewMessage(room, note);
     await this.saveProps(room, {
       participants: room.participants,
-      contextLost: false,
-      refeedPending: undefined,
-      lostSessionId: undefined,
+      contextLost: room.contextLost,
+      refeedPending: room.refeedPending,
+      lostSessionId: room.lostSessionId,
     });
     this.emit("room", room);
     return true;
@@ -3662,6 +3697,25 @@ export class RoomManager extends EventEmitter<Events> {
     });
     // 🔴 저장만 하고 알리지 않으면 **방을 다시 열기 전까지 화면이 모른다.**
     this.emit("message", room.id, m);
+  }
+
+  /**
+   * 봇들의 «맥락 잃음»을 **방 값으로 굴려 올린다**.
+   *
+   * 진실은 봇에 있다(B1). 방 값은 **«하나라도 그런가»** 로만 남긴다 —
+   * 목록과 배너가 방 단위로 묻기 때문이고, 없애면 화면이 봇을 하나하나
+   * 훑어야 한다. **읽기 전용 요약이지 근거가 아니다.**
+   */
+  private rollUpLost(room: Room): void {
+    const anyLost = room.participants.some((b) => b.contextLost);
+    const anyFeed = room.participants.some((b) => b.refeedPending);
+    if (anyLost) room.contextLost = true;
+    else delete room.contextLost;
+    if (anyFeed) room.refeedPending = true;
+    else delete room.refeedPending;
+    const one = room.participants.find((b) => b.lostSessionId)?.lostSessionId;
+    if (one) room.lostSessionId = one;
+    else delete room.lostSessionId;
   }
 
   private append(room: Room, message: Message): void {
