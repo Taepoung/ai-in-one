@@ -2614,3 +2614,22 @@ fieldset.bot .bot-drop {
 .approval .card-body {
   padding: 4px 0 8px 22px;
 }
+
+/* 승인 큐 — 누가 하려는 일인가 (§4.2.2) */
+.approval .activity .by {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* 원래 맡겼던 심사 봇 — 왜 나한테 왔는지의 단서 */
+.approval .activity .meant {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--warn);
+}

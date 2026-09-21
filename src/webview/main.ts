@@ -3194,8 +3194,30 @@ function paintApprovals(r: Room): void {
     renderChat();
   };
 
+  const many = r.participants.length > 1;
   const rows = mine.map((card) => {
     const req = card.req;
+    const from = req.askerBotId
+      ? r.participants.find((b) => b.id === req.askerBotId)
+      : undefined;
+    const asker = many ? from?.name : undefined;
+
+    /*
+     * ★ **원래 누가 심사할 것이었나** (§4.2.2의 «대상»).
+     *
+     * 이 줄이 **내 큐에 있다는 것 자체가** 봇 심사가 안 됐다는 뜻이다 —
+     * 맡길 봇이 바쁘거나, 답을 못 읽었거나, 읽기라 안 넘겼거나. 이유는
+     * 안내 줄로 한 번 지나가지만 **그건 곧 사라진다.**
+     *
+     * 그래서 줄에 남긴다: «리뷰어가 볼 예정이었다»를 알면 *"왜 나한테
+     * 왔지"* 가 풀리고, 자주 그러면 **맡김이 헛돌고 있다**는 신호가 된다.
+     *
+     * 대상이 사용자면 안 적는다 — 내 큐에 있는 게 당연한 경우다.
+     */
+    const meantFor =
+      from?.approver.kind === "bot"
+        ? r.participants.find((b) => b.id === (from.approver as { botId?: string }).botId)?.name
+        : undefined;
     const tick = el("input", { type: "checkbox" }) as HTMLInputElement;
     tick.checked = ticked.has(card.id);
     tick.addEventListener("change", () => {
@@ -3261,6 +3283,23 @@ function paintApprovals(r: Room): void {
             icon("chevron-right"),
             icon(permIcon(req.kind)),
             ` ${req.title}`,
+            /*
+             * ★ **누가 하려는 일인가** (§4.2.2).
+             *
+             * 🔴 제목만 있었다. 단체방에서 «파일 고치기»가 셋 뜨면 어느 봇
+             * 것인지 알 수가 없는데, 그게 허용 여부를 가르는 첫 근거다 —
+             * **리뷰어가 파일을 고치려 하면 그것부터 이상하다.**
+             *
+             * 1:1에서는 안 붙인다. 상대가 하나뿐이라 자명하다.
+             */
+            asker ? el("span", { class: "by", text: asker }) : null,
+            meantFor
+              ? el("span", {
+                  class: "meant",
+                  text: `↷ ${meantFor}`,
+                  title: `원래 ${meantFor}에게 맡긴 승인입니다. 지금은 직접 답해야 합니다.`,
+                })
+              : null,
           ),
           body,
         ),
@@ -3285,11 +3324,26 @@ function paintApprovals(r: Room): void {
       picked.length > 0
         ? el("button", { text: "선택 거절", onclick: () => sweep(picked, false) })
         : null,
+      /*
+       * ★ **«전부 거절»도 있다.**
+       *
+       * 🔴 «전부 허용»만 달았다가 고쳤다. 비대칭인데다, **거절이 더 안전한
+       * 쪽**이라 막아둘 이유가 없다 — 자리를 비우거나 무슨 일인지 모를 때
+       * 한 번에 물릴 수 있어야 한다. 거절해도 되돌릴 수 없는 일은 안 생긴다.
+       */
       mine.length > 1
         ? el("button", {
+            class: "primary",
             text: "전부 허용",
-            title: `${mine.length}개를 **이번만** 허용합니다. «항상»은 하나씩 펴서 고르세요.`,
+            title: `${mine.length}개를 «이번만» 허용합니다. «항상»은 하나씩 펴서 고르세요.`,
             onclick: () => sweep(mine, true),
+          })
+        : null,
+      mine.length > 1
+        ? el("button", {
+            text: "전부 거절",
+            title: `${mine.length}개를 «이번만» 거절합니다.`,
+            onclick: () => sweep(mine, false),
           })
         : null,
     ),

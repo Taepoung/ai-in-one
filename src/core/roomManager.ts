@@ -3679,12 +3679,16 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const before = found ? this.statusOf(found.room.id, found.bot.id) : undefined;
     if (found) this.setStatus(found.room.id, "permission", found.bot.id);
+    // **누가 하려는 일인지** 붙여서 넘긴다 — 세션은 봇 하나에 속한다(B1)
+    const asked: PermissionRequest = found
+      ? { ...req, askerBotId: found.bot.id }
+      : req;
     try {
       if (approver.kind === "bot" && found) {
-        const decided = await this.askBotApprover(found.room, found.bot, approver.botId, req);
+        const decided = await this.askBotApprover(found.room, found.bot, approver.botId, asked);
         if (decided) return decided;
       }
-      return await this.opts.host.requestPermission(req);
+      return await this.opts.host.requestPermission(asked);
     } finally {
       // 턴은 막혀 있었으므로 **원래 하던 것으로** 돌아간다
       if (found && before) this.setStatus(found.room.id, before, found.bot.id);
