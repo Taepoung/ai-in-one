@@ -3626,12 +3626,37 @@ export class RoomManager extends EventEmitter<Events> {
     if (!sessionId) return hand(`${judge.name}의 세션이 아직 열리지 않아`);
 
     /*
-     * ★ **심사를 재귀시키지 않는다** (§4.2.2).
+     * ★ **자기 일을 하는 중이면 끼어들지 않는다** (§4.3).
      *
-     * 심사 중인 봇이 스스로 권한을 요청하면 그 요청은 **사용자에게** 간다.
-     * 안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다.
+     * 🔴 이 검사가 없었다. `askBotApprover` 는 `send()` 가 아니라 `runQueue` 를
+     * 직접 부르는데(답 메시지를 받아야 해서), `runQueue` 는 들어가자마자
+     * `releaseTurn` 으로 **그 봇이 돌던 턴을 닫고 자리를 가져간다.** 그래서
+     * 심사 봇이 마침 일하는 중이면 **사용자가 시킨 일의 답 자리에 심사 판결이
+     * 들어앉았다** — 실제로 «긴 일 좀 해줘»의 답이 `ALLOW` 로 찍혔다.
+     *
+     * 턴은 봇 단위로만 직렬이고 방 단위로는 병렬이므로(§4.3), 요청한 봇이
+     * 도는 동안 심사 봇도 자기 일을 하고 있는 것은 **드문 일이 아니다.**
+     */
+    if (isBusy(this.statusOf(room.id, judge.id))) {
+      return hand(`${judge.name} 쪽이 다른 일을 하는 중이라`);
+    }
+
+    /*
+     * ★ **심사는 한 번에 하나다** (§4.2.2).
+     *
+     * 두 가지를 한꺼번에 막는다:
+     *
+     * 1. **재귀** — 심사 중인 봇이 스스로 권한을 요청하면 그 요청은 사용자에게.
+     *    안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다
+     * 2. **쌓임** — 봇이 여럿이면 승인 요청도 여럿이 동시에 뜰 수 있는데,
+     *    심사 봇의 세션은 **하나**라 직렬이다(B1). 줄을 세우면 요청한 봇들이
+     *    그만큼 멈춰 서 있게 되므로, **기다리게 하지 않고 사람에게 넘긴다**
+     *
+     * 🔴 `add` 를 **검사 바로 뒤**에 둔다. 예전에는 `saveNewMessage` 를
+     * `await` 한 뒤에 넣었는데, 그 사이에 두 번째 심사가 검사를 통과했다.
      */
     if (this.judging.size > 0) return hand("이미 다른 심사가 도는 중이라");
+    this.judging.add(judge.id);
 
     this.emit("notice", room.id, `${judge.name}에게 물어보는 중… — «${req.title}»`);
 
@@ -3643,12 +3668,11 @@ export class RoomManager extends EventEmitter<Events> {
       deliveredTo: [judge.id],
       createdAt: Date.now(),
     };
-    this.append(room, ask);
-    await this.saveNewMessage(room, ask);
 
-    this.judging.add(judge.id);
     let reply: Message | undefined;
     try {
+      this.append(room, ask);
+      await this.saveNewMessage(room, ask);
       /*
        * **늦으면 사람에게.** 리뷰어가 막히거나 길게 생각하는 동안 요청한 봇은
        * 멈춰 서 있다 — 그 시간을 무한정 늘리면 «아무 일도 안 일어난다»가 된다.
@@ -3667,7 +3691,7 @@ export class RoomManager extends EventEmitter<Events> {
     } finally {
       this.judging.delete(judge.id);
     }
-    if (!reply) return hand(`${judge.name}이(가) 제때 답하지 않아`);
+    if (!reply) return hand(`${judge.name} 쪽이 제때 답하지 않아`);
 
     const verdict = readVerdict(reply.text);
     if (!verdict) return hand(`${judge.name}의 답을 읽을 수 없어`);
