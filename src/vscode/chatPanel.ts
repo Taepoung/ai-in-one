@@ -349,7 +349,10 @@ export class ChatPanel implements AskTarget {
           await this.rooms.renameBot(m.roomId, m.botId, m.name);
           break;
         case "setAgent":
-          await this.rooms.setAgent(m.roomId, m.botId, m.agentId);
+          await this.rooms.setAgent(m.roomId, m.botId, m.agentId, {
+            ...(m.model ? { model: m.model } : {}),
+            ...(m.refeed !== undefined ? { refeed: m.refeed } : {}),
+          });
           break;
         case "fork": {
           /*
@@ -403,7 +406,7 @@ export class ChatPanel implements AskTarget {
           break;
         }
         case "setConfig": {
-          const updated = await this.rooms.setConfig(m.roomId, m.configId, m.value);
+          const updated = await this.rooms.setConfig(m.roomId, m.configId, m.value, m.botId);
           // 하나를 바꾸면 다른 선택지가 함께 바뀔 수 있다 — 응답에 온 전체를 다시 내려준다.
           const agentId = (await this.rooms.openRoom(m.roomId)).participants[0]?.agentId;
           if (agentId) {

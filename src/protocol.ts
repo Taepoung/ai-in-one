@@ -236,7 +236,20 @@ export type FromWebview =
    * «바꿨더니 다 잊었다»가 되지 않게 묻는 흐름이 필요한데, 그건 컨텍스트
    * 이동(§8.1)과 함께 설계한다. **아직 화면은 없다**(배선만).
    */
-  | { t: "setAgent"; roomId: string; botId: string; agentId: string }
+  /**
+   * 에이전트를 갈아탄다 — **모델과 되먹임까지 한 번에** (§4.2.1).
+   *
+   * 사용자에게는 한 번의 결정이다: «Codex의 GPT-5로, 대화는 넘겨서».
+   * 따로 보내면 순서가 안 지켜진다(`post` 는 기다리지 않는다).
+   */
+  | {
+      t: "setAgent";
+      roomId: string;
+      botId: string;
+      agentId: string;
+      model?: { configId: string; value: string };
+      refeed?: boolean;
+    }
   | { t: "leave"; roomId: string }
   /**
    * 대화를 그 지점에서 갈라 새 방을 만든다 (v1.1).
@@ -277,7 +290,8 @@ export type FromWebview =
       approver?: Approver;
     }
   /** 대화 중에 모델·추론 강도를 바꾼다 (B12·B15) */
-  | { t: "setConfig"; roomId: string; configId: string; value: string | boolean }
+  /** 🔴 `botId` 는 필수다 — 없으면 단체방에서 **첫 봇이 바뀐다** (B1) */
+  | { t: "setConfig"; roomId: string; configId: string; value: string | boolean; botId?: string }
   | { t: "compact"; roomId: string; botId?: string }
   | { t: "pickCwd" }
   | { t: "openFile"; path: string; line?: number }

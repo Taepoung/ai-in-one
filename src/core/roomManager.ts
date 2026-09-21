@@ -1020,7 +1020,28 @@ export class RoomManager extends EventEmitter<Events> {
    * 단계가 필요한데, 그건 컨텍스트 이동(§8.1)과 함께 설계한다. 여기서는
    * 코어가 할 일만 정해둔다.
    */
-  async setAgent(roomId: string, botId: string, agentId: string): Promise<void> {
+  async setAgent(
+    roomId: string,
+    botId: string,
+    agentId: string,
+    /**
+     * 갈아타면서 **같이 정하는 것들**.
+     *
+     * 🔴 셋을 따로 보내면 순서가 안 지켜진다(웹뷰의 `post` 는 기다리지 않는다).
+     * 게다가 사용자에게는 **한 번의 결정**이다 — «Codex의 GPT-5로, 대화는
+     * 넘겨서» 가 한 문장이지 세 번의 조작이 아니다.
+     */
+    opts?: {
+      /** 갈아탄 뒤 곧바로 걸 모델. 새 에이전트의 `configId` 와 값 */
+      model?: { configId: string; value: string };
+      /**
+       * 지난 대화를 다음 메시지에 실어 보낼까 (F7).
+       *
+       * 안 주면 «아직 못 정했다» — `contextLost` 배너가 떠서 그때 묻는다.
+       */
+      refeed?: boolean;
+    },
+  ): Promise<void> {
     const room = await this.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
@@ -1079,6 +1100,23 @@ export class RoomManager extends EventEmitter<Events> {
       contextLost: true,
       ...(old ? { lostSessionId: old } : {}),
     });
+
+    /*
+     * ★ **고를 때 같이 정한 것들을 지금 건다.**
+     *
+     * 되먹임부터다 — 모델을 거는 순간 세션이 열리는데, 그 전에 «대화를
+     * 넘길지»가 정해져 있어야 **첫 프롬프트에 실려 간다**.
+     */
+    if (opts?.refeed !== undefined) await this.decideRefeed(roomId, opts.refeed);
+    if (opts?.model) {
+      try {
+        await this.setConfig(roomId, opts.model.configId, opts.model.value, botId);
+      } catch (err) {
+        // 모델을 못 걸어도 **갈아타기 자체는 끝났다** — 되돌리지 않고 말만 한다
+        this.noteRoom(room, `모델을 걸지 못했습니다 — ${describe(err)}`, "info");
+      }
+    }
+
     this.emit("room", room);
     this.emitMetas();
   }
@@ -2082,9 +2120,19 @@ export class RoomManager extends EventEmitter<Events> {
     roomId: string,
     configId: string,
     value: string | boolean,
+    /**
+     * 어느 봇의 설정인가.
+     *
+     * 🔴 **없이 만들었다가 단체방에서 어긋났다.** 언제나 `participants[0]` 을
+     * 골랐으므로, 서랍에서 **둘째 봇의 모델을 바꾸면 첫째 봇이 바뀌었다** —
+     * 권한 시트의 모드도 같았다. 설정은 **세션에 거는 것**이고 세션은 봇
+     * 단위다(B1). 안 주면 예전처럼 방의 첫 봇이다(1:1 경로).
+     */
+    botId?: string,
   ): Promise<acp.SessionConfigOption[]> {
     const room = await this.openRoom(roomId);
-    const bot = room.participants[0]!;
+    const bot = (botId ? room.participants.find((b) => b.id === botId) : undefined)
+      ?? room.participants[0]!;
 
     // 🔴 **저장된 `sessionId`를 그대로 쓰면 안 된다.** 창을 껐다 켜면 그 id는
     // 디스크에 남아 있지만 **CLI는 그 세션을 안 들고 있다** — 방을 여는 것만으로는

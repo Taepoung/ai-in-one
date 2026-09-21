@@ -3450,7 +3450,8 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
     };
     select.addEventListener("change", () => {
       paint();
-      post({ t: "setConfig", roomId: r.id, configId: mode.configId, value: select.value });
+      // 🔴 **봇을 실어야 한다** — 없으면 단체방에서 첫 봇의 모드가 바뀐다
+      post({ t: "setConfig", roomId: r.id, configId: mode.configId, value: select.value, botId: bot.id });
     });
     paint();
     rows.push(el("div", { class: "field" }, el("label", { text: "권한 모드" }), select, hint));
@@ -4513,15 +4514,37 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
   const busy = at !== "idle" && at !== "error";
   const next = agentById.get(nextId)?.label ?? nextId;
 
-  const go = el("button", {
-    class: "primary",
-    text: `${next}(으)로 바꾸기`,
-    onclick: () => {
-      swapping.delete(bot.id);
-      post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: nextId });
-    },
-  }) as HTMLButtonElement;
-  go.disabled = busy;
+  /*
+   * ★ **«대화를 넘길지»를 여기서 같이 정한다** (F7과 같은 세 갈래).
+   *
+   * 🔴 처음에는 «바꾸기» 하나였다. 그러면 바꾼 **뒤에** 배너가 떠서 한 번 더
+   * 묻는다 — 사용자에게는 **한 번의 결정**인데(«Codex로, 대화는 넘겨서»)
+   * 두 번 물어보는 꼴이었다. 게다가 **무엇을 잃는지 방금 읽은 자리**에서
+   * 정하는 것이 가장 정확하다.
+   *
+   * 되먹임은 **글자만** 옮긴다 — 위 경고에 적어뒀다. 그래서 두 갈래다.
+   */
+  const mk = (label: string, title: string, refeed: boolean) => {
+    const b = el("button", {
+      class: refeed ? "primary" : "",
+      text: label,
+      title,
+      onclick: () => {
+        const model = swapModel.get(bot.id);
+        const opt = optionsFor(nextId, r.id)?.find((o) => o.category === "model");
+        swapping.delete(bot.id);
+        swapModel.delete(bot.id);
+        post({
+          t: "setAgent", roomId: r.id, botId: bot.id, agentId: nextId, refeed,
+          ...(model && opt ? { model: { configId: opt.configId, value: model } } : {}),
+        });
+      },
+    }) as HTMLButtonElement;
+    b.disabled = busy;
+    return b;
+  };
+  const goFeed = mk("대화 넘겨서 바꾸기", "지난 대화를 다음 메시지에 함께 보냅니다. 글자만 갑니다.", true);
+  const goBare = mk("기록만 두고 바꾸기", "대화는 화면에만 남고, 새 에이전트는 백지에서 시작합니다.", false);
 
   return [
     el("div", { class: "swap-what" },
@@ -4541,12 +4564,13 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
       ? el("p", { class: "warn", text: "답하는 중에는 바꿀 수 없습니다. 끝나거나 중단한 뒤에 하세요." })
       : null,
     el("div", { class: "acts" },
-      go,
+      goFeed,
+      goBare,
       el("button", {
         class: "ghost",
         text: "그대로 두기",
         // 고른 것을 **되돌린다** — 안 바꿨는데 칸만 바뀌어 있으면 거짓말이다
-        onclick: () => (swapping.delete(bot.id), paintDrawer(r)),
+        onclick: () => (swapping.delete(bot.id), swapModel.delete(bot.id), paintDrawer(r)),
       }),
     ),
   ];
@@ -4622,6 +4646,7 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       pick.append(el("option", { value: a.id, text: a.label, selected: a.id === showAgent }));
     }
     pick.addEventListener("change", () => {
+      swapModel.delete(bot.id);   // 다른 에이전트의 모델 값은 여기서 뜻이 없다
       if (pick.value === bot.agentId) swapping.delete(bot.id);
       else {
         swapping.set(bot.id, pick.value);
@@ -4642,15 +4667,25 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
      *
      * 갈아타는 중이면 그 값은 **이 에이전트의 것이 아니므로** 안 쓴다.
      */
-    const now = pending ? model.current : (bot.model ?? model.current);
+    const now = pending
+      ? (swapModel.get(bot.id) ?? model.current)
+      : (bot.model ?? model.current);
     for (const v of model.values) {
       select.append(el("option", { value: v.id, text: v.name, selected: v.id === now }));
     }
-    // 버릴 세션의 모델을 고치는 것은 뜻이 없다 — 갈아탄 뒤에 고른다
-    select.disabled = pending !== undefined;
-    select.addEventListener("change", () =>
-      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: select.value }),
-    );
+    /*
+     * ★ **갈아타는 중에도 고를 수 있다.**
+     *
+     * 🔴 처음에는 잠갔다 — «버릴 세션의 모델을 고치는 건 뜻이 없다»고 봐서다.
+     * 그런데 **고르는 건 버릴 세션의 모델이 아니라 새 에이전트의 모델**이다.
+     * 잠가두면 갈아탄 뒤에 서랍을 다시 열어 또 골라야 했다.
+     *
+     * 지금 고른 값은 **확정할 때 같이 걸린다**(`setAgent` 의 `model`).
+     */
+    select.addEventListener("change", () => {
+      if (pending) { swapModel.set(bot.id, select.value); return; }
+      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: select.value, botId: bot.id });
+    });
     rows.push(el("div", { class: "field" }, el("label", { text: labelOf(model) }), select));
   } else if (pending) {
     rows.push(el("div", { class: "sub", text: `${agentById.get(pending)?.label ?? pending}의 모델을 불러오는 중…` }));
@@ -4709,6 +4744,8 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
 
 /** 갈아탈 에이전트를 고르는 중인 봇들 — `botId` → 고른 `agentId` */
 const swapping = new Map<string, string>();
+/** 그때 **같이 고른 모델** — `botId` → 새 에이전트의 모델 값 */
+const swapModel = new Map<string, string>();
 
 /**
  * 컨텍스트가 몇 퍼센트 찼나 — 모르면 `-1`.
