@@ -2055,6 +2055,8 @@ function sigOf(m: Message): string {
     usagePct(m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : undefined),
     // 이름을 바꾸면 말풍선도 따라가야 한다
     (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.name : "") ?? "",
+    // 멈춰 있나 — 타이핑 점이 붙고 떨어진다
+    m.authorBotId ? (botStatus[m.authorBotId] ?? "") : "",
     // 배달 표시 — 받는 이가 바뀌거나 줄에서 빠지면 다시 그려야 한다
     m.deliveredTo.join(","),
     (m.notSentTo ?? []).join(","),
@@ -2210,8 +2212,15 @@ function messageNode(
       }
       headed = true;
     }
-    // 타이핑 표시와 시각은 **마지막 조각에만** — 중간에 붙으면 말이 끝난 것처럼 보인다
-    if (m.streaming && part.last) {
+    /*
+     * 타이핑 표시와 시각은 **마지막 조각에만** — 중간에 붙으면 말이 끝난 것처럼 보인다.
+     *
+     * 🔴 **멈춰 있으면 점도 멈춘다.** 승인을 기다리는 동안 그 턴은 정말로
+     * 멈춰 있는데(블로킹 요청이다), 점이 계속 돌면 «쓰고 있다»는 거짓말이
+     * 된다 — 사용자는 **자기를 기다리는 줄 모르고** 기다리게 된다.
+     */
+    const stalled = m.authorBotId !== undefined && botStatus[m.authorBotId] === "permission";
+    if (m.streaming && part.last && !stalled) {
       bubble.append(el("span", { class: "typing" }, el("i"), el("i"), el("i")));
     }
     node.append(

@@ -3632,11 +3632,32 @@ export class RoomManager extends EventEmitter<Events> {
     const found = this.botForSession(sessionId);
     const approver = found?.bot.approver ?? ASK_USER;
 
-    if (approver.kind === "bot" && found) {
-      const decided = await this.askBotApprover(found.room, found.bot, approver.botId, req);
-      if (decided) return decided;
+    /*
+     * ★ **기다리는 동안 «권한 대기»라고 말한다** (C10).
+     *
+     * 🔴 `RoomStatus` 에 `permission` 이 있는데 **아무도 세우지 않고 있었다.**
+     * 그래서 승인 카드가 떠 있는 내내 상태 줄은 «답하는 중…»이라고 했고,
+     * 말풍선에는 타이핑 점이 계속 돌았다 — **아무것도 안 흐르는데.**
+     *
+     * `session/request_permission` 은 **블로킹 요청**이다. 답할 때까지 그
+     * 에이전트의 턴은 정말로 멈춰 있다. 화면이 그걸 그대로 말해야 한다 —
+     * 안 그러면 사용자는 **자기를 기다리는 줄 모르고** 기다린다.
+     *
+     * 봇에게 맡겼을 때도 마찬가지다. 누가 답하든 «멈춰서 답을 기다리는 중»인
+     * 것은 같고, **누가** 답하는지는 심사 줄(`reviews`)이 따로 말한다.
+     */
+    const before = found ? this.statusOf(found.room.id, found.bot.id) : undefined;
+    if (found) this.setStatus(found.room.id, "permission", found.bot.id);
+    try {
+      if (approver.kind === "bot" && found) {
+        const decided = await this.askBotApprover(found.room, found.bot, approver.botId, req);
+        if (decided) return decided;
+      }
+      return await this.opts.host.requestPermission(req);
+    } finally {
+      // 턴은 막혀 있었으므로 **원래 하던 것으로** 돌아간다
+      if (found && before) this.setStatus(found.room.id, before, found.bot.id);
     }
-    return this.opts.host.requestPermission(req);
   }
 
   /**
