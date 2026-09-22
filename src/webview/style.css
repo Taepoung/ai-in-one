@@ -2424,8 +2424,24 @@ fieldset.bot .bot-drop {
   text-decoration: none;
 }
 
+.drawer-bot .who .name-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+/* 들어가는 표시 — 이름보다 작고 흐리게. 눌러보면 그때 또렷해진다 */
+.drawer-bot .who .name-go .codicon {
+  font-size: 12px;
+  opacity: 0.45;
+}
+
 .drawer-bot .who .name-go:hover {
   text-decoration: underline;
+}
+
+.drawer-bot .who .name-go:hover .codicon {
+  opacity: 0.9;
 }
 
 /* 이름 바꾸기 연필 — 이름 옆에서 눈에 안 띄게 */
@@ -2611,7 +2627,13 @@ fieldset.bot .bot-drop {
  * 말하는 유일한 자리이기 때문이다. 부제는 «어느 방 안에서» 를 붙여 **별개
  * 방으로 오해하지 않게** 한다.
  */
-.bar h1.view-head {
+/*
+ * 방 이름 · @봇 — **방 이름이 먼저**다. 평소 헤더와 같은 자리에 같은 것이
+ * 있어야 «다른 방으로 건너온 것»처럼 안 읽힌다.
+ */
+.bar h1.view-head .view-of {
+  margin-left: 5px;
+  font-weight: 600;
   color: var(--accent, inherit);
 }
 

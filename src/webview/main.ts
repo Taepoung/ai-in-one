@@ -1904,14 +1904,26 @@ function paintChat(r: Room): void {
         class: "icon", title: "단체방으로",
         onclick: () => openBotView(null),
       }, icon("arrow-left")),
+      /*
+       * ★ **원본 방 이름을 봇 이름과 같이 둔다** (§5의 «단체방 X의 @codex 뷰»).
+       *
+       * 🔴 `@구현` 만 크게 띄우고 방 이름은 부제에 흘려뒀더니 **여기가 어디인지
+       * 알기 힘들었다.** 방 제목은 평소 헤더에서 늘 그 자리에 있는 것이라,
+       * 갑자기 사라지면 **다른 방으로 건너온 것처럼 읽힌다.**
+       *
+       * 그래서 **방 이름이 먼저, 봇이 뒤**다 — 평소 헤더와 같은 자리에 같은
+       * 것이 있고 «· @구현»이 덧붙는 모양이라, 한눈에 «그 방 안의 한 갈래»로
+       * 읽힌다.
+       */
       el(
         "h1",
         { class: "view-head" },
-        `@${seen.name}`,
+        r.title,
+        el("span", { class: "view-of", text: `· @${seen.name}` }),
         el("span", {
           class: "sub",
           title: r.cwd,
-          text: `«${r.title}» 안에서 본 것만`,
+          text: `1:1 뷰 — ${seen.name}와(과) 주고받은 것만`,
         }),
       ),
       /*
@@ -4498,6 +4510,36 @@ function openMessageMenu(e: MouseEvent, m: Message): void {
     }
   }
 
+  /*
+   * ── ★ **이 말에 얽힌 봇의 뷰로** (v2.1)
+   *
+   * 🔴 입구가 **참여자 서랍 하나뿐**이었다. 서랍은 «봇을 관리하는 곳»이라
+   * 대화를 읽다가 *"얘랑 한 얘기만 몰아 보고 싶다"* 가 될 때 **손이 거기로
+   * 안 간다** — 지금 보고 있는 말풍선이 바로 그 봇 것인데도.
+   *
+   * 여기가 제자리인 이유: 말풍선은 **누구 이야기인지 이미 알고 있다.** 고를
+   * 것이 없으니 «이 봇과의 것만»이 한 번에 된다.
+   */
+  const linked = m.role === "agent"
+    ? (m.authorBotId ? [m.authorBotId] : [])
+    // 보낸 말은 **받은 봇들**이 얽힌 봇이다. 못 간 곳도 그 봇 이야기다(§5)
+    : [...new Set([...m.deliveredTo, ...(m.notSentTo ?? [])])];
+  const jumps = linked
+    .filter((id) => id !== viewBotId)
+    .map((id) => r.participants.find((b) => b.id === id))
+    .filter((b): b is BotInstance => b !== undefined);
+
+  if (r.participants.length > 1 && jumps.length > 0) {
+    if (kids.length > 0) kids.push(el("hr"));
+    for (const b of jumps) {
+      kids.push(el("button", {
+        text: `${b.name}와(과)의 1:1 뷰`,
+        title: `${b.name}와(과) 주고받은 것만 모아 봅니다`,
+        onclick: () => { close(); openBotView(b.id); },
+      }));
+    }
+  }
+
   // ── 분기 — 헤더 버튼이 못 하는 것: **이 지점에서**
   if (kids.length > 0) kids.push(el("hr"));
   kids.push(
@@ -5038,12 +5080,25 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
    * 입력창에서 `@` 를 치면 된다.
    */
   const nameBtn = r.participants.length > 1
-    ? el("button", {
-        class: "link name-go",
-        text: bot.name,
-        title: `${bot.name}와(과) 주고받은 것만 봅니다`,
-        onclick: () => openBotView(bot.id),
-      })
+    ? el(
+        "button",
+        {
+          class: "link name-go",
+          title: `${bot.name}와(과) 주고받은 것만 봅니다`,
+          onclick: () => openBotView(bot.id),
+        },
+        bot.name,
+        /*
+         * ★ **들어갈 수 있다는 티** (v2.1).
+         *
+         * 🔴 이름이 본문색에 밑줄도 없어서 **눌러지는 티가 하나도 안 났다.**
+         * 칩을 꽂던 시절에는 «있으면 편한 것»이라 괜찮았는데, 지금은 **봇별
+         * 뷰의 유일한 입구**다 — 안 보이면 기능이 없는 것과 같다.
+         *
+         * 목록 행의 `›` 와 같은 뜻으로 읽힌다: **누르면 그 안으로 들어간다.**
+         */
+        icon("chevron-right"),
+      )
     : el("span", { text: bot.name });
   nameCell.append(nameBtn);
 
