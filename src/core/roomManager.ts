@@ -31,6 +31,7 @@ import {
   type ToolActivity,
   type Clash,
   uniqueBotName,
+  inBotView,
   type SearchHit,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
@@ -1247,13 +1248,46 @@ export class RoomManager extends EventEmitter<Events> {
    */
   async forkRoom(
     roomId: string,
-    opts: { atMessageId?: string; title?: string; fallback?: ForkFallback } = {},
+    opts: {
+      atMessageId?: string;
+      title?: string;
+      fallback?: ForkFallback;
+      /**
+       * ★ **이 봇만 가른다** (v2.1 · §5).
+       *
+       * 🔴 로드맵은 «1:1 뷰에서는 분기 비활성»이라고 적어뒀다 — *"단체방 전체가
+       * fork되나, 그 봇만 분리되나"* 하는 모호함 때문이었다. 그런데 모호함을
+       * 없애는 길은 **막는 것만이 아니라 뜻을 정해주는 것**도 있다:
+       *
+       * ```
+       * 단체방에서 분기   방 전체가 갈라진다  (여태 하던 것)
+       * 뷰에서 분기       그 봇만 갈라진다    (여기)
+       * ```
+       *
+       * ★ **뷰가 곧 «그 봇이 아는 전부»**라(§5) 그걸 그대로 가르면 **정확히 그
+       * 맥락의 1:1 방**이 나온다 — 물려받는 대화도 그 봇이 본 것만이다.
+       * 남의 줄기를 끌고 가면 새 방의 첫 화면이 **그 봇은 본 적 없는 말**로
+       * 채워진다.
+       */
+      botId?: string;
+    } = {},
   ): Promise<Room> {
     const parent = await this.openRoom(roomId);
 
-    // **진행 중인 턴이 있으면 안 된다** (D4). 반쯤 온 응답을 물려받으면 분기가
-    // 원본과 다른 지점에서 시작하고, 원본 쪽 턴이 끝나며 덧쓰는 것도 놓친다.
-    if (isBusy(this.statusOf(roomId))) {
+    const only = opts.botId
+      ? parent.participants.find((b) => b.id === opts.botId)
+      : undefined;
+    if (opts.botId && !only) throw new Error("분기할 봇을 찾을 수 없습니다.");
+
+    /*
+     * **진행 중인 턴이 있으면 안 된다** (D4). 반쯤 온 응답을 물려받으면 분기가
+     * 원본과 다른 지점에서 시작하고, 원본 쪽 턴이 끝나며 덧쓰는 것도 놓친다.
+     *
+     * ★ 봇 하나만 가를 때는 **그 봇만 본다** — 옆 봇이 도는 것은 이 분기와
+     * 상관이 없고(그 말은 이 봇 뷰에 안 들어온다), 막으면 «남이 일하는 동안
+     * 내 갈래를 못 딴다»가 된다.
+     */
+    if (isBusy(only ? this.statusOf(roomId, only.id) : this.statusOf(roomId))) {
       throw new Error("진행 중인 턴이 끝난 뒤에 분기할 수 있습니다.");
     }
 
@@ -1262,8 +1296,13 @@ export class RoomManager extends EventEmitter<Events> {
     // 🔴 **이걸 먼저 본다.** 빈 방은 `cut`이 -1이라 지점 검사에 먼저 걸리는데,
     // 그러면 *"분기할 지점을 찾을 수 없습니다"* 라고 말하게 된다 — 지점을 고른 적도
     // 없는 사람에겐 뜻 모를 소리다. 없는 건 지점이 아니라 **대화**다.
-    if (!parent.messages.some((m) => m.role !== "system")) {
-      throw new Error("아직 나눌 대화가 없습니다.");
+    // 봇 하나를 가를 때는 **그 봇이 본 것**으로 따진다 — 방에 대화가 있어도
+    // 그 봇과는 한 마디도 안 나눴을 수 있다
+    const mine = (m: Message) => (only ? inBotView(m, only.id) : true);
+    if (!parent.messages.some((m) => m.role !== "system" && mine(m))) {
+      throw new Error(
+        only ? `${only.name}와(과) 나눈 대화가 아직 없습니다.` : "아직 나눌 대화가 없습니다.",
+      );
     }
 
     const cut =
@@ -1272,10 +1311,12 @@ export class RoomManager extends EventEmitter<Events> {
         : parent.messages.findIndex((m) => m.id === opts.atMessageId);
     if (cut < 0) throw new Error("분기할 지점을 찾을 수 없습니다.");
 
-    const inherited = parent.messages.slice(0, cut + 1);
+    const inherited = parent.messages.slice(0, cut + 1).filter(mine);
     // 시스템 메시지는 우리 안내다 — 그것만 물려받는 건 분기가 아니라 새 방이다
     if (!inherited.some((m) => m.role !== "system")) {
-      throw new Error("아직 나눌 대화가 없습니다.");
+      throw new Error(
+        only ? `${only.name}와(과) 나눈 대화가 아직 없습니다.` : "아직 나눌 대화가 없습니다.",
+      );
     }
 
     /*
@@ -1288,8 +1329,9 @@ export class RoomManager extends EventEmitter<Events> {
      * 한 봇이 폴백으로 떨어져도 나머지는 네이티브로 간다(§4.4 «성공분만»).
      */
     const atTail = cut === parent.messages.length - 1;
+    const split = only ? [only] : parent.participants;
     const forks = await Promise.all(
-      parent.participants.map(async (b) => ({
+      split.map(async (b) => ({
         bot: b,
         forked: await this.forkSession(parent, b, atTail),
       })),
@@ -1300,7 +1342,12 @@ export class RoomManager extends EventEmitter<Events> {
      * 목적에 가깝고, 실제 토큰은 **다음 메시지를 보낼 때까지** 안 든다.
      * 방의 배너에서 그 전에 따로 끌 수 있다.
      */
-    return this.createRoomFromFork(parent, forks, cut, opts.title, opts.fallback ?? "refeed");
+    return this.createRoomFromFork(
+      parent, forks, cut,
+      opts.title ?? (only ? `${parent.title} — ${only.name}` : undefined),
+      opts.fallback ?? "refeed",
+      only?.id,
+    );
   }
 
   /**
@@ -1502,6 +1549,8 @@ export class RoomManager extends EventEmitter<Events> {
     cut: number,
     title: string | undefined,
     fallback: ForkFallback,
+    /** 그 봇만 가르는 경우 — 물려받는 대화도 **그 봇이 본 것**만이다 (v2.1) */
+    onlyBotId?: string,
   ): Promise<Room> {
     const now = Date.now();
     const at = parent.messages[cut]!;
@@ -1514,11 +1563,21 @@ export class RoomManager extends EventEmitter<Events> {
      *
      * 진행 중이던 흔적은 지운다. 물려받은 건 이미 끝난 대화다.
      */
-    const messages: Message[] = parent.messages.slice(0, cut + 1).map((m) => {
-      const copy: Message = structuredClone(m);
-      delete copy.streaming;
-      return copy;
-    });
+    const messages: Message[] = parent.messages
+      .slice(0, cut + 1)
+      /*
+       * ★ **그 봇이 본 것만** (v2.1 · §5).
+       *
+       * 🔴 남의 줄기를 끌고 가면 새 방의 첫 화면이 **그 봇은 본 적 없는 말**로
+       * 채워진다 — «화면엔 보이는데 봇은 모른다»(§4.1.1의 위험)를 **분기가
+       * 새로 만들어내는** 셈이다.
+       */
+      .filter((m) => (onlyBotId ? inBotView(m, onlyBotId) : true))
+      .map((m) => {
+        const copy: Message = structuredClone(m);
+        delete copy.streaming;
+        return copy;
+      });
 
     const room: Room = {
       id: `room-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1547,8 +1606,14 @@ export class RoomManager extends EventEmitter<Events> {
       cwd: parent.cwd,
       messages,
       unread: 0,
-      // 마지막까지 읽은 상태로 연다 — 물려받은 건 이미 읽은 대화다
-      lastReadMessageId: at.id,
+      /*
+       * 마지막까지 읽은 상태로 연다 — 물려받은 건 이미 읽은 대화다.
+       *
+       * ★ 봇 하나만 가르면 **분기 지점 메시지가 그 봇 뷰에 없을 수 있다**
+       * (남에게 간 말에서 갈랐을 때). 그러면 여기가 **새 방에 없는 id** 를
+       * 가리켜 «안 읽음»이 어긋난다 — 실제로 물려받은 마지막 것을 쓴다.
+       */
+      lastReadMessageId: messages.at(-1)?.id ?? at.id,
       forkedFromRoomId: parent.id,
       forkedAtMessageId: at.id,
       /*

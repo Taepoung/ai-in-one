@@ -366,6 +366,7 @@ export class ChatPanel implements AskTarget {
            */
           const room = await this.rooms.forkRoom(m.roomId, {
             ...(m.atMessageId ? { atMessageId: m.atMessageId } : {}),
+            ...(m.botId ? { botId: m.botId } : {}),
             ...(m.title ? { title: m.title } : {}),
             ...(m.fallback ? { fallback: m.fallback } : {}),
           });

@@ -1914,6 +1914,19 @@ function paintChat(r: Room): void {
           text: `«${r.title}» 안에서 본 것만`,
         }),
       ),
+      /*
+       * ★ **분기는 있다 — 그 봇만 가른다** (v2.1).
+       *
+       * 🔴 로드맵은 «비활성»이라고 적어뒀다. *"단체방 전체가 fork되나, 그 봇만
+       * 분리되나"* 하는 모호함 때문이었는데, **모호함을 없애는 길은 막는 것만이
+       * 아니라 뜻을 정해주는 것**도 있다. 자리가 뜻을 말한다:
+       *
+       * ```
+       * 단체방 헤더에서   방 전체가 갈라진다
+       * 뷰 헤더에서       그 봇만 갈라진다
+       * ```
+       */
+      forkHeadButton(r, seen.id),
       el(
         "button",
         { class: "icon with-count", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
@@ -4215,20 +4228,31 @@ function jumpToOrigin(r: { forkedFromRoomId?: string; forkedAtMessageId?: string
  * 🔴 **못 할 때는 지우지 않고 죽여 둔다.** 버튼이 사라졌다 나타나면 헤더가
  * 들썩이고, 무엇보다 *"아까 있던 게 어디 갔지"* 가 된다. 이유는 툴팁에 적는다.
  */
-function forkHeadButton(r: Room): HTMLElement {
-  const busy = isBusyHere(r);
-  const empty = !r.messages.some((m) => m.role !== "system");
+function forkHeadButton(r: Room, botId?: string): HTMLElement {
+  const bot = botId ? r.participants.find((b) => b.id === botId) : undefined;
+  // 봇만 가를 때는 **그 봇만** 본다 — 옆 봇이 도는 건 이 갈래와 상관이 없다
+  const busy = bot ? isBusyBot(bot.id) : isBusyHere(r);
+  const mine = bot
+    ? r.messages.filter((m) => inBotView(m, bot.id))
+    : r.messages;
+  const empty = !mine.some((m) => m.role !== "system");
   const why = busy
     ? "응답이 끝난 뒤에 분기할 수 있습니다"
     : empty
-      ? "아직 나눌 대화가 없습니다"
-      : "여기서 분기";
+      ? bot ? `${bot.name}와(과) 나눈 대화가 아직 없습니다` : "아직 나눌 대화가 없습니다"
+      : bot ? `${bot.name}만 갈라 새 방으로` : "여기서 분기";
   return el("button", {
     class: "icon",
     title: why,
     disabled: busy || empty,
-    onclick: () => askFork(r),
+    onclick: () => askFork(r, undefined, botId),
   }, icon("git-branch"));
+}
+
+/** 그 봇이 도는 중인가 — 방 전체가 아니라 (v2.1) */
+function isBusyBot(botId: string): boolean {
+  const at = botStatus[botId] ?? "idle";
+  return at !== "idle" && at !== "error";
 }
 
 /**
@@ -4238,9 +4262,13 @@ function forkHeadButton(r: Room): HTMLElement {
  * «평범한 새 방»이라 상단 배너를 두지 않기로 했으므로(D2), 고르는 순간에
  * 말하지 않으면 영영 말하지 않는 셈이 된다. (방 정보에도 남긴다.)
  */
-function askFork(r: Room, atMessageId?: string): void {
+function askFork(r: Room, atMessageId?: string, botId?: string): void {
+  const bot = botId ? r.participants.find((b) => b.id === botId) : undefined;
   const at = atMessageId ? r.messages.findIndex((m) => m.id === atMessageId) : r.messages.length - 1;
-  const inherited = r.messages.slice(0, at + 1).filter((m) => m.role !== "system").length;
+  // **그 봇이 본 것만** 물려받는다 — 수도 그것으로 세야 말이 맞는다
+  const inherited = r.messages
+    .slice(0, at + 1)
+    .filter((m) => m.role !== "system" && (bot ? inBotView(m, bot.id) : true)).length;
 
   /*
    * ★ **폴백이 될 걸 알면 누르기 전에 말한다** (§0 P5).
@@ -4266,18 +4294,21 @@ function askFork(r: Room, atMessageId?: string): void {
    * 과거 지점은 프로토콜상 전원이 폴백이다 — `ForkSessionRequest`에 «어느
    * 지점에서»가 없기 때문이다. 끝에서 가를 때만 봇마다 갈린다.
    */
+  const split = bot ? [bot] : r.participants;
   const losers = past
-    ? r.participants
-    : r.participants.filter((b) => capsOf(b.agentId).fork === "no");
+    ? split
+    : split.filter((b) => capsOf(b.agentId).fork === "no");
   const lossy = losers.length > 0;
   // 봇이 하나면 이름을 안 붙인다 — 군더더기다. 조사도 그에 따라 갈린다.
   const subject =
-    r.participants.length > 1 && !past && lossy
+    split.length > 1 && !past && lossy
       ? `${losers.map((b) => b.name).join("·")}는 계획과 파일 기억을`
       : "계획과 파일 기억은";
   const title = el("input", {
     type: "text",
-    placeholder: `비우면 «${r.title.replace(/\s*\(\d+\)\s*$/, "")} (2)»`,
+    placeholder: bot
+      ? `비우면 «${r.title} — ${bot.name}»`
+      : `비우면 «${r.title.replace(/\s*\(\d+\)\s*$/, "")} (2)»`,
   }) as HTMLInputElement;
 
   const go = (fallback?: "refeed" | "fresh") => {
@@ -4285,6 +4316,7 @@ function askFork(r: Room, atMessageId?: string): void {
       t: "fork",
       roomId: r.id,
       ...(atMessageId ? { atMessageId } : {}),
+      ...(botId ? { botId } : {}),
       ...(title.value.trim() ? { title: title.value.trim() } : {}),
       ...(fallback ? { fallback } : {}),
     });
@@ -4294,12 +4326,21 @@ function askFork(r: Room, atMessageId?: string): void {
   const node = el(
     "div",
     { class: "card" },
-    el("div", { class: "card-title" }, icon("git-branch"), " 여기서 분기"),
+    el("div", { class: "card-title" }, icon("git-branch"),
+       bot ? ` ${bot.name}만 갈라내기` : " 여기서 분기"),
     el("div", {
       class: "dim",
-      text:
-        `지금까지의 대화 ${inherited}개를 물려받아 새 방을 만듭니다. ` +
-        `이 방은 그대로 남습니다.`,
+      text: bot
+        /*
+         * ★ **무엇이 따라가고 무엇이 안 따라가는지**를 한 줄에 담는다.
+         *
+         * 봇만 가르는 것은 «이사»에 가까워서, 남는 쪽이 어떻게 되는지를 같이
+         * 말하지 않으면 **원본에서 그 봇이 사라지는 줄 안다.**
+         */
+        ? `${bot.name}와(과) 나눈 대화 ${inherited}개를 물려받아 ` +
+          `${bot.name} 혼자 있는 새 방을 만듭니다. 이 방은 ${bot.name}을(를) 포함해 그대로 남습니다.`
+        : `지금까지의 대화 ${inherited}개를 물려받아 새 방을 만듭니다. ` +
+          `이 방은 그대로 남습니다.`,
     }),
     el("div", { class: "card-body" }, title),
     // ★ 잎는 것을 **누르기 전에** — 위 주석 참조
@@ -4465,7 +4506,8 @@ function openMessageMenu(e: MouseEvent, m: Message): void {
       title: "여기까지를 물려받은 새 방을 만듭니다",
       onclick: () => {
         close();
-        askFork(r, m.id);
+        // 뷰 안에서 고른 지점이면 **그 봇만** 가른다 — 자리가 뜻을 말한다 (v2.1)
+        askFork(r, m.id, viewBotId ?? undefined);
       },
     }),
   );
