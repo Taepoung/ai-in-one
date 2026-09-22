@@ -806,7 +806,8 @@ export class RoomManager extends EventEmitter<Events> {
           // ★ **한 봇이 안 열려도 나머지는 산다** — Codex 로그인이 풀렸다고
           // Claude와의 대화까지 못 하게 만들 이유가 없다.
           this.setStatus(room.id, "error", bot.id);
-          this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`);
+          this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
+                        "error", [bot.id]);
         }
       }),
     );
@@ -938,6 +939,8 @@ export class RoomManager extends EventEmitter<Events> {
             `@${bot.name} 으로 지목해 다시 알려주세요.`
         : `${bot.name}을(를) 초대했습니다.`,
       "info",
+      // 그 봇 이야기다. 방 전체 공지는 바로 아래 «기억은 안 나뉜다» 쪽이다
+      [bot.id],
     );
     // 봇이 둘이 되는 **그 순간**에 한 번만 (§4.2.3)
     if (first) {
@@ -954,7 +957,8 @@ export class RoomManager extends EventEmitter<Events> {
       await this.openSession(room, bot, spec.configValues);
     } catch (err) {
       this.setStatus(room.id, "error", bot.id);
-      this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`);
+      this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
+                    "error", [bot.id]);
     }
 
     await this.saveProps(room, { participants: room.participants });
@@ -1056,6 +1060,7 @@ export class RoomManager extends EventEmitter<Events> {
       text:
         `«${before}»의 이름을 «${bot.name}»(으)로 바꿨습니다.` +
         (bot.name !== wanted ? ` «${wanted}»은(는) 이미 있어서 뒤에 수를 붙였습니다.` : ""),
+      aboutBotIds: [botId],
       deliveredTo: [],
       createdAt: Date.now(),
     };
@@ -1158,6 +1163,7 @@ export class RoomManager extends EventEmitter<Events> {
         `${next.label}은(는) 위 대화를 모릅니다.` +
         (old ? ` 이전 세션 ${old}은(는) ${before} 쪽에 그대로 있습니다.` : ""),
       "info",
+      [bot.id],
     );
 
     await this.saveProps(room, {
@@ -2257,6 +2263,8 @@ export class RoomManager extends EventEmitter<Events> {
         text:
           `${this.whose(room, bot)}모델이 ` +
           `${bot.modelLabel ?? String(value)}(으)로 바뀌었습니다.`,
+        // 그 봇 이야기다 — 봇별 뷰에서는 그 봇 쪽에만 (v2.1)
+        aboutBotIds: [bot.id],
         deliveredTo: [],
         createdAt: Date.now(),
       };
@@ -2635,7 +2643,7 @@ export class RoomManager extends EventEmitter<Events> {
       //
       // **요약 내용은 안 보여준다.** 사용자가 읽을 것은 자기 대화지 요약이 아니다.
       case "compaction":
-        this.noteCompaction(room, ev);
+        this.noteCompaction(room, reply.authorBotId, ev);
         break;
 
       // 계획 (계획 모드의 알맹이). 메시지에 붙여 화면에 그대로 보여준다
@@ -2676,6 +2684,8 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private noteCompaction(
     room: Room,
+    /** **누구의 기억이 줄었나** (v2.1). 압축은 세션 단위라 봇 단위다 (B1) */
+    botId: string | undefined,
     ev: { id: string; status: string; summary?: string; summaryDelta?: string },
   ): void {
     // 🔴 **방까지 붙여야 유일하다.** `compactionId`는 스펙상 «세션 안에서»
@@ -2696,6 +2706,8 @@ export class RoomManager extends EventEmitter<Events> {
       id: messageId(),
       role: "system",
       text: "여기까지 압축됨 — 위쪽은 에이전트가 요약으로 기억합니다",
+      // **그 봇의 기억이 줄어든 것**이다 — 다른 봇은 멀쩡하다 (B1)
+      ...(botId ? { aboutBotIds: [botId] } : {}),
       mark: "compaction",
       // 보여주려고 담는 게 아니다 — **되먹일 때 앞부분을 대신한다**(F7)
       ...(summary ? { summary } : {}),
@@ -2843,7 +2855,7 @@ export class RoomManager extends EventEmitter<Events> {
         break;
 
       case "compaction":
-        this.noteCompaction(room, ev);
+        this.noteCompaction(room, bot.id, ev);
         break;
 
       case "mode":
@@ -3172,6 +3184,8 @@ export class RoomManager extends EventEmitter<Events> {
         text:
           `${name(mine)}의 수정이 거부됐습니다 — ${filePath}. ` +
           `${others.map(name).join("·")}가 먼저 바꿔서, 다시 읽고 시도합니다.`,
+        // **둘 다의 이야기다** — 한쪽 뷰에만 두면 «왜 막혔지»의 답이 반쪽이 된다
+        aboutBotIds: who,
         deliveredTo: [],
         createdAt: Date.now(),
       };
@@ -3640,7 +3654,13 @@ export class RoomManager extends EventEmitter<Events> {
    * ★ **같은 말을 연달아 쌓지 않는다.** 방을 열 때마다 붙기를 실패하면 같은 줄이
    * 계속 늘어난다 — 권한 카드가 쌓이던 것과 같은 실수를 반복하지 않는다.
    */
-  private noteRoom(room: Room, text: string, kind: "error" | "info" = "error"): void {
+  private noteRoom(
+    room: Room,
+    text: string,
+    kind: "error" | "info" = "error",
+    /** **누구 이야기인가** (v2.1). 비우면 방 전체 — 봇별 뷰 어디서나 보인다 */
+    about?: string[],
+  ): void {
     const last = room.messages.at(-1);
     if (last?.role === "system" && last.text === text) return;
 
@@ -3650,6 +3670,7 @@ export class RoomManager extends EventEmitter<Events> {
       text,
       deliveredTo: [],
       createdAt: Date.now(),
+      ...(about?.length ? { aboutBotIds: about } : {}),
       ...(kind === "error" ? { mark: "error" as const } : {}),
     };
     this.append(room, msg);

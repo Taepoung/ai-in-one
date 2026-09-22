@@ -214,6 +214,18 @@ export interface Message {
    * 원래 한 번에 쓴 것이라는 정보를 여기에 남겨 UI에서 붙여 렌더링한다.
    */
   composeGroupId?: string;
+  /**
+   * ★ **이 시스템 줄이 누구 이야기인가** (v2.1).
+   *
+   * 🔴 시스템 줄에는 **주인이 없었다** — `deliveredTo` 도 `authorBotId` 도 비어
+   * 있다. 방 하나만 볼 때는 문제가 없지만 **봇별 뷰**에서는 갈 곳이 없다:
+   * «리뷰어의 모델이 바뀌었습니다»가 구현 뷰에 뜨면 노이즈이고, 아예 숨기면
+   * 정작 리뷰어 뷰에서도 안 보인다.
+   *
+   * **없으면 방 전체 이야기**다 (압축 경계, 기억 공유 공지 …). 있으면 그 봇들의
+   * 뷰에만 나온다. 부딪힘처럼 **둘 이상**인 것이 있어서 배열이다.
+   */
+  aboutBotIds?: string[];
   /** 에이전트가 건드린 파일들. UI에서 카드로 보여주고 탭하면 diff를 연다 */
   /**
    * 이 턴에 한 일들 (C3). **기본으로 접힌다.**
@@ -893,6 +905,30 @@ export function uniqueBotName(wanted: string, taken: ReadonlySet<string>): strin
     const tryThis = `${wanted} ${n}`;
     if (!taken.has(tryThis)) return tryThis;
   }
+}
+
+/**
+ * ★ **이 메시지가 «그 봇의 뷰»에 나오나** (v2.1 · §5).
+ *
+ * 봇별 뷰는 **방이 아니라 필터**다. 데이터는 하나고 보는 창만 다르다 — 그래서
+ * «1:1 뷰에서 보냈다» 같은 표시도 하지 않는다(§5 결정 사항).
+ *
+ * ```
+ * user    그 봇에게 갔거나, **가려다 못 간** 것 (안 갔다는 사실도 그 봇 이야기다)
+ * agent   그 봇이 한 말
+ * system  주인이 없으면 방 전체 이야기라 **어디서나** 보인다
+ * ```
+ *
+ * 🔴 **코어와 화면이 같은 함수를 쓴다.** 규칙을 베껴 두면 «뷰에는 있는데 봇은
+ * 못 본 말» 같은 것이 생기는데, 이 뷰의 존재 이유가 바로 **«그 봇이 실제로 본
+ * 전부»를 보여주는 것**이라(§5) 어긋나는 순간 기능이 거짓말이 된다.
+ */
+export function inBotView(m: Message, botId: string): boolean {
+  if (m.role === "system") {
+    return m.aboutBotIds === undefined || m.aboutBotIds.includes(botId);
+  }
+  if (m.role === "agent") return m.authorBotId === botId;
+  return m.deliveredTo.includes(botId) || (m.notSentTo?.includes(botId) ?? false);
 }
 
 export function createBotInstance(

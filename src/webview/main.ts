@@ -15,7 +15,7 @@ import type {
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
-import { uniqueBotName } from "../core/types.js";
+import { uniqueBotName, inBotView } from "../core/types.js";
 import type {
   AgentBrief,
   AskCard,
@@ -72,6 +72,33 @@ let queued: Record<string, string[]> = {};
 let reviews: ReviewWait[] = [];
 /** 지금 부딪히는 파일들 (§4.3). 방을 옮기면 갈아 끼운다 */
 let clashes: Clash[] = [];
+/**
+ * ★ **지금 보고 있는 봇** (v2.1 · §5) — `null` 이면 방 전체.
+ *
+ * 🔴 **방이 아니라 필터다.** 데이터는 하나고 보는 창만 다르다. 그래서 별도
+ * 화면을 만들지 않았다 — 화면을 나누면 «별개 공간»이라는 오해가 구조에서
+ * 생기고, «1:1 뷰에서 보냄» 같은 표시를 만들고 싶어진다(§5가 하지 말라는 것).
+ *
+ * 방을 옮기면 풀린다. 뷰는 **그 방 안의 상태**다.
+ */
+let viewBotId: string | null = null;
+
+/** 지금 뷰의 봇 (방에서 나갔으면 `undefined` — 그때는 뷰도 풀어야 한다) */
+function viewBot(r: Room): BotInstance | undefined {
+  return viewBotId ? r.participants.find((b) => b.id === viewBotId) : undefined;
+}
+
+/**
+ * 뷰를 켜고 끈다 (§5).
+ *
+ * 입력창 모양이 바뀌므로(칩 상자 ↔ 한 줄 입력) `renderChat` 이 **다시 붙인다** —
+ * 그 판단은 이미 «단체방인가»로 하고 있어서 여기서 따로 할 일이 없다.
+ */
+function openBotView(botId: string | null): void {
+  viewBotId = botId;
+  closeDrawer();
+  renderChat();
+}
 
 /** 이 메시지가 **어느 봇의 줄에** 서 있나 */
 function waitingFor(messageId: string): string[] {
@@ -988,11 +1015,14 @@ function labelOf(o: ConfigOptionBrief): string {
 let draftTimer: ReturnType<typeof setTimeout> | undefined;
 
 function openRoom(roomId: string): void {
+  // 뷰는 **그 방 안의 상태**다 — 다른 방에 들고 가면 엉뚱한 봇을 가리킨다
+  viewBotId = null;
   post({ t: "open", roomId });
   go("chat");
 }
 
 function leaveChat(): void {
+  viewBotId = null;
   flushDraft();
   post({ t: "back" });
   room = null;
@@ -1053,7 +1083,11 @@ function renderChat(): void {
    * 그 자리에서 단체방이 된다(§4.2). 다시 붙이지 않으면 `textarea`가 남아
    * **@로 지목할 수가 없어 사실상 단체방이 아니게 된다.**
    */
-  const wantChips = r.participants.length > 1;
+  // 방에서 나간 봇을 보고 있었으면 뷰를 푼다 — 빈 화면을 보여줄 수는 없다
+  if (viewBotId && !r.participants.some((b) => b.id === viewBotId)) viewBotId = null;
+
+  // **뷰에서는 1:1 모양이다** — 그 봇에게만 가므로 `@`를 칠 이유가 없다 (§5)
+  const wantChips = r.participants.length > 1 && viewBotId === null;
   const hasChips = chat?.box.classList.contains("chipbox") === true;
   if (chat?.roomId !== r.id || wantChips !== hasChips) {
     /*
@@ -1472,8 +1506,14 @@ function mountChat(r: Room): void {
   const clash = el("div", { class: "clashes", hidden: true });
   const list = el("div", { class: "messages" });
   const status = el("div", { class: "status" });
-  // 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다
-  const group = r.participants.length > 1;
+  /*
+   * 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다.
+   *
+   * ★ **봇별 뷰에서도 아니다** (v2.1) — 그 봇에게만 가므로 지목할 것이 없다.
+   * 🔴 `renderChat` 의 «다시 붙일까» 판단과 **같은 식이어야 한다.** 한쪽만
+   * 고쳤더니 다시 붙기는 하는데 **또 칩 상자로** 붙었다.
+   */
+  const group = r.participants.length > 1 && viewBotId === null;
   const box = (group
     ? makeChipBox()
     : el("textarea", { rows: 1, placeholder: "메시지 입력…" })) as HTMLTextAreaElement;
@@ -1518,6 +1558,24 @@ function mountChat(r: Room): void {
     paintChips();
     box.value = "";
     autoGrow(box);
+
+    /*
+     * ★ **뷰에서 친 말은 «@그봇»을 붙인 것으로 간다** (§5).
+     *
+     * 🔴 `send` 에 봇 칸을 새로 파지 않는다. 멘션 경로(`sendCompose`)가 이미
+     * 라우팅·분리 저장·전달 표시를 다 하고 있어서, 길을 하나 더 내면 **둘이
+     * 어긋날 자리**만 생긴다. 뷰는 «칩을 대신 꽂아 주는 것»일 뿐이다.
+     */
+    if (viewBotId) {
+      post({
+        t: "sendCompose",
+        roomId: r.id,
+        tokens: [{ kind: "mention", botId: viewBotId }, { kind: "text", text: ` ${text}` }],
+        ...(attachments.length ? { attachments } : {}),
+      });
+      return;
+    }
+
     post({
       t: "send",
       roomId: r.id,
@@ -1826,8 +1884,44 @@ function paintChat(r: Room): void {
   // 헤더에 쓰는 것 — 방을 대표하는 에이전트. 말풍선은 **각자 말한 봇으로** 잎는다
   const agent = agentById.get(r.participants[0]?.agentId ?? "");
 
+  const seen = viewBot(r);
+
   // 이름을 고치는 중이면 헤더를 건드리지 않는다 — 입력이 날아간다
-  if (!c.head.querySelector("input")) {
+  if (!c.head.querySelector("input") && seen) {
+    /*
+     * ★ **뷰 헤더에는 방 조작이 없다** (§5의 «뷰는 방이 아니다»).
+     *
+     * 🔴 분기·이름 바꾸기·나가기를 **비활성으로 두지 않고 아예 안 그린다.**
+     * 비활성은 «여기서도 되긴 하는데 지금은 안 된다»로 읽혀서, *"단체방 전체가
+     * fork되나 이 봇만 갈라지나"* 하는 바로 그 모호함을 남긴다. 없으면 질문이
+     * 생기지 않는다 — 방에 대한 일은 방으로 나가서 한다.
+     *
+     * `←` 는 **방을 나가는 게 아니라 뷰를 푼다.**
+     */
+    replace(
+      c.head,
+      el("button", {
+        class: "icon", title: "단체방으로",
+        onclick: () => openBotView(null),
+      }, icon("arrow-left")),
+      el(
+        "h1",
+        { class: "view-head" },
+        `@${seen.name}`,
+        el("span", {
+          class: "sub",
+          title: r.cwd,
+          text: `«${r.title}» 안에서 본 것만`,
+        }),
+      ),
+      el(
+        "button",
+        { class: "icon with-count", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
+        icon("organization"),
+        el("span", { class: "count", text: String(r.participants.length) }),
+      ),
+    );
+  } else if (!c.head.querySelector("input")) {
     replace(
       c.head,
       el("button", { class: "icon", title: "목록", onclick: leaveChat }, icon("arrow-left")),
@@ -1886,11 +1980,21 @@ function paintChat(r: Room): void {
 
   const atBottom = stick;
   const nodes: Node[] = [];
+  /*
+   * ★ **뷰에서는 그 봇이 본 것만 남긴다** (§5).
+   *
+   * 규칙은 코어와 **같은 함수**(`inBotView`)를 쓴다. v2.0 이 «멘션된 것만
+   * 전달»하므로 이 뷰가 곧 **«그 봇이 실제로 본 전부»** 인데, 규칙이 어긋나면
+   * 그 약속이 바로 거짓말이 된다.
+   */
+  const shownMsgs = viewBotId
+    ? r.messages.filter((m) => inBotView(m, viewBotId!))
+    : r.messages;
   let day = "";
   /** 바로 위에 붙어 있는 메시지. 선이 끼어들면 끊긴다 */
   let above: Message | undefined;
 
-  for (const m of r.messages) {
+  for (const m of shownMsgs) {
     const key = dayKey(m.createdAt);
     let broken = false;
     if (key !== day) {
@@ -4765,38 +4869,15 @@ function renameBotInline(r: Room, bot: BotInstance, host: HTMLElement): void {
   input.select();
 }
 
-/**
- * ★ **서랍에서 봇을 누르면 입력창에 멘션이 꽂힌다** (§4.2.1).
+/*
+ * 🔴 **«서랍에서 누르면 멘션 삽입»은 뺐다** (v2.1 · 2026-09-22).
  *
- * v2.1의 «봇별 1:1 뷰»가 들어오기 전까지의 자리다. 그때까지는 서랍이
- * *"이 봇에게 말 걸기"* 의 유일한 입구고, **멘션을 손으로 치는 것이
- * v2.0의 제일 큰 피로**(§4.5)이므로 여기서 덜어준다.
+ * *"v2.1의 «봇별 1:1 뷰»가 들어오기 전까지의 자리"* 라고 적어둔 임시 동작이었고,
+ * 그 화면이 생겼으므로 **이름을 누르면 그 봇의 뷰로 간다.**
  *
- * 칩으로 꽂는다 — 글자로 넣으면 `@이름`은 **그냥 글자**라 라우팅이 안 된다.
+ * 아쉽지 않은 이유: **뷰 안에서 친 말은 자동으로 그 봇에게 간다**(§5). 칩을
+ * 꽂을 이유 자체가 사라진다. 방 전체에서 지목하려면 입력창에서 `@` 를 친다.
  */
-function insertMention(bot: BotInstance): void {
-  const box = chat?.box;
-  if (!box || !box.classList.contains("chipbox")) return;
-  closeDrawer();
-
-  const doc = box.ownerDocument;
-  /*
-   * **줄 맨 앞에만 꽂는다.** 문장 중간 칩은 라우팅이 아니라 참조이므로
-   * (§4.1.2) 거기 넣으면 «지목했는데 안 간다»가 된다. 쓰던 글이 있으면
-   * 줄을 바꿔 새 그룹을 연다.
-   */
-  const last = box.lastChild;
-  const tail = last?.nodeType === Node.TEXT_NODE ? (last as Text).data : "";
-  if (box.childNodes.length > 0 && tail.trim() !== "") box.append(doc.createElement("br"));
-
-  const chip = mentionChip(bot.id, bot.name);
-  box.append(chip);
-  const gap = doc.createTextNode(" ");
-  box.append(gap);
-  caretAfter(box, gap);
-  box.focus();
-  box.dispatchEvent(new Event("input"));
-}
 
 /**
  * ★ **에이전트를 바꾸면 무엇을 잃나** — 고른 자리 바로 아래에 편다 (§4.2.1).
@@ -4904,12 +4985,22 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
   // 🔴 색 점을 뺐다. 에이전트를 **칸으로 직접 고르게 된 뒤로** 색은 같은 것을
   // 한 번 더 말하는 것이 됐고, 이름이 작아 보이게만 했다.
   const nameCell = el("span", { class: "name" });
+  /*
+   * ★ **이름을 누르면 그 봇의 뷰로 간다** (v2.1 · §5).
+   *
+   * 🔴 v2.0 에서는 **입력창에 칩을 꽂을 뿐**이었다. 그건 «히스토리 화면이
+   * 생기기 전까지»의 임시 동작이라고 적어둔 것이고, 이제 그 화면이 생겼다.
+   *
+   * 멘션 삽입이 없어져도 아쉽지 않다 — **뷰 안에서 친 말은 자동으로 그 봇에게
+   * 가므로**(§5) 칩을 꽂을 이유 자체가 사라진다. 방 전체에서 지목하고 싶으면
+   * 입력창에서 `@` 를 치면 된다.
+   */
   const nameBtn = r.participants.length > 1
     ? el("button", {
         class: "link name-go",
         text: bot.name,
-        title: "입력창에 이 봇을 지목합니다",
-        onclick: () => insertMention(bot),
+        title: `${bot.name}와(과) 주고받은 것만 봅니다`,
+        onclick: () => openBotView(bot.id),
       })
     : el("span", { text: bot.name });
   nameCell.append(nameBtn);
