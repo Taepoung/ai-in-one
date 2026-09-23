@@ -3780,13 +3780,24 @@ function paintApprovals(r: Room): void {
     const quick = el(
       "span",
       { class: "quick" },
+      /*
+       * ★ **허용은 초록, 거절은 빨강** (2026-09-23).
+       *
+       * 🔴 «거절»이 흰 단추라 **글자를 읽어야만** 어느 쪽인지 알 수 있었다.
+       * 승인 큐는 **여럿이 쌓이는 자리**라 하나씩 읽게 하면 안 된다 — 색이
+       * 먼저 말하고 글자가 확인해 준다.
+       *
+       * 파괴적인 쪽(거절)을 **눈에 띄게** 둔다. 거절은 되돌릴 수 있지만
+       * «잘못 허용»은 파일을 고치고 나서야 안다.
+       */
       el("button", {
-        class: "primary",
+        class: "ok",
         text: "허용",
         title: "이번만 허용합니다. «항상»은 펴서 고르세요.",
         onclick: () => (answer(card, onceOption(req, true)), renderChat()),
       }),
       el("button", {
+        class: "no",
         text: "거절",
         onclick: () => (answer(card, onceOption(req, false)), renderChat()),
       }),
@@ -3867,13 +3878,21 @@ function paintApprovals(r: Room): void {
       el("span", { class: "count", text: `승인 대기 ${mine.length}` }),
       picked.length > 0
         ? el("button", {
-            text: `선택 ${picked.length}개 허용`,
-            title: "고른 것들을 **이번만** 허용합니다",
+            class: "ok",
+            // 개수는 **바로 위 «승인 대기 N»** 과 체크 표시가 이미 말한다.
+            // 단추에까지 넣으면 길어지기만 하고, 길이가 계속 바뀌어 자리가 흔들린다.
+            text: "선택 허용",
+            title: `고른 ${picked.length}개를 «이번만» 허용합니다`,
             onclick: () => sweep(picked, true),
           })
         : null,
       picked.length > 0
-        ? el("button", { text: "선택 거절", onclick: () => sweep(picked, false) })
+        ? el("button", {
+            class: "no",
+            text: "선택 거절",
+            title: `고른 ${picked.length}개를 «이번만» 거절합니다`,
+            onclick: () => sweep(picked, false),
+          })
         : null,
       /*
        * ★ **«전부 거절»도 있다.**
@@ -3884,7 +3903,7 @@ function paintApprovals(r: Room): void {
        */
       mine.length > 1
         ? el("button", {
-            class: "primary",
+            class: "ok",
             text: "전부 허용",
             title: `${mine.length}개를 «이번만» 허용합니다. «항상»은 하나씩 펴서 고르세요.`,
             onclick: () => sweep(mine, true),
@@ -3892,6 +3911,7 @@ function paintApprovals(r: Room): void {
         : null,
       mine.length > 1
         ? el("button", {
+            class: "no",
             text: "전부 거절",
             title: `${mine.length}개를 «이번만» 거절합니다.`,
             onclick: () => sweep(mine, false),
