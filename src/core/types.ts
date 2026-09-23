@@ -927,7 +927,18 @@ export function inBotView(m: Message, botId: string): boolean {
   if (m.role === "system") {
     return m.aboutBotIds === undefined || m.aboutBotIds.includes(botId);
   }
-  if (m.role === "agent") return m.authorBotId === botId;
+  /*
+   * ★ 봇의 말은 **글쓴이에게도, 받은 봇에게도** 보인다 (v3.0 대비).
+   *
+   * 오늘은 `deliveredTo` 가 글쓴이 자신뿐이라 이 줄은 아무것도 안 바꾼다.
+   * 🔴 그런데 **릴레이(§7)가 들어오면 달라진다** — 알파가 베타를 부르면 그
+   * 말은 «알파가 쓴 것»이면서 «베타가 받은 것»이다. 글쓴이로만 가르면
+   * **베타가 실제로 받은 말이 베타 뷰에 안 뜬다** — 이 뷰가 «그 봇이 실제로
+   * 본 전부»라는 약속(§5)이 그 순간 깨진다.
+   */
+  if (m.role === "agent") {
+    return m.authorBotId === botId || m.deliveredTo.includes(botId);
+  }
   return m.deliveredTo.includes(botId) || (m.notSentTo?.includes(botId) ?? false);
 }
 
