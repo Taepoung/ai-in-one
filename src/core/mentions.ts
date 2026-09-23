@@ -93,13 +93,21 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
    * **전원에게 보내면 조용히 넓혀진다.** 사용자는 분명히 한 명을 골랐다.
    */
   let orphanAfterMention = false;
-  /**
-   * 지금 **줄 맨 앞**인가.
+  /*
+   * ⏪ **«줄 맨 앞 칩만 라우팅» 규칙을 뺐다** (2026-09-23).
    *
-   * 줄 맨 앞 칩만 라우팅이다. `아까 (@claude)가 말한 대로…` 의 칩은 참조일 뿐이고,
-   * 그걸 라우팅으로 읽으면 **지나가는 말에 일을 시키게 된다.**
+   * 근거는 *"`아까 (@claude)가 말한 대로…` 의 칩은 참조일 뿐"* 이었다. 그런데
+   * **칩은 자동완성에서 일부러 고른 것**이다 — 참조하려고 목록을 열어 고르는
+   * 사람은 없다. 참조는 **글자로** 치면 되고(`@구현` 이라고 쓴 글자는 칩이
+   * 아니므로 **절대 라우팅되지 않는다**), 그 길은 그대로 열려 있다.
+   *
+   * 반대로 «줄 맨 앞만» 규칙은 `@구현 이거 @리뷰어 저거` 를 **통째로 구현에게**
+   * 보냈다 — 뒤 멘션은 글자로 남아서, 리뷰어는 자기 몫이 있는 줄도 몰랐다.
+   * 지목한 대로 안 가는 것이 지나가는 말에 일을 시키는 것보다 나쁘다.
+   *
+   * 그래서 **모든 칩이 블록을 연다.** 붙어 있는 칩끼리 한 블록인 것(`chaining`)은
+   * 그대로다 — 그건 «둘에게 같은 말»이라는 뜻이라 여전히 맞다.
    */
-  let atLineHead = true;
   /** 바로 앞 토큰이 라우팅 칩이었나 — 연속이면 같은 그룹이다 */
   let chaining = false;
 
@@ -115,27 +123,20 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
 
   for (const [n, tk] of tokens.entries()) {
     if (tk.kind === "mention") {
-      const routing = atLineHead;
       const ids = tk.botId === EVERYONE ? bots.map((b) => b.id) : [tk.botId];
 
       if (tk.botId !== EVERYONE && !known.has(tk.botId)) {
         warnings.push("이 방에 없는 봇이 지목되어 있습니다. 칩을 지우고 다시 골라주세요.");
         // 라우팅 자리였으면 **줄 맨 앞은 소비된 것**으로 친다 — 뒤따르는 글자가
         // 갑자기 «첫 멘션 앞의 텍스트»가 되어 엉뚱한 이유로 막히면 안 된다.
-        if (routing) { chaining = true; orphanAfterMention = true; }
+        chaining = true;
+        orphanAfterMention = true;
         continue;
       }
       if (tk.botId === EVERYONE && ids.length === 0) {
         warnings.push("방에 봇이 없어 @everyone이 가리킬 대상이 없습니다.");
-        if (routing) { chaining = true; orphanAfterMention = true; }
-        continue;
-      }
-
-      if (!routing) {
-        // 문장 중간 칩은 **참조**다. 글자처럼 취급해 그 자리에 이름을 남긴다.
-        const label = tk.botId === EVERYONE ? "@everyone" : `@${known.get(tk.botId)!.name}`;
-        if (open) open.text += label;
-        else orphan += label;
+        chaining = true;
+        orphanAfterMention = true;
         continue;
       }
 
@@ -148,7 +149,6 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
         open = { botIds: [...ids], text: "", mentionAt: [n] };
       }
       chaining = true;
-      atLineHead = true;
       continue;
     }
 
@@ -157,17 +157,12 @@ export function parseCompose(tokens: ComposeToken[], bots: KnownBot[]): ComposeP
     if (open) open.text += text;
     else orphan += text;
 
-    // 줄바꿈이 있으면 **마지막 줄바꿈 뒤**가 지금 위치다
-    const at = text.lastIndexOf("\n");
-    if (at >= 0) {
-      atLineHead = text.slice(at + 1).trim() === "";
-      // 줄이 바뀌었으니 연속은 끊긴다 — 다음 칩은 새 그룹이다.
-      // 다만 **칩 사이의 공백·줄바꿈만이라면** 아직 연속이다(§4.1.2 규칙 3).
-      chaining = chaining && text.trim() === "";
-    } else if (text.trim() !== "") {
-      atLineHead = false;
-      chaining = false;
-    }
+    /*
+     * **칩 사이에 글자가 끼면 연속이 끊긴다** — 다음 칩은 새 블록이다.
+     * 공백·줄바꿈만이라면 아직 연속이다(§4.1.2 규칙 3): `(@구현) (@리뷰어) 둘 다`
+     * 는 «둘에게 같은 말»이므로 한 블록이다.
+     */
+    if (text.trim() !== "") chaining = false;
   }
   push(open);
 
