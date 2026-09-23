@@ -1761,6 +1761,25 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
   const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
   const wait = new Set(waitingFor(m.id));
 
+  /*
+   * ★ **못 간 곳은 칩에서 뺀다** (2026-09-23).
+   *
+   * 🔴 예전에는 그어서 남겼다 — «지우지 않는다»는 §0 뺄셈 규칙 때문이었다.
+   * 그런데 **뺄셈 규칙은 «사라지면 안 된다»지 «여기 있어야 한다»가 아니다.**
+   * 안 갔다는 사실은 말풍선 아래에 **글과 «다시 보내기»로** 더 분명히 남는다.
+   *
+   * 빼고 나니 칩 줄의 뜻이 **하나로 좁아진다**:
+   *
+   * ```
+   * 예전   «받는 이»   — 간 것도 안 간 것도 섞여 있어 매번 표시를 읽어야 했다
+   * 지금   «받은 사람» — 여기 있으면 갔다
+   * ```
+   *
+   * 다 못 갔으면 칩이 **한 장도 안 남는다.** 그게 맞다 — 아무도 못 받았다.
+   */
+  const gotIt = to.filter((id) => !lost.has(id));
+  if (gotIt.length === 0) return null;
+
   const row = el("span", { class: "to-chips" });
 
   /*
@@ -1773,7 +1792,7 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
    * 이름을 하나씩 불렀든 **받은 사람이 같으면 같게 보이는 것**이 맞고, 그
    * «같음»은 명단이 아니라 **받은 사람 목록**이 정해야 한다.
    */
-  for (const id of to) {
+  for (const id of gotIt) {
     /*
      * 내보낸 봇의 이름은 **안 남는다** — `removeBot`이 `participants`에서
      * 빼기 때문이다. 그래도 **자리는 남긴다**: 둘에게 간 말이 하나에게만
@@ -1788,20 +1807,19 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
      * 이제 방이 **이름만** 따로 들고 있다(`Room.left`).
      */
     const seen = botLabel(r, id);
-    const state = lost.has(id) ? " lost" : wait.has(id) ? " held" : "";
+    // 못 간 것은 이미 걸러졌다 — 여기 남는 것은 «갔다»와 «줄에 서 있다»뿐이다
+    const state = wait.has(id) ? " held" : "";
     row.append(
       el("span", {
         class: `chip to${state}${seen && !seen.gone ? "" : " gone"}`,
         text: seen ? (seen.gone ? `@${seen.name} (나감)` : `@${seen.name}`) : "@나간 봇",
-        title: lost.has(id)
-          ? "이 봇에게는 전달되지 않았습니다"
-          : wait.has(id)
-            ? "아직 줄에 서 있습니다"
-            : seen?.gone
-              ? `${seen.name}에게 전달되었습니다 — 그 뒤 방에서 나갔습니다`
-              : seen
-                ? `${seen.name}에게 전달되었습니다`
-                : "이 봇은 방에서 나갔습니다",
+        title: wait.has(id)
+          ? "아직 줄에 서 있습니다"
+          : seen?.gone
+            ? `${seen.name}에게 전달되었습니다 — 그 뒤 방에서 나갔습니다`
+            : seen
+              ? `${seen.name}에게 전달되었습니다`
+              : "이 봇은 방에서 나갔습니다",
       }),
     );
   }
