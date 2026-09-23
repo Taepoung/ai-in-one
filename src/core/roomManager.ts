@@ -1001,10 +1001,18 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     room.participants.splice(at, 1);
+    /*
+     * ★ **이름은 남긴다** (2026-09-23).
+     *
+     * 세션도 설정도 따라가지 않지만 **이름은 기록의 일부**다. 지난 말풍선과
+     * 멘션 칩이 «@나간 봇»이라는 익명이 되면 *"누구한테 시킨 거였지"* 에 답할
+     * 수 없다 — 기록은 우리 것이고(§0), 떠났다고 그 사람 말이 익명이 되지는 않는다.
+     */
+    (room.left ??= []).push({ id: bot.id, name: bot.name, at: Date.now() });
     rt?.bots.delete(botId);
 
     this.noteRoom(room, `${bot.name}을(를) 내보냈습니다. 지금까지의 대화는 그대로 남습니다.`, "info");
-    await this.saveProps(room, { participants: room.participants });
+    await this.saveProps(room, { participants: room.participants, left: room.left });
     this.emit("room", room);
     this.emitMetas();
   }

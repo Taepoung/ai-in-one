@@ -519,6 +519,15 @@ export interface Room {
   title: string;
   /** v1.0: 길이 1. v2.0: 여러 개 */
   participants: BotInstance[];
+  /**
+   * ★ **내보낸 봇들 — 이름만** (2026-09-23).
+   *
+   * 세션도 설정도 따라가지 않는다. 그런데 **이름은 기록의 일부**다 —
+   * 지난 말풍선과 멘션 칩이 «@나간 봇»이라는 익명이 되면 *"누구한테 시킨
+   * 거였지"* 에 답할 수 없다. 기록은 우리 것이고(§0), 떠났다고 그 사람이
+   * 한 말이 익명이 되지는 않는다. 나간 뒤에는 **이름이 얼어붙는다.**
+   */
+  left?: LeftBot[];
   cwd: string;
   messages: Message[];
   /**
@@ -638,6 +647,14 @@ export function roomKind(room: Pick<Room, "participants" | "contextShared">): Ro
  * `rooms.json`에 이것만 저장해서 **목록을 즉시 띄운다.** 메시지는 방을 열 때
  * `rooms/<id>.json`에서 따로 읽는다 (F5의 부분 로딩).
  */
+/** 방을 떠난 봇 — **이름만** 남긴다. 세션도 설정도 따라가지 않는다 */
+export interface LeftBot {
+  id: string;
+  name: string;
+  /** 언제 나갔나 — 같은 이름이 다시 들어와도 헷갈리지 않게 */
+  at: number;
+}
+
 export interface RoomMeta {
   id: string;
   title: string;
@@ -923,6 +940,26 @@ export function uniqueBotName(wanted: string, taken: ReadonlySet<string>): strin
  * 못 본 말» 같은 것이 생기는데, 이 뷰의 존재 이유가 바로 **«그 봇이 실제로 본
  * 전부»를 보여주는 것**이라(§5) 어긋나는 순간 기능이 거짓말이 된다.
  */
+/**
+ * ★ **이름을 찾는다 — 나간 봇까지** (2026-09-23).
+ *
+ * 🔴 `removeBot` 이 `participants` 에서 빼므로 **이름이 통째로 사라졌다.** 그래서
+ * 지난 말풍선과 멘션 칩이 «@나간 봇» 이라는 **익명**이 됐다 — 대화를 다시 읽을 때
+ * *"누구한테 시킨 거였지"* 에 답할 수 없다. 기록은 우리 것이고(§0), 사람이
+ * 떠났다고 그 사람이 한 말이 익명이 되지는 않는다.
+ *
+ * 나간 뒤에는 **이름이 얼어붙는다** — 더 이상 바꿀 수 없으니 그게 맞다.
+ */
+export function botLabel(
+  room: { participants: BotInstance[]; left?: LeftBot[] },
+  botId: string,
+): { name: string; gone: boolean } | undefined {
+  const here = room.participants.find((b) => b.id === botId);
+  if (here) return { name: here.name, gone: false };
+  const gone = room.left?.find((b) => b.id === botId);
+  return gone ? { name: gone.name, gone: true } : undefined;
+}
+
 export function inBotView(m: Message, botId: string): boolean {
   if (m.role === "system") {
     return m.aboutBotIds === undefined || m.aboutBotIds.includes(botId);

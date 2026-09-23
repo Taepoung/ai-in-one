@@ -15,7 +15,7 @@ import type {
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
-import { uniqueBotName, inBotView } from "../core/types.js";
+import { uniqueBotName, inBotView, botLabel } from "../core/types.js";
 import type {
   AgentBrief,
   AskCard,
@@ -1726,7 +1726,16 @@ function lostLine(m: Message, r: Room): string {
  * 1:1에서는 안 만든다 — 상대가 하나뿐이라 자명하다.
  */
 function deliveryChips(m: Message, r: Room): HTMLElement | null {
-  if (m.role === "system" || r.participants.length < 2) return null;
+  /*
+   * 1:1에서는 칩을 안 적는다 — 상대가 하나뿐이라 자명하고, 매 말풍선에 같은
+   * 이름이 붙으면 읽는 데 방해만 된다.
+   *
+   * 🔴 **나간 봇을 세지 않으면 «자명»이 거짓이 된다.** 둘이던 방에서 하나가
+   * 나가면 참여자가 하나가 되는데, 그렇다고 **둘에게 갔던 지난 말들이 1:1이
+   * 되지는 않는다** — 칩을 통째로 숨기면 «누구에게 갔었나»가 사라진다.
+   */
+  if (m.role === "system") return null;
+  if (r.participants.length + (r.left?.length ?? 0) < 2) return null;
 
   /*
    * ★ **봇이 봇에게 건 말도 «누구에게»를 단다** (v3.0 대비).
@@ -1797,19 +1806,29 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
      * 빼기 때문이다. 그래도 **자리는 남긴다**: 둘에게 간 말이 하나에게만
      * 간 것처럼 보이면 안 된다(§0의 뺄셈 규칙).
      */
-    const bot = r.participants.find((b) => b.id === id);
+    /*
+     * ★ **나간 봇도 이름으로 보인다** (2026-09-23).
+     *
+     * 🔴 예전에는 «@나간 봇» 이라는 **익명**이었다 — `removeBot` 이
+     * `participants` 에서 빼면서 이름이 통째로 사라졌기 때문이다. 그러면
+     * 대화를 다시 읽을 때 *"누구한테 시킨 거였지"* 에 답할 수 없다.
+     * 이제 방이 **이름만** 따로 들고 있다(`Room.left`).
+     */
+    const seen = botLabel(r, id);
     const state = lost.has(id) ? " lost" : wait.has(id) ? " held" : "";
     row.append(
       el("span", {
-        class: `chip to${state}${bot ? "" : " gone"}`,
-        text: bot ? `@${bot.name}` : "@나간 봇",
+        class: `chip to${state}${seen && !seen.gone ? "" : " gone"}`,
+        text: seen ? (seen.gone ? `@${seen.name} (나감)` : `@${seen.name}`) : "@나간 봇",
         title: lost.has(id)
           ? "이 봇에게는 전달되지 않았습니다"
           : wait.has(id)
             ? "아직 줄에 서 있습니다"
-            : bot
-              ? `${bot.name}에게 전달되었습니다`
-              : "이 봇은 방에서 나갔습니다",
+            : seen?.gone
+              ? `${seen.name}에게 전달되었습니다 — 그 뒤 방에서 나갔습니다`
+              : seen
+                ? `${seen.name}에게 전달되었습니다`
+                : "이 봇은 방에서 나갔습니다",
       }),
     );
   }
@@ -2416,7 +2435,11 @@ const nodeCache = new Map<string, { sig: string; node: HTMLElement }>();
  * 자리마다 서명을 다는 것보다 이게 안전하다.
  */
 function nameStamp(): string {
-  return (room?.participants ?? []).map((b) => `${b.id}=${b.name}`).join(";");
+  // 나간 봇 이름도 화면에 쓰인다 — 목록이 바뀌면 말풍선도 다시 그려야 한다
+  return [
+    ...(room?.participants ?? []).map((b) => `${b.id}=${b.name}`),
+    ...(room?.left ?? []).map((b) => `${b.id}=${b.name}!`),
+  ].join(";");
 }
 
 function sigOf(m: Message): string {
@@ -2551,6 +2574,16 @@ function messageNode(
     const who = m.authorBotId
       ? room?.participants.find((b) => b.id === m.authorBotId)
       : room?.participants[0];
+    /*
+     * ★ **나간 봇이 한 말도 이름이 남는다** (2026-09-23).
+     *
+     * 🔴 `participants` 에서 빠지면 `who` 가 `undefined` 가 되어 **에이전트
+     * 라벨로 떨어졌다** — 같은 에이전트로 봇이 둘이었으면 누가 한 말인지
+     * 구별이 안 된다. 바로 위 주석이 걱정하던 그 상황이 **내보내기 한 번으로**
+     * 생겼던 셈이다.
+     */
+    const goneName =
+      !who && m.authorBotId && room ? botLabel(room, m.authorBotId) : undefined;
     node.append(
       el(
         "div",
@@ -2563,7 +2596,7 @@ function messageNode(
          * «알파»와 «알파 2»가 **둘 다 «알파»로** 보인다 — 누가 말했는지를
          * 구별할 수 없게 된다. 이름은 봇에 붙고(B1) 멘션도 그 이름으로 간다.
          */
-        who?.name ?? agent?.label ?? "에이전트",
+        who?.name ?? (goneName ? `${goneName.name} (나감)` : undefined) ?? agent?.label ?? "에이전트",
         usageChip(who),
       ),
     );
