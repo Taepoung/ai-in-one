@@ -156,6 +156,17 @@ interface BotRuntime {
    * 리스너를 갈아끼우는 대신 이 값으로 가르는 이유는 `watchIdle`에.
    */
   turn?: Message;
+  /**
+   * ★ **사용자가 방금 끊었다** (v2.x 끼어들기).
+   *
+   * 다음 프롬프트 앞에 **무슨 일이 있었는지 한 줄**을 얹으라는 표시다.
+   *
+   * 🔴 ACP 의 `session/cancel` 은 턴을 끊을 뿐 **«왜»를 안 알려준다**(실측
+   * 2026-09-23). 그 빈칸을 모델이 **추측으로 메우는데 그 추측이 판마다 다르다** —
+   * 한 판은 «권한이 거부돼서»라고 지어냈다. 그러면 우회를 시도하거나 «권한을
+   * 열어달라»는 엉뚱한 말을 한다. **빈칸은 우리가 채운다.**
+   */
+  interrupted?: boolean;
   /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
   tail?: ReturnType<typeof setTimeout>;
   /**
@@ -2177,6 +2188,40 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * ★ **끼어들기** — 줄은 그대로 두고 **턴만** 끊는다 (v2.x).
+   *
+   * 「중단」과 헷갈리면 안 된다. 둘 다 `session/cancel` 을 쓰지만 **큐를 대하는
+   * 태도가 정반대**다:
+   *
+   * ```
+   * 중단      턴을 끊고 **줄에 있는 것까지 전부** «안 갔다»로 적는다
+   * 끼어들기  턴만 끊는다 — 줄은 살아 있고, 곧바로 이어서 나간다
+   * ```
+   *
+   * 되는 이유는 `send`·`sendCompose` 의 **이어달리기 고리** 덕이다: `runQueue`
+   * 가 끝나면 큐가 비었는지 보고, 남아 있으면 바로 다음 묶음을 보낸다. 그러니
+   * 우리는 **지금 도는 턴만 끊으면** 줄에 선 말이 저절로 앞으로 나온다.
+   *
+   * ★ **맥락은 안 잃는다**(실측 2026-09-23). 도구 단계에서 끊어도, 글을 쓰는
+   * 중에 끊어도 에이전트는 **자기가 뭘 하다 말았는지 안다** — 반쯤 쓴 문장까지
+   * 그대로 인용한다. 그래서 «끊으면 잃습니다» 같은 경고가 필요 없다.
+   */
+  async interrupt(roomId: string, botId: string): Promise<boolean> {
+    const room = this.open.get(roomId);
+    const rt = this.runtimes.get(roomId);
+    const bot = room?.participants.find((b) => b.id === botId);
+    const bt = rt?.bots.get(botId);
+    if (!room || !bot || !bt?.sessionId) return false;
+    // 도는 중이 아니면 끊을 것이 없다 — 줄에 있는 것은 어차피 곧 나간다
+    if (isBusy(this.statusOf(roomId, botId)) !== true) return false;
+
+    // 다음 프롬프트가 **왜 새로 시작하는지** 말해주도록 표시해둔다
+    bt.interrupted = true;
+    await this.connections.get(bot.agentId)?.cancel(bt.sessionId).catch(() => undefined);
+    return true;
+  }
+
+  /**
    * **줄에서 빼낸다** — 아직 안 보냈으니 그냥 빼면 된다 (§4.3).
    *
    * 답을 기다리는 동안 마음이 바뀌는 건 흔하다. 그런데 지금은 길이 «중단»뿐이라,
@@ -2540,6 +2585,19 @@ export class RoomManager extends EventEmitter<Events> {
       this.setStatus(room.id, "error", bot.id);
       this.emit("roomError", room.id, reason);
       return undefined;
+    }
+
+    /*
+     * ★ **간 시각을 적는다** (대기 정렬).
+     *
+     * 줄에 섰던 말은 «쓴 시각»과 «간 시각»이 다르다. 화면은 간 시각으로
+     * 늘어놓아야 «아직 안 간 것»이 바닥에 남는다.
+     */
+    const at = Date.now();
+    for (const m of batch) {
+      if (m.role !== "user" || m.sentAt !== undefined) continue;
+      m.sentAt = at;
+      void this.saveMessage(room, { id: m.id, sentAt: at });
     }
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
@@ -3342,6 +3400,24 @@ export class RoomManager extends EventEmitter<Events> {
       delete bot.refeedPending;
       this.rollUpLost(room);
       void this.saveProps(room, { participants: room.participants, refeedPending: room.refeedPending });
+    }
+    /*
+     * ★ **끊긴 자리를 설명한다** (끼어들기).
+     *
+     * 🔴 안 적으면 모델이 **지어낸다.** 같은 실험 두 판에서 한 번은 «백그라운드로
+     * 실행했지만 결과를 확인 못 했고»(맞음), 한 번은 «거부돼서 실행되지
+     * 않았습니다»(틀림)라고 했다 — `session/cancel` 이 **«왜»를 안 남기기**
+     * 때문이다. 지어낸 것이 «권한이 막혔다»면 우회를 시도한다.
+     *
+     * **역할·되먹임보다 뒤, 실제 요청보다 앞**이다 — 방금 일어난 일이므로.
+     */
+    if (bt.interrupted) {
+      parts.push(
+        "[사용자가 진행 중이던 작업을 중단했습니다. 권한 거부나 오류가 아닙니다. " +
+          "하던 일은 거기서 멈춘 것이고, 아래가 새 요청입니다. " +
+          "필요하면 멈춘 지점을 언급해도 됩니다.]",
+      );
+      delete bt.interrupted;
     }
     if (bot.answerPolicy === "auto") {
       parts.push(

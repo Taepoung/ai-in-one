@@ -204,6 +204,13 @@ export type FromWebview =
    * 하려면 필요하다(v2.0). 안 주면 방 전체다.
    */
   | { t: "cancel"; roomId: string; botId?: string }
+  /**
+   * **끼어들기** — 줄은 두고 그 봇의 **턴만** 끊는다 (v2.x).
+   *
+   * 「중단」과 다르다: 중단은 줄에 있는 것까지 «안 갔다»로 적지만, 끼어들기는
+   * 줄을 살려 두어 **곧바로 이어서 나가게** 한다.
+   */
+  | { t: "interrupt"; roomId: string; botId: string }
   | { t: "retry"; roomId: string; messageId?: string }
   /**
    * **줄에서 빼낸다** — 아직 안 보낸 메시지 하나만 물린다 (§4.3).

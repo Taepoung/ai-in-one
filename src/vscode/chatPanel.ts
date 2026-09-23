@@ -335,6 +335,9 @@ export class ChatPanel implements AskTarget {
             ...(m.configValues ? { configValues: m.configValues } : {}),
           });
           break;
+        case "interrupt":
+          await this.rooms.interrupt(m.roomId, m.botId);
+          break;
         case "removeBot":
           try {
             await this.rooms.removeBot(m.roomId, m.botId);

@@ -1890,6 +1890,32 @@ function deliveryNode(m: Message, r: Room): HTMLElement | null {
        * 여태 물릴 길은 «중단»뿐이었는데, 그건 **진행 중인 턴까지 끊는다** —
        * 안 보낸 한 줄을 물리려고 이미 보낸 것을 죽이는 셈이었다.
        */
+      /*
+       * ★ **지금 보내기 — 끼어들기** (v2.x).
+       *
+       * 🔴 **보낼 때 고르게 하지 않는다.** 칠 때는 봇이 바쁜지조차 모를 수 있다 —
+       * 상태줄을 안 봤을 수도 있고, 방금 막 바빠졌을 수도 있다. «아 이건
+       * 급한데»는 **대기 표시를 보고 나서** 생기는 마음이라, 고르는 자리도
+       * 여기가 맞다.
+       *
+       * 🔴 그리고 끼어들기는 **남의 진행을 죽이는 일**이다. 보내기 한 번에
+       * 되면 안 된다 — 여기서는 **두 번째 동작**이라 실수로 눌릴 일이 적고,
+       * 바로 옆에 «빼기»가 있어 무를 수도 있다.
+       *
+       * 맥락은 안 잃는다(실측) — 그래서 «잃습니다» 같은 경고를 안 붙인다.
+       */
+      el("button", {
+        class: "link",
+        text: "지금 보내기",
+        title: `${held.join("·")}의 진행을 끊고 이 말을 지금 보냅니다. ` +
+          "하던 일의 맥락은 남으므로, 이어서 하자고 하면 이어갑니다.",
+        onclick: () => {
+          if (!room) return;
+          for (const b of r.participants) {
+            if (held.includes(b.name)) post({ t: "interrupt", roomId: room.id, botId: b.id });
+          }
+        },
+      }),
       el("button", {
         class: "link",
         text: "빼기",
@@ -2080,9 +2106,49 @@ function paintChat(r: Room): void {
    * 전달»하므로 이 뷰가 곧 **«그 봇이 실제로 본 전부»** 인데, 규칙이 어긋나면
    * 그 약속이 바로 거짓말이 된다.
    */
-  const shownMsgs = viewBotId
+  const inView = viewBotId
     ? r.messages.filter((m) => inBotView(m, viewBotId!))
     : r.messages;
+
+  /*
+   * ★ **아직 안 간 말은 맨 아래로** (v2.x).
+   *
+   * 🔴 쓴 순서대로 늘어놓으면 **아직 안 간 것이 이미 일어난 일들 위에** 묻힌다 —
+   * 줄에 선 사이에 옆 봇이 답하거나 시스템 줄 하나만 생겨도 그렇게 된다.
+   * 바닥으로 내려가 «지금 어떻게 됐나»를 보려는데 정작 **안 끝난 것이 위에**
+   * 있는 셈이다.
+   *
+   * 그래서 **«간 시각»으로 늘어놓는다**(`sentAt`). 아직 안 간 것은 그 값이
+   * 없으므로 맨 뒤다.
+   *
+   * 🔴 **«대기 중이면 맨 아래»만으로는 부족했다.** 그러면 보내는 순간 조건이
+   * 풀려 말풍선이 **위로 튄다** — 이미 본 것이 두 번 움직인다. `sentAt` 이
+   * 박히면 내려간 자리에 그대로 머문다.
+   *
+   * 정렬은 **안정적**이라(JS `sort`) 같은 시각끼리는 원래 순서를 지킨다.
+   */
+  const orderAt = (m: Message): number => {
+    /*
+     * 🔴 **«대기 중이면 바닥»만 보면 안 된다.** 단체방에서는 한 말이 **한 봇에게는
+     * 가고 한 봇은 기다리는** 일이 흔하다. 그때도 바닥으로 내리면 **답이 질문
+     * 위에** 놓인다 — 실제로 그렇게 나왔다:
+     *
+     * ```
+     * 구현의 답
+     * 둘 다 봐줘   ⏳ Codex 대기 중     ← 질문이 답 아래로 내려갔다
+     * ```
+     *
+     * 자리를 정하는 것은 «**대화에 들어온 시각**»이다. 한 명이라도 받았으면
+     * 그 말은 이미 들어온 것이고(`sentAt` 이 그때 박힌다), 아무도 못 받았을
+     * 때만 «아직 안 들어온 것»이라 바닥이다.
+     *
+     * 누가 받고 누가 기다리는지는 **한 줄에 이미 다 있다** — 받은 이는 칩으로,
+     * 기다리는 이는 «⏳ … 대기 중»으로. 말풍선을 둘로 쪼갤 이유가 없다.
+     */
+    if (m.sentAt !== undefined) return m.sentAt;
+    return waitingFor(m.id).length > 0 ? Number.POSITIVE_INFINITY : m.createdAt;
+  };
+  const shownMsgs = [...inView].sort((x, y) => orderAt(x) - orderAt(y));
   let day = "";
   /** 바로 위에 붙어 있는 메시지. 선이 끼어들면 끊긴다 */
   let above: Message | undefined;
@@ -2468,6 +2534,8 @@ function sigOf(m: Message): string {
     m.authorBotId ? (botStatus[m.authorBotId] ?? "") : "",
     // 배달 표시 — 받는 이가 바뀌거나 줄에서 빠지면 다시 그려야 한다
     m.deliveredTo.join(","),
+    // 간 시각이 박히면 **자리가 바뀐다** — 다시 그려야 한다 (대기 정렬)
+    m.sentAt ?? "",
     (m.notSentTo ?? []).join(","),
     waitingFor(m.id).join(","),
   ].join(" ");
