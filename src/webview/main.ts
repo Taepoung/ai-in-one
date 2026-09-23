@@ -1751,7 +1751,47 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
   const wait = new Set(waitingFor(m.id));
 
   const row = el("span", { class: "to-chips" });
-  for (const id of to) {
+
+  /*
+   * ★ **전원에게 갔으면 `@everyone` 한 장으로** (2026-09-23).
+   *
+   * `@everyone` 은 파싱 때 **전원 id로 펼쳐져** 저장된다(`mentions.ts`). 그래서
+   * «@everyone 으로 보낸 것»과 «이름을 하나씩 다 부른 것»은 **저장에서 구분이
+   * 안 된다** — 받은 사람이 같으니 같은 말이다. 그러면 **짧은 쪽으로 보여주는
+   * 것이 맞다.** 봇이 넷이면 칩 넉 장이 글보다 길어진다.
+   *
+   * 🔴 **상태가 갈리면 접지 않는다.** 하나는 갔고 하나는 줄에 서 있는데
+   * «전원»으로 뭉뚱그리면 **어디까지 갔는지가 사라진다** — 그 차이를 적는 것이
+   * 이 줄의 존재 이유다(§4.1.1).
+   *
+   * **나간 봇은 따로 남긴다.** 지금 참여자가 아니므로 «전원»에 안 들어가고,
+   * 그래도 자리는 남아야 한다(§0의 뺄셈 규칙).
+   */
+  const stateOf = (id: string) => (lost.has(id) ? "lost" : wait.has(id) ? "held" : "");
+  const here = r.participants.map((b) => b.id);
+  const all =
+    here.length > 1 &&
+    here.every((id) => to.includes(id)) &&
+    here.every((id) => stateOf(id) === stateOf(here[0]!));
+
+  const shown = all ? to.filter((id) => !here.includes(id)) : to;
+  if (all) {
+    const st = stateOf(here[0]!);
+    row.append(
+      el("span", {
+        class: `chip to${st ? " " + st : ""} all`,
+        text: "@everyone",
+        title:
+          st === "lost"
+            ? "전원에게 전달되지 않았습니다"
+            : st === "held"
+              ? `전원이 아직 줄에 서 있습니다 (${here.length}명)`
+              : `참여자 전원에게 전달되었습니다 (${here.length}명)`,
+      }),
+    );
+  }
+
+  for (const id of shown) {
     /*
      * 내보낸 봇의 이름은 **안 남는다** — `removeBot`이 `participants`에서
      * 빼기 때문이다. 그래도 **자리는 남긴다**: 둘에게 간 말이 하나에게만
