@@ -460,6 +460,15 @@ let hits: SearchHit[] | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 /** 방을 열 때 점프할 메시지 (H3) */
 let jumpToMessageId: string | undefined;
+/**
+ * ★ **찾아가기 전에 읽던 자리** (2026-09-23).
+ *
+ * 위로 뛰면 **자동 따라가기가 풀린다** — 아래에서 턴이 도는데 옛날 것을 보고
+ * 있게 된다. 돌아올 자리를 적어두고 띠로 내어준다.
+ *
+ * 화면이 **실제로 움직였을 때만** 적는다. 안 움직였으면 돌아갈 데가 없다.
+ */
+let backTo: number | undefined;
 
 function onFilterInput(value: string): void {
   filterText = value;
@@ -1060,6 +1069,13 @@ interface ChatEls {
    */
   clash: HTMLElement;
   list: HTMLElement;
+  /**
+   * ★ **«읽던 자리로»** — 찾아가기로 화면이 움직였을 때만 뜬다 (2026-09-23).
+   *
+   * 대화 **아래**에 둔다. 위에 두면 막 스크롤해 온 자리를 또 가리고, 돌아갈
+   * 방향(아래)과 단추 자리가 어긋난다.
+   */
+  back: HTMLElement;
   status: HTMLElement;
   chips: HTMLElement;
   box: HTMLTextAreaElement;
@@ -1510,6 +1526,7 @@ function mountChat(r: Room): void {
   const queue = el("div", { class: "approvals", hidden: true });
   const clash = el("div", { class: "clashes", hidden: true });
   const list = el("div", { class: "messages" });
+  const back = el("div", { class: "back-jump", hidden: true });
   const status = el("div", { class: "status" });
   /*
    * 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다.
@@ -1662,6 +1679,7 @@ function mountChat(r: Room): void {
     queue,
     clash,
     list,
+    back,
     status,
     compose,
     chips,
@@ -1679,7 +1697,9 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, queue, clash, list, status, chips, box, perm, compose };
+  chat = { roomId: r.id, head, queue, clash, list, back, status, chips, box, perm, compose };
+  // 방을 갈아타면 돌아갈 자리도 사라진다 — 남의 방 스크롤 값이다
+  backTo = undefined;
   pending = [];
   paintChips();
   // 단체방에서는 **봇마다 에이전트가 다르다** — 전부 물어봐야 누가 뭐를 못 하는지 안다
@@ -2803,17 +2823,8 @@ function messageNode(
 
   // 뭐에 대한 답인지 — **자명하지 않을 때만** 보여준다 (C4). `needsAnswerNote` 참조
   if (noteAnswer) {
-    const n = m.replyToIds?.length ?? 0;
-    const asked =
-      n === 1 ? room?.messages.find((x) => x.id === m.replyToIds![0]) : undefined;
-    node.append(
-      el("div", {
-        class: "meta",
-        text: asked
-          ? `↩ «${asked.text.slice(0, 20)}${asked.text.length > 20 ? "…" : ""}»에 답합니다`
-          : `↩ 질문 ${n}개에 한 번에 답합니다`,
-      }),
-    );
+    const note = answerNote(m);
+    if (note) node.append(note);
   }
 
   // 누구에게 갔고 누가 아직 줄에 서 있나 (§4.1.1)
@@ -2842,6 +2853,64 @@ function messageNode(
   }
 
   return node;
+}
+
+/** 발췌 길이 — 한 줄에 여럿이 설 수 있어야 하므로 짧게 */
+const EXCERPT = 20;
+
+/**
+ * ★ **무엇에 대한 답인지 — 질문마다 하나씩, 눌러서 갈 수 있게** (C4 · 2026-09-23).
+ *
+ * 🔴 여태 **둘 이상이면 발췌가 아예 없었다**: «질문 2개에 한 번에 답합니다».
+ * 그런데 그게 **가장 헷갈리는 경우**다 — 줄에 서 있던 봇이 턴 끝에 묶어서
+ * 받은 것이라, 묶인 질문들 사이에 **남의 말이 끼어 있다.** 하나일 때보다
+ * 되레 안 보였다.
+ *
+ * 그래서 **개수 대신 발췌를 늘어놓는다.** 그러면 «누를 대상»이 곧 «발췌»가
+ * 되어, 되돌아가기가 따로 붙는 기능이 아니라 **같은 것의 두 쓰임**이 된다.
+ *
+ * 🔴 **못 찾는 질문은 그냥 뺀다.** 압축(C11)으로 사라졌을 수 있는데, 그때
+ * 눌러도 아무 일이 없는 단추를 두면 «고장»으로 읽힌다. 하나도 못 찾으면
+ * 옛 문구로 떨어진다 — 그래도 «몇 개에 답했다»는 남겨야 한다.
+ */
+function answerNote(m: Message): HTMLElement | null {
+  const ids = m.replyToIds ?? [];
+  if (ids.length === 0) return null;
+
+  const asked = ids
+    .map((id) => room?.messages.find((x) => x.id === id))
+    .filter((x): x is Message => x !== undefined);
+
+  if (asked.length === 0) {
+    // «질문 1개에 한 번에» 는 말이 안 된다 — 하나면 그냥 «앞선 질문»이다
+    return el("div", {
+      class: "meta",
+      text: ids.length === 1 ? "↩ 앞선 질문에 답합니다"
+                             : `↩ 질문 ${ids.length}개에 한 번에 답합니다`,
+    });
+  }
+
+  const note = el("div", { class: "meta answer-note" });
+  note.append("↩ ");
+  asked.forEach((q, i) => {
+    // 띄어쓰기는 **글자로** 넣는다 — flex gap 으로 주면 뒤의 «에 답합니다»까지 떨어진다
+    if (i > 0) note.append(" ");
+    const one = q.text.replace(/\s+/g, " ").trim();
+    note.append(
+      el(
+        "button",
+        {
+          class: "link jump",
+          // 잘린 뒤를 보려면 여기 — 발췌는 짧아야 여럿이 한 줄에 선다
+          title: one.slice(0, 200),
+          onclick: () => jumpTo(q.id, true),
+        },
+        `«${one.length > EXCERPT ? `${one.slice(0, EXCERPT)}…` : one}»`,
+      ),
+    );
+  });
+  note.append(asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다");
+  return note;
 }
 
 /** 같은 날이면 같은 값. 날짜 구분선을 그을 자리를 이걸로 찾는다 */
@@ -5536,6 +5605,63 @@ function scrollInside(list: HTMLElement, node: HTMLElement, place: "center" | "e
   list.scrollTop += delta;
 }
 
+/**
+ * ★ **그 말풍선으로 간다** (2026-09-23).
+ *
+ * 🔴 **이미 보이면 화면을 안 움직인다.** 눌렀더니 읽던 자리가 사라졌는데 정작
+ * 목적지는 원래 보이던 것 — 그게 제일 나쁘다. **깜빡임이 본체고 스크롤은
+ * 필요할 때만** 따라붙는다.
+ *
+ * `wantBack` 은 **방 안에서 뛸 때만** 참이다. 검색 결과로 방을 **열면서**
+ * 뛰는 길(H3)에는 «읽던 자리»가 없다 — 막 들어온 참이라 돌아갈 데가 없다.
+ */
+function jumpTo(id: string, wantBack: boolean): void {
+  const c = chat;
+  const target = nodeCache.get(id)?.node;
+  if (!c || !target?.isConnected) return;
+
+  // 앞서 깜빡이던 것이 남아 있으면 «어느 쪽이지»가 된다 — 하나만 켠다
+  c.list.querySelectorAll(".msg.jumped").forEach((old) => old.classList.remove("jumped"));
+
+  const a = target.getBoundingClientRect();
+  const b = c.list.getBoundingClientRect();
+  if (a.top < b.top || a.bottom > b.bottom) {
+    if (wantBack) {
+      backTo = c.list.scrollTop;
+      // **띠를 먼저 띄운다** — 띄우면 목록이 그만큼 짧아지므로, 자리는 그 뒤에 재야 맞다
+      paintBack(true);
+    }
+    scrollInside(c.list, target, "center");
+  }
+
+  target.classList.add("jumped");
+  setTimeout(() => target.classList.remove("jumped"), 1600);
+}
+
+/** «읽던 자리로» 띠를 켜고 끈다 */
+function paintBack(on: boolean): void {
+  const c = chat;
+  if (!c) return;
+  if (on) {
+    replace(
+      c.back,
+      el(
+        "button",
+        { class: "link", onclick: () => {
+          const now = chat;
+          if (now && backTo !== undefined) now.list.scrollTop = backTo;
+          paintBack(false);
+        } },
+        icon("arrow-down"),
+        "읽던 자리로",
+      ),
+    );
+  } else {
+    backTo = undefined;
+  }
+  c.back.hidden = !on;
+}
+
 function scrollIntoPlace(list: HTMLElement): void {
   const line = list.querySelector<HTMLElement>(".unread-line");
   if (line) {
@@ -5580,6 +5706,8 @@ screens.chat.addEventListener(
     const t = e.target as HTMLElement;
     if (!t.classList.contains("messages")) return;
     stick = t.scrollHeight - t.scrollTop - t.clientHeight < 60;
+    // 손으로 바닥까지 내려왔으면 **이미 돌아온 것**이다 — 띠가 남아 있을 이유가 없다
+    if (stick && backTo !== undefined) paintBack(false);
   },
   true,
 );
@@ -5614,13 +5742,9 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       // 안 하면 만들기 화면에 그대로 서 있게 된다.
       if (stack[stack.length - 1] === "new") go("chat");
       if (jumpToMessageId) {
-        const target = nodeCache.get(jumpToMessageId)?.node;
+        // 막 들어온 참이라 «읽던 자리»가 없다 — 띠를 안 띄운다
+        jumpTo(jumpToMessageId, false);
         jumpToMessageId = undefined;
-        if (target) {
-          if (chat?.list) scrollInside(chat.list, target, "center");
-          target.classList.add("jumped");
-          setTimeout(() => target.classList.remove("jumped"), 1600);
-        }
       }
       break;
     }
