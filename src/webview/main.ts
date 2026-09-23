@@ -1727,15 +1727,17 @@ function lostLine(m: Message, r: Room): string {
  */
 function deliveryChips(m: Message, r: Room): HTMLElement | null {
   /*
-   * 1:1에서는 칩을 안 적는다 — 상대가 하나뿐이라 자명하고, 매 말풍선에 같은
-   * 이름이 붙으면 읽는 데 방해만 된다.
+   * ⏪ **«1:1에서는 칩을 안 적는다» 를 뺐다** (2026-09-23).
    *
-   * 🔴 **나간 봇을 세지 않으면 «자명»이 거짓이 된다.** 둘이던 방에서 하나가
-   * 나가면 참여자가 하나가 되는데, 그렇다고 **둘에게 갔던 지난 말들이 1:1이
-   * 되지는 않는다** — 칩을 통째로 숨기면 «누구에게 갔었나»가 사라진다.
+   * 근거는 *"상대가 하나뿐이라 자명하고, 매 말풍선에 같은 이름이 붙으면 읽는
+   * 데 방해만 된다"* 였다. 🔴 그런데 **1:1 방은 도중에 단체방이 된다**(§4.2) —
+   * 봇을 하나 부르면 참여자가 둘이 되고, 그 순간 **지난 말풍선들이 갑자기 칩을
+   * 얻었다.** 과거 기록의 생김새가 **나중 일 때문에 바뀌는** 셈이다.
+   *
+   * 그건 일관성이 아니라 그 반대다. **받는 이는 언제나 적는다** — 한 명이면
+   * 한 장이고, 그 한 장이 나중에도 그대로 있다.
    */
   if (m.role === "system") return null;
-  if (r.participants.length + (r.left?.length ?? 0) < 2) return null;
 
   /*
    * ★ **봇이 봇에게 건 말도 «누구에게»를 단다** (v3.0 대비).
@@ -1762,45 +1764,16 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
   const row = el("span", { class: "to-chips" });
 
   /*
-   * ★ **전원에게 갔으면 `@everyone` 한 장으로** (2026-09-23).
+   * ⏪ **«전원이면 `@everyone` 한 장으로» 를 뺐다** (2026-09-23).
    *
-   * `@everyone` 은 파싱 때 **전원 id로 펼쳐져** 저장된다(`mentions.ts`). 그래서
-   * «@everyone 으로 보낸 것»과 «이름을 하나씩 다 부른 것»은 **저장에서 구분이
-   * 안 된다** — 받은 사람이 같으니 같은 말이다. 그러면 **짧은 쪽으로 보여주는
-   * 것이 맞다.** 봇이 넷이면 칩 넉 장이 글보다 길어진다.
+   * 짧아서 좋아 보였는데, «전원»은 **«지금 명단»에 기대는 말**이다. 명단이
+   * 바뀌면 **같은 메시지가 다르게 읽힌다** — 기록이 나중 일 때문에 흔들린다.
    *
-   * 🔴 **상태가 갈리면 접지 않는다.** 하나는 갔고 하나는 줄에 서 있는데
-   * «전원»으로 뭉뚱그리면 **어디까지 갔는지가 사라진다** — 그 차이를 적는 것이
-   * 이 줄의 존재 이유다(§4.1.1).
-   *
-   * **나간 봇은 따로 남긴다.** 지금 참여자가 아니므로 «전원»에 안 들어가고,
-   * 그래도 자리는 남아야 한다(§0의 뺄셈 규칙).
+   * 개별 칩은 `deliveredTo` 그대로라 **언제 봐도 같다.** `@everyone` 으로 썼든
+   * 이름을 하나씩 불렀든 **받은 사람이 같으면 같게 보이는 것**이 맞고, 그
+   * «같음»은 명단이 아니라 **받은 사람 목록**이 정해야 한다.
    */
-  const stateOf = (id: string) => (lost.has(id) ? "lost" : wait.has(id) ? "held" : "");
-  const here = r.participants.map((b) => b.id);
-  const all =
-    here.length > 1 &&
-    here.every((id) => to.includes(id)) &&
-    here.every((id) => stateOf(id) === stateOf(here[0]!));
-
-  const shown = all ? to.filter((id) => !here.includes(id)) : to;
-  if (all) {
-    const st = stateOf(here[0]!);
-    row.append(
-      el("span", {
-        class: `chip to${st ? " " + st : ""} all`,
-        text: "@everyone",
-        title:
-          st === "lost"
-            ? "전원에게 전달되지 않았습니다"
-            : st === "held"
-              ? `전원이 아직 줄에 서 있습니다 (${here.length}명)`
-              : `참여자 전원에게 전달되었습니다 (${here.length}명)`,
-      }),
-    );
-  }
-
-  for (const id of shown) {
+  for (const id of to) {
     /*
      * 내보낸 봇의 이름은 **안 남는다** — `removeBot`이 `participants`에서
      * 빼기 때문이다. 그래도 **자리는 남긴다**: 둘에게 간 말이 하나에게만
