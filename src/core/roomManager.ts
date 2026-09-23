@@ -2587,18 +2587,8 @@ export class RoomManager extends EventEmitter<Events> {
       return undefined;
     }
 
-    /*
-     * ★ **간 시각을 적는다** (대기 정렬).
-     *
-     * 줄에 섰던 말은 «쓴 시각»과 «간 시각»이 다르다. 화면은 간 시각으로
-     * 늘어놓아야 «아직 안 간 것»이 바닥에 남는다.
-     */
-    const at = Date.now();
-    for (const m of batch) {
-      if (m.role !== "user" || m.sentAt !== undefined) continue;
-      m.sentAt = at;
-      void this.saveMessage(room, { id: m.id, sentAt: at });
-    }
+    // ★ **줄에서 나왔다** — 여기서 자리를 잡는다 (대기 정렬)
+    for (const m of batch) this.placeNow(room, m);
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
 
@@ -4033,6 +4023,19 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * **줄에서 나온 그때** 자리를 잡는다 (대기 정렬).
+   *
+   * 한 번 잡으면 안 바꾼다 — 여러 봇에게 가는 말은 **먼저 받은 쪽**이 자리를
+   * 정한다. 그게 «대화에 들어온 시각»이다.
+   */
+  private placeNow(room: Room, m: Message): void {
+    if (m.role !== "user" || m.placedAt !== undefined) return;
+    const at = Date.now();
+    m.placedAt = at;
+    void this.saveMessage(room, { id: m.id, placedAt: at });
+  }
+
+  /**
    * **이 봇에게는 안 갔다**고 메시지에 적는다 (C5 · §0의 뺄셈 규칙).
    *
    * 큐에 있던 것을 버리는 길은 둘이다 — 중단(`cancel`)과 빼내기(`unqueue`).
@@ -4049,6 +4052,14 @@ export class RoomManager extends EventEmitter<Events> {
     botId: string,
     why: string,
   ): Promise<void> {
+    /*
+     * ★ **안 갔어도 줄에서는 나왔다** — 여기서도 자리를 잡는다.
+     *
+     * 🔴 이걸 빠뜨렸더니 「빼기」를 누른 말풍선이 **위로 튀었다.** 대기 중에는
+     * 바닥에 있다가, 물리는 순간 조건이 풀려 쓴 시각 자리로 돌아간 것이다 —
+     * **누른 것이 눈앞에서 달아난다.**
+     */
+    this.placeNow(room, m);
     m.notSentTo = [...new Set([...(m.notSentTo ?? []), botId])];
     m.sendFailed =
       room.participants.length > 1

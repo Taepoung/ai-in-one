@@ -2145,7 +2145,7 @@ function paintChat(r: Room): void {
      * 누가 받고 누가 기다리는지는 **한 줄에 이미 다 있다** — 받은 이는 칩으로,
      * 기다리는 이는 «⏳ … 대기 중»으로. 말풍선을 둘로 쪼갤 이유가 없다.
      */
-    if (m.sentAt !== undefined) return m.sentAt;
+    if (m.placedAt !== undefined) return m.placedAt;
     return waitingFor(m.id).length > 0 ? Number.POSITIVE_INFINITY : m.createdAt;
   };
   const shownMsgs = [...inView].sort((x, y) => orderAt(x) - orderAt(y));
@@ -2534,8 +2534,8 @@ function sigOf(m: Message): string {
     m.authorBotId ? (botStatus[m.authorBotId] ?? "") : "",
     // 배달 표시 — 받는 이가 바뀌거나 줄에서 빠지면 다시 그려야 한다
     m.deliveredTo.join(","),
-    // 간 시각이 박히면 **자리가 바뀐다** — 다시 그려야 한다 (대기 정렬)
-    m.sentAt ?? "",
+    // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
+    m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
     waitingFor(m.id).join(","),
   ].join(" ");
