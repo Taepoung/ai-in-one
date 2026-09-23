@@ -2294,30 +2294,48 @@ function applyDelta(msg: Message): void {
  * 1:1에서는 이름이 군더더기라 예전처럼 상태만 쓴다.
  */
 function paintStatus(bar: HTMLElement, r: Room, status: RoomStatus): void {
-  const many = r.participants.length > 1;
-  const busy = r.participants.filter((b) => {
+  /*
+   * ★ **뷰에서는 그 봇 것만** (v2.1 감사 · 2026-09-23).
+   *
+   * 🔴 구현 뷰인데 *"Codex 답하는 중"* 이라고 떴다 — **남의 턴 이야기**다.
+   * 그리고 그 옆 «중단»이 `cancel(roomId)` 이라 **방 전체를 끊었다**: 구현
+   * 것만 보려고 들어온 화면에서 **리뷰어의 일을 죽이는** 단추였다.
+   *
+   * 뷰는 «그 봇과의 1:1처럼»이 약속이므로(§5), 여기서는 1:1 방과 **똑같이**
+   * 군다 — 그 봇의 상태를 말하고, 중단도 그 봇만 끊는다.
+   */
+  const seen = viewBot(r);
+  const shown = seen ? [seen] : r.participants;
+  const many = shown.length > 1;
+  const busy = shown.filter((b) => {
     const s = botStatus[b.id];
     return s !== undefined && s !== "idle" && s !== "error";
   });
+  // 뷰에서는 방 상태가 아니라 **그 봇의 상태**가 기준이다
+  const at = seen ? (botStatus[seen.id] ?? "idle") : status;
 
   const text =
     many && busy.length > 0
       ? busy
           .map((b) => `${agentById.get(b.agentId)?.label ?? b.name} ${statusText(botStatus[b.id]!)}`)
           .join(" · ")
-      : statusText(status);
+      : statusText(at);
 
   const kids: Node[] = [
     el("span", { class: "typing" }, el("i"), el("i"), el("i")),
     el("span", { text }),
   ];
   // 중단은 턴이 도는 동안에만 의미가 있다
-  if (status === "streaming" || status === "tool" || status === "waiting") {
+  if (at === "streaming" || at === "tool" || at === "waiting") {
     kids.push(
       el("button", {
         class: "stop",
         text: "중단",
-        onclick: () => post({ t: "cancel", roomId: r.id }),
+        onclick: () => post({
+          t: "cancel",
+          roomId: r.id,
+          ...(seen ? { botId: seen.id } : {}),
+        }),
       }),
     );
   }
@@ -3499,7 +3517,14 @@ function onceOption(req: PermissionRequest, allow: boolean): string | undefined 
 function paintClashes(r: Room): void {
   const host = chat?.clash;
   if (!host) return;
-  const mine = clashes;
+  /*
+   * ★ **뷰에서는 그 봇이 낀 것만** (v2.1 감사).
+   *
+   * 봇이 셋이면 **나와 무관한 둘이 부딪힌 것**까지 떴다. 뷰는 «그 봇과의
+   * 1:1처럼»이라 남의 사정은 방으로 나가서 볼 일이다.
+   */
+  const only = viewBotId;
+  const mine = only ? clashes.filter((c) => c.botIds.includes(only)) : clashes;
   if (mine.length === 0) {
     host.hidden = true;
     host.replaceChildren();
