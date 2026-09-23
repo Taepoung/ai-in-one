@@ -824,15 +824,20 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
     { class: "bot" },
     el("legend", { text: draftBots.length > 1 ? `봇 ${n + 1}` : "봇" }),
     draftBots.length > 1
-      ? el("button", {
-          class: "link bot-drop",
-          text: "빼기",
-          onclick: () => {
-            draftBots.splice(n, 1);
-            draftAt = Math.min(draftAt, draftBots.length - 1);
-            renderNew();
+      ? el(
+          "button",
+          {
+            class: "link bot-drop",
+            onclick: () => {
+              draftBots.splice(n, 1);
+              draftAt = Math.min(draftAt, draftBots.length - 1);
+              renderNew();
+            },
           },
-        })
+          // 큐의 «빼기»와 **같은 말**이다 — 모양도 같아야 한다
+          icon("close"),
+          "빼기",
+        )
       : null,
     el(
       "div",
@@ -1904,25 +1909,46 @@ function deliveryNode(m: Message, r: Room): HTMLElement | null {
        *
        * 맥락은 안 잃는다(실측) — 그래서 «잃습니다» 같은 경고를 안 붙인다.
        */
-      el("button", {
-        class: "link",
-        text: "지금 보내기",
-        title: `${held.join("·")}의 진행을 끊고 이 말을 지금 보냅니다. ` +
-          "하던 일의 맥락은 남으므로, 이어서 하자고 하면 이어갑니다.",
-        onclick: () => {
-          if (!room) return;
-          for (const b of r.participants) {
-            if (held.includes(b.name)) post({ t: "interrupt", roomId: room.id, botId: b.id });
-          }
+      /*
+       * ★ **아이콘은 글자를 대신하지 않고 거든다** (2026-09-23).
+       *
+       * 대기 띠는 **급할 때 보는 자리**다. «지금 보내기»와 «빼기»는 결과가
+       * 정반대인데 글자 길이가 비슷해서, 서두르면 **옆엣것을 누른다.** 모양이
+       * 다르면 글자를 다 읽기 전에 갈린다.
+       *
+       * 🔴 **글자를 빼지는 않는다.** 아이콘만 두면 «✕ 가 취소인가 삭제인가»를
+       * 툴팁으로 확인해야 하고, 그건 급한 사람에게 더 느리다.
+       *
+       * 아이콘은 **글자가 말하는 그대로**를 고른다 — 보내기는 `send`,
+       * 빼기는 `close`. 두 번째 비유를 얹으면 오히려 읽을 것이 는다.
+       */
+      el(
+        "button",
+        {
+          class: "link",
+          title: `${held.join("·")}의 진행을 끊고 이 말을 지금 보냅니다. ` +
+            "하던 일의 맥락은 남으므로, 이어서 하자고 하면 이어갑니다.",
+          onclick: () => {
+            if (!room) return;
+            for (const b of r.participants) {
+              if (held.includes(b.name)) post({ t: "interrupt", roomId: room.id, botId: b.id });
+            }
+          },
         },
-      }),
-      el("button", {
-        class: "link",
-        text: "빼기",
-        title: "이 메시지를 줄에서 뺍니다. 진행 중인 답변은 그대로 둡니다.",
-        onclick: () =>
-          room && post({ t: "unqueue", roomId: room.id, messageId: m.id }),
-      }),
+        icon("send"),
+        "지금 보내기",
+      ),
+      el(
+        "button",
+        {
+          class: "link",
+          title: "이 메시지를 줄에서 뺍니다. 진행 중인 답변은 그대로 둡니다.",
+          onclick: () =>
+            room && post({ t: "unqueue", roomId: room.id, messageId: m.id }),
+        },
+        icon("close"),
+        "빼기",
+      ),
     );
   }
   return row;
@@ -2462,15 +2488,19 @@ function paintStatus(bar: HTMLElement, r: Room, status: RoomStatus): void {
   // 중단은 턴이 도는 동안에만 의미가 있다
   if (at === "streaming" || at === "tool" || at === "waiting") {
     kids.push(
-      el("button", {
-        class: "stop",
-        text: "중단",
-        onclick: () => post({
-          t: "cancel",
-          roomId: r.id,
-          ...(seen ? { botId: seen.id } : {}),
-        }),
-      }),
+      el(
+        "button",
+        {
+          class: "stop",
+          onclick: () => post({
+            t: "cancel",
+            roomId: r.id,
+            ...(seen ? { botId: seen.id } : {}),
+          }),
+        },
+        icon("debug-stop"),
+        "중단",
+      ),
     );
   }
   bar.replaceChildren(...kids);
@@ -2741,15 +2771,20 @@ function messageNode(
       el(
         "div",
         { class: "meta" },
-        el("button", {
-          class: "link stop-bot",
-          text: manyBots() ? `${agent?.label ?? "이 봇"}만 중단` : "중단",
-          title: manyBots()
-            ? "이 봇의 턴만 끊습니다. 다른 봇은 계속합니다."
-            : "지금 답하는 것을 끊습니다",
-          onclick: () =>
-            room && post({ t: "cancel", roomId: room.id, botId: m.authorBotId }),
-        }),
+        el(
+          "button",
+          {
+            class: "link stop-bot",
+            title: manyBots()
+              ? "이 봇의 턴만 끊습니다. 다른 봇은 계속합니다."
+              : "지금 답하는 것을 끊습니다",
+            onclick: () =>
+              room && post({ t: "cancel", roomId: room.id, botId: m.authorBotId }),
+          },
+          // 여태 `::before` 의 «■» 였다 — 위의 «중단»과 **같은 일인데 모양이 달랐다**
+          icon("debug-stop"),
+          manyBots() ? `${agent?.label ?? "이 봇"}만 중단` : "중단",
+        ),
       ),
     );
   }

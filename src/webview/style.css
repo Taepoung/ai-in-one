@@ -954,6 +954,9 @@ button.ghost:hover {
 
 .status .stop {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: transparent;
@@ -1687,6 +1690,16 @@ textarea.role {
  * 그대로 남는다.
  */
 button.link {
+  /*
+   * ★ **아이콘이 들어와도 알약이 안 흔들리게** (2026-09-23).
+   *
+   * `inline-flex` 라야 아이콘과 글자의 **밑선이 맞는다.** 기본 `inline` 으로
+   * 두면 아이콘이 글꼴의 베이스라인에 앉아 **살짝 내려가고**, 알약 높이도
+   * 아이콘 유무에 따라 달라진다 — 같은 띠의 단추들이 서로 안 맞는다.
+   */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1700,6 +1713,15 @@ button.link {
 
 button.link:hover {
   background: var(--list-hover);
+}
+
+/*
+ * 코디콘 기본은 16px 이라 **11px 알약을 밀어 늘린다.** 글자보다 한 칸만 크게
+ * 둔다 — 거들기만 하면 되므로.
+ */
+button.link .codicon,
+.status .stop .codicon {
+  font-size: 12px;
 }
 
 .room-sub .elsewhere {
@@ -2172,12 +2194,11 @@ details.advanced[open] > summary .codicon-chevron-right {
   text-decoration: none;
 }
 
-.stop-bot.link::before {
-  content: "■";
-  margin-right: 4px;
-  font-size: 8px;
-  vertical-align: 1px;
-}
+/*
+ * 🔴 여기엔 `::before { content: "■" }` 가 있었다 — **아이콘 흉내**다. 위
+ * 상태줄의 «중단»과 **같은 일인데 모양이 달랐고**, 글꼴에 따라 ■ 의 크기와
+ * 밑선이 제각각이라 알약 안에서 떠 보였다. 이제 둘 다 `debug-stop` 이다.
+ */
 
 .stop-bot.link:hover {
   border-color: var(--vscode-errorForeground, #f14c4c);
