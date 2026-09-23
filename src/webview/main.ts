@@ -1726,14 +1726,32 @@ function lostLine(m: Message, r: Room): string {
  * 1:1에서는 안 만든다 — 상대가 하나뿐이라 자명하다.
  */
 function deliveryChips(m: Message, r: Room): HTMLElement | null {
-  if (m.role !== "user" || r.participants.length < 2) return null;
-  if (m.deliveredTo.length === 0) return null;
+  if (m.role === "system" || r.participants.length < 2) return null;
+
+  /*
+   * ★ **봇이 봇에게 건 말도 «누구에게»를 단다** (v3.0 대비).
+   *
+   * 🔴 `role !== "user"` 로 잘라내고 있었다. 오늘은 맞다 — 봇의 답은
+   * `deliveredTo` 가 **글쓴이 자신뿐**이라 «나에게 갔다»는 군더더기다.
+   *
+   * 그런데 릴레이(§7)가 들어오면 알파가 베타에게 거는 말이 생긴다. 그건
+   * **«봇이 봇에게 한 말»** 이라 말풍선이고(§7의 판정), 그렇다면 사용자 말과
+   * 똑같이 **받는 이가 보여야 한다** — 안 보이면 그 말풍선만 «누구에게 갔는지
+   * 알 수 없는 말»이 된다. 그 차이를 적는 것이 이 줄의 존재 이유였다(§4.1.1).
+   *
+   * **글쓴이 자신은 뺀다.** 남는 것이 없으면 평범한 답이므로 아무것도 안 단다 —
+   * 오늘 화면은 하나도 안 바뀐다.
+   */
+  const to = m.role === "agent"
+    ? m.deliveredTo.filter((id) => id !== m.authorBotId)
+    : m.deliveredTo;
+  if (to.length === 0) return null;
 
   const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
   const wait = new Set(waitingFor(m.id));
 
   const row = el("span", { class: "to-chips" });
-  for (const id of m.deliveredTo) {
+  for (const id of to) {
     /*
      * 내보낸 봇의 이름은 **안 남는다** — `removeBot`이 `participants`에서
      * 빼기 때문이다. 그래도 **자리는 남긴다**: 둘에게 간 말이 하나에게만
