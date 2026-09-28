@@ -41,6 +41,33 @@ const COMPACT_MIN_LINES = 64;
  * `globalState`를 쓰지 않는 이유는 용량 제한이다. 경로는 셸이 정해서 넘긴다
  * (`context.globalStorageUri`) — core는 `vscode`를 모른다.
  */
+/**
+ * 비운 값을 **적을 수 있는 모양**으로 바꾼다 — `undefined` → `null`.
+ *
+ * 맨 위 단계만 본다. 중첩된 객체(`participants` 의 봇 등)는 통째로 다시 쓰이므로
+ * 키가 빠지면 그대로 사라진다 — 거기는 원래 문제가 없다.
+ */
+function erasable<T extends object>(line: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(line)) out[k] = v === undefined ? null : v;
+  return out as T;
+}
+
+/**
+ * 갱신 줄을 덮어쓴다. **`null` 은 «이 키를 지워라»** 다.
+ *
+ * 🔴 `{...prev, ...next}` 만 쓰면 «비었다»를 표현할 방법이 없다 — 키가 없으면
+ * 앞 값이 남고, `null` 을 그대로 두면 타입에 없는 값이 앱으로 샌다.
+ */
+function merge(prev: object, next: object): object {
+  const out: Record<string, unknown> = { ...prev };
+  for (const [k, v] of Object.entries(next)) {
+    if (v === null) delete out[k];
+    else out[k] = v;
+  }
+  return out;
+}
+
 export class RoomStore {
   private readonly roomsDir: string;
   private readonly blobsDir: string;
@@ -142,11 +169,11 @@ export class RoomStore {
       lines++;
       if (line.t === "room") {
         const { t: _t, ...rest } = line;
-        props = { ...props, ...rest };
+        props = merge(props, rest) as Partial<Room>;
       } else {
         const prev = byId.get(line.id);
         const { t: _t, ...rest } = line;
-        byId.set(line.id, { ...prev, ...rest } as Message);
+        byId.set(line.id, merge(prev ?? {}, rest) as Message);
       }
     }
 
@@ -282,9 +309,26 @@ export class RoomStore {
 
   // ── 내부 ────────────────────────────────────────────────────────────────
 
+  /**
+   * ★ **«지움»을 적을 수 있어야 한다** (2026-09-28).
+   *
+   * 🔴 `JSON.stringify` 는 값이 `undefined` 인 키를 **통째로 버린다:**
+   *
+   * ```
+   * {t:"room", draft: undefined, unread: 0}  →  {"t":"room","unread":0}
+   * ```
+   *
+   * 그런데 불러올 때는 `{...props, ...rest}` 로 **덮어쓰기**만 한다 — 키가
+   * 없으면 앞줄 값이 살아남는다. 그래서 **지운 것이 지워지지 않았다.**
+   * 사용자가 쓰다 만 글을 지워도 **껐다 켤 때마다 되살아났다.**
+   *
+   * `draft` 만의 문제가 아니다. `undefined` 로 비우는 **모든 필드**가 영영 안
+   * 지워진다 — 한 자리에서 막는다: **비운 것은 `null` 로 적고**, 읽을 때
+   * `null` 은 «이 키를 지워라»로 읽는다.
+   */
   private append(room: Room, line: Line): Promise<void> {
     return this.serialize(async () => {
-      await fs.appendFile(this.roomPath(room.id), JSON.stringify(line) + "\n", "utf8");
+      await fs.appendFile(this.roomPath(room.id), JSON.stringify(erasable(line)) + "\n", "utf8");
       const lines = (this.lineCounts.get(room.id) ?? 0) + 1;
       this.lineCounts.set(room.id, lines);
       await this.reindex(room);
