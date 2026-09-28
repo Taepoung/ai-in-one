@@ -162,6 +162,41 @@ async function main(): Promise<void> {
        "★ **그 뒤의 말도 나간다** — 줄에 선 채 멈추면 대화가 죽는다");
   }
 
+  console.log("\n[★ 혼잣말 «도중에» 보낸 말도 나가나]");
+  {
+    /*
+     * 🔴 `send` 는 그 봇이 도는 중이면 줄에 세운다. 혼잣말 중에는 상태가
+     * `streaming` 이라 **줄로 들어간다.** 그런데 줄을 빼주는 이어달리기 고리는
+     * **`runQueue` 안에** 있다 — 턴이 없으면 **아무도 안 빼준다.**
+     *
+     * 그러면 화면에는 «⏳ 대기 중»이 떠 있고, 사용자가 **다음 말을 보낼 때까지**
+     * 안 나간다. 봇이 혼자 떠드는 사이에 말을 걸면 그렇게 된다.
+     */
+    const room = await mgr.createRoom({ agentId: "alpha", title: "도중에" });
+    await mgr.send(room.id, `돌려놔줘 [[wake:${TAIL_MS + 1000}]]`);
+    await settle(room.id);
+
+    // 혼잣말이 시작될 때까지 기다린다 — 그 한가운데서 말을 걸어야 한다
+    let hit = false;
+    for (let i = 0; i < 400; i++) {
+      if (mgr.statusOf(room.id) === "streaming") { hit = true; break; }
+      await nap(25);
+    }
+    ok(hit, "★ 혼잣말이 도는 중이다 — 여기서 말을 건다");
+
+    await mgr.send(room.id, "그 사이에 한마디");
+    const queuedAt = room.messages.find((m) => m.text.includes("그 사이에"));
+    console.log(`   보낸 직후 자리잡음? ${queuedAt?.placedAt !== undefined}`);
+
+    // 혼잣말이 끝나고도 한참 둔다 — 누가 빼주기를 기다려 본다
+    await settle(room.id);
+    await nap(1200);
+
+    console.log(`   상태: ${mgr.statusOf(room.id)} · 자리잡음: ${queuedAt?.placedAt !== undefined}`);
+    ok(queuedAt?.placedAt !== undefined,
+       "★ **줄에서 빠져나온다** — 안 빠지면 다음 말을 보낼 때까지 «대기 중»으로 멈춰 있다");
+  }
+
   mgr.dispose();
   console.log("\n전부 통과");
 }

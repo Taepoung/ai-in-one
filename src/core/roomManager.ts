@@ -177,6 +177,13 @@ interface BotRuntime {
    */
   idleClose?: ReturnType<typeof setTimeout>;
   /**
+   * **줄을 빼내는 중인가** (2026-09-28).
+   *
+   * 빼는 자리가 둘이 되었으므로(`send` 와 `closeIdle`) 겹치면 **한 묶음이 두
+   * 턴으로** 돌 수 있다. 하나만 돌게 한다.
+   */
+  draining?: boolean;
+  /**
    * ★ **이 봇이 아직 못 적은 blob 쓰기들** (E6).
    *
    * 파일 변경 전문은 대화에 안 담는다 — 100KB짜리를 스무 번 고치면 방 파일이
@@ -2090,12 +2097,7 @@ export class RoomManager extends EventEmitter<Events> {
          * 따로 보낸 것이고, 기다리는 동안 쌓인 것을 한 번에 주는 게 이득이다.
          */
         for (const one of batch) await this.runQueue(room, [one], botId);
-        for (;;) {
-          if (bt.queue.length === 0) return;
-          const next = bt.queue.splice(0, bt.queue.length);
-          this.emitQueued(roomId);
-          await this.runQueue(room, next, botId);
-        }
+        await this.drainQueue(room, bot);
       }),
     );
     return parsed;
@@ -2577,6 +2579,37 @@ export class RoomManager extends EventEmitter<Events> {
 
   // ── 내부 ──────────────────────────────────────────────────────────────
 
+
+  /**
+   * ★ **줄에 선 것을 내보낸다** (이어달리기 고리, 2026-09-28).
+   *
+   * 🔴 이 고리가 **`send` 안에만** 있었다. 그런데 `send` 는 그 봇이 도는 중이면
+   * 줄에 세우고 **바로 돌아간다** — 빼주는 것은 «앞 턴이 끝날 때»이고, 그건
+   * 이 고리다. 턴이 돌고 있었으면 맞는 말이다.
+   *
+   * **혼잣말에는 끝낼 턴이 없다.** 봇이 스스로 깨어나 말하는 동안 상태는
+   * `streaming` 이라 새 말은 줄로 들어가는데, 그 줄을 빼줄 고리가 **아무 데서도
+   * 안 돈다.** 화면에는 «⏳ 대기 중»이 떠 있고, 사용자가 **다음 말을 보낼
+   * 때까지** 안 나간다 — 그때서야 `send` 의 고리가 같이 데려간다.
+   *
+   * 그래서 고리를 꺼내서 `closeIdle` 도 부르게 했다.
+   */
+  private async drainQueue(room: Room, bot: BotInstance): Promise<void> {
+    const bt = this.botRuntime(room.id, bot.id);
+    // 두 군데서 빼면 한 묶음이 두 턴으로 돈다
+    if (bt.draining) return;
+    bt.draining = true;
+    try {
+      for (;;) {
+        if (bt.queue.length === 0) return;
+        const next = bt.queue.splice(0, bt.queue.length);
+        this.emitQueued(room.id);
+        await this.runQueue(room, next, bot.id);
+      }
+    } finally {
+      delete bt.draining;
+    }
+  }
 
   private async runQueue(
     room: Room,
@@ -3092,6 +3125,12 @@ export class RoomManager extends EventEmitter<Events> {
     void this.saveProps(room, { unread: room.unread });
     this.emit("message", room.id, message);
     if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
+
+    /*
+     * ★ **줄도 빼준다.** 혼잣말 중에 온 말은 «도는 중»이라 줄에 섰는데,
+     * 그걸 빼줄 «턴의 끝»이 없다 — 여기가 그 자리다.
+     */
+    if (bt.queue.length > 0) void this.drainQueue(room, bot);
   }
 
   /**
