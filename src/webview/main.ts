@@ -277,17 +277,43 @@ function colorPick(now: string | undefined, fallback: string, pick: (css: string
     oninput: (e: Event) => pick((e.target as HTMLInputElement).value),
   });
 
-  box.append(
-    el("summary", { title: "말풍선 색" }, dot),
-    el(
-      "div",
-      { class: "swatches" },
-      ...BOT_COLORS.map((c) => preset(c.css, c.label)),
-      custom,
-      // 안 고른 상태로 되돌린다 → 에이전트 색으로 떨어진다
-      el("button", { class: "link", type: "button", text: "기본", onclick: () => { pick(""); close(); } }),
-    ),
+  const panel = el(
+    "div",
+    { class: "swatches" },
+    ...BOT_COLORS.map((c) => preset(c.css, c.label)),
+    custom,
+    // 안 고른 상태로 되돌린다 → 테마가 주는 평소 말풍선으로
+    el("button", { class: "link", type: "button", text: "기본", onclick: () => { pick(""); close(); } }),
   );
+
+  /*
+   * ★ **창을 넘지 않게 «고정 좌표»로 띄운다** (2026-09-28).
+   *
+   * 🔴 `position: absolute` 로 두었더니 **서랍 밖으로 밀려났다.** 서랍은
+   * `overflow-y: auto` 라 그 안의 절대 배치는 잘리거나 스크롤 밖으로 나간다.
+   * 부모가 무엇이든 상관없으려면 `fixed` 여야 한다.
+   *
+   * 그러면 좌표는 우리가 잡아야 하는데, **화면 안으로 접어 넣는다** — 오른쪽
+   * 끝에서 열면 왼쪽으로, 아래가 모자라면 위로. 열 때 한 번만 재고 스크롤하면
+   * 닫는다(따라다니게 만들면 그때부터 어긋날 자리가 는다).
+   */
+  const place = (): void => {
+    const at = box.getBoundingClientRect();
+    const w = panel.offsetWidth || 200;
+    const h = panel.offsetHeight || 60;
+    panel.style.left = `${Math.max(8, Math.min(at.right - w, window.innerWidth - w - 8))}px`;
+    const below = at.bottom + 6;
+    panel.style.top = `${below + h > window.innerHeight - 8 ? Math.max(8, at.top - h - 6) : below}px`;
+  };
+  box.addEventListener("toggle", () => {
+    if (!box.open) return;
+    place();
+    const shut = () => box.removeAttribute("open");
+    window.addEventListener("scroll", shut, { once: true, capture: true });
+    window.addEventListener("resize", shut, { once: true });
+  });
+
+  box.append(el("summary", { title: "말풍선 색" }, dot), panel);
   return box;
 }
 
@@ -2762,25 +2788,29 @@ function messageNode(
   }
 
   /*
-   * ★ **말풍선에 그 봇의 색을 싣는다** (2026-09-28).
+   * ★ **사용자가 고른 색만 싣는다** (2026-09-28).
    *
    * 값은 CSS 변수로만 넘기고 **섞는 일은 스타일시트가 한다** —
    * `color-mix(… , var(--bubble-bot-bg))` 로 **테마가 준 배경**과 섞으므로
-   * 다크·라이트가 저절로 따라온다. 여기서 최종 색을 계산해 버리면 §2.2 G 의
-   * «자체 테마를 만들지 않는다»를 어기게 된다.
+   * 다크·라이트가 저절로 따라온다.
    *
-   * 색을 한 번도 안 고른 방은 에이전트 색으로 떨어져 **오늘과 똑같이** 보인다.
+   * 🔴 처음에는 에이전트 색으로 **떨어지게** 해놓고 «안 고른 방은 오늘과
+   * 똑같이 보인다»고 적었는데 **거짓이었다.** 그러면 모든 봇 말풍선이 처음부터
+   * 브랜드색으로 물든다 — 아무도 안 골랐는데 화면이 바뀌는 것이다.
+   *
+   * 게다가 그 «에이전트 색»(`#d97757`·`#10a37f`)은 **우리가 박아넣은 값**이지
+   * 테마가 준 것이 아니다. 작은 점에 쓰는 것은 C9 가 허락한 예외인데, 말풍선
+   * 배경까지 그걸로 칠하면 예외가 규칙을 먹는다.
+   *
+   * **기본은 테마 그대로다.** 고른 적이 있을 때만 칠한다.
    */
-  const mine = m.role === "agent"
-    ? botColor(
-        m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : room?.participants[0],
-        agent,
-      )
+  const chosen = m.role === "agent"
+    ? (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : room?.participants[0])?.color
     : undefined;
 
   const node = el("div", {
     class: `msg ${m.role}${m.sendFailed ? " failed" : ""}${grouped ? " grouped" : ""}`,
-    ...(mine ? { style: { "--bot": mine } } : {}),
+    ...(chosen ? { style: { "--bot": chosen } } : {}),
   });
 
   // 우클릭으로 그 지점에서 분기한다 (D2)
@@ -2811,7 +2841,7 @@ function messageNode(
       el(
         "div",
         { class: "who" },
-        el("span", { class: "dot", style: { background: mine } }),
+        el("span", { class: "dot", style: { background: botColor(who, agent) } }),
         /*
          * 🔴 **봇 이름이지 에이전트 이름이 아니다.**
          *

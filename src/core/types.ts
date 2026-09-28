@@ -1131,15 +1131,32 @@ export function inBotView(m: Message, botId: string): boolean {
  * 고른 색이 라이트에서 안 읽히고, High Contrast 에서는 더 나쁘다.
  *
  * `--vscode-charts-*` 는 **에디터가 차트용으로 내주는 색**이라 테마마다 제
- * 값이 온다. 뒤의 hex 는 그 변수를 안 주는 옛 버전용 폴백이다.
+ * 값이 온다(VSCode 소스에서 확인, 2026-09-28). 초록·보라는 다크·라이트·HC 값이
+ * 따로 박혀 있고, 나머지는 테마가 이미 쓰는 색을 빌려 온다:
+ *
+ * ```
+ * charts.blue   → editorInfoForeground
+ * charts.yellow → editorWarningForeground
+ * charts.orange → minimapFindMatch
+ * charts.red    → editorErrorForeground      ← 그래서 뺐다
+ * ```
+ *
+ * 🔴 **빨강은 안 넣는다.** 그건 테마의 «오류» 색이라, 봇 하나를 빨강으로 두면
+ * **그 봇 말풍선이 전부 «문제 있음»처럼** 읽힌다. 색으로 말을 거는 자리에
+ * 이미 뜻이 박힌 색을 쓰면 그 뜻이 먼저 읽힌다. 굳이 빨강이 좋으면 커스텀으로.
+ *
+ * ⚠️ 여섯이 모자라면 `terminal.ansi*` 가 **16개** 있고 그쪽도 테마마다 값이
+ * 따로다. 지금은 한 방에 봇이 두셋이라 늘릴 이유가 없다.
+ *
+ * 뒤의 hex 는 그 변수를 안 주는 옛 버전용 폴백이다.
  */
 export const BOT_COLORS: ReadonlyArray<{ id: string; label: string; css: string }> = [
   { id: "blue", label: "파랑", css: "var(--vscode-charts-blue, #4e94ce)" },
   { id: "green", label: "초록", css: "var(--vscode-charts-green, #89d185)" },
   { id: "purple", label: "보라", css: "var(--vscode-charts-purple, #b180d7)" },
   { id: "orange", label: "주황", css: "var(--vscode-charts-orange, #d18616)" },
-  { id: "red", label: "빨강", css: "var(--vscode-charts-red, #f14c4c)" },
   { id: "yellow", label: "노랑", css: "var(--vscode-charts-yellow, #cca700)" },
+  { id: "cyan", label: "청록", css: "var(--vscode-terminal-ansiCyan, #29b8db)" },
 ];
 
 /**

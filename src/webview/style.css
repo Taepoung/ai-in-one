@@ -639,18 +639,23 @@ body.vscode-high-contrast-light .msg.agent[style*="--bot"] .bubble {
   border-radius: 50%;
 }
 
-/* 펼치면 **위로 겹쳐** 뜬다 — 줄을 밀어내면 이름 칸이 들썩인다 */
+/*
+ * 펼치면 뜨는 판 — **`fixed`** 여야 한다.
+ *
+ * 🔴 `absolute` 로 두었더니 **서랍 밖으로 밀려났다.** 서랍은 `overflow-y: auto`
+ * 라 그 안의 절대 배치는 잘리거나 스크롤 밖으로 나간다. 부모가 무엇이든
+ * 상관없으려면 `fixed` 다. 좌표는 열 때 자바스크립트가 잡는다
+ * (`colorPick` 의 `place` — 화면 밖으로 나가면 접어 넣는다).
+ */
 .swatches {
-  position: absolute;
-  right: 0;
+  position: fixed;
   z-index: 30;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
   width: max-content;
-  max-width: 190px;
-  margin-top: 4px;
+  max-width: min(200px, 70vw);
   padding: 7px;
   border: 1px solid var(--line);
   border-radius: 8px;

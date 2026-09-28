@@ -101,10 +101,36 @@ console.log("\n[★ 고른 색이 말풍선까지 간다]");
 
   ok(mine.style.getPropertyValue("--bot").includes("charts-blue"),
      "★ **고른 색이 실린다** — 섞는 일은 스타일시트가 한다");
-  ok(theirs.style.getPropertyValue("--bot") === "#d97757",
-     "★ **안 고르면 에이전트 색** — 색을 한 번도 안 고른 방은 오늘과 똑같다");
+
+  /*
+   * 🔴 처음에는 «안 고르면 에이전트 색»으로 떨어지게 해놓고 «오늘과 똑같이
+   * 보인다»고 적었다. **거짓이었다** — 그러면 아무도 안 골랐는데 모든 봇
+   * 말풍선이 브랜드색으로 물든다. 게다가 그 색(`#d97757`)은 **우리가 박아넣은
+   * 값**이지 테마가 준 것이 아니다.
+   *
+   * 기본은 **테마 그대로**다. 이 단언이 그걸 지킨다.
+   */
+  ok(theirs.getAttribute("style") === null,
+     `★ **안 고르면 아무것도 안 싣는다** (${theirs.getAttribute("style")}) — 기본은 테마 그대로다`);
   ok(mine.style.getPropertyValue("--bot") !== theirs.style.getPropertyValue("--bot"),
      "★ **같은 에이전트인데 색이 갈린다** — C9 가 «색은 못 믿는다»고 한 이유가 사라졌다");
+}
+
+console.log("\n[★ 이름 앞 «점»은 그대로 — C9 가 허락한 자리다]");
+{
+  /*
+   * 말풍선 배경과 달리 **작은 점**에는 에이전트 색을 써도 된다고 C9 가 정했다.
+   * 색을 안 고른 봇도 점은 있어야 «누구»가 한눈에 잡힌다.
+   */
+  const t = mount();
+  open(t);
+  const dots = t.$$("#screen-chat .msg.agent .who .dot");
+  const bg = dots.map((d) => d.style.background);
+  console.log(`   ${bg.join(" / ")}`);
+  ok(dots.length === 2, `★ 말풍선마다 점 (${dots.length})`);
+  ok(bg[0].includes("charts-blue"), "★ 고른 봇은 고른 색");
+  ok(bg[1] === "rgb(217, 119, 87)" || bg[1].includes("d97757"),
+     `★ **안 고른 봇은 에이전트 색으로** (${bg[1]}) — 점은 여전히 떨어진다`);
 }
 
 console.log("\n[★ 색이 있어도 이름은 그대로]");
@@ -151,7 +177,7 @@ console.log("\n[★ «기본»으로 되돌리면 빈 값이 간다]");
   back.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");
   ok(posted?.color === "",
-     "★ **빈 값** — 코어가 필드를 지우고 에이전트 색으로 떨어진다");
+     "★ **빈 값** — 코어가 필드를 지우고 테마가 주는 평소 말풍선으로 돌아간다");
 }
 
 console.log("\n전부 통과");
