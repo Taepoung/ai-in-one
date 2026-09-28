@@ -18,7 +18,7 @@
  * 화면에서 눌러야 나는 일이라 자동 검사에 안 걸렸다. 그래서 판정을 코어의
  * 작은 함수로 꺼내고 여기서 못 박는다.
  */
-import { baseName, isAbsPath, isInside, underCwd } from "../src/core/types.js";
+import { baseName, isAbsPath, isInside, taskIdOf, underCwd } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 
@@ -81,6 +81,35 @@ console.log("\n[작업 폴더 안인지 — 끝의 구분자에 안 속는다]")
      "★ **작업 폴더가 역슬래시로 끝나도** — 여기도 «/» 만 털고 있었다");
   ok(!isInside("c:/wsx/a.ts", "c:/ws"),
      "★ 이름이 비슷한 이웃은 안 통과한다 — 원래 규칙 그대로");
+}
+
+console.log("\n[★ 백그라운드 작업 id — 깨운 활동을 잇는 실]");
+{
+  /*
+   * 봇이 백그라운드로 뭔가를 띄우면 도구 결과에 출력 파일이 적혀 온다.
+   * 나중에 **스스로 깨어나면 제일 먼저 그 파일을 읽는다** — 양쪽에 같은
+   * 조각이 있고, 그게 «이 활동이 저 말을 깨웠다»는 유일한 실이다(실측).
+   *
+   * ★ **영어 문장을 읽지 않는다.** «ID:» 를 찾으면 문구가 바뀌는 순간 조용히
+   * 안 맞게 된다. 경로 모양으로 잡는 편이 덜 깨진다.
+   */
+  const launched = {
+    title: "sleep 30 && echo 보라매아흔",
+    output: "Command running in background with ID: bxgzrpssp. Output is being " +
+            "written to: C:\\Users\\x\\tasks\\bxgzrpssp.output. You will be notified.",
+  };
+  const woke = {
+    title: "Read C:\\Users\\x\\tasks\\bxgzrpssp.output",
+    paths: ["C:\\Users\\x\\tasks\\bxgzrpssp.output"],
+  };
+  ok(taskIdOf(launched) === "bxgzrpssp", `★ **띄운 쪽에서 뽑힌다** (${taskIdOf(launched)})`);
+  ok(taskIdOf(woke) === "bxgzrpssp", `★ **깨어난 쪽에서도** (${taskIdOf(woke)})`);
+  ok(taskIdOf(launched) === taskIdOf(woke), "★ **같은 조각** — 이걸로 잇는다");
+
+  ok(taskIdOf({ title: "Read /ws/src/a.ts" }) === undefined,
+     "★ 평범한 읽기는 안 걸린다 — 아무 활동이나 짚으면 틀린 연결이 된다");
+  ok(taskIdOf({ title: "Bash", output: "done" }) === undefined, "★ 결과가 없어도 안 터진다");
+  ok(taskIdOf({}) === undefined, "★ 빈 것도");
 }
 
 console.log("\n전부 통과");

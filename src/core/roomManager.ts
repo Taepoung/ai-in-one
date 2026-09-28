@@ -32,6 +32,7 @@ import {
   type Clash,
   uniqueBotName,
   inBotView,
+  taskIdOf,
   type SearchHit,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
@@ -3086,6 +3087,40 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * ★ **무엇이 이 말을 깨웠나** (2026-09-28).
+   *
+   * 깨어난 봇이 **제일 먼저 하는 일은 백그라운드 결과 파일을 읽는 것**이다.
+   * 그 파일 이름은 띄울 때 도구 결과에 적혀 왔다 — 양쪽에 같은 조각이 있다.
+   *
+   * ```
+   * 띄울 때   output: "…Output is being written to: …\tasks\bxgzrpssp.output"
+   * 깨어나서  paths : ["…\tasks\bxgzrpssp.output"]
+   * ```
+   *
+   * 짚으면 **그 활동이 든 말풍선**을 찾고, 거기서 **원래 요청**까지 간다.
+   * 그래서 «도중에 딴 말» 이 있어도 안 흔들린다 — 대화 순서가 아니라 **일** 을
+   * 따라가기 때문이다.
+   *
+   * 🔴 **못 짚으면 아무것도 안 적는다.** 이 연결은 CLI 의 내부 구현(출력 파일을
+   * `tasks/<id>.output` 에 쓴다)에 기대고 있어 **언제든 조용히 안 맞게 될 수**
+   * 있다. 그때 틀린 곳을 가리키느니 «먼저 보낸 말»로만 두는 편이 낫다.
+   */
+  private traceWake(room: Room, bot: BotInstance, message: Message): void {
+    const want = (message.tools ?? []).map((t) => taskIdOf(t)).find(Boolean);
+    if (!want) return;
+
+    for (let i = room.messages.length - 1; i >= 0; i--) {
+      const m = room.messages[i]!;
+      if (m === message || m.authorBotId !== bot.id) continue;
+      const hit = (m.tools ?? []).find((t) => taskIdOf(t) === want);
+      if (!hit) continue;
+      message.afterToolId = hit.id;
+      if (m.replyToIds?.length) message.afterIds = m.replyToIds;
+      return;
+    }
+  }
+
+  /**
    * ★ **턴 밖 발화도 «끝»이 있어야 한다** (2026-09-28).
    *
    * 🔴 없을 때 두 가지가 깨졌다 — 실측으로 잡았다(`tests/selfwake.mts`):
@@ -3119,6 +3154,8 @@ export class RoomManager extends EventEmitter<Events> {
     // 다른 말풍선이 자리를 가져갔으면 이 예약은 남의 것이다 (`releaseTurn` 과 같은 이유)
     if (bt.idle?.message !== message) return;
 
+    this.traceWake(room, bot, message);
+
     // 보고 있지 않은 방의 말만 안 읽은 것으로 센다 (B8 — 턴 경로와 같은 규칙)
     if (this.activeRoomId !== room.id) room.unread += 1;
     void this.saveMessage(room, message);
@@ -3148,14 +3185,13 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     /*
-     * ★ **어디서 이어진 말인지 적어둔다** (2026-09-28).
+     * 🔴 **여기서 «마지막으로 답한 턴»을 물려받았었다.** 그럴듯했지만 틀린다 —
+     * 백그라운드가 도는 사이에 사용자가 딴 말을 하면 **그 턴으로 걸린다.**
+     * 실제로 «2 더하기 2는?» 을 가리켰다.
      *
-     * 이 봇이 마지막으로 **답한 턴**의 질문들을 그대로 물려받는다. 백그라운드
-     * 일은 거기서 띄운 것이므로, 그 요청이 «이 말이 나온 자리»다.
+     * 이어진 자리는 **깨운 활동을 짚고 나서** `closeIdle` 이 적는다. 못 짚으면
+     * 비워 둔다 — 틀린 연결은 없느니만 못하다.
      */
-    const from = [...room.messages].reverse()
-      .find((m) => m.role === "agent" && m.authorBotId === bot.id && (m.replyToIds?.length ?? 0) > 0);
-
     const message: Message = {
       id: messageId(),
       role: "agent",
@@ -3163,7 +3199,6 @@ export class RoomManager extends EventEmitter<Events> {
       text: "",
       deliveredTo: [bot.id],
       createdAt: now,
-      ...(from?.replyToIds ? { afterIds: from.replyToIds } : {}),
     };
     bt.idle = { message, at: now };
     this.append(room, message);

@@ -2015,7 +2015,7 @@ function needsAnswerNote(m: Message, all: Message[]): boolean {
    * 짝이 되는 질문이 **없는** 말이다. «자명한가»를 따질 것이 아니라, 짝이
    * 없다는 사실 자체가 적어야 할 이유다 — 안 적으면 앞 답의 뒷부분으로 읽힌다.
    */
-  if ((m.afterIds?.length ?? 0) > 0) return true;
+  if (isSpur(m)) return true;
 
   const answers = m.replyToIds ?? [];
   if (answers.length === 0) return false;
@@ -2594,6 +2594,7 @@ function sigOf(m: Message): string {
     m.deliveredTo.join(","),
     // 혼잣말 표시 — 늦게 붙을 수 있다 (2026-09-28)
     (m.afterIds ?? []).join(","),
+    m.afterToolId ?? "",
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
@@ -2883,16 +2884,48 @@ const EXCERPT = 20;
  * 눌러도 아무 일이 없는 단추를 두면 «고장»으로 읽힌다. 하나도 못 찾으면
  * 옛 문구로 떨어진다 — 그래도 «몇 개에 답했다»는 남겨야 한다.
  */
+/**
+ * **봇이 먼저 보낸 말인가** (2026-09-28).
+ *
+ * 턴 응답에는 «무슨 질문에 답하는지»가 **언제나** 붙는다(`replyToIds`).
+ * 혼잣말에는 없다 — 가리킬 질문이 애초에 없기 때문이다. 그래서 그 빈칸이
+ * 곧 «봇이 먼저 말했다»는 표시다.
+ */
+const isSpur = (m: Message): boolean =>
+  m.role === "agent" && (m.replyToIds?.length ?? 0) === 0;
+
+/** 깨운 활동의 이름 — 돌린 명령이 있으면 그게 제일 알아보기 쉽다 */
+function wokeBy(m: Message): string | undefined {
+  if (!m.afterToolId || !room) return undefined;
+  for (const x of room.messages) {
+    const hit = x.tools?.find((t) => t.id === m.afterToolId);
+    if (hit) return (hit.command ?? hit.title).replace(/\s+/g, " ").trim();
+  }
+  return undefined;
+}
+
 function answerNote(m: Message): HTMLElement | null {
   /*
-   * ★ **«답합니다»와 «이어집니다»를 가른다** (2026-09-28).
+   * ★ **«답합니다»와 «끝나서»를 가른다** (2026-09-28).
    *
-   * 물어봐서 온 답이 아니라 **봇이 먼저 보낸 말**일 때가 있다(`afterIds`).
-   * 같은 «↩ «…»» 모양을 쓰되 **꼬리말이 다르다** — «답합니다»라고 쓰면
-   * 거짓말이 된다. 사용자는 그 질문을 한 적이 없다.
+   * 물어봐서 온 답이 아니라 **봇이 먼저 보낸 말**일 때가 있다. «답합니다»라고
+   * 쓰면 거짓말이 된다 — 사용자는 그 질문을 한 적이 없다.
+   *
+   * 🔴 처음에는 «어느 대화에서 이어졌는지»만 적었는데, 그 판정이 **«마지막으로
+   * 답한 턴»** 이라 **도중에 딴 말을 하면 그쪽으로 걸렸다.** 지금은 **깨운
+   * 활동**을 짚고(`afterToolId`), 그 활동이 든 답변의 **원래 요청**으로 간다 —
+   * 대화 순서가 아니라 **일**을 따라가므로 안 흔들린다.
    */
-  const spur = (m.afterIds?.length ?? 0) > 0;
-  const ids = spur ? m.afterIds! : (m.replyToIds ?? []);
+  const spur = isSpur(m);
+  const ids = spur ? (m.afterIds ?? []) : (m.replyToIds ?? []);
+
+  if (spur && ids.length === 0) {
+    /*
+     * 못 짚었다. 그래도 **먼저 보낸 말이라는 것은 적는다** — 안 적으면 앞 답의
+     * 뒷부분으로 읽힌다. 가리키지 않을 뿐이다.
+     */
+    return el("div", { class: "meta", text: "↩ 봇이 먼저 보냈습니다" });
+  }
   if (ids.length === 0) return null;
 
   const asked = ids
@@ -2904,7 +2937,7 @@ function answerNote(m: Message): HTMLElement | null {
     return el("div", {
       class: "meta",
       text: spur
-        ? "↩ 앞선 요청에서 이어집니다"
+        ? "↩ 봇이 먼저 보냈습니다"
         : ids.length === 1 ? "↩ 앞선 질문에 답합니다"
                            : `↩ 질문 ${ids.length}개에 한 번에 답합니다`,
     });
@@ -2929,9 +2962,17 @@ function answerNote(m: Message): HTMLElement | null {
       ),
     );
   });
+  /*
+   * ★ **무엇이 끝나서인지 먼저 말한다.** 깨운 활동을 짚었으면 그 이름(= 돌린
+   * 명령)이 «왜 왔지»에 가장 곧바로 답한다. 못 짚었으면 대화만 가리킨다.
+   */
+  const by = spur ? wokeBy(m) : undefined;
   note.append(
-    spur ? "에서 이어집니다"
-         : asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다",
+    spur
+      ? by
+        ? `의 «${by.length > EXCERPT ? `${by.slice(0, EXCERPT)}…` : by}»가 끝났습니다`
+        : "에서 이어집니다"
+      : asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다",
   );
   return note;
 }

@@ -85,20 +85,15 @@ async function main(): Promise<void> {
     ok(woke!.authorBotId === room.participants[0]!.id,
        "★ 누가 한 말인지도 붙는다 — 단체방에서 이게 없으면 익명이 된다");
 
-    /*
-     * ★ **어디서 이어진 말인지** (2026-09-28).
-     *
-     * 🔴 «무엇이 끝나서»는 못 적는다 — 실측(`probes/waketrigger.cjs`)에서
-     * 백그라운드 도구는 «띄우는 데 성공»한 시점에 이미 completed 로 닫혔고,
-     * 깨어난 뒤에는 그 id 로 아무 갱신도 안 왔다. ACP 층에 실이 없다.
-     *
-     * 그래서 **확실한 것만** 적는다 — 그 일을 시킨 원래 요청.
-     */
     ok(woke!.replyToIds === undefined,
        "★ **답장이 아니다** — 가리킬 질문이 애초에 없다");
-    const asked = room.messages.find((m) => m.role === "user");
-    ok(woke!.afterIds?.length === 1 && woke!.afterIds[0] === asked!.id,
-       `★ **어디서 이어졌는지는 적는다** («${asked!.text}») — 없으면 «이게 왜 왔지»가 된다`);
+    /*
+     * 🔴 한때 «이 봇이 마지막으로 답한 턴»을 물려받게 했었다. 그럴듯했지만
+     * **도중에 딴 말을 하면 그쪽으로 걸린다.** 이제는 **깨운 활동을 짚었을
+     * 때만** 적는다 — 여기선 백그라운드 흉내를 안 냈으므로 비어 있어야 한다.
+     */
+    ok(woke!.afterIds === undefined && woke!.afterToolId === undefined,
+       "★ **못 짚으면 비워 둔다** — 틀린 연결은 없느니만 못하다");
   }
 
   console.log("\n[★ 유예 **안**에 온 조각은 그 턴의 꼬리다]");
@@ -195,6 +190,47 @@ async function main(): Promise<void> {
     console.log(`   상태: ${mgr.statusOf(room.id)} · 자리잡음: ${queuedAt?.placedAt !== undefined}`);
     ok(queuedAt?.placedAt !== undefined,
        "★ **줄에서 빠져나온다** — 안 빠지면 다음 말을 보낼 때까지 «대기 중»으로 멈춰 있다");
+  }
+
+  console.log("\n[★ 깨운 활동을 짚는다 — «도중에 딴 말»이 있어도]");
+  {
+    /*
+     * ★ 이게 이 기능의 심장이다.
+     *
+     * 백그라운드가 도는 사이에 사용자가 **딴 말**을 하면, «마지막으로 답한 턴»
+     * 으로 거는 방식은 **그 딴 말을 가리킨다.** 실제로 «2 더하기 2는?» 을
+     * 가리켰다. 그래서 대화 순서가 아니라 **일**을 따라간다:
+     *
+     * ```
+     * 띄울 때   output: "…written to: …\tasks\<id>.output"
+     * 깨어나서  paths : ["…\tasks\<id>.output"]
+     * ```
+     */
+    const room = await mgr.createRoom({ agentId: "alpha", title: "추적" });
+    await mgr.send(room.id, `빌드 돌려놔줘 [[bg:task77]] [[wake:${TAIL_MS + 1200}]]`);
+    await settle(room.id);
+    const launched = room.messages.find((m) => m.role === "user")!;
+
+    // ★ 도중에 딴 말 — 옛 방식이 여기에 걸렸다
+    await mgr.send(room.id, "잠깐, 2 더하기 2는?");
+    await settle(room.id);
+    const distraction = room.messages.find((m) => m.text.includes("2 더하기"))!;
+
+    await nap(TAIL_MS + 2200);
+    await settle(room.id);
+
+    const woke = room.messages.filter((m) => m.role === "agent").at(-1)!;
+    console.log(`   깨어난 말 : «${woke.text}»`);
+    console.log(`   afterIds  : ${JSON.stringify(woke.afterIds)}`);
+    console.log(`   afterTool : ${woke.afterToolId}`);
+
+    ok(woke.text.includes(LATE), "★ 깨어난 말이 맞다");
+    ok(woke.afterToolId === "bg-task77",
+       `★ **깨운 활동을 짚는다** (${woke.afterToolId}) — 출력 파일 이름이 양쪽에 있다`);
+    ok(woke.afterIds?.[0] === launched.id,
+       "★ **그 일을 시킨 요청**을 가리킨다");
+    ok(woke.afterIds?.[0] !== distraction.id,
+       "★ **도중에 들어온 딴 말에 안 걸린다** — 대화 순서가 아니라 일을 따라간다");
   }
 
   mgr.dispose();

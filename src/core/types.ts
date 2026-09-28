@@ -227,6 +227,16 @@ export interface Message {
    */
   afterIds?: string[];
   /**
+   * ★ **이 말을 깨운 활동** (2026-09-28).
+   *
+   * `afterIds` 가 «어느 대화에서»라면 이쪽은 «무엇이 끝나서»다. 화면은 이걸로
+   * 활동 이름(= 돌린 명령)을 꺼내 보여준다.
+   *
+   * 못 짚으면 **비워 둔다.** 틀린 연결은 없느니만 못하다 — 믿고 눌렀다가
+   * 엉뚱한 데로 가는 쪽이 더 나쁘다.
+   */
+  afterToolId?: string;
+  /**
    * 한 번에 작성된 메시지 묶음의 id (v2.0).
    *
    * 사용자가 한 메시지 안에서 여러 봇을 멘션하면 대상별로 쪼개 저장하는데,
@@ -1016,6 +1026,39 @@ export function botLabel(
  *
  * UNC(`\\서버\공유`)도 절대경로다 — 첫 글자가 구분자이므로 같이 걸린다.
  */
+/**
+ * ★ **백그라운드 작업의 출력 파일 id** (2026-09-28).
+ *
+ * 봇이 백그라운드로 뭔가를 띄우면 도구 결과에 이렇게 적혀 온다(실측
+ * `probes/waketrigger2.cjs`):
+ *
+ * ```
+ * Command running in background with ID: bxgzrpssp.
+ * Output is being written to: …\tasks\bxgzrpssp.output
+ * ```
+ *
+ * 그리고 나중에 **스스로 깨어나면 제일 먼저 그 파일을 읽는다.** 그러니 양쪽에
+ * 같은 조각이 있다 — 그게 «이 활동이 저 말을 깨웠다»는 유일한 실이다.
+ *
+ * ★ **영어 문장을 읽지 않는다.** «ID:» 를 찾으면 문구가 바뀌는 순간 조용히
+ * 안 맞게 된다. **경로 모양**으로 잡는 편이 덜 깨진다.
+ *
+ * ⚠️ 그래도 이것은 **CLI 의 내부 구현**이다 — ACP 가 보장하는 게 아니다.
+ * 그래서 못 짚으면 **아무것도 안 가리킨다.**
+ */
+export function bgTaskId(text: string | undefined): string | undefined {
+  return /tasks[\\/]([A-Za-z0-9_-]+)\.output\b/.exec(text ?? "")?.[1];
+}
+
+/** 이 활동이 건드린 모든 글에서 작업 id 를 찾는다 */
+export function taskIdOf(a: {
+  title?: string;
+  output?: string;
+  paths?: string[];
+}): string | undefined {
+  return bgTaskId(a.output) ?? bgTaskId(a.title) ?? bgTaskId((a.paths ?? []).join(" "));
+}
+
 export function isAbsPath(p: string): boolean {
   return /^([a-zA-Z]:[\\/]|[\\/])/.test(p);
 }

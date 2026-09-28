@@ -300,10 +300,48 @@ function handle(msg) {
        * 그러니 우리 쪽이 그걸 **받아서 화면에 얹는지**도 검사할 수 있어야 한다.
        * 가짜로 흉내 내지 않으면 이 길은 영영 자동 검사 밖에 남는다.
        */
+      /*
+       * ★ **백그라운드로 띄운 척한다** — `[[bg:작업id]]` (2026-09-28).
+       *
+       * 진짜는 도구 결과에 출력 파일이 적혀 온다(실측 `probes/waketrigger2.cjs`):
+       *
+       *   "Command running in background with ID: bxgzrpssp.
+       *    Output is being written to: …\\tasks\\bxgzrpssp.output"
+       *
+       * 그리고 깨어나면 **그 파일을 읽는다.** 양쪽에 같은 조각이 있다는 것이
+       * «이 활동이 저 말을 깨웠다»를 짚는 유일한 실이므로, 흉내도 **양쪽 다**
+       * 내야 한다 — 한쪽만 내면 잇는 코드가 도는지 알 수 없다.
+       */
+      const bg = /\[\[bg:([A-Za-z0-9]+)\]\]/.exec(text);
+      if (bg) {
+        const task = bg[1];
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", method: "session/update",
+          params: { sessionId: params.sessionId, update: {
+            sessionUpdate: "tool_call", toolCallId: "bg-" + task, status: "completed",
+            title: "Terminal", kind: "execute",
+            content: [{ type: "content", content: { type: "text", text:
+              `Command running in background with ID: ${task}. Output is being ` +
+              `written to: C:\\tmp\\tasks\\${task}.output. You will be notified.` } }],
+          } },
+        }) + "\n");
+      }
+
       const wake = /\[\[wake:(\d+)\]\]/.exec(text);
       if (wake) {
         const delay = Number(wake[1]);
         setTimeout(() => {
+          // 깨어나면 **제일 먼저 결과 파일을 읽는다** — 진짜가 그렇게 한다
+          if (bg) {
+            process.stdout.write(JSON.stringify({
+              jsonrpc: "2.0", method: "session/update",
+              params: { sessionId: params.sessionId, update: {
+                sessionUpdate: "tool_call", toolCallId: "rd-" + bg[1], status: "completed",
+                title: `Read C:\\tmp\\tasks\\${bg[1]}.output`, kind: "read",
+                locations: [{ path: `C:\\tmp\\tasks\\${bg[1]}.output` }],
+              } },
+            }) + "\n");
+          }
           process.stdout.write(JSON.stringify({
             jsonrpc: "2.0", method: "session/update",
             params: {
