@@ -106,6 +106,47 @@ async function main(): Promise<void> {
        "★ 그래도 내용은 들어 있다 — 버리는 게 아니라 이어 붙이는 것");
   }
 
+  console.log("\n[★ 깨어난 뒤가 성한가 — 상태·미읽음·다음 말]");
+  {
+    /*
+     * «답장이 아닌 말풍선» 은 우리 모델에 없던 것이다. 턴 경로가 **끝나면서**
+     * 하는 일들 — 미읽음 세기 · 상태 되돌리기 — 을 이쪽은 안 거친다.
+     *
+     * 🔴 상태가 `streaming` 에 걸린 채 남으면 **큐가 영영 안 빠진다.** 줄은
+     * 턴이 끝날 때 나가는데, 끝날 턴이 없기 때문이다. 대화가 통째로 멈춘다.
+     * 🔴 미읽음이 안 오르면 **아무도 안 기다리던 말**이라 화면 어디에도 안 뜬다.
+     */
+    const room = await mgr.createRoom({ agentId: "alpha", title: "깨어난 뒤" });
+    // 다른 방을 보고 있다 — 미읽음이 의미를 갖는 조건 (B8)
+    await mgr.setActiveRoom(null);
+    await mgr.send(room.id, `돌려놔줘 [[wake:${TAIL_MS + 1000}]]`);
+    await settle(room.id);
+
+    const unreadBefore = room.unread;
+    /*
+     * 🔴 시간을 세서 보다가 **400ms 일찍 봤다.** 깨어난 시각이 프롬프트 기준인데
+     * 닫힘은 «깨어난 뒤 1.5초»라, 둘을 더한 자리를 손으로 맞추면 흔들린다.
+     * 말이 **오게** 한 다음, **가라앉을 때까지** 기다린다.
+     */
+    await nap(TAIL_MS + 2000);   // 깨어나는 것까지는 기다려야 한다
+    await settle(room.id);        // 그 뒤로는 닫힐 때까지 (안 닫히면 여기서 걸린다)
+
+    console.log(`   상태  : ${mgr.statusOf(room.id)}`);
+    console.log(`   미읽음: ${unreadBefore} → ${room.unread}`);
+
+    ok(mgr.statusOf(room.id) === "idle",
+       `★ **말을 마치면 다시 idle** (${mgr.statusOf(room.id)}) — streaming 으로 올려놓고 안 내리면 큐가 영영 안 빠진다`);
+    ok(room.unread > unreadBefore,
+       `★ **안 보는 방이면 미읽음으로 센다** (${unreadBefore} → ${room.unread}) — 아무도 안 기다리던 말이라 표시가 없으면 묻힌다`);
+
+    // 그리고 그 뒤의 말이 실제로 나가는가
+    await mgr.send(room.id, "그래서?");
+    await settle(room.id);
+    const got = room.messages.filter((m) => m.role === "user" && m.text.includes("그래서?"));
+    ok(got.length === 1 && got[0]!.placedAt !== undefined,
+       "★ **그 뒤의 말도 나간다** — 줄에 선 채 멈추면 대화가 죽는다");
+  }
+
   mgr.dispose();
   console.log("\n전부 통과");
 }

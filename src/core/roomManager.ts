@@ -170,6 +170,13 @@ interface BotRuntime {
   /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
   tail?: ReturnType<typeof setTimeout>;
   /**
+   * ★ **턴 밖 발화를 닫는 타이머** (2026-09-28).
+   *
+   * 봇이 스스로 깨어나 말할 때도 «끝»이 있어야 한다 — 상태를 내리고 미읽음을
+   * 센다. `closeIdle` 참조.
+   */
+  idleClose?: ReturnType<typeof setTimeout>;
+  /**
    * ★ **이 봇이 아직 못 적은 blob 쓰기들** (E6).
    *
    * 파일 변경 전문은 대화에 안 담는다 — 100KB짜리를 스무 번 고치면 방 파일이
@@ -2627,6 +2634,15 @@ export class RoomManager extends EventEmitter<Events> {
 
     // 앞 턴이 유예 중이면 **확정하고** 자리를 받는다 — 그냥 밀어내면 디스크에만 빠진다
     this.releaseTurn(room, bot);
+    /*
+     * ★ **턴 밖 묶음은 여기서 끝난다** (2026-09-28).
+     *
+     * 안 끊으면 `IDLE_BURST_MS`(30초) 안에 온 다음 턴 밖 발화가 **턴을 건너뛴
+     * 옛 말풍선에** 이어 붙는다 — 사이에 사용자 말과 답이 통째로 들어갔는데도.
+     */
+    clearTimeout(bt.idleClose);
+    bt.idleClose = undefined;
+    delete bt.idle;
     // **이 턴의 말은 여기로 모인다.** 리스너를 갈지 않고 표시만 켜둔다 — 이유는 `watchIdle`에.
     bt.turn = reply;
     try {
@@ -3031,8 +3047,51 @@ export class RoomManager extends EventEmitter<Events> {
       default: {
         const idle = this.idleReply(room, bot);
         this.applyEvent(room, idle, ev);
+        this.scheduleIdleClose(room, bot, idle);
       }
     }
+  }
+
+  /**
+   * ★ **턴 밖 발화도 «끝»이 있어야 한다** (2026-09-28).
+   *
+   * 🔴 없을 때 두 가지가 깨졌다 — 실측으로 잡았다(`tests/selfwake.mts`):
+   *
+   * ```
+   * 상태  : streaming   ← 영영 안 내려온다
+   * 미읽음: 1 → 1       ← 안 보는 방인데도 안 오른다
+   * ```
+   *
+   * 상태가 걸리는 쪽이 더 나쁘다. `isBusy` 가 참이라 **다음 말이 줄에 서는데,
+   * 줄은 턴이 끝날 때 나간다.** 끝날 턴이 없으므로 **대화가 통째로 멈춘다.**
+   *
+   * 미읽음 쪽은 조용한 실패다. 이건 **아무도 안 기다리던 말**이라 — 사용자가
+   * 물어본 적이 없다 — 표시가 없으면 다른 방에 있다가 영영 모른다. 턴 응답은
+   * «내가 물었으니 보러 간다»가 되지만 이건 아니다.
+   *
+   * 유예는 턴과 **같은 값**을 쓴다. 조각이 이어 오는 동안은 한 묶음이고,
+   * 1.5초 조용하면 끝난 것으로 본다.
+   */
+  private scheduleIdleClose(room: Room, bot: BotInstance, message: Message): void {
+    const bt = this.botRuntime(room.id, bot.id);
+    clearTimeout(bt.idleClose);
+    bt.idleClose = setTimeout(() => this.closeIdle(room, bot, message), TURN_TAIL_MS);
+  }
+
+  private closeIdle(room: Room, bot: BotInstance, message: Message): void {
+    const bt = this.botRuntime(room.id, bot.id);
+    bt.idleClose = undefined;
+    // 그새 진짜 턴이 시작됐으면 그쪽이 주인이다 — 상태를 가로채면 안 된다
+    if (bt.turn) return;
+    // 다른 말풍선이 자리를 가져갔으면 이 예약은 남의 것이다 (`releaseTurn` 과 같은 이유)
+    if (bt.idle?.message !== message) return;
+
+    // 보고 있지 않은 방의 말만 안 읽은 것으로 센다 (B8 — 턴 경로와 같은 규칙)
+    if (this.activeRoomId !== room.id) room.unread += 1;
+    void this.saveMessage(room, message);
+    void this.saveProps(room, { unread: room.unread });
+    this.emit("message", room.id, message);
+    if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
   }
 
   /**
