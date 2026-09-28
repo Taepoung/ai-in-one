@@ -1746,22 +1746,34 @@ export class RoomManager extends EventEmitter<Events> {
    *
    * 진행 중인 턴이 있으면 먼저 중단하고, 그 에이전트의 마지막 방이었으면
    * CLI 프로세스까지 정리한다 — 좀비 프로세스를 남기지 않는다.
+   *
+   * 🔴 **봇마다 따로 해야 한다** (2026-09-23). 이 코드는 v1.0 에 썼고 그때는
+   * 방에 봇이 하나뿐이라 `soleBot`(= `participants[0]`) 하나만 놓아주면 끝이었다.
+   * v2.0 에서 봇이 여럿이 됐는데 **이 길을 다시 안 봤다** — 단체방을 나가면
+   * **첫 봇만 지워지고 나머지는 그대로 남았다.** 실측으로 확인했다(`leaveall.mts`):
+   * 둘이 있는 방을 나갔는데 `session/delete` 가 **한 번만** 나갔다.
+   *
+   * 남은 세션은 진짜로 남는다 — `claude --resume <id>` 로 **그 대화가 그대로
+   * 열린다**(`delsess2.cjs`). 우리 앱에서 지운 방을 claude 가 기억하는 셈이다.
+   *
+   * ★ 대화 여부는 **봇마다** 본다(`sessionPrompted`). 방에 말이 오갔어도
+   * **초대만 하고 말을 안 건 봇**의 세션은 CLI 디스크에 아예 없어서, 거기에
+   * `delete`를 부르면 실패하고 **실패한 delete 가 뒤이은 close 까지 깨뜨린다**
+   * (§13.1). `removeBot` 이 이미 그렇게 하고 있었다 — 같은 식으로 맞춘다.
    */
   async leaveRoom(roomId: string): Promise<void> {
     const room = this.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
-    const bot = room ? this.soleBot(room) : undefined;
-    const sessionId =
-      (bot ? this.runtimes.get(roomId)?.bots.get(bot.id)?.sessionId : undefined) ??
-      bot?.sessionId ??
-      undefined;
+    const rt = this.runtimes.get(roomId);
 
-    if (sessionId && room) {
-      const conn = this.connections.get(room.participants[0]!.agentId);
+    for (const bot of room?.participants ?? []) {
+      const sessionId = rt?.bots.get(bot.id)?.sessionId ?? bot.sessionId ?? undefined;
+      if (!sessionId) continue;
+      // **그 봇의** 에이전트다 — 단체방에서는 봇마다 다를 수 있다
+      const conn = this.connections.get(bot.agentId);
       await conn?.cancel(sessionId).catch(() => undefined);
       // **대화가 있으면 삭제, 없으면 해제.** 방을 나가는 건 대화를 지우는 행위이므로
-      // 에이전트 쪽 기록도 남기지 않는다. 다만 빈 세션은 CLI 디스크에 아예 없어서
-      // `delete`가 실패하므로 구분해야 한다.
-      await conn?.deleteSession(sessionId, room.messages.length > 0);
+      // 에이전트 쪽 기록도 남기지 않는다.
+      await conn?.deleteSession(sessionId, bot.sessionPrompted === true).catch(() => undefined);
     }
 
     // 진행 중인 턴이 끝나면서 저장하려 들 수 있다. 되살아나지 않게 막는다.
