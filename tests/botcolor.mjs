@@ -219,6 +219,48 @@ console.log("\n[★ 서랍에서 고르면 올라간다]");
      `★ **테마 변수로 저장한다** (${posted?.color}) — 하드코딩하면 라이트에서 안 읽힌다`);
 }
 
+console.log("\n[★ 고르개는 «실제로 그려질 것»을 보여준다]");
+{
+  /*
+   * 🔴 폴백이 **에이전트 색**이었다. 아무것도 안 골랐는데 고르개의 점이
+   * 브랜드색을 보여줬고, 정작 말풍선은 **테마 기본**이었다 — 고르개는
+   * «파랑 골라져 있네»라고 하는데 화면은 회색이다.
+   *
+   * 고르개는 화면과 **같은 말**을 해야 한다.
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+
+  const dots = t.$$(".drawer-bot .swatch > summary .dot").map((d) => d.style.background);
+  console.log(`   고른 봇: ${dots[0]} · 안 고른 봇: ${dots[1]}`);
+
+  ok(dots[0].includes("ansiBlue"), "★ 고른 봇은 고른 색");
+  ok(dots[1].includes("bubble-bot-bg"),
+     `★ **안 고른 봇은 «평소 말풍선»** (${dots[1]}) — 에이전트 색을 보여주면 거짓말이 된다`);
+  ok(!dots[1].includes("d97757"), "★ 브랜드색이 안 샌다");
+}
+
+console.log("\n[★ 봇 부를 때도 색을 고른다]");
+{
+  /*
+   * 🔴 방 만들기에는 넣고 **여기는 빠뜨렸다.** 그런데 색이 제일 필요한 순간이
+   * 바로 여기다 — 같은 에이전트를 하나 더 부를 때. 「Claude」와 「Claude 2」는
+   * 이름 말고 갈릴 것이 없다.
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+  const add = [...t.$$(".drawer button")].find((b) => /봇 추가|부르기/.test(b.textContent));
+  ok(add !== undefined, "★ 서랍에 «봇 추가»가 있다");
+  add.click();
+
+  const card = t.$("#screen-chat .card");
+  ok(card !== null, "★ 부르기 카드가 떴다");
+  ok(card.querySelector(".named .swatch") !== null,
+     "★ **이름 칸 옆에 색 고르개** — 방 만들기와 같은 자리다");
+}
+
 console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
 {
   /*

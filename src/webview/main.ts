@@ -259,12 +259,24 @@ const icon = (name: string) => el("i", { class: `codicon codicon-${name}` });
  * 프리셋 값이 **테마 변수**인 것이 핵심이다(`BOT_COLORS`) — 우리가 팔레트를
  * 하드코딩하면 §2.2 G(«자체 테마를 만들지 않는다»)를 바로 어긴다.
  */
+/**
+ * 🔴 **폴백이 «에이전트 색»이었다** (2026-09-29에 고침).
+ *
+ * 아무것도 안 골랐을 때 고르개의 점이 브랜드색(`#d97757`)을 보여줬다. 그런데
+ * 말풍선은 **테마 기본**이다 — 고르개는 «파랑 골라져 있네»라고 하는데 화면은
+ * 회색이다. 사용자가 바로 알아챘다.
+ *
+ * 고르개는 **실제로 그려질 것**을 보여야 한다. 안 골랐으면 «테마가 주는 평소
+ * 말풍선»이므로 그 색을 그대로 보여준다 — 그게 참이다.
+ */
+const NO_COLOR = "var(--bubble-bot-bg)";
+
 function colorPick(
   now: string | undefined,
   ink: "black" | "white" | undefined,
-  fallback: string,
   pick: (css: string, ink: "black" | "white" | undefined) => void,
 ): HTMLElement {
+  const fallback = NO_COLOR;
   const dot = el("span", { class: "dot", style: { background: now ?? fallback } });
   const box = el("details", { class: "swatch" });
   const close = () => box.removeAttribute("open");
@@ -1046,7 +1058,7 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
       el("label", { text: "이름 (선택)" }),
       el("div", { class: "named" },
         name,
-        colorPick(b.color || undefined, b.ink, agentById.get(b.agentId)?.color ?? "#888",
+        colorPick(b.color || undefined, b.ink,
           (css, pickedInk) => {
             b.color = css;
             b.ink = pickedInk;
@@ -5441,9 +5453,22 @@ function askInvite(r: Room): void {
             ),
           ),
         ),
+        /*
+         * ★ **부를 때도 색을 정한다** (2026-09-29).
+         *
+         * 🔴 방 만들기에는 넣고 **여기는 빠뜨렸다.** 그런데 색이 제일 필요한
+         * 순간이 바로 여기다 — 같은 에이전트를 하나 더 부를 때. 이름과 같은
+         * 자리에 둔다.
+         */
         el("div", { class: "field" },
           el("label", { text: "이름 (선택)" }),
-          name,
+          el("div", { class: "named" },
+            name,
+            colorPick(draft.color || undefined, draft.ink, (css, pickedInk) => {
+              draft.color = css;
+              draft.ink = pickedInk;
+              paint();
+            })),
           bent),
         ...configFields(configs.get(draft.agentId), draft.picks),
         role,
@@ -5471,6 +5496,8 @@ function askInvite(r: Room): void {
               roomId: r.id,
               agentId: draft.agentId,
               ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+              ...(draft.color?.trim() ? { color: draft.color.trim() } : {}),
+              ...(draft.ink ? { ink: draft.ink } : {}),
               ...(draft.role.trim() ? { rolePrompt: draft.role.trim() } : {}),
               ...(draft.picks.size > 0 ? { configValues: Object.fromEntries(draft.picks) } : {}),
             });
@@ -5737,7 +5764,7 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       onclick: () => renameBotInline(r, bot, nameCell),
     }, icon("edit")),
     // 이름을 고치는 그 자리에서 색도 (2026-09-28)
-    colorPick(bot.color, bot.ink, agentById.get(bot.agentId)?.color ?? "#888", (css, pickedInk) =>
+    colorPick(bot.color, bot.ink, (css, pickedInk) =>
       post({ t: "setBotColor", roomId: r.id, botId: bot.id, color: css,
              ...(pickedInk ? { ink: pickedInk } : {}) })),
     busy ? el("span", { class: "typing" }, el("i"), el("i"), el("i")) : null,
