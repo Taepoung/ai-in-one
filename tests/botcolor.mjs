@@ -67,7 +67,7 @@ const bot = (id, name, extra = {}) => ({
   approver: { kind: "user" }, answerPolicy: "ask", ...extra,
 });
 const TWO = [
-  bot("b1", "구현", { color: "var(--vscode-charts-blue, #4e94ce)" }),
+  bot("b1", "구현", { color: "var(--vscode-charts-blue, #4e94ce)", ink: "white" }),
   bot("b2", "리뷰어"),   // ★ 색을 안 골랐다
 ];
 
@@ -114,6 +114,47 @@ console.log("\n[★ 고른 색이 말풍선까지 간다]");
      `★ **안 고르면 아무것도 안 싣는다** (${theirs.getAttribute("style")}) — 기본은 테마 그대로다`);
   ok(mine.style.getPropertyValue("--bot") !== theirs.style.getPropertyValue("--bot"),
      "★ **같은 에이전트인데 색이 갈린다** — C9 가 «색은 못 믿는다»고 한 이유가 사라졌다");
+}
+
+console.log("\n[★ 배경은 «그대로» — 섞지 않는다]");
+{
+  /*
+   * 한때 테마 배경과 22% 섞었다. 그러면 **어떤 색을 골라도 비슷하게 흐려져서**
+   * 고른 보람이 없다. 대신 대비를 잡을 길이 필요한데, 그게 글자색이다.
+   */
+  const t = mount();
+  open(t);
+  const mine = t.$$("#screen-chat .msg")[1];
+  const ink = mine.style.getPropertyValue("--ink");
+  console.log(`   --bot: ${mine.style.getPropertyValue("--bot")} · --ink: ${ink}`);
+  ok(ink === "#fff", `★ **고른 글자색이 실린다** (${ink})`);
+}
+
+console.log("\n[★ 글자색은 검정/하양 둘뿐 — 지금 배경 위에 그려서 보여준다]");
+{
+  /*
+   * «검정/하양»이라고 글로 쓰면 어느 쪽이 읽히는지 눌러봐야 안다. 두 칸을
+   * **고른 배경으로 칠해두면** 눈으로 바로 갈린다.
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+  const inks = t.$$(".drawer-bot .swatches .ink");
+  ok(inks.length === 4, `★ 봇마다 둘씩 (${inks.length})`);
+
+  const pair = inks.slice(0, 2);
+  ok(pair.map((b) => b.style.color).join() === "rgb(0, 0, 0),rgb(255, 255, 255)",
+     `★ 검정과 하양 (${pair.map((b) => b.style.color).join(" / ")})`);
+  ok(pair.every((b) => b.style.background.includes("charts-blue")),
+     "★ **둘 다 지금 배경 위에** 그려진다 — 어느 쪽이 읽히는지 보고 고른다");
+  ok(pair[1].className.includes("on"),
+     "★ 지금 고른 쪽(하양)이 표시돼 있다");
+
+  pair[0].click();
+  const posted = t.sent.find((m) => m.t === "setBotColor");
+  ok(posted?.ink === "black", `★ 고르면 올라간다 (${posted?.ink})`);
+  ok(posted?.color.includes("charts-blue"),
+     "★ **색과 한 쌍으로** 보낸다 — 따로 보내면 한쪽만 바뀐 상태가 생긴다");
 }
 
 console.log("\n[★ 이름 앞 «점»은 그대로 — C9 가 허락한 자리다]");
@@ -178,6 +219,8 @@ console.log("\n[★ «기본»으로 되돌리면 빈 값이 간다]");
   const posted = t.sent.find((m) => m.t === "setBotColor");
   ok(posted?.color === "",
      "★ **빈 값** — 코어가 필드를 지우고 테마가 주는 평소 말풍선으로 돌아간다");
+  ok(posted?.ink === undefined,
+     "★ **글자색도 안 보낸다** — 배경이 테마로 돌아가는데 글자만 검정으로 박혀 있으면 다크에서 안 읽힌다");
 }
 
 console.log("\n전부 통과");

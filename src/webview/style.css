@@ -586,26 +586,35 @@ button.ghost:hover {
  * **봇마다 색을 주면 그 이유가 사라진다.** 나머지 둘(라이트 테마 대비 ·
  * 색각 이상)은 남으므로 **이름은 그대로 둔다.**
  *
- * ★ **섞는 일을 여기서 한다.** `--bot` 만 넘겨받고 배경은
- * `color-mix(… , var(--bubble-bot-bg))` 로 **테마가 준 값**과 섞는다. 다크면
- * 어둡게, 라이트면 밝게 저절로 간다 — §2.2 G 의 «자체 테마를 만들지 않는다»가
- * 이렇게 지켜진다. 스크립트에서 최종 색을 계산해 버리면 그 순간 깨진다.
+ * ★ **고른 색을 «그대로»** 칠한다 — 섞지 않는다. 한때 테마 배경과 22% 섞었는데,
+ * 그러면 어떤 색을 골라도 **비슷하게 흐려져** 고른 보람이 없다.
  *
- * ⚠️ `color-mix` 를 모르는 옛 웹뷰에서는 이 규칙이 **통째로 무시되고**
- * 평소 배경이 남는다 — 못생겨지는 게 아니라 «색이 없는 상태»로 떨어진다.
+ * ★ 대신 **글자색을 사람이 고른다**(`--ink`, 검정/하양 택1). 섞지 않으니 대비를
+ * 우리가 못 잡는데, 계산해서 고를 수도 없다 — 프리셋이 `var(--vscode-charts-…)`
+ * 라 **테마마다 실제 색이 다르고** 어느 테마에서 어두울지 우리는 모른다.
+ *
+ * ★ 덕분에 **High Contrast 예외가 없어졌다.** 대비가 사용자 손에 있으므로
+ * «이 테마에선 색을 빼자»를 우리가 판단할 일이 없다.
  */
 .msg.agent[style*="--bot"] .bubble {
-  background: color-mix(in srgb, var(--bot) 22%, var(--bubble-bot-bg));
+  background: var(--bot);
+  color: var(--ink, #fff);
 }
 
 /*
- * High Contrast 는 **배경 대비를 거의 안 쓰는** 테마다(G2). 거기에 색을 섞으면
- * 그 테마가 지키려는 것을 우리가 깨는 셈이라, 색은 **테두리로만** 낸다.
+ * 말풍선 안의 코드·인용은 **제 배경을 갖고 있다.** 고른 색 위에서 그 배경이
+ * 그대로 뜨면 두 색이 싸우므로, 살짝 덮는 것으로 바꾼다 — 바탕색이 무엇이든
+ * 같은 만큼만 어두워진다.
  */
-body.vscode-high-contrast .msg.agent[style*="--bot"] .bubble,
-body.vscode-high-contrast-light .msg.agent[style*="--bot"] .bubble {
-  background: transparent;
-  border-color: var(--bot);
+.msg.agent[style*="--bot"] .bubble code,
+.msg.agent[style*="--bot"] .bubble pre {
+  background: rgb(0 0 0 / 0.16);
+  color: inherit;
+}
+
+.msg.agent[style*="--bot"] .bubble a {
+  color: inherit;
+  text-decoration: underline;
 }
 
 /* ── 색 고르개 — 이름 옆 (2026-09-28) ─────────────────────────────── */
@@ -681,6 +690,32 @@ body.vscode-high-contrast-light .msg.agent[style*="--bot"] .bubble {
 .swatches .sw.custom {
   background: none;
   padding: 0;
+}
+
+/*
+ * ★ **글자색은 «지금 배경 위에» 그려서 보여준다** (2026-09-28).
+ *
+ * «검정/하양»이라고 글로 쓰면 어느 쪽이 읽히는지 눌러봐야 안다. 두 칸을 고른
+ * 배경으로 칠해두면 **눈으로 바로 갈린다** — 설명이 필요 없다.
+ */
+.swatches .inks {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+
+.swatches .ink {
+  flex: 1 1 0;
+  padding: 3px 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.swatches .ink.on {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
 /* 이름 칸과 고르개를 한 줄로 */

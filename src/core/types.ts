@@ -71,6 +71,21 @@ export interface BotInstance {
    */
   color?: string;
   /**
+   * ★ **그 말풍선의 글자색** — 검정이나 하양 둘 중 하나 (2026-09-28).
+   *
+   * 배경을 **섞지 않고 그대로** 칠하기로 했으므로 대비를 우리가 못 잡는다.
+   * 밝은 색 위의 하양, 어두운 색 위의 검정은 **못 읽는다.**
+   *
+   * 🔴 그렇다고 우리가 계산해서 고르지 않는다. 프리셋 값이
+   * `var(--vscode-charts-blue)` 라 **테마마다 실제 색이 다르고**, 어느 테마에서
+   * 어두울지 우리는 모른다. 그래서 **사람이 보고 고른다** — 두 개뿐이라
+   * 고르는 값도 싸다.
+   *
+   * ★ 덕분에 High Contrast 예외가 필요 없어졌다. 대비가 사용자 손에 있으므로
+   * 우리가 «이 테마에선 색을 빼자»를 판단할 일이 없다.
+   */
+  ink?: "black" | "white";
+  /**
    * 이 봇의 세션에 마지막으로 전달된 메시지.
    *
    * v4.0 완전 공유방의 **증분 주입** 기준점이다. 거기서는 봇이 방의 모든 대화를
@@ -1178,8 +1193,10 @@ export function createBotInstance(
     taken?: ReadonlySet<string>;
     /** 사용자가 방 만들 때 정한 이름. 비우면 에이전트 이름을 쓴다 */
     name?: string;
-    /** 사용자가 고른 색. 비우면 에이전트 색으로 떨어진다 */
+    /** 사용자가 고른 색. 비우면 테마가 주는 평소 말풍선 */
     color?: string;
+    /** 그 위의 글자색. 색을 골랐을 때만 뜻이 있다 */
+    ink?: "black" | "white";
     rolePrompt?: string;
     agentMode?: string;
     approver?: Approver;
@@ -1202,7 +1219,8 @@ export function createBotInstance(
     approver: opts.approver ?? ASK_USER,
     answerPolicy: opts.answerPolicy ?? DEFAULT_ANSWER_POLICY,
     ...(opts.rolePrompt ? { rolePrompt: opts.rolePrompt } : {}),
-    // 안 고르면 필드가 아예 없다 — `botColor` 가 에이전트 색으로 떨어진다
+    // 안 고르면 필드가 아예 없다 — 말풍선은 테마 그대로다
     ...(opts.color?.trim() ? { color: opts.color.trim() } : {}),
+    ...(opts.ink ? { ink: opts.ink } : {}),
   };
 }

@@ -252,7 +252,12 @@ const icon = (name: string) => el("i", { class: `codicon codicon-${name}` });
  * 프리셋 값이 **테마 변수**인 것이 핵심이다(`BOT_COLORS`) — 우리가 팔레트를
  * 하드코딩하면 §2.2 G(«자체 테마를 만들지 않는다»)를 바로 어긴다.
  */
-function colorPick(now: string | undefined, fallback: string, pick: (css: string) => void): HTMLElement {
+function colorPick(
+  now: string | undefined,
+  ink: "black" | "white" | undefined,
+  fallback: string,
+  pick: (css: string, ink: "black" | "white" | undefined) => void,
+): HTMLElement {
   const dot = el("span", { class: "dot", style: { background: now ?? fallback } });
   const box = el("details", { class: "swatch" });
   const close = () => box.removeAttribute("open");
@@ -261,7 +266,27 @@ function colorPick(now: string | undefined, fallback: string, pick: (css: string
     el("button", {
       class: "sw", title: label, type: "button",
       style: { background: css },
-      onclick: () => { pick(css); close(); },
+      onclick: () => { pick(css, ink); close(); },
+    });
+
+  /*
+   * ★ **글자는 검정이나 하양, 둘뿐이다** (2026-09-28).
+   *
+   * 배경을 **섞지 않고 그대로** 칠하므로 대비를 우리가 못 잡는다. 그렇다고
+   * 계산해서 고를 수도 없다 — 프리셋 값이 `var(--vscode-charts-blue)` 라
+   * **테마마다 실제 색이 다르고**, 어느 테마에서 어두울지 우리는 모른다.
+   *
+   * 그래서 **보고 고르게 한다.** 두 칸을 **지금 배경 위에** 그려두면 어느 쪽이
+   * 읽히는지 눈으로 바로 갈린다 — 설명이 필요 없다.
+   */
+  const inkBtn = (v: "black" | "white") =>
+    el("button", {
+      class: `ink${ink === v ? " on" : ""}`,
+      type: "button",
+      title: v === "black" ? "검정 글자" : "하양 글자",
+      style: { background: now ?? fallback, color: v === "black" ? "#000" : "#fff" },
+      text: "가",
+      onclick: () => { pick(now ?? fallback, v); close(); },
     });
 
   /*
@@ -274,7 +299,7 @@ function colorPick(now: string | undefined, fallback: string, pick: (css: string
     title: "직접 고르기",
     // `var(--vscode-…)` 는 hex 가 아니라 여기 못 넣는다 — 무난한 값에서 시작한다
     value: /^#[0-9a-f]{6}$/i.test(now ?? "") ? now! : "#888888",
-    oninput: (e: Event) => pick((e.target as HTMLInputElement).value),
+    oninput: (e: Event) => pick((e.target as HTMLInputElement).value, ink),
   });
 
   const panel = el(
@@ -282,8 +307,10 @@ function colorPick(now: string | undefined, fallback: string, pick: (css: string
     { class: "swatches" },
     ...BOT_COLORS.map((c) => preset(c.css, c.label)),
     custom,
+    el("div", { class: "inks" }, inkBtn("black"), inkBtn("white")),
     // 안 고른 상태로 되돌린다 → 테마가 주는 평소 말풍선으로
-    el("button", { class: "link", type: "button", text: "기본", onclick: () => { pick(""); close(); } }),
+    el("button", { class: "link", type: "button", text: "기본",
+                   onclick: () => { pick("", undefined); close(); } }),
   );
 
   /*
@@ -738,8 +765,10 @@ interface DraftBot {
   role: string;
   /** 부를 이름. 비우면 에이전트 이름이 된다 */
   name: string;
-  /** 말풍선 색. 비우면 에이전트 색이 된다 (2026-09-28) */
+  /** 말풍선 색. 비우면 테마가 주는 평소 말풍선 (2026-09-28) */
   color: string;
+  /** 그 위의 글자색 — 검정/하양 택1 */
+  ink?: "black" | "white";
 }
 let draftBots: DraftBot[] = [newDraftBot()];
 
@@ -831,6 +860,7 @@ function renderNew(error?: string): void {
         agentId: b.agentId,
         ...(b.name.trim() ? { name: b.name.trim() } : {}),
         ...(b.color.trim() ? { color: b.color.trim() } : {}),
+        ...(b.ink ? { ink: b.ink } : {}),
         ...(b.role.trim() ? { rolePrompt: b.role.trim() } : {}),
         ...(b.picks.size > 0 ? { configValues: Object.fromEntries(b.picks) } : {}),
       })),
@@ -970,10 +1000,12 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
       el("label", { text: "이름 (선택)" }),
       el("div", { class: "named" },
         name,
-        colorPick(b.color || undefined, agentById.get(b.agentId)?.color ?? "#888", (css) => {
-          b.color = css;
-          renderNew();
-        })),
+        colorPick(b.color || undefined, b.ink, agentById.get(b.agentId)?.color ?? "#888",
+          (css, pickedInk) => {
+            b.color = css;
+            b.ink = pickedInk;
+            renderNew();
+          })),
       bent),
     // 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15)
     ...configFields(configs.get(b.agentId), b.picks),
@@ -2706,6 +2738,7 @@ function sigOf(m: Message): string {
     m.afterToolId ?? "",
     // 봇 색 — 바꾸면 말풍선을 다시 칠해야 한다 (2026-09-28)
     (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.color : "") ?? "",
+    (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.ink : "") ?? "",
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
@@ -2804,13 +2837,16 @@ function messageNode(
    *
    * **기본은 테마 그대로다.** 고른 적이 있을 때만 칠한다.
    */
-  const chosen = m.role === "agent"
-    ? (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : room?.participants[0])?.color
+  const mineBot = m.role === "agent"
+    ? (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : room?.participants[0])
     : undefined;
+  const chosen = mineBot?.color;
 
   const node = el("div", {
     class: `msg ${m.role}${m.sendFailed ? " failed" : ""}${grouped ? " grouped" : ""}`,
-    ...(chosen ? { style: { "--bot": chosen } } : {}),
+    ...(chosen
+      ? { style: { "--bot": chosen, "--ink": mineBot?.ink === "black" ? "#000" : "#fff" } }
+      : {}),
   });
 
   // 우클릭으로 그 지점에서 분기한다 (D2)
@@ -5619,8 +5655,9 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       onclick: () => renameBotInline(r, bot, nameCell),
     }, icon("edit")),
     // 이름을 고치는 그 자리에서 색도 (2026-09-28)
-    colorPick(bot.color, agentById.get(bot.agentId)?.color ?? "#888", (css) =>
-      post({ t: "setBotColor", roomId: r.id, botId: bot.id, color: css })),
+    colorPick(bot.color, bot.ink, agentById.get(bot.agentId)?.color ?? "#888", (css, pickedInk) =>
+      post({ t: "setBotColor", roomId: r.id, botId: bot.id, color: css,
+             ...(pickedInk ? { ink: pickedInk } : {}) })),
     busy ? el("span", { class: "typing" }, el("i"), el("i"), el("i")) : null,
     usageChip(bot),
   );

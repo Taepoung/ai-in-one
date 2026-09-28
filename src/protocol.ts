@@ -165,8 +165,10 @@ export type FromWebview =
         agentId: string;
         /** 부를 이름. 비우면 에이전트 이름 (v2.2 앞당김) */
         name?: string;
-        /** 말풍선 색. 비우면 에이전트 색 (2026-09-28) */
+        /** 말풍선 색. 비우면 테마가 주는 평소 말풍선 (2026-09-28) */
         color?: string;
+        /** 그 위의 글자색 — 검정/하양 택1 */
+        ink?: "black" | "white";
         rolePrompt?: string;
         configValues?: Record<string, string | boolean>;
       }>;
@@ -239,8 +241,10 @@ export type FromWebview =
       agentId: string;
       /** 부를 이름. 비우면 에이전트 이름 (v2.2 앞당김) */
       name?: string;
-      /** 말풍선 색. 비우면 에이전트 색 (2026-09-28) */
+      /** 말풍선 색. 비우면 테마가 주는 평소 말풍선 (2026-09-28) */
       color?: string;
+      /** 그 위의 글자색 — 검정/하양 택1 */
+      ink?: "black" | "white";
       rolePrompt?: string;
       /** 모델·추론 강도 — 부를 때 정한다 (B15) */
       configValues?: Record<string, string | boolean>;
@@ -250,7 +254,14 @@ export type FromWebview =
   /**
    * **봇 색을 바꾼다** (2026-09-28). 빈 문자열이면 에이전트 색으로 되돌린다.
    */
-  | { t: "setBotColor"; roomId: string; botId: string; color: string }
+  | {
+      t: "setBotColor";
+      roomId: string;
+      botId: string;
+      color: string;
+      /** 그 위의 글자색 — 검정/하양 택1. 색과 **한 쌍**으로 보낸다 */
+      ink?: "black" | "white";
+    }
   /**
    * 봇의 에이전트 바꾸기 (§8.1(b) 준비).
    *

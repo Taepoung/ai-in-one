@@ -73,6 +73,8 @@ export interface BotSpec {
    * 뒤에 하나씩 다시 고르게 하면 고르는 자리가 또 하나 생긴다.
    */
   color?: string;
+  /** 그 위의 글자색 — 검정/하양 택1 (2026-09-28) */
+  ink?: "black" | "white";
 }
 
 export interface CreateRoomOptions {
@@ -781,6 +783,7 @@ export class RoomManager extends EventEmitter<Events> {
         taken,
         ...(spec.name?.trim() ? { name: spec.name.trim() } : {}),
         ...(spec.color?.trim() ? { color: spec.color.trim() } : {}),
+        ...(spec.ink ? { ink: spec.ink } : {}),
         ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
         ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
         ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
@@ -960,6 +963,7 @@ export class RoomManager extends EventEmitter<Events> {
       taken,
       ...(spec.name?.trim() ? { name: spec.name.trim() } : {}),
       ...(spec.color?.trim() ? { color: spec.color.trim() } : {}),
+      ...(spec.ink ? { ink: spec.ink } : {}),
       ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
       ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
       ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
@@ -1084,13 +1088,24 @@ export class RoomManager extends EventEmitter<Events> {
    *
    * 빈 값이면 지운다 → `botColor` 가 에이전트 색으로 떨어진다.
    */
-  async setBotColor(roomId: string, botId: string, color: string): Promise<void> {
+  async setBotColor(
+    roomId: string,
+    botId: string,
+    color: string,
+    ink?: "black" | "white",
+  ): Promise<void> {
     const room = await this.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
     const next = color.trim();
     if (next) bot.color = next;
     else delete bot.color;
+    /*
+     * 색을 지우면 글자색도 같이 지운다 — 배경이 테마로 돌아가는데 글자만
+     * 검정으로 박혀 있으면 **다크 테마에서 안 읽힌다.** 둘은 한 쌍이다.
+     */
+    if (!next) delete bot.ink;
+    else if (ink) bot.ink = ink;
     await this.saveProps(room, { participants: room.participants });
     this.emit("room", room);
     // 목록의 색 점도 따라가야 한다
