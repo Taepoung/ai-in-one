@@ -331,6 +331,7 @@ export class ChatPanel implements AskTarget {
           await this.rooms.addBot(m.roomId, {
             agentId: m.agentId,
             ...(m.name ? { name: m.name } : {}),
+            ...(m.color ? { color: m.color } : {}),
             ...(m.rolePrompt ? { rolePrompt: m.rolePrompt } : {}),
             ...(m.configValues ? { configValues: m.configValues } : {}),
           });
@@ -353,6 +354,9 @@ export class ChatPanel implements AskTarget {
         }
         case "renameBot":
           await this.rooms.renameBot(m.roomId, m.botId, m.name);
+          break;
+        case "setBotColor":
+          await this.rooms.setBotColor(m.roomId, m.botId, m.color);
           break;
         case "setAgent":
           await this.rooms.setAgent(m.roomId, m.botId, m.agentId, {

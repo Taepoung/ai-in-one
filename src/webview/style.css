@@ -578,6 +578,118 @@ button.ghost:hover {
   border-bottom-left-radius: 4px;
 }
 
+/*
+ * ★ **봇마다 말풍선 색** (2026-09-28).
+ *
+ * 🔴 C9 는 «색은 보조 신호로만»이라 했고 그 이유 중 제일 센 것이 **«같은
+ * 에이전트의 두 봇은 색이 같다»** 였다 — `@Claude 구현` 과 `@Claude 리뷰어`.
+ * **봇마다 색을 주면 그 이유가 사라진다.** 나머지 둘(라이트 테마 대비 ·
+ * 색각 이상)은 남으므로 **이름은 그대로 둔다.**
+ *
+ * ★ **섞는 일을 여기서 한다.** `--bot` 만 넘겨받고 배경은
+ * `color-mix(… , var(--bubble-bot-bg))` 로 **테마가 준 값**과 섞는다. 다크면
+ * 어둡게, 라이트면 밝게 저절로 간다 — §2.2 G 의 «자체 테마를 만들지 않는다»가
+ * 이렇게 지켜진다. 스크립트에서 최종 색을 계산해 버리면 그 순간 깨진다.
+ *
+ * ⚠️ `color-mix` 를 모르는 옛 웹뷰에서는 이 규칙이 **통째로 무시되고**
+ * 평소 배경이 남는다 — 못생겨지는 게 아니라 «색이 없는 상태»로 떨어진다.
+ */
+.msg.agent[style*="--bot"] .bubble {
+  background: color-mix(in srgb, var(--bot) 22%, var(--bubble-bot-bg));
+}
+
+/*
+ * High Contrast 는 **배경 대비를 거의 안 쓰는** 테마다(G2). 거기에 색을 섞으면
+ * 그 테마가 지키려는 것을 우리가 깨는 셈이라, 색은 **테두리로만** 낸다.
+ */
+body.vscode-high-contrast .msg.agent[style*="--bot"] .bubble,
+body.vscode-high-contrast-light .msg.agent[style*="--bot"] .bubble {
+  background: transparent;
+  border-color: var(--bot);
+}
+
+/* ── 색 고르개 — 이름 옆 (2026-09-28) ─────────────────────────────── */
+
+.swatch {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.swatch > summary {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.swatch > summary::-webkit-details-marker {
+  display: none;
+}
+
+.swatch > summary:hover {
+  background: var(--list-hover);
+}
+
+.swatch .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+/* 펼치면 **위로 겹쳐** 뜬다 — 줄을 밀어내면 이름 칸이 들썩인다 */
+.swatches {
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  max-width: 190px;
+  margin-top: 4px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--vscode-menu-background, var(--bubble-bot-bg));
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.3);
+}
+
+.swatches .sw {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.swatches .sw:hover {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* 에디터가 주는 색 고르개 — 우리가 그리면 테마를 또 흉내 내야 한다 */
+.swatches .sw.custom {
+  background: none;
+  padding: 0;
+}
+
+/* 이름 칸과 고르개를 한 줄로 */
+.named {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.named input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .bubble code {
   font-family: var(--font-code);
   background: var(--code-bg);

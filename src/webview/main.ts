@@ -15,7 +15,7 @@ import type {
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
-import { uniqueBotName, inBotView, botLabel } from "../core/types.js";
+import { uniqueBotName, inBotView, botLabel, botColor, BOT_COLORS } from "../core/types.js";
 import type {
   AgentBrief,
   AskCard,
@@ -209,7 +209,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
     if (k === "class") node.className = String(v);
     else if (k === "text") node.textContent = String(v);
     else if (k.startsWith("on")) node.addEventListener(k.slice(2), v as EventListener);
-    else if (k === "style") Object.assign(node.style, v as object);
+    else if (k === "style") setStyle(node, v as Record<string, string>);
     else node.setAttribute(k, v === true ? "" : String(v));
   }
   for (const kid of kids) {
@@ -219,7 +219,77 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/**
+ * ★ **커스텀 속성(`--이름`)은 `setProperty` 로만 들어간다** (2026-09-28).
+ *
+ * 🔴 `Object.assign(node.style, …)` 를 쓰고 있었다. 평범한 속성에는 통하지만
+ * **`--bot` 같은 커스텀 속성은 조용히 버려진다** — `style` 객체에 그런 키가
+ * 없기 때문이다. 오류도 안 나고 값만 사라진다.
+ *
+ * 봇 색을 실으려다 걸렸다. 말풍선이 그냥 평소 색이었고 `style` 은 `null` 이었다.
+ */
+function setStyle(node: HTMLElement, style: Record<string, string>): void {
+  for (const [k, v] of Object.entries(style)) {
+    if (k.startsWith("--")) node.style.setProperty(k, v);
+    else (node.style as unknown as Record<string, string>)[k] = v;
+  }
+}
+
 const icon = (name: string) => el("i", { class: `codicon codicon-${name}` });
+
+/**
+ * ★ **봇 색 고르기** — 이름 **옆**에 (2026-09-28).
+ *
+ * 🔴 C9 는 «색은 보조 신호로만»이라고 정했고 그 이유 중 제일 센 것이 «같은
+ * 에이전트의 두 봇은 색이 같다» 였다. **봇마다 색을 주면 그 이유가 사라진다.**
+ * 나머지 둘(라이트 테마 대비 · 색각 이상)은 남으므로 **이름은 그대로 둔다** —
+ * 색은 더해지는 것이지 대신하는 것이 아니다.
+ *
+ * 자리를 이름 옆으로 둔 이유: 설정 칸이 하나 더 늘면 만들기 화면이 길어진다.
+ * 이름을 정하는 그 순간이 «이 봇을 무엇으로 부를까»를 정하는 때이고, 색도
+ * 같은 질문이다.
+ *
+ * 프리셋 값이 **테마 변수**인 것이 핵심이다(`BOT_COLORS`) — 우리가 팔레트를
+ * 하드코딩하면 §2.2 G(«자체 테마를 만들지 않는다»)를 바로 어긴다.
+ */
+function colorPick(now: string | undefined, fallback: string, pick: (css: string) => void): HTMLElement {
+  const dot = el("span", { class: "dot", style: { background: now ?? fallback } });
+  const box = el("details", { class: "swatch" });
+  const close = () => box.removeAttribute("open");
+
+  const preset = (css: string, label: string) =>
+    el("button", {
+      class: "sw", title: label, type: "button",
+      style: { background: css },
+      onclick: () => { pick(css); close(); },
+    });
+
+  /*
+   * 커스텀은 **에디터가 주는 색 고르개**를 쓴다. 우리가 그리면 테마를 또
+   * 흉내 내야 하고, 그러면 §2.2 G 를 우회하는 셈이 된다.
+   */
+  const custom = el("input", {
+    type: "color",
+    class: "sw custom",
+    title: "직접 고르기",
+    // `var(--vscode-…)` 는 hex 가 아니라 여기 못 넣는다 — 무난한 값에서 시작한다
+    value: /^#[0-9a-f]{6}$/i.test(now ?? "") ? now! : "#888888",
+    oninput: (e: Event) => pick((e.target as HTMLInputElement).value),
+  });
+
+  box.append(
+    el("summary", { title: "말풍선 색" }, dot),
+    el(
+      "div",
+      { class: "swatches" },
+      ...BOT_COLORS.map((c) => preset(c.css, c.label)),
+      custom,
+      // 안 고른 상태로 되돌린다 → 에이전트 색으로 떨어진다
+      el("button", { class: "link", type: "button", text: "기본", onclick: () => { pick(""); close(); } }),
+    ),
+  );
+  return box;
+}
 
 function replace(host: HTMLElement, ...kids: Kids): void {
   host.replaceChildren(...(kids.filter((k) => k != null && k !== false) as Node[]));
@@ -642,11 +712,13 @@ interface DraftBot {
   role: string;
   /** 부를 이름. 비우면 에이전트 이름이 된다 */
   name: string;
+  /** 말풍선 색. 비우면 에이전트 색이 된다 (2026-09-28) */
+  color: string;
 }
 let draftBots: DraftBot[] = [newDraftBot()];
 
 function newDraftBot(): DraftBot {
-  return { agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "", name: "" };
+  return { agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "", name: "", color: "" };
 }
 
 /**
@@ -732,6 +804,7 @@ function renderNew(error?: string): void {
       bots: draftBots.map((b) => ({
         agentId: b.agentId,
         ...(b.name.trim() ? { name: b.name.trim() } : {}),
+        ...(b.color.trim() ? { color: b.color.trim() } : {}),
         ...(b.role.trim() ? { rolePrompt: b.role.trim() } : {}),
         ...(b.picks.size > 0 ? { configValues: Object.fromEntries(b.picks) } : {}),
       })),
@@ -862,9 +935,19 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
      * 된다. 이름은 에이전트를 고른 «그 자리»에서 정하는 게 맞다 —
      * 기본값이 에이전트 이름이라 붙어 있어야 뜻이 통한다.
      */
+    /*
+     * ★ **색은 이름 «옆»에** (2026-09-28). 칸을 따로 만들면 화면이 길어지는데,
+     * 이름을 정하는 그 순간이 «이 봇을 무엇으로 부를까»를 정하는 때이고 색도
+     * 같은 질문이다.
+     */
     el("div", { class: "field" },
       el("label", { text: "이름 (선택)" }),
-      name,
+      el("div", { class: "named" },
+        name,
+        colorPick(b.color || undefined, agentById.get(b.agentId)?.color ?? "#888", (css) => {
+          b.color = css;
+          renderNew();
+        })),
       bent),
     // 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15)
     ...configFields(configs.get(b.agentId), b.picks),
@@ -2595,6 +2678,8 @@ function sigOf(m: Message): string {
     // 혼잣말 표시 — 늦게 붙을 수 있다 (2026-09-28)
     (m.afterIds ?? []).join(","),
     m.afterToolId ?? "",
+    // 봇 색 — 바꾸면 말풍선을 다시 칠해야 한다 (2026-09-28)
+    (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.color : "") ?? "",
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
@@ -2676,8 +2761,26 @@ function messageNode(
     );
   }
 
+  /*
+   * ★ **말풍선에 그 봇의 색을 싣는다** (2026-09-28).
+   *
+   * 값은 CSS 변수로만 넘기고 **섞는 일은 스타일시트가 한다** —
+   * `color-mix(… , var(--bubble-bot-bg))` 로 **테마가 준 배경**과 섞으므로
+   * 다크·라이트가 저절로 따라온다. 여기서 최종 색을 계산해 버리면 §2.2 G 의
+   * «자체 테마를 만들지 않는다»를 어기게 된다.
+   *
+   * 색을 한 번도 안 고른 방은 에이전트 색으로 떨어져 **오늘과 똑같이** 보인다.
+   */
+  const mine = m.role === "agent"
+    ? botColor(
+        m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId) : room?.participants[0],
+        agent,
+      )
+    : undefined;
+
   const node = el("div", {
     class: `msg ${m.role}${m.sendFailed ? " failed" : ""}${grouped ? " grouped" : ""}`,
+    ...(mine ? { style: { "--bot": mine } } : {}),
   });
 
   // 우클릭으로 그 지점에서 분기한다 (D2)
@@ -2708,7 +2811,7 @@ function messageNode(
       el(
         "div",
         { class: "who" },
-        el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
+        el("span", { class: "dot", style: { background: mine } }),
         /*
          * 🔴 **봇 이름이지 에이전트 이름이 아니다.**
          *
@@ -5037,8 +5140,19 @@ function paintDrawer(r: Room): void {
    * **역할 입력과 이름 고치기가 통째로 날아간다.** 방 제목을 고치는 중에
    * 헤더를 안 건드리는 것과 같은 이유다.
    */
+  /*
+   * 🔴 **색 고르개는 예외다** (2026-09-28).
+   *
+   * 이 규칙은 «치던 글자가 날아간다»를 막으려는 것인데, `input[type=color]` 에는
+   * **칠 글자가 없다.** 그런데 색을 고르고 나면 포커스가 거기 남아, 갱신이
+   * 막혀서 **방금 고른 색이 서랍에 안 나타났다** — 말풍선만 바뀌고 고르개는
+   * 그대로라 «안 먹었나» 싶어진다. 이름 바꾸기가 겪었던 그 문제와 같다.
+   */
   const focus = document.activeElement;
-  if (was && focus && was.contains(focus) && /^(INPUT|TEXTAREA)$/.test(focus.tagName)) return;
+  const typing = focus instanceof HTMLElement
+    && /^(INPUT|TEXTAREA)$/.test(focus.tagName)
+    && (focus as HTMLInputElement).type !== "color";
+  if (was && focus && was.contains(focus) && typing) return;
 
   const veil = el("div", { class: "drawer-veil", onclick: () => closeDrawer() });
   const drawer = el(
@@ -5474,6 +5588,9 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
       title: "이름 바꾸기",
       onclick: () => renameBotInline(r, bot, nameCell),
     }, icon("edit")),
+    // 이름을 고치는 그 자리에서 색도 (2026-09-28)
+    colorPick(bot.color, agentById.get(bot.agentId)?.color ?? "#888", (css) =>
+      post({ t: "setBotColor", roomId: r.id, botId: bot.id, color: css })),
     busy ? el("span", { class: "typing" }, el("i"), el("i"), el("i")) : null,
     usageChip(bot),
   );

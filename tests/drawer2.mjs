@@ -137,7 +137,13 @@ console.log("\n[★ 이름을 제자리에서 바꾼다]");
   ok(pencil !== null, "연필이 이름 옆에");
   pencil.click();
 
-  const input = t.$(".drawer-bot .who input");
+  /*
+   * 🔴 `.who input` 으로 잡다가 **색 고르개(`input[type=color]`)까지 걸렸다**
+   * (2026-09-28). 이름 입력창은 **글을 치는** 칸이므로 그렇게 좁혀 잡는다 —
+   * 안 그러면 «닫혔나»를 엉뚱한 것으로 재게 된다.
+   */
+  const NAME_BOX = ".drawer-bot .who input:not([type=color])";
+  const input = t.$(NAME_BOX);
   ok(input !== null, "★ 제자리에서 고친다 — 새 화면으로 안 보낸다");
   ok(input.value === "구현", "★ 지금 이름이 담겨 있다");
 
@@ -154,7 +160,7 @@ console.log("\n[★ 이름을 제자리에서 바꾼다]");
    * 글자가 날아가므로), 이 입력창이 포커스를 쥔 채로 부르니 **그 규칙에
    * 우리가 걸렸다.** 이름은 실제로 바뀌었는데 화면만 그대로였다.
    */
-  ok(t.$(".drawer-bot .who input") === null,
+  ok(t.$(NAME_BOX) === null,
      "★ **입력창이 닫힌다** — 안 닫히면 «안 먹었다»로 보인다");
 }
 

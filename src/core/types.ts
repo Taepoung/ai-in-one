@@ -58,6 +58,19 @@ export interface BotInstance {
    */
   sessionPrompted?: boolean;
   /**
+   * ★ **이 봇의 색** (2026-09-28). 비우면 에이전트 색을 쓴다.
+   *
+   * 🔴 C9 는 «색은 보조 신호로만, 이름 텍스트에 브랜드색을 쓰지 않는다»고
+   * 정했고, 그 이유 중 제일 센 것이 **«같은 에이전트의 두 봇은 색이 같다»**
+   * 였다 — `@Claude 구현` 과 `@Claude 리뷰어` 는 에이전트 색이 하나뿐이라
+   * 색이 구분을 못 해준다.
+   *
+   * **봇마다 색을 주면 그 이유가 사라진다.** 나머지 둘(라이트 테마 대비 ·
+   * 색각 이상)은 남으므로 **이름은 그대로 둔다** — 색은 더해지는 것이지
+   * 대신하는 것이 아니다.
+   */
+  color?: string;
+  /**
    * 이 봇의 세션에 마지막으로 전달된 메시지.
    *
    * v4.0 완전 공유방의 **증분 주입** 기준점이다. 거기서는 봇이 방의 모든 대화를
@@ -1110,12 +1123,46 @@ export function inBotView(m: Message, botId: string): boolean {
   return m.deliveredTo.includes(botId) || (m.notSentTo?.includes(botId) ?? false);
 }
 
+/**
+ * ★ **봇 색 프리셋** (2026-09-28).
+ *
+ * 값이 **테마 변수**인 것이 핵심이다. §2.2 G 가 «자체 테마를 만들지 않는다»고
+ * 못 박았는데, 팔레트를 우리가 하드코딩하면 바로 그것을 어긴다 — 다크에서
+ * 고른 색이 라이트에서 안 읽히고, High Contrast 에서는 더 나쁘다.
+ *
+ * `--vscode-charts-*` 는 **에디터가 차트용으로 내주는 색**이라 테마마다 제
+ * 값이 온다. 뒤의 hex 는 그 변수를 안 주는 옛 버전용 폴백이다.
+ */
+export const BOT_COLORS: ReadonlyArray<{ id: string; label: string; css: string }> = [
+  { id: "blue", label: "파랑", css: "var(--vscode-charts-blue, #4e94ce)" },
+  { id: "green", label: "초록", css: "var(--vscode-charts-green, #89d185)" },
+  { id: "purple", label: "보라", css: "var(--vscode-charts-purple, #b180d7)" },
+  { id: "orange", label: "주황", css: "var(--vscode-charts-orange, #d18616)" },
+  { id: "red", label: "빨강", css: "var(--vscode-charts-red, #f14c4c)" },
+  { id: "yellow", label: "노랑", css: "var(--vscode-charts-yellow, #cca700)" },
+];
+
+/**
+ * 이 봇을 칠할 색. **봇 것이 먼저, 없으면 에이전트 것.**
+ *
+ * 에이전트 색으로 떨어지는 것이 기본값이라, 색을 한 번도 안 고른 방은
+ * **오늘과 똑같이** 보인다.
+ */
+export function botColor(
+  bot: { color?: string } | undefined,
+  agent: { color: string } | undefined,
+): string {
+  return bot?.color ?? agent?.color ?? "#888888";
+}
+
 export function createBotInstance(
   agent: AgentDef,
   opts: {
     taken?: ReadonlySet<string>;
     /** 사용자가 방 만들 때 정한 이름. 비우면 에이전트 이름을 쓴다 */
     name?: string;
+    /** 사용자가 고른 색. 비우면 에이전트 색으로 떨어진다 */
+    color?: string;
     rolePrompt?: string;
     agentMode?: string;
     approver?: Approver;
@@ -1138,5 +1185,7 @@ export function createBotInstance(
     approver: opts.approver ?? ASK_USER,
     answerPolicy: opts.answerPolicy ?? DEFAULT_ANSWER_POLICY,
     ...(opts.rolePrompt ? { rolePrompt: opts.rolePrompt } : {}),
+    // 안 고르면 필드가 아예 없다 — `botColor` 가 에이전트 색으로 떨어진다
+    ...(opts.color?.trim() ? { color: opts.color.trim() } : {}),
   };
 }

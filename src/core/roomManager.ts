@@ -66,6 +66,13 @@ export interface BotSpec {
    * 나중에 하나씩 고치지 않는다.
    */
   name?: string;
+  /**
+   * ★ **말풍선 색** (2026-09-28). 비우면 에이전트 색을 쓴다.
+   *
+   * 이름과 **같은 자리에서** 고르게 하려고 만들 때부터 받는다 — 방을 만든
+   * 뒤에 하나씩 다시 고르게 하면 고르는 자리가 또 하나 생긴다.
+   */
+  color?: string;
 }
 
 export interface CreateRoomOptions {
@@ -773,6 +780,7 @@ export class RoomManager extends EventEmitter<Events> {
       const bot = createBotInstance(this.agentOrThrow(spec.agentId), {
         taken,
         ...(spec.name?.trim() ? { name: spec.name.trim() } : {}),
+        ...(spec.color?.trim() ? { color: spec.color.trim() } : {}),
         ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
         ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
         ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
@@ -951,6 +959,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bot = createBotInstance(agent, {
       taken,
       ...(spec.name?.trim() ? { name: spec.name.trim() } : {}),
+      ...(spec.color?.trim() ? { color: spec.color.trim() } : {}),
       ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
       ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
       ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
@@ -1066,6 +1075,28 @@ export class RoomManager extends EventEmitter<Events> {
    * 세션은 건드리지 않는다. 이름은 **우리 쪽 이름표**일 뿐이고 에이전트는
    * 모르는 값이다.
    */
+  /**
+   * ★ **봇 색을 바꾼다** (2026-09-28).
+   *
+   * 이름 바꾸기와 달리 **공지하지 않는다.** 이름은 멘션에 쓰이므로 «누구를
+   * 부르는지»가 바뀌지만, 색은 보이기만 한다 — 대화에 줄을 하나 더 얹을 일이
+   * 아니다.
+   *
+   * 빈 값이면 지운다 → `botColor` 가 에이전트 색으로 떨어진다.
+   */
+  async setBotColor(roomId: string, botId: string, color: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const bot = room.participants.find((b) => b.id === botId);
+    if (!bot) return;
+    const next = color.trim();
+    if (next) bot.color = next;
+    else delete bot.color;
+    await this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+    // 목록의 색 점도 따라가야 한다
+    this.emitMetas();
+  }
+
   async renameBot(roomId: string, botId: string, name: string): Promise<void> {
     const room = await this.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
