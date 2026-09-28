@@ -15,7 +15,24 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     label: "Claude",
     description: "Claude Code",
     command: npx(),
-    args: ["-y", "@agentclientprotocol/claude-agent-acp"],
+    /*
+     * 🔴 **버전을 고정한다** (2026-09-28).
+     *
+     * `latest` 로 두었더니 어느 날 **위쪽 배포가 깨져서** 앱이 통째로 안 떴다:
+     * `0.82.0` 이 레지스트리 목록에는 있는데 **tarball 이 404** 였다. 우리가
+     * 고칠 수 있는 것이 하나도 없는데 사용자는 «CLI를 확인하라»는 말만 본다.
+     *
+     * ```
+     * 0.82.0  메타데이터 O · tarball 404   ← 깨진 배포
+     * 0.81.2  둘 다 O                      ← 마지막 정상
+     * ```
+     *
+     * 뜨지 않는 앱보다 **한 발 뒤에 있는 앱**이 낫다. 올릴 때는 **일부러** 올린다.
+     *
+     * ⚠️ 올리기 전에 tarball 이 실제로 받아지는지 확인할 것 —
+     * 레지스트리에 «있다»는 것과 «받아진다»는 것은 다르다.
+     */
+    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"],
     color: "#d97757",
     install: "터미널에서 `claude` 를 실행해 설치·로그인하세요.",
   },

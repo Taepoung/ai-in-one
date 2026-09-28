@@ -22,7 +22,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const CMD = process.platform === "win32" ? "npx.cmd" : "npx";
-const ARGS = ["-y", "@agentclientprotocol/claude-agent-acp"];
+const ARGS = ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"];
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clash-"));
 const FILE = path.join(dir, "clash.ts");

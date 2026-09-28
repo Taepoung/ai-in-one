@@ -342,8 +342,7 @@ export class AcpConnection {
     } catch (err) {
       this.dispose();
       throw new Error(
-        `${this.agent.label}을(를) 시작하지 못했습니다. ` +
-          `CLI가 설치되어 있고 로그인되어 있는지 확인하세요.\n` +
+        `${this.agent.label}을(를) 시작하지 못했습니다. ${startupHint(this.stderr)}\n` +
           `${describe(err)}${this.stderr ? `\n\n${this.stderr}` : ""}`,
       );
     }
@@ -879,6 +878,30 @@ function commandOf(raw: unknown): string | undefined {
  * diff는 여기서 빼낸다 — 그건 과정이 아니라 **결과**라 카드로 따로 남는다(E2).
  */
 const TOOL_OUTPUT_MAX = 2000;
+
+/**
+ * ★ **시작 실패의 «짐작»을 한 줄로** (2026-09-28).
+ *
+ * 🔴 여기 있던 말이 늘 «CLI가 설치되어 있고 로그인되어 있는지 확인하세요» 였다.
+ * 그런데 어느 날 **위쪽 npm 배포가 깨져** 어댑터를 못 받았을 때도 같은 말이
+ * 떴다 — 사용자는 멀쩡한 CLI 를 붙들고 한참을 헤맨다. 원인을 **모르면서 하나로
+ * 단정하는** 문구는 진단을 방해한다.
+ *
+ * 그래서 stderr 에 **또렷한 자국이 있을 때만** 그쪽을 가리키고, 없으면
+ * «확인해 보세요»로 열어 둔다. 어느 쪽이든 stderr 원문은 아래에 그대로 붙는다.
+ */
+export function startupHint(stderr: string): string {
+  if (/npm error (code E404|404)/i.test(stderr)) {
+    return "어댑터 패키지를 내려받지 못했습니다 — 배포가 깨졌거나 네트워크 문제입니다.";
+  }
+  if (/E(AI_AGAIN|NOTFOUND|CONNRESET)|getaddrinfo|ETIMEDOUT/i.test(stderr)) {
+    return "네트워크에 닿지 못했습니다.";
+  }
+  if (/not logged in|unauthorized|authentication/i.test(stderr)) {
+    return "로그인이 필요합니다.";
+  }
+  return "CLI 설치와 로그인을 확인해 보세요.";
+}
 
 function outputOf(content: readonly acp.ToolCallContent[]): string | undefined {
   const parts: string[] = [];

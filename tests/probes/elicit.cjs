@@ -23,7 +23,7 @@ const os = require("node:os"), path = require("node:path"), fs = require("node:f
 const WHICH = (process.argv[2] || "claude").toLowerCase();
 const ADVERTISE = process.argv[3] !== "off";
 const AGENT = {
-  claude: ["-y", "@agentclientprotocol/claude-agent-acp"],
+  claude: ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"],
   codex: ["-y", "@agentclientprotocol/codex-acp"],
 }[WHICH];
 if (!AGENT) { console.log("claude 또는 codex"); process.exit(1); }

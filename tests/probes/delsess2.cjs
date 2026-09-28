@@ -24,7 +24,7 @@ const PROJECTS = path.join(os.homedir(), ".claude", "projects");
 const CLAUDE = path.join(os.homedir(), ".local", "bin", "claude.exe");
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aio-del2-"));
 const CMD = process.platform === "win32" ? "npx.cmd" : "npx";
-const proc = spawn(CMD, ["-y", "@agentclientprotocol/claude-agent-acp"], {
+const proc = spawn(CMD, ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"], {
   cwd, shell: true, stdio: ["pipe", "pipe", "pipe"],
 });
 
