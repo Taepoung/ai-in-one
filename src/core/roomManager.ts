@@ -2698,6 +2698,14 @@ export class RoomManager extends EventEmitter<Events> {
       text: "",
       deliveredTo: [bot.id],
       replyToIds: batch.map((m) => m.id),
+      /*
+       * ★ **사용자가 부른 턴이면 «나에게 한 말»이다** (2026-09-29).
+       *
+       * 오늘은 모든 턴이 그렇다. 봇끼리 말하기(§7)가 들어오면 **다른 봇이
+       * 부른 턴**이 생기고, 그때 이 값이 갈린다 — 미리 적어두면 그날 지난
+       * 대화까지 같이 맞는다.
+       */
+      ...(batch.some((m) => m.role === "user") ? { toUser: true } : {}),
       createdAt: Date.now(),
       streaming: true,
     };

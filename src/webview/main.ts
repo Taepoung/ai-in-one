@@ -1957,7 +1957,19 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
   const to = m.role === "agent"
     ? m.deliveredTo.filter((id) => id !== m.authorBotId)
     : m.deliveredTo;
-  if (to.length === 0) return null;
+
+  /*
+   * ★ **나에게 한 말에도 칩을 단다** — 단체방에서만 (2026-09-29).
+   *
+   * 🔴 여태 «칩이 없으면 나에게 한 말»이었다. **없는 것으로 구별하면 약하다** —
+   * 긴 대화를 훑을 때 «빠뜨린 것»과 구별이 안 된다. 봇끼리 말하기(§7)가
+   * 들어오면 그 차이가 매 줄 필요해진다.
+   *
+   * ★ **1:1 에서는 안 단다.** 받을 사람이 나뿐이라 아무것도 안 말해주는
+   * 군더더기다 — 이름을 1:1 에서 생략하는 것과 같은 이유다(C9).
+   */
+  const alsoMe = m.role === "agent" && m.toUser === true && manyBots();
+  if (to.length === 0 && !alsoMe) return null;
 
   const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
   const wait = new Set(waitingFor(m.id));
@@ -1979,7 +1991,7 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
    * 다 못 갔으면 칩이 **한 장도 안 남는다.** 그게 맞다 — 아무도 못 받았다.
    */
   const gotIt = to.filter((id) => !lost.has(id));
-  if (gotIt.length === 0) return null;
+  if (gotIt.length === 0 && !alsoMe) return null;
 
   const row = el("span", { class: "to-chips" });
 
@@ -2021,6 +2033,26 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
             : seen
               ? `${seen.name}에게 전달되었습니다`
               : "이 봇은 방에서 나갔습니다",
+      }),
+    );
+  }
+
+  /*
+   * ★ **«@사용자» 는 맨 뒤에** (2026-09-29).
+   *
+   * 봇 이름들 다음에 붙는다 — 대화의 흐름이 «봇들끼리 → 나에게» 인 경우가
+   * 많고, 읽는 순서가 그 순서와 같은 편이 낫다.
+   *
+   * ★ **3인칭이다.** 칩은 **보내는 쪽 말풍선 안**에 들어가므로, «@나» 라고
+   * 쓰면 그 «나»가 **말하는 봇**으로 읽힌다. «@사용자» 는 누가 읽어도 같은
+   * 사람을 가리킨다 — 대화를 내보내거나 남에게 보여줄 때도 안 흔들린다.
+   */
+  if (alsoMe) {
+    row.append(
+      el("span", {
+        class: "chip to me",
+        text: "@사용자",
+        title: "나에게 한 말입니다",
       }),
     );
   }
@@ -2774,6 +2806,8 @@ function sigOf(m: Message): string {
     // 봇 색 — 바꾸면 말풍선을 다시 칠해야 한다 (2026-09-28)
     (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.color : "") ?? "",
     (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.ink : "") ?? "",
+    // 나에게 한 말인가 — 칩이 붙고 떨어진다 (2026-09-29)
+    m.toUser ? "me" : "",
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),

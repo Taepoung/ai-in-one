@@ -560,4 +560,55 @@ console.log("\n[★ 봇이 봇에게 건 말도 «누구에게»를 단다 (v3.0
      "★ **평범한 답에는 안 단다** — «나에게 갔다»는 군더더기다 (오늘 화면은 안 바뀐다)");
 }
 
+console.log("\n[★ 봇이 나에게 한 말에도 칩을 단다]");
+{
+  /*
+   * 🔴 여태 «칩이 없으면 나에게 한 말»이었다. **없는 것으로 구별하면 약하다** —
+   * 긴 대화를 훑을 때 «빠뜨린 것»과 구별이 안 된다. 봇끼리 말하기(§7)가
+   * 들어오면 그 차이가 매 줄 필요해진다.
+   *
+   * ★ **3인칭이다.** 칩은 **보내는 쪽 말풍선 안**에 들어가므로 «@나» 라고 쓰면
+   * 그 «나»가 **말하는 봇**으로 읽힌다.
+   */
+  const t = mount();
+  const toMe = { id: "a1", role: "agent", text: "고쳤어", authorBotId: "b1",
+                 deliveredTo: ["b1"], replyToIds: ["u1"], toUser: true, createdAt: 9 };
+  const toBot = { id: "a2", role: "agent", text: "이것 좀 봐줘", authorBotId: "b1",
+                  deliveredTo: ["b1", "b2"], createdAt: 10 };
+  open(t, room(BOTH, [msg("u1", ["b1"]), toMe, toBot]));
+
+  const nodes = t.$$("#screen-chat .msg");
+  const mine = nodes.find((n) => /고쳤어/.test(n.textContent));
+  const other = nodes.find((n) => /이것 좀 봐줘/.test(n.textContent));
+
+  const chips = (n) => [...n.querySelectorAll(".chip.to")].map((c) => c.textContent);
+  console.log(`   나에게: ${chips(mine).join(" ")} · 봇에게: ${chips(other).join(" ")}`);
+
+  ok(chips(mine).join() === "@사용자",
+     `★ **나에게 한 말에 «@사용자»** (${chips(mine).join(" ")})`);
+  ok(chips(other).join() === "@Codex",
+     `★ 봇에게 한 말은 그 봇 이름 (${chips(other).join(" ")})`);
+  ok(mine.querySelector(".chip.to.me") !== null,
+     "★ **모양이 갈린다** — 같으면 결국 글자를 읽어야 하고, 그러면 단 보람이 없다");
+  ok(other.querySelector(".chip.to.me") === null, "★ 봇 칩에는 안 붙는다");
+}
+
+console.log("\n[★ 1:1 에서는 안 단다 — 받을 사람이 나뿐이다]");
+{
+  /*
+   * 받을 사람이 나밖에 없으면 «@사용자»가 아무것도 안 말해준다. 1:1 에서
+   * 이름을 생략하는 것과 같은 이유다(C9).
+   */
+  const t = mount();
+  const solo = [bot("b1", "claude", "Claude")];
+  const toMe = { id: "a1", role: "agent", text: "고쳤어", authorBotId: "b1",
+                 deliveredTo: ["b1"], replyToIds: ["u1"], toUser: true, createdAt: 9 };
+  open(t, room(solo, [msg("u1", ["b1"]), toMe]));
+
+  const mine = t.$$("#screen-chat .msg").find((n) => /고쳤어/.test(n.textContent));
+  console.log(`   칩: ${[...mine.querySelectorAll(".chip.to")].map((c) => c.textContent).join(" ") || "(없음)"}`);
+  ok(mine.querySelector(".chip.to") === null,
+     "★ **아무 칩도 없다** — 군더더기를 안 단다");
+}
+
 console.log("\n전부 통과");
