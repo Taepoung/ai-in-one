@@ -2009,6 +2009,14 @@ function agentOf(m: Message, r: Room): AgentBrief | undefined {
  * 하나에 답하는데 **자리가 멀어진** 경우를 놓친다.
  */
 function needsAnswerNote(m: Message, all: Message[]): boolean {
+  /*
+   * ★ **혼잣말에는 언제나 적는다** (2026-09-28).
+   *
+   * 짝이 되는 질문이 **없는** 말이다. «자명한가»를 따질 것이 아니라, 짝이
+   * 없다는 사실 자체가 적어야 할 이유다 — 안 적으면 앞 답의 뒷부분으로 읽힌다.
+   */
+  if ((m.afterIds?.length ?? 0) > 0) return true;
+
   const answers = m.replyToIds ?? [];
   if (answers.length === 0) return false;
   if (answers.length > 1) return true;   // 묶여서 답한 것은 언제나 적는다
@@ -2584,6 +2592,8 @@ function sigOf(m: Message): string {
     m.authorBotId ? (botStatus[m.authorBotId] ?? "") : "",
     // 배달 표시 — 받는 이가 바뀌거나 줄에서 빠지면 다시 그려야 한다
     m.deliveredTo.join(","),
+    // 혼잣말 표시 — 늦게 붙을 수 있다 (2026-09-28)
+    (m.afterIds ?? []).join(","),
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
@@ -2874,7 +2884,15 @@ const EXCERPT = 20;
  * 옛 문구로 떨어진다 — 그래도 «몇 개에 답했다»는 남겨야 한다.
  */
 function answerNote(m: Message): HTMLElement | null {
-  const ids = m.replyToIds ?? [];
+  /*
+   * ★ **«답합니다»와 «이어집니다»를 가른다** (2026-09-28).
+   *
+   * 물어봐서 온 답이 아니라 **봇이 먼저 보낸 말**일 때가 있다(`afterIds`).
+   * 같은 «↩ «…»» 모양을 쓰되 **꼬리말이 다르다** — «답합니다»라고 쓰면
+   * 거짓말이 된다. 사용자는 그 질문을 한 적이 없다.
+   */
+  const spur = (m.afterIds?.length ?? 0) > 0;
+  const ids = spur ? m.afterIds! : (m.replyToIds ?? []);
   if (ids.length === 0) return null;
 
   const asked = ids
@@ -2885,8 +2903,10 @@ function answerNote(m: Message): HTMLElement | null {
     // «질문 1개에 한 번에» 는 말이 안 된다 — 하나면 그냥 «앞선 질문»이다
     return el("div", {
       class: "meta",
-      text: ids.length === 1 ? "↩ 앞선 질문에 답합니다"
-                             : `↩ 질문 ${ids.length}개에 한 번에 답합니다`,
+      text: spur
+        ? "↩ 앞선 요청에서 이어집니다"
+        : ids.length === 1 ? "↩ 앞선 질문에 답합니다"
+                           : `↩ 질문 ${ids.length}개에 한 번에 답합니다`,
     });
   }
 
@@ -2909,7 +2929,10 @@ function answerNote(m: Message): HTMLElement | null {
       ),
     );
   });
-  note.append(asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다");
+  note.append(
+    spur ? "에서 이어집니다"
+         : asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다",
+  );
   return note;
 }
 

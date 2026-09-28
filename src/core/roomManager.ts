@@ -3108,6 +3108,15 @@ export class RoomManager extends EventEmitter<Events> {
       return bt.idle.message;
     }
 
+    /*
+     * ★ **어디서 이어진 말인지 적어둔다** (2026-09-28).
+     *
+     * 이 봇이 마지막으로 **답한 턴**의 질문들을 그대로 물려받는다. 백그라운드
+     * 일은 거기서 띄운 것이므로, 그 요청이 «이 말이 나온 자리»다.
+     */
+    const from = [...room.messages].reverse()
+      .find((m) => m.role === "agent" && m.authorBotId === bot.id && (m.replyToIds?.length ?? 0) > 0);
+
     const message: Message = {
       id: messageId(),
       role: "agent",
@@ -3115,6 +3124,7 @@ export class RoomManager extends EventEmitter<Events> {
       text: "",
       deliveredTo: [bot.id],
       createdAt: now,
+      ...(from?.replyToIds ? { afterIds: from.replyToIds } : {}),
     };
     bt.idle = { message, at: now };
     this.append(room, message);

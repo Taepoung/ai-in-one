@@ -220,4 +220,32 @@ console.log("\n[⑥ ★ 화면 밖이면 «읽던 자리로»가 뜬다]");
   ok(band.hidden === true, "★ 돌아가면 띠도 걷는다");
 }
 
+console.log("\n[★ 봇이 먼저 보낸 말은 «답합니다»가 아니다]");
+{
+  /*
+   * 봇은 질문 없이도 말한다 — 백그라운드 일이 끝나면 턴이 닫힌 뒤에 제 발로
+   * 알려온다(실측). 그 말풍선은 `replyToIds` 가 **없고** `afterIds` 만 있다.
+   *
+   * 🔴 같은 «↩ «…»» 을 쓰되 **꼬리말이 달라야 한다.** «답합니다»라고 쓰면
+   * 거짓말이 된다 — 사용자는 그 질문을 한 적이 없다.
+   */
+  const t = mount();
+  const spur = { id: "sp", role: "agent", text: "다 됐어. 결과는 42야",
+                 authorBotId: "b1", deliveredTo: ["b1"], afterIds: ["m"], createdAt: 60 };
+  open(t, room([M, A, N, A2, spur]));
+
+  const note = t.$$("#screen-chat .msg")[4].querySelector(".answer-note");
+  console.log(`   표시 : ${note.textContent}`);
+
+  ok(note.textContent.endsWith("에서 이어집니다"),
+     `★ **«에서 이어집니다»** (${note.textContent.slice(-9)}) — 묻지 않은 것에 «답합니다»는 거짓말이다`);
+  ok(!note.textContent.includes("답합니다"), "★ «답합니다»가 안 섞인다");
+
+  const jump = note.querySelector("button.jump");
+  ok(jump !== null, "★ 그래도 **눌러서 갈 수 있다** — 답장 칩과 같은 장치를 쓴다");
+  jump.click();
+  ok(/이 코드/.test(t.$("#screen-chat .msg.jumped").textContent),
+     "★ 그 일을 시킨 **원래 요청**으로 간다");
+}
+
 console.log("\n전부 통과");

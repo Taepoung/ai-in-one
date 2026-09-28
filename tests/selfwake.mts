@@ -84,6 +84,21 @@ async function main(): Promise<void> {
        `★ 앞 턴의 말이 안 섞인다 («${woke!.text}»)`);
     ok(woke!.authorBotId === room.participants[0]!.id,
        "★ 누가 한 말인지도 붙는다 — 단체방에서 이게 없으면 익명이 된다");
+
+    /*
+     * ★ **어디서 이어진 말인지** (2026-09-28).
+     *
+     * 🔴 «무엇이 끝나서»는 못 적는다 — 실측(`probes/waketrigger.cjs`)에서
+     * 백그라운드 도구는 «띄우는 데 성공»한 시점에 이미 completed 로 닫혔고,
+     * 깨어난 뒤에는 그 id 로 아무 갱신도 안 왔다. ACP 층에 실이 없다.
+     *
+     * 그래서 **확실한 것만** 적는다 — 그 일을 시킨 원래 요청.
+     */
+    ok(woke!.replyToIds === undefined,
+       "★ **답장이 아니다** — 가리킬 질문이 애초에 없다");
+    const asked = room.messages.find((m) => m.role === "user");
+    ok(woke!.afterIds?.length === 1 && woke!.afterIds[0] === asked!.id,
+       `★ **어디서 이어졌는지는 적는다** («${asked!.text}») — 없으면 «이게 왜 왔지»가 된다`);
   }
 
   console.log("\n[★ 유예 **안**에 온 조각은 그 턴의 꼬리다]");
