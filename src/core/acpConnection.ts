@@ -225,12 +225,34 @@ export class AcpConnection {
   }
 
   private async start(): Promise<void> {
-    const proc = spawn(this.agent.command, this.agent.args, {
+    /*
+     * ★ **셸을 거칠 때는 공백 든 경로를 따옴표로 묶는다** (2026-09-28).
+     *
+     * 🔴 `shell: true` 는 인자를 **그냥 이어 붙여** 명령줄로 만든다. 그래서
+     * 공백이 든 경로는 **거기서 쪼개진다** — `C:\Program Files\x\agent.exe` 가
+     * `C:\Program` 으로 잘리고, 화면에는 «CLI가 설치되어 있는지 확인하세요»가
+     * 뜬다. 진짜 원인과 한참 먼 말이라 **사용자가 찾을 수가 없다.**
+     *
+     * 기본 에이전트는 `npx` + 패키지 이름이라 공백이 없어서 안 드러났다. 그런데
+     * `command`·`args` 는 **사용자 설정**(`aiInOne.agents`)이고, CLI 가 가장 흔히
+     * 사는 자리가 하필 `C:\Program Files` 다.
+     *
+     * 테스트를 저장소(«Taein Yoon» — 공백이 있다)로 옮기자마자 **스무 개가
+     * 한꺼번에 터져서** 드러났다. 임시 폴더에는 공백이 없었다.
+     *
+     * ⚠️ 따옴표가 **이미 든 인자**는 건드리지 않는다. 그런 인자를 다시 감싸면
+     * 더 망가지므로, 그때는 사용자가 제 손으로 묶은 것으로 보고 맡긴다.
+     */
+    const viaShell = process.platform === "win32";
+    const quote = (s: string): string =>
+      viaShell && /\s/.test(s) && !s.includes('"') ? `"${s}"` : s;
+
+    const proc = spawn(quote(this.agent.command), this.agent.args.map(quote), {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: this.host.defaultCwd(),
       env: { ...process.env, ...this.agent.env },
       // Windows에서 npx.cmd는 셸을 거쳐야 실행된다
-      shell: process.platform === "win32",
+      shell: viaShell,
     }) as ChildProcessWithoutNullStreams;
 
     this.proc = proc;
