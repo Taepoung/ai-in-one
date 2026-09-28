@@ -293,20 +293,34 @@ function colorPick(
    * 커스텀은 **에디터가 주는 색 고르개**를 쓴다. 우리가 그리면 테마를 또
    * 흉내 내야 하고, 그러면 §2.2 G 를 우회하는 셈이 된다.
    */
+  /*
+   * ★ **커스텀은 «확정»을 눌러야 들어간다** (2026-09-28).
+   *
+   * 🔴 `oninput` 으로 바로 넣었더니 **고르는 동안 계속 적용됐다.** 색 고르개를
+   * 끌고 다니는 사이에 말풍선이 수십 번 바뀌고, 손을 떼면 **지나가던 색이
+   * 남는다.** 프리셋은 «한 번 누르면 그 색»이라 괜찮지만 커스텀은 다르다.
+   *
+   * 그래서 고르개는 **미리보기**만 하고, 넣는 것은 단추가 한다.
+   */
   const custom = el("input", {
     type: "color",
     class: "sw custom",
     title: "직접 고르기",
     // `var(--vscode-…)` 는 hex 가 아니라 여기 못 넣는다 — 무난한 값에서 시작한다
     value: /^#[0-9a-f]{6}$/i.test(now ?? "") ? now! : "#888888",
-    oninput: (e: Event) => pick((e.target as HTMLInputElement).value, ink),
+  });
+
+  const apply = el("button", {
+    class: "link use", type: "button", text: "이 색으로",
+    title: "고른 색을 적용합니다",
+    onclick: () => { pick(custom.value, ink); close(); },
   });
 
   const panel = el(
     "div",
     { class: "swatches" },
     ...BOT_COLORS.map((c) => preset(c.css, c.label)),
-    custom,
+    el("div", { class: "custom-row" }, custom, apply),
     el("div", { class: "inks" }, inkBtn("black"), inkBtn("white")),
     // 안 고른 상태로 되돌린다 → 테마가 주는 평소 말풍선으로
     el("button", { class: "link", type: "button", text: "기본",

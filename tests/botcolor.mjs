@@ -67,7 +67,7 @@ const bot = (id, name, extra = {}) => ({
   approver: { kind: "user" }, answerPolicy: "ask", ...extra,
 });
 const TWO = [
-  bot("b1", "구현", { color: "var(--vscode-charts-blue, #4e94ce)", ink: "white" }),
+  bot("b1", "구현", { color: "var(--vscode-terminal-ansiBlue, #2472c8)", ink: "white" }),
   bot("b2", "리뷰어"),   // ★ 색을 안 골랐다
 ];
 
@@ -99,7 +99,7 @@ console.log("\n[★ 고른 색이 말풍선까지 간다]");
   console.log(`   구현   : ${mine.getAttribute("style")}`);
   console.log(`   리뷰어 : ${theirs.getAttribute("style")}`);
 
-  ok(mine.style.getPropertyValue("--bot").includes("charts-blue"),
+  ok(mine.style.getPropertyValue("--bot").includes("ansiBlue"),
      "★ **고른 색이 실린다** — 섞는 일은 스타일시트가 한다");
 
   /*
@@ -145,7 +145,7 @@ console.log("\n[★ 글자색은 검정/하양 둘뿐 — 지금 배경 위에 �
   const pair = inks.slice(0, 2);
   ok(pair.map((b) => b.style.color).join() === "rgb(0, 0, 0),rgb(255, 255, 255)",
      `★ 검정과 하양 (${pair.map((b) => b.style.color).join(" / ")})`);
-  ok(pair.every((b) => b.style.background.includes("charts-blue")),
+  ok(pair.every((b) => b.style.background.includes("ansiBlue")),
      "★ **둘 다 지금 배경 위에** 그려진다 — 어느 쪽이 읽히는지 보고 고른다");
   ok(pair[1].className.includes("on"),
      "★ 지금 고른 쪽(하양)이 표시돼 있다");
@@ -153,7 +153,7 @@ console.log("\n[★ 글자색은 검정/하양 둘뿐 — 지금 배경 위에 �
   pair[0].click();
   const posted = t.sent.find((m) => m.t === "setBotColor");
   ok(posted?.ink === "black", `★ 고르면 올라간다 (${posted?.ink})`);
-  ok(posted?.color.includes("charts-blue"),
+  ok(posted?.color.includes("ansiBlue"),
      "★ **색과 한 쌍으로** 보낸다 — 따로 보내면 한쪽만 바뀐 상태가 생긴다");
 }
 
@@ -169,7 +169,7 @@ console.log("\n[★ 이름 앞 «점»은 그대로 — C9 가 허락한 자리�
   const bg = dots.map((d) => d.style.background);
   console.log(`   ${bg.join(" / ")}`);
   ok(dots.length === 2, `★ 말풍선마다 점 (${dots.length})`);
-  ok(bg[0].includes("charts-blue"), "★ 고른 봇은 고른 색");
+  ok(bg[0].includes("ansiBlue"), "★ 고른 봇은 고른 색");
   ok(bg[1] === "rgb(217, 119, 87)" || bg[1].includes("d97757"),
      `★ **안 고른 봇은 에이전트 색으로** (${bg[1]}) — 점은 여전히 떨어진다`);
 }
@@ -197,15 +197,52 @@ console.log("\n[★ 서랍에서 고르면 올라간다]");
   const picks = t.$$(".drawer-bot .swatch");
   ok(picks.length === 2, `★ 봇마다 하나씩 (${picks.length})`);
 
-  const sw = picks[0].querySelector(".swatches .sw");
+  /*
+   * 🔴 처음엔 `charts.*` 여섯에 `ansiCyan` 을 얹었는데 **파랑 둘이 거의 같아
+   * 보였다** — 출처가 다르니 명도·채도가 안 맞았다. 한 계열(`terminal.ansi*`)
+   * 에서 **일반/밝은 쌍**으로 고르면 색상뿐 아니라 밝기까지 갈린다.
+   */
+  const swatches = picks[0].querySelectorAll(".swatches .sw:not(.custom)");
+  ok(swatches.length === 12, `★ **열둘** (${swatches.length}) — 여섯은 서로 비슷해 보였다`);
+  const sw = swatches[0];
   ok(sw !== null, "★ 프리셋이 있다");
   sw.click();
 
   const posted = t.sent.find((m) => m.t === "setBotColor");
   ok(posted !== undefined, "★ 고르면 올라간다");
   ok(posted.botId === "b1", `★ 그 봇에게 (${posted?.botId})`);
-  ok(posted.color.includes("var(--vscode-charts-"),
+  /*
+   * 🔴 여기 `charts-` 를 박아뒀다가 팔레트를 바꾸자 깨졌다. 재려던 것은
+   * «어느 계열인가»가 아니라 **«테마 변수인가»** 다 — 그것만 본다.
+   */
+  ok(posted.color.startsWith("var(--vscode-"),
      `★ **테마 변수로 저장한다** (${posted?.color}) — 하드코딩하면 라이트에서 안 읽힌다`);
+}
+
+console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
+{
+  /*
+   * 🔴 `oninput` 으로 바로 넣었더니 **고르는 동안 계속 적용됐다.** 고르개를
+   * 끌고 다니는 사이에 말풍선이 수십 번 바뀌고, 손을 떼면 **지나가던 색이
+   * 남는다.** 프리셋은 «한 번 누르면 그 색»이라 괜찮지만 커스텀은 다르다.
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+
+  const box = t.$(".drawer-bot .swatches .sw.custom");
+  ok(box !== null, "★ 커스텀 칸이 있다");
+
+  box.value = "#123456";
+  box.dispatchEvent(new t.w.Event("input", { bubbles: true }));
+  ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
+     "★ **고르는 동안에는 안 들어간다** — 지나가던 색이 남으면 안 된다");
+
+  const use = [...t.$$(".drawer-bot .swatches button")].find((b) => b.textContent === "이 색으로");
+  ok(use !== undefined, "★ 확정 단추가 있다");
+  use.click();
+  const posted = t.sent.find((m) => m.t === "setBotColor");
+  ok(posted?.color === "#123456", `★ **누르면 그 색이 들어간다** (${posted?.color})`);
 }
 
 console.log("\n[★ «기본»으로 되돌리면 빈 값이 간다]");

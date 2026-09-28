@@ -1145,33 +1145,33 @@ export function inBotView(m: Message, botId: string): boolean {
  * 못 박았는데, 팔레트를 우리가 하드코딩하면 바로 그것을 어긴다 — 다크에서
  * 고른 색이 라이트에서 안 읽히고, High Contrast 에서는 더 나쁘다.
  *
- * `--vscode-charts-*` 는 **에디터가 차트용으로 내주는 색**이라 테마마다 제
- * 값이 온다(VSCode 소스에서 확인, 2026-09-28). 초록·보라는 다크·라이트·HC 값이
- * 따로 박혀 있고, 나머지는 테마가 이미 쓰는 색을 빌려 온다:
+ * ★ **한 계열로 모은다.** 처음에는 `charts.*` 여섯에 `ansiCyan` 을 얹었는데
+ * **파랑 둘이 거의 같아 보였다** — 출처가 다르니 명도·채도가 안 맞는다.
+ * `terminal.ansi*` 는 **열여섯이 한 벌**이고 전부 다크·라이트·HC 값이 따로라,
+ * 여기서 열둘을 고르면 서로 또렷이 갈린다.
  *
- * ```
- * charts.blue   → editorInfoForeground
- * charts.yellow → editorWarningForeground
- * charts.orange → minimapFindMatch
- * charts.red    → editorErrorForeground      ← 그래서 뺐다
- * ```
+ * ★ **일반/밝은 쌍**이 명도까지 갈라준다. 같은 계열 여섯 색으로는 색상만
+ * 다르고 밝기가 비슷해서, 어두운 테마에서 특히 안 갈린다.
  *
- * 🔴 **빨강은 안 넣는다.** 그건 테마의 «오류» 색이라, 봇 하나를 빨강으로 두면
- * **그 봇 말풍선이 전부 «문제 있음»처럼** 읽힌다. 색으로 말을 거는 자리에
- * 이미 뜻이 박힌 색을 쓰면 그 뜻이 먼저 읽힌다. 굳이 빨강이 좋으면 커스텀으로.
- *
- * ⚠️ 여섯이 모자라면 `terminal.ansi*` 가 **16개** 있고 그쪽도 테마마다 값이
- * 따로다. 지금은 한 방에 봇이 두셋이라 늘릴 이유가 없다.
+ * 🔴 빨강은 **`ansiRed`** 다. `charts.red` 는 `editorErrorForeground` 라
+ * **테마가 «오류»에 쓰는 바로 그 색**이고, 그걸 봇에 주면 말풍선이 전부
+ * «문제 있음»처럼 읽힌다. 같은 빨강이라도 출처가 다르면 뜻이 안 묻어온다.
  *
  * 뒤의 hex 는 그 변수를 안 주는 옛 버전용 폴백이다.
  */
 export const BOT_COLORS: ReadonlyArray<{ id: string; label: string; css: string }> = [
-  { id: "blue", label: "파랑", css: "var(--vscode-charts-blue, #4e94ce)" },
-  { id: "green", label: "초록", css: "var(--vscode-charts-green, #89d185)" },
-  { id: "purple", label: "보라", css: "var(--vscode-charts-purple, #b180d7)" },
-  { id: "orange", label: "주황", css: "var(--vscode-charts-orange, #d18616)" },
-  { id: "yellow", label: "노랑", css: "var(--vscode-charts-yellow, #cca700)" },
-  { id: "cyan", label: "청록", css: "var(--vscode-terminal-ansiCyan, #29b8db)" },
+  { id: "red", label: "빨강", css: "var(--vscode-terminal-ansiRed, #cd3131)" },
+  { id: "orange", label: "주황", css: "var(--vscode-terminal-ansiBrightRed, #f14c4c)" },
+  { id: "yellow", label: "노랑", css: "var(--vscode-terminal-ansiYellow, #e5e510)" },
+  { id: "green", label: "초록", css: "var(--vscode-terminal-ansiGreen, #0dbc79)" },
+  { id: "cyan", label: "청록", css: "var(--vscode-terminal-ansiCyan, #11a8cd)" },
+  { id: "blue", label: "파랑", css: "var(--vscode-terminal-ansiBlue, #2472c8)" },
+  { id: "magenta", label: "자홍", css: "var(--vscode-terminal-ansiMagenta, #bc3fbc)" },
+  { id: "gray", label: "회색", css: "var(--vscode-terminal-ansiBrightBlack, #666666)" },
+  { id: "lime", label: "연두", css: "var(--vscode-terminal-ansiBrightGreen, #23d18b)" },
+  { id: "sky", label: "하늘", css: "var(--vscode-terminal-ansiBrightCyan, #29b8db)" },
+  { id: "indigo", label: "남색", css: "var(--vscode-terminal-ansiBrightBlue, #3b8eea)" },
+  { id: "pink", label: "분홍", css: "var(--vscode-terminal-ansiBrightMagenta, #d670d6)" },
 ];
 
 /**

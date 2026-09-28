@@ -659,13 +659,15 @@ button.ghost:hover {
 .swatches {
   position: fixed;
   z-index: 30;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  /*
+   * ★ 열두 칸을 **여섯씩 두 줄**로. 줄 수를 고정하면 판 크기가 늘 같아서
+   * `place()` 의 «화면 안으로 접어 넣기»도 흔들리지 않는다.
+   */
+  display: grid;
+  grid-template-columns: repeat(6, 18px);
   gap: 5px;
   width: max-content;
-  max-width: min(200px, 70vw);
-  padding: 7px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--vscode-menu-background, var(--bubble-bot-bg));
@@ -688,6 +690,8 @@ button.ghost:hover {
 
 /* 에디터가 주는 색 고르개 — 우리가 그리면 테마를 또 흉내 내야 한다 */
 .swatches .sw.custom {
+  flex: 0 0 auto;
+  width: 26px;
   background: none;
   padding: 0;
 }
@@ -698,10 +702,33 @@ button.ghost:hover {
  * «검정/하양»이라고 글로 쓰면 어느 쪽이 읽히는지 눌러봐야 안다. 두 칸을 고른
  * 배경으로 칠해두면 **눈으로 바로 갈린다** — 설명이 필요 없다.
  */
+/* 아래 줄들은 판 너비를 통째로 쓴다 */
+.swatches .custom-row,
+.swatches .inks,
+.swatches > .link {
+  grid-column: 1 / -1;
+}
+
+.swatches .custom-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/*
+ * ★ **«이 색으로»** — 커스텀은 누르기 전에는 안 들어간다.
+ *
+ * 🔴 고르개를 끌고 다니는 사이에 말풍선이 수십 번 바뀌고, 손을 떼면 지나가던
+ * 색이 남았다. 프리셋은 «한 번 누르면 그 색»이라 괜찮지만 커스텀은 다르다.
+ */
+.swatches .use {
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
+
 .swatches .inks {
   display: flex;
   gap: 4px;
-  width: 100%;
 }
 
 .swatches .ink {
