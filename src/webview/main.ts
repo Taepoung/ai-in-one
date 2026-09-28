@@ -598,12 +598,12 @@ function confirmLeaveFromList(m: RoomMeta): void {
     el(
       "div",
       { class: "card-actions" },
+      el("button", { text: "취소", onclick: () => renderList() }),
       el("button", {
         class: "primary",
         text: "나가기",
         onclick: () => post({ t: "leave", roomId: m.id }),
       }),
-      el("button", { text: "취소", onclick: () => renderList() }),
     ),
   );
   row.after(card);
@@ -4660,9 +4660,9 @@ function showRoomInfo(r: Room): void {
     el(
       "div",
       { class: "card-actions" },
+      el("button", { text: "닫기", onclick: () => closeModal() }),
       // 봇에 대한 것을 찾아 여기까지 온 사람을 **되돌려 보내지 않는다**
       el("button", { text: "참여자 보기", onclick: () => (closeModal(), paintDrawer(r)) }),
-      el("button", { text: "닫기", onclick: () => closeModal() }),
     ),
   );
 
@@ -4758,6 +4758,7 @@ function confirmLeave(r: Room): void {
     el(
       "div",
       { class: "card-actions" },
+      el("button", { text: "취소", onclick: () => renderChat() }),
       el("button", {
         class: "primary",
         text: "나가기",
@@ -4768,7 +4769,6 @@ function confirmLeave(r: Room): void {
           back();
         },
       }),
-      el("button", { text: "취소", onclick: () => renderChat() }),
     ),
   );
   const host = screens.chat.querySelector<HTMLElement>(".messages");
@@ -4953,6 +4953,7 @@ function askFork(r: Room, atMessageId?: string, botId?: string): void {
     el(
       "div",
       { class: "card-actions" },
+      el("button", { text: "취소", onclick: () => renderChat() }),
       /*
        * ★ **기본은 언제나 네이티브 분기다.** 잃는 게 없고 토큰도 안 든다.
        *
@@ -4963,20 +4964,20 @@ function askFork(r: Room, atMessageId?: string, botId?: string): void {
        */
       ...(lossy
         ? [
+            // 둘 다 «진행»이라 왼쪽이 약한 쪽, 오른쪽이 권하는 쪽이다
+            el("button", {
+              text: "기록만 두고 분기",
+              title: "화면에는 남지만 에이전트는 위 대화를 모릅니다",
+              onclick: () => go("fresh"),
+            }),
             el("button", {
               class: "primary",
               text: "대화 넘겨서 분기",
               title: "지금까지의 대화를 글로 옮겨 보냅니다 — 토큰이 듭니다",
               onclick: () => go("refeed"),
             }),
-            el("button", {
-              text: "기록만 두고 분기",
-              title: "화면에는 남지만 에이전트는 위 대화를 모릅니다",
-              onclick: () => go("fresh"),
-            }),
           ]
         : [el("button", { class: "primary", text: "분기하기", onclick: () => go() })]),
-      el("button", { text: "취소", onclick: () => renderChat() }),
     ),
   );
 
@@ -5414,6 +5415,7 @@ function askInvite(r: Room): void {
       el(
         "div",
         { class: "card-actions" },
+        el("button", { text: "취소", onclick: () => renderChat() }),
         el("button", {
           class: "primary",
           text: "부르기",
@@ -5429,7 +5431,6 @@ function askInvite(r: Room): void {
             renderChat();
           },
         }),
-        el("button", { text: "취소", onclick: () => renderChat() }),
       ),
     );
 
