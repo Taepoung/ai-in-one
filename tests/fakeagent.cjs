@@ -289,6 +289,33 @@ function handle(msg) {
       s.prompted = true;   // 이제는 디스크에 남는다
       saveDisk();
       note({ t: "prompt", sessionId: params.sessionId, text });
+
+      /*
+       * ★ **턴이 끝난 뒤에 스스로 말한다** — `[[wake:밀리초]]` (2026-09-28).
+       *
+       * 진짜 CLI 가 이걸 한다는 것을 쟀다(`probes/selfwake.cjs`): 백그라운드로
+       * 띄운 일이 끝나면, **우리가 아무것도 안 보냈는데** 25초 뒤에 결과를
+       * 말해 왔다. 턴은 이미 `end_turn` 으로 닫힌 뒤였다.
+       *
+       * 그러니 우리 쪽이 그걸 **받아서 화면에 얹는지**도 검사할 수 있어야 한다.
+       * 가짜로 흉내 내지 않으면 이 길은 영영 자동 검사 밖에 남는다.
+       */
+      const wake = /\[\[wake:(\d+)\]\]/.exec(text);
+      if (wake) {
+        const delay = Number(wake[1]);
+        setTimeout(() => {
+          process.stdout.write(JSON.stringify({
+            jsonrpc: "2.0", method: "session/update",
+            params: {
+              sessionId: params.sessionId,
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "백그라운드 일이 끝났어" },
+              },
+            },
+          }) + "\n");
+        }, delay);
+      }
       process.stdout.write(JSON.stringify({
         jsonrpc: "2.0", method: "session/update",
         params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: process.env.AIO_FAKE_ECHO ? ("답:" + text.slice(0, 24)) : (process.env.AIO_FAKE_SAY || "알겠습니다") } } },
