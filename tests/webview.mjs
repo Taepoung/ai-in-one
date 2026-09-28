@@ -320,6 +320,26 @@ function main() {
     ok(t.$(".activity .at") !== null, "언제 했는지도 — 타임라인으로 읽힌다");
     ok(t.$$(".activity").length === 2, "명령이 없는 것도 한 줄로");
     ok(t.$$(".act").length === 1, "명령이 있는 것만 묶음이 생긴다");
+
+    /*
+     * ★ **제목은 제 상자에 있어야 한다** (2026-09-28).
+     *
+     * 🔴 맨 텍스트로 두고 `.activity`(flex) 에 `text-overflow: ellipsis` 를
+     * 걸어 놨었다 — **flex 컨테이너에는 안 먹는다.** 긴 제목이 «…» 도 없이
+     * 잘렸고, flex 항목이 기본으로 안 줄어들어 **뒤의 시각·승인 도장이 밖으로
+     * 밀려났다.** 「무엇을 승인했나」가 화면에서 사라지는 셈이다.
+     *
+     * jsdom 은 폭을 못 재므로 **구조**를 못 박는다 — 제목이 제 상자에 있고,
+     * 시각이 그 **형제로** 남아 있는지. 줄임은 CSS 가 `.what` 에서만 한다.
+     */
+    const row = t.$(".activity");
+    const what = row.querySelector(".what");
+    ok(what !== null, "★ **제목이 제 상자에 있다** — 여기서만 줄어들게 하려면 상자가 있어야 한다");
+    ok(what.textContent === "Bash", `★ 제목 그대로 («${what.textContent}»)`);
+    ok(row.querySelector(".at") !== null,
+       "★ **시각이 같은 줄에 남는다** — 제목이 길어도 밀려나면 안 된다");
+    ok([...row.children].indexOf(what) < [...row.children].indexOf(row.querySelector(".at")),
+       "★ 제목이 먼저, 시각이 뒤 — 순서도 그대로");
   }
 
   console.log("\n[들어간 것과 나온 것이 같이 보인다 (C3)]");

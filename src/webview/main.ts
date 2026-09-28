@@ -3048,9 +3048,19 @@ function toolsNode(list: ToolActivity[]): HTMLElement {
         })
       : null;
 
+    /*
+     * ★ **제목을 제 상자에 담는다** (2026-09-28).
+     *
+     * 🔴 여태 맨 텍스트였다. `.activity` 는 **flex** 인데 거기에
+     * `text-overflow: ellipsis` 를 걸어 놨었다 — **flex 컨테이너에는 안 먹는다.**
+     * 그래서 긴 제목이 **«…» 도 없이 그냥 잘렸고**, 더 나쁘게는 flex 항목이
+     * 기본으로 안 줄어들어 **뒤의 시각·승인 도장이 밖으로 밀려났다.**
+     *
+     * 줄어드는 것은 제목뿐이어야 한다. 시각과 도장은 **짧고 늘 필요하다.**
+     */
     const head: Kids = [
       icon(permIcon(t.kind)),
-      ` ${t.title}`,
+      el("span", { class: "what", text: t.title }),
       seal,
       t.at ? el("span", { class: "at", text: hhmm(t.at) }) : null,
     ];
@@ -3971,7 +3981,8 @@ function paintApprovals(r: Room): void {
             { class: "activity" },
             icon("chevron-right"),
             icon(permIcon(req.kind)),
-            ` ${req.title}`,
+            // 같은 이유로 제 상자에 담는다 — `toolsNode` 의 설명 참조
+            el("span", { class: "what", text: req.title }),
             /*
              * ★ **누가 하려는 일인가** (§4.2.2).
              *

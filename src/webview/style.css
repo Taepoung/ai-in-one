@@ -1856,6 +1856,20 @@ details.advanced[open] > summary .codicon-chevron-right {
   gap: 2px;
 }
 
+/*
+ * ★ **활동 한 줄** — 줄어드는 것은 제목뿐이다 (2026-09-28).
+ *
+ * 🔴 여기에 `text-overflow: ellipsis` 가 걸려 있었는데 **flex 컨테이너에는
+ * 안 먹는다.** 말줄임표는 «인라인 내용이 넘치는 블록»에만 붙고, flex 의
+ * 자식들은 인라인이 아니다. 그래서 긴 제목이 **«…» 없이 그대로 잘렸다** —
+ * 잘린 줄 모르고 «왜 여기서 끝나지» 하게 된다.
+ *
+ * 🔴 그리고 flex 항목은 기본이 `min-width: auto` 라 **글자 폭 아래로 안
+ * 줄어든다.** 제목이 길면 뒤의 **시각과 승인 도장이 통째로 밖으로 밀려났다** —
+ * 「무엇을 승인했나」가 화면에서 사라지는 셈이다.
+ *
+ * 그래서 줄임은 **제목 상자(`.what`)에서** 하고, 시각·도장은 안 줄인다.
+ */
 .activity {
   display: flex;
   align-items: center;
@@ -1869,8 +1883,22 @@ details.advanced[open] > summary .codicon-chevron-right {
   text-align: left;
   cursor: default;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 남는 자리를 먹고, 모자라면 여기서만 줄어든다 */
+.activity .what {
+  flex: 1 1 auto;
+  min-width: 0;          /* 이게 없으면 글자 폭 아래로 안 줄어든다 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 짧고 늘 필요한 것들 — 밀려나면 안 된다 */
+.activity > .codicon,
+.activity > .seal,
+.activity > .at {
+  flex: 0 0 auto;
 }
 
 .activity.failed {
