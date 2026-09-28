@@ -176,9 +176,16 @@ console.log("\n[★ 봇 부르기 카드에도 있다]");
      `★ **이미 Claude 가 있으니 기본값이 «Claude 2»** (${name.placeholder}) — 여기가 이름이 제일 필요한 순간이다`);
 
   typeIn(t, name, "리뷰어");
-  card.querySelector("button.primary").click();
+  /*
+   * 🔴 `button.primary` 로 집다가 **색 고르개의 «적용»** 을 집었다 (2026-09-29).
+   * 그쪽도 강조 단추이고 카드 안에서 **더 앞에** 있다. 카드에 강조가 하나뿐일
+   * 거라고 믿은 것이 틀렸다 — **글자로 집는다.**
+   */
+  const call = [...card.querySelectorAll("button")].find((b) => b.textContent === "부르기");
+  ok(call !== undefined, "★ «부르기» 단추를 찾았다");
+  call.click();
   const sent = t.sent.find((m) => m.t === "addBot");
-  ok(sent.name === "리뷰어", `★ 실려 간다 (${sent.name})`);
+  ok(sent?.name === "리뷰어", `★ 실려 간다 (${sent?.name})`);
 }
 
 console.log("\n전부 통과");
