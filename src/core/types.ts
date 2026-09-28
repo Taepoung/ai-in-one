@@ -1009,6 +1009,36 @@ export const DEFAULT_ANSWER_POLICY: AnswerPolicy = "ask";
  * 그리고 방 만들기 화면이 «이렇게 됩니다»를 미리 보여줄 때. 셋이 어긋나면
  * **화면이 약속한 이름과 실제 이름이 달라진다.** 한 곳에서만 정한다.
  */
+/**
+ * ★ **«사용자» 칩의 글자** (2026-09-29).
+ *
+ * 괄호를 두른 이유는 **봇이 못 가질 모양**이어야 하기 때문이다. 그냥 «사용자»
+ * 라고 두면 **봇 이름이 «사용자»일 때 두 칩이 똑같이 읽힌다** — 칩을 단 이유가
+ * «나에게 한 말»과 «봇에게 한 말»을 가르는 것인데 거기서 무너진다.
+ *
+ * `@` 를 안 붙인다. 이것은 **부를 수 있는 이름이 아니다** — 지목할 대상이
+ * 아니라 «이 말이 향한 곳»의 표시다. 모양이 다른 편이 그 차이를 말해준다.
+ */
+export const USER_CHIP = "(사용자)";
+
+/**
+ * ★ **이름에서 «표시용 글자»를 걷어낸다** (2026-09-29).
+ *
+ * 🔴 `(사용자)` 같은 표시를 쓰려면 **봇이 그 모양을 못 가져야** 한다. 안 그러면
+ * 봇 이름 하나로 우리 표시를 흉내 낼 수 있고, 화면에서 둘을 가릴 방법이 없다.
+ *
+ * 괄호·꺾쇠·`@` 를 막는다 — 전부 **«이름»이 아니라 «표시»로 읽히는** 글자다.
+ * 우리가 쓸 자리를 비워 두는 것이므로, 앞으로 `[…]` 같은 표시를 더 만들어도
+ * 같은 보호를 받는다.
+ *
+ * ★ **막는 대신 걷어낸다.** 이름은 지금 고치는 중인 값이라, 거절하면 «왜 안
+ * 되지»를 따로 설명해야 한다. 걷어내고 **달라졌다고 알리는** 편이 낫다 —
+ * 겹쳐서 수를 붙일 때와 같은 길이다(`uniqueBotName`).
+ */
+export function cleanBotName(wanted: string): string {
+  return wanted.replace(/[()[\]<>@]/g, "").replace(/\s+/g, " ").trim();
+}
+
 export function uniqueBotName(wanted: string, taken: ReadonlySet<string>): string {
   if (!taken.has(wanted)) return wanted;
   for (let n = 2; ; n++) {
@@ -1220,7 +1250,7 @@ export function createBotInstance(
   } = {},
 ): BotInstance {
   const taken = opts.taken ?? new Set<string>();
-  const name = uniqueBotName(opts.name?.trim() || agent.label, taken);
+  const name = uniqueBotName(cleanBotName(opts.name ?? "") || agent.label, taken);
   return {
     // 🔴 시각만 쓰면 **같은 에이전트로 봇을 둘 만들 때 같은 ms에 걸려 id가 겹친다.**
     // 그러면 멘션도 상태도 둘이 섞인다 — 단체방에서는 정상 경로다(v2.0).

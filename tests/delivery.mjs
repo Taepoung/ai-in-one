@@ -584,8 +584,15 @@ console.log("\n[★ 봇이 나에게 한 말에도 칩을 단다]");
   const chips = (n) => [...n.querySelectorAll(".chip.to")].map((c) => c.textContent);
   console.log(`   나에게: ${chips(mine).join(" ")} · 봇에게: ${chips(other).join(" ")}`);
 
-  ok(chips(mine).join() === "@사용자",
-     `★ **나에게 한 말에 «@사용자»** (${chips(mine).join(" ")})`);
+  /*
+   * ★ **괄호를 두른 이유**: 그냥 «사용자» 면 **봇 이름이 «사용자»일 때 두 칩이
+   * 똑같이 읽힌다** — 칩을 단 이유가 거기서 무너진다. 봇 이름에서는 괄호를
+   * 걷어내므로(`cleanBotName`) 이 모양은 **봇이 가질 수 없다.**
+   *
+   * `@` 를 안 붙인 것도 같은 뜻이다 — 이것은 **부를 수 있는 이름이 아니다.**
+   */
+  ok(chips(mine).join() === "(사용자)",
+     `★ **나에게 한 말에 «(사용자)»** (${chips(mine).join(" ")})`);
   ok(chips(other).join() === "@Codex",
      `★ 봇에게 한 말은 그 봇 이름 (${chips(other).join(" ")})`);
   ok(mine.querySelector(".chip.to.me") !== null,

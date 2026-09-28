@@ -691,10 +691,16 @@ button.ghost:hover {
 /* 에디터가 주는 색 고르개 — 우리가 그리면 테마를 또 흉내 내야 한다 */
 .swatches .sw.custom {
   flex: 1 1 auto;
+  min-width: 0;
   width: auto;
-  height: 24px;
+  height: 26px;
   background: none;
   padding: 0;
+}
+
+/* 제가 다루는 칸 옆에 붙어 있다 — 줄어들지 않는다 */
+.swatches .apply {
+  flex: 0 0 auto;
 }
 
 /*

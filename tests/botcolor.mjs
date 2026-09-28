@@ -238,22 +238,30 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
      "★ **고르는 동안에는 안 들어간다** — 지나가던 색이 남으면 안 된다");
 
+  /*
+   * ★ **«적용»은 커스텀 칸 «옆»에 있어야 한다** (2026-09-29).
+   *
+   * 🔴 한때 아래 줄에 `[기본값으로] [적용]` 으로 나란히 뒀다. 끝내는 동작끼리
+   * 모은 것인데, **적용은 커스텀에만 쓰인다** — 프리셋도 글자색도 누르면 바로
+   * 들어간다. 아래에 있으면 *"뭘 적용하는 거지"* 가 된다.
+   *
+   * 단추는 **제가 다루는 것 옆에.** 그래야 «이 칸의 값을 넣는다»가 설명 없이
+   * 읽힌다.
+   */
+  const customRow = t.$(".drawer-bot .swatches .custom-row");
+  const inRow = [...customRow.children].map((c) => c.textContent || c.type);
+  console.log(`   커스텀 줄: ${inRow.join(" / ")}`);
+  ok(customRow.querySelector("input[type=color]") !== null, "★ 커스텀 칸이 그 줄에 있다");
+
+  const use = customRow.querySelector("button.apply");
+  ok(use !== null, "★ **«적용»이 같은 줄에** — 무엇에 적용하는지가 보인다");
+  ok(use.className.includes("primary"),
+     `★ 강조 단추다 (${use.className}) — 누르기 전엔 아무 일도 안 일어나므로 다음 할 일이 보여야 한다`);
+
   const acts = t.$(".drawer-bot .swatches .pick-acts");
   const labels = [...acts.children].map((b) => b.textContent);
-  console.log(`   끝내는 단추: ${labels.join(" / ")}`);
-
-  /*
-   * ★ 둘 다 «이 판을 끝내는» 동작이다 — 하나는 고른 것을 넣고, 하나는 버린다.
-   * 층이 갈려 있으면 «적용은 커스텀 전용이고 기본은 전체인가»가 된다.
-   */
-  ok(labels.join() === "기본값으로,적용",
-     `★ **같은 층에 나란히** (${labels.join(" / ")})`);
-
-  const use = acts.children[1];
-  ok(use.className.includes("primary"),
-     `★ **«적용»이 눈에 띈다** (${use.className}) — 누르기 전엔 아무 일도 안 일어나므로 다음 할 일이 보여야 한다`);
-  ok(acts.children[0].className.includes("ghost"),
-     "★ «기본값으로»가 왼쪽 — 만들기 화면의 `[취소] [만들기]` 와 같은 자리다");
+  ok(labels.join() === "기본값으로",
+     `★ 아래 줄은 «기본값으로» 뿐 (${labels.join(" / ")}) — 이건 판 전체가 대상이다`);
 
   use.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");

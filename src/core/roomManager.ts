@@ -32,6 +32,7 @@ import {
   type Clash,
   uniqueBotName,
   inBotView,
+  cleanBotName,
   taskIdOf,
   type SearchHit,
 } from "./types.js";
@@ -1117,7 +1118,8 @@ export class RoomManager extends EventEmitter<Events> {
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
 
-    const wanted = name.trim();
+    // 표시용 글자는 걷어낸다 — 우리 표시(`(사용자)` 등)를 흉내 낼 수 없어야 한다
+    const wanted = cleanBotName(name);
     if (!wanted || wanted === bot.name) return;
 
     const before = bot.name;

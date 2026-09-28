@@ -15,7 +15,14 @@ import type {
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
-import { uniqueBotName, inBotView, botLabel, botColor, BOT_COLORS } from "../core/types.js";
+import {
+  uniqueBotName,
+  inBotView,
+  botLabel,
+  botColor,
+  BOT_COLORS,
+  USER_CHIP,
+} from "../core/types.js";
 import type {
   AgentBrief,
   AskCard,
@@ -327,16 +334,21 @@ function colorPick(
     "div",
     { class: "swatches" },
     ...BOT_COLORS.map((c) => preset(c.css, c.label)),
-    el("div", { class: "custom-row" }, custom),
+    /*
+     * ★ **«적용»은 커스텀 칸 «옆»에** (2026-09-29).
+     *
+     * 🔴 한때 아래 줄에 `[기본값으로] [적용]` 으로 나란히 뒀다. 끝내는 동작끼리
+     * 모은 것인데, **적용은 커스텀에만 쓰인다** — 프리셋도 글자색도 누르면
+     * 바로 들어간다. 아래에 있으면 *"뭘 적용하는 거지"* 가 된다.
+     *
+     * 단추는 **제가 다루는 것 옆에** 있어야 «이 칸의 값을 넣는다»가 설명 없이
+     * 읽힌다.
+     */
+    el("div", { class: "custom-row" }, custom, apply),
     el("div", { class: "inks" }, inkBtn("black"), inkBtn("white")),
     /*
-     * ★ **«적용»과 «기본값으로»는 같은 층이다.** 둘 다 «이 판을 끝내는» 동작이라
-     * 한 줄에 나란히 둔다 — 하나는 고른 것을 넣고, 하나는 고른 것을 버린다.
-     */
-    /*
-     * ★ **보통 단추가 왼쪽, 강조가 오른쪽** — 만들기 화면과 같다
-     * (`[취소] [만들기]`). 한 앱 안에서 끝내는 단추의 자리가 자리마다
-     * 다르면 **누를따 봐야 한다.**
+     * 이 줄은 **판 전체**를 되돌린다 — 어느 한 칸이 아니라 «고른 것 전부»가
+     * 대상이라 아래에 혼자 둔다.
      */
     el(
       "div",
@@ -344,7 +356,6 @@ function colorPick(
       el("button", { class: "ghost", type: "button", text: "기본값으로",
                      title: "테마가 주는 평소 말풍선으로 되돌립니다",
                      onclick: () => { pick("", undefined); close(); } }),
-      apply,
     ),
   );
 
@@ -2051,7 +2062,8 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
     row.append(
       el("span", {
         class: "chip to me",
-        text: "@사용자",
+        // 봇이 못 가지는 모양이다 — `cleanBotName` 이 괄호를 걷어낸다
+        text: USER_CHIP,
         title: "나에게 한 말입니다",
       }),
     );
