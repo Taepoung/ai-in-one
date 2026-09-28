@@ -246,13 +246,14 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
    * ★ 둘 다 «이 판을 끝내는» 동작이다 — 하나는 고른 것을 넣고, 하나는 버린다.
    * 층이 갈려 있으면 «적용은 커스텀 전용이고 기본은 전체인가»가 된다.
    */
-  ok(labels.join() === "적용,기본값으로",
+  ok(labels.join() === "기본값으로,적용",
      `★ **같은 층에 나란히** (${labels.join(" / ")})`);
 
-  const use = acts.children[0];
+  const use = acts.children[1];
   ok(use.className.includes("primary"),
      `★ **«적용»이 눈에 띈다** (${use.className}) — 누르기 전엔 아무 일도 안 일어나므로 다음 할 일이 보여야 한다`);
-  ok(acts.children[1].className.includes("ghost"), "★ «기본값으로»는 보통 단추");
+  ok(acts.children[0].className.includes("ghost"),
+     "★ «기본값으로»가 왼쪽 — 만들기 화면의 `[취소] [만들기]` 와 같은 자리다");
 
   use.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");
