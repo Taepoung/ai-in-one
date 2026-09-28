@@ -2894,16 +2894,6 @@ const EXCERPT = 20;
 const isSpur = (m: Message): boolean =>
   m.role === "agent" && (m.replyToIds?.length ?? 0) === 0;
 
-/** 깨운 활동의 이름 — 돌린 명령이 있으면 그게 제일 알아보기 쉽다 */
-function wokeBy(m: Message): string | undefined {
-  if (!m.afterToolId || !room) return undefined;
-  for (const x of room.messages) {
-    const hit = x.tools?.find((t) => t.id === m.afterToolId);
-    if (hit) return (hit.command ?? hit.title).replace(/\s+/g, " ").trim();
-  }
-  return undefined;
-}
-
 function answerNote(m: Message): HTMLElement | null {
   /*
    * ★ **«답합니다»와 «끝나서»를 가른다** (2026-09-28).
@@ -2916,16 +2906,28 @@ function answerNote(m: Message): HTMLElement | null {
    * 활동**을 짚고(`afterToolId`), 그 활동이 든 답변의 **원래 요청**으로 간다 —
    * 대화 순서가 아니라 **일**을 따라가므로 안 흔들린다.
    */
+  /*
+   * ★ **혼잣말은 «한 줄»로 끝낸다** (결정 2026-09-28).
+   *
+   * 한때 깨운 활동을 짚어 ««빌드 돌려놔줘»의 «npm run build»가 끝났습니다» 까지
+   * 보여줬다. 실제로 짚였다. 그런데 **그 실이 우연에 가깝다** — 에이전트가
+   * 결과를 말하려고 출력 파일을 «읽어주기 때문»이지 프로토콜이 이어준 것이
+   * 아니다. 언젠가 그냥 *"끝났어"* 라고만 하면 끊긴다.
+   *
+   * 그러면 **같은 종류의 말풍선이 어떤 날은 가리키고 어떤 날은 안 가리킨다.**
+   * 사용자는 그 차이가 무슨 뜻인지 알 수 없고, 있을 때는 믿게 된다. 그래서
+   * **늘 같은 한 줄**로 둔다.
+   *
+   * ★ **«백그라운드 작업»이라고 단정하지 않는다.** 여태 본 혼잣말은 전부
+   * 백그라운드 때문이었지만, 그것만이라고 확인한 적은 없다. 늘 참인 것만 쓴다.
+   *
+   * ⚠️ 표시는 안 해도 **기록은 남긴다**(`afterToolId`·`afterIds`). 마음이
+   * 바뀌었을 때 지난 대화까지 되살릴 수 있어야 한다 — 우리는 기록자다(§0).
+   */
   const spur = isSpur(m);
-  const ids = spur ? (m.afterIds ?? []) : (m.replyToIds ?? []);
+  if (spur) return el("div", { class: "meta", text: "↩ 봇이 먼저 보냈습니다" });
 
-  if (spur && ids.length === 0) {
-    /*
-     * 못 짚었다. 그래도 **먼저 보낸 말이라는 것은 적는다** — 안 적으면 앞 답의
-     * 뒷부분으로 읽힌다. 가리키지 않을 뿐이다.
-     */
-    return el("div", { class: "meta", text: "↩ 봇이 먼저 보냈습니다" });
-  }
+  const ids = m.replyToIds ?? [];
   if (ids.length === 0) return null;
 
   const asked = ids
@@ -2936,10 +2938,8 @@ function answerNote(m: Message): HTMLElement | null {
     // «질문 1개에 한 번에» 는 말이 안 된다 — 하나면 그냥 «앞선 질문»이다
     return el("div", {
       class: "meta",
-      text: spur
-        ? "↩ 봇이 먼저 보냈습니다"
-        : ids.length === 1 ? "↩ 앞선 질문에 답합니다"
-                           : `↩ 질문 ${ids.length}개에 한 번에 답합니다`,
+      text: ids.length === 1 ? "↩ 앞선 질문에 답합니다"
+                             : `↩ 질문 ${ids.length}개에 한 번에 답합니다`,
     });
   }
 
@@ -2962,18 +2962,7 @@ function answerNote(m: Message): HTMLElement | null {
       ),
     );
   });
-  /*
-   * ★ **무엇이 끝나서인지 먼저 말한다.** 깨운 활동을 짚었으면 그 이름(= 돌린
-   * 명령)이 «왜 왔지»에 가장 곧바로 답한다. 못 짚었으면 대화만 가리킨다.
-   */
-  const by = spur ? wokeBy(m) : undefined;
-  note.append(
-    spur
-      ? by
-        ? `의 «${by.length > EXCERPT ? `${by.slice(0, EXCERPT)}…` : by}»가 끝났습니다`
-        : "에서 이어집니다"
-      : asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다",
-  );
+  note.append(asked.length > 1 ? "에 한 번에 답합니다" : "에 답합니다");
   return note;
 }
 

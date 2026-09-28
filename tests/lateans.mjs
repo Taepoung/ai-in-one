@@ -220,77 +220,45 @@ console.log("\n[⑥ ★ 화면 밖이면 «읽던 자리로»가 뜬다]");
   ok(band.hidden === true, "★ 돌아가면 띠도 걷는다");
 }
 
-console.log("\n[★ 봇이 먼저 보낸 말은 «답합니다»가 아니다]");
+console.log("\n[★ 봇이 먼저 보낸 말은 어느 경우든 «한 줄»]");
 {
   /*
    * 봇은 질문 없이도 말한다 — 백그라운드 일이 끝나면 턴이 닫힌 뒤에 제 발로
-   * 알려온다(실측). 그 말풍선은 `replyToIds` 가 **없고** `afterIds` 만 있다.
+   * 알려온다(실측). 그 말풍선은 `replyToIds` 가 **없다.**
    *
-   * 🔴 같은 «↩ «…»» 을 쓰되 **꼬리말이 달라야 한다.** «답합니다»라고 쓰면
-   * 거짓말이 된다 — 사용자는 그 질문을 한 적이 없다.
+   * 🔴 한때 깨운 활동을 짚어 ««빌드 돌려놔줘»의 «npm run build»가 끝났습니다»
+   * 까지 보여줬다. 실제로 짚였다. 그런데 **그 실이 우연에 가깝다** — 에이전트가
+   * 결과를 말하려고 출력 파일을 «읽어주기 때문»이지 프로토콜이 이어준 것이
+   * 아니다. 그러면 **같은 종류의 말풍선이 어떤 날은 가리키고 어떤 날은 안
+   * 가리킨다** — 사용자는 그 차이를 알 수 없고, 있을 때는 믿게 된다.
+   *
+   * 그래서 **늘 같은 한 줄**이다. 여기서는 «짚였을 때도 안 가리킨다»를 잰다 —
+   * 그게 이 결정의 전부이고, 안 재면 슬그머니 되돌아온다.
    */
-  const t = mount();
-  const spur = { id: "sp", role: "agent", text: "다 됐어. 결과는 42야",
-                 authorBotId: "b1", deliveredTo: ["b1"], afterIds: ["m"], createdAt: 60 };
-  open(t, room([M, A, N, A2, spur]));
+  const cases = [
+    ["짚였을 때", { afterIds: ["m"], afterToolId: "bg1" }],
+    ["못 짚었을 때", {}],
+  ];
+  for (const [label, extra] of cases) {
+    const t = mount();
+    const ran = { ...A, tools: [{ id: "bg1", title: "Terminal", kind: "execute",
+                                  status: "completed", command: "npm run build",
+                                  output: "…written to: /x/tasks/bxgz.output" }] };
+    const spur = { id: "sp", role: "agent", text: "빌드 끝났어",
+                   authorBotId: "b1", deliveredTo: ["b1"], createdAt: 60, ...extra };
+    open(t, room([M, ran, N, A2, spur]));
 
-  const note = t.$$("#screen-chat .msg")[4].querySelector(".answer-note");
-  console.log(`   표시 : ${note.textContent}`);
+    const last = t.$$("#screen-chat .msg")[4];
+    const note = [...last.querySelectorAll(".meta")].find((x) => x.textContent.startsWith("↩"));
+    console.log(`   ${label} : ${note.textContent}`);
 
-  ok(note.textContent.endsWith("에서 이어집니다"),
-     `★ **«에서 이어집니다»** (${note.textContent.slice(-9)}) — 묻지 않은 것에 «답합니다»는 거짓말이다`);
-  ok(!note.textContent.includes("답합니다"), "★ «답합니다»가 안 섞인다");
-
-  const jump = note.querySelector("button.jump");
-  ok(jump !== null, "★ 그래도 **눌러서 갈 수 있다** — 답장 칩과 같은 장치를 쓴다");
-  jump.click();
-  ok(/이 코드/.test(t.$("#screen-chat .msg.jumped").textContent),
-     "★ 그 일을 시킨 **원래 요청**으로 간다");
-}
-
-console.log("\n[★ 깨운 활동을 짚었으면 «무엇이 끝나서»를 말한다]");
-{
-  /*
-   * «어느 대화에서»보다 «무엇이 끝나서»가 «왜 왔지»에 곧바로 답한다.
-   * 활동 이름은 **돌린 명령**이 제일 알아보기 쉽다.
-   */
-  const t = mount();
-  const ran = { ...A, tools: [{ id: "bg1", title: "Terminal", kind: "execute",
-                                status: "completed", command: "npm run build",
-                                output: "…written to: /x/tasks/bxgz.output" }] };
-  const spur = { id: "sp", role: "agent", text: "빌드 끝났어",
-                 authorBotId: "b1", deliveredTo: ["b1"],
-                 afterIds: ["m"], afterToolId: "bg1", createdAt: 60 };
-  open(t, room([M, ran, N, A2, spur]));
-
-  const note = t.$$("#screen-chat .msg")[4].querySelector(".answer-note");
-  console.log(`   표시 : ${note.textContent}`);
-  ok(note.textContent.includes("npm run build"),
-     "★ **돌린 명령을 보여준다** — 제목(«Terminal»)보다 이게 알아보기 쉽다");
-  ok(note.textContent.endsWith("가 끝났습니다"),
-     "★ «가 끝났습니다» 로 맺는다 — «이(가)» 같은 회피는 안 쓴다");
-  ok(note.querySelector("button.jump") !== null, "★ 원래 요청으로도 갈 수 있다");
-}
-
-console.log("\n[★ 못 짚었으면 «먼저 보냈다»만 — 아무 데도 안 가리킨다]");
-{
-  /*
-   * 🔴 이 연결은 CLI 의 내부 구현에 기대고 있어 언제든 조용히 안 맞게 될 수
-   * 있다. 그때 **틀린 곳을 가리키느니** 표시만 두는 편이 낫다 — 믿고 눌렀다가
-   * 엉뚱한 데로 가는 쪽이 더 나쁘다.
-   */
-  const t = mount();
-  const spur = { id: "sp", role: "agent", text: "다 됐어",
-                 authorBotId: "b1", deliveredTo: ["b1"], createdAt: 60 };
-  open(t, room([M, A, N, A2, spur]));
-
-  const last = t.$$("#screen-chat .msg")[4];
-  const note = [...last.querySelectorAll(".meta")].find((x) => x.textContent.startsWith("↩"));
-  console.log(`   표시 : ${note.textContent}`);
-  ok(note.textContent === "↩ 봇이 먼저 보냈습니다",
-     "★ **먼저 보냈다는 것만** — 그래도 앞 답의 뒷부분으로 읽히지는 않는다");
-  ok(note.querySelector("button") === null,
-     "★ **아무 데도 안 가리킨다** — 틀린 연결은 없느니만 못하다");
+    ok(note.textContent === "↩ 봇이 먼저 보냈습니다",
+       `★ ${label}도 **같은 한 줄** — 어떤 날만 달라 보이면 그 차이를 믿게 된다`);
+    ok(note.querySelector("button") === null,
+       `★ ${label}도 **아무 데도 안 가리킨다**`);
+    ok(!note.textContent.includes("답합니다"),
+       `★ ${label}도 «답합니다»가 안 섞인다 — 묻지 않은 것에 답이라 하면 거짓말이다`);
+  }
 }
 
 console.log("\n전부 통과");
