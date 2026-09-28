@@ -690,8 +690,9 @@ button.ghost:hover {
 
 /* 에디터가 주는 색 고르개 — 우리가 그리면 테마를 또 흉내 내야 한다 */
 .swatches .sw.custom {
-  flex: 0 0 auto;
-  width: 26px;
+  flex: 1 1 auto;
+  width: auto;
+  height: 24px;
   background: none;
   padding: 0;
 }
@@ -705,7 +706,7 @@ button.ghost:hover {
 /* 아래 줄들은 판 너비를 통째로 쓴다 */
 .swatches .custom-row,
 .swatches .inks,
-.swatches > .link {
+.swatches .pick-acts {
   grid-column: 1 / -1;
 }
 
@@ -716,13 +717,21 @@ button.ghost:hover {
 }
 
 /*
- * ★ **«이 색으로»** — 커스텀은 누르기 전에는 안 들어간다.
+ * ★ **«적용»과 «기본값으로»는 같은 층** (2026-09-28).
  *
- * 🔴 고르개를 끌고 다니는 사이에 말풍선이 수십 번 바뀌고, 손을 떼면 지나가던
- * 색이 남았다. 프리셋은 «한 번 누르면 그 색»이라 괜찮지만 커스텀은 다르다.
+ * 둘 다 «이 판을 끝내는» 동작이다 — 하나는 고른 것을 넣고, 하나는 버린다.
+ * 층이 갈려 있으면 «적용은 커스텀 전용이고 기본은 전체인가» 하는 물음이 생긴다.
+ *
+ * ★ **«적용»이 더 눈에 띈다.** 커스텀 칸은 누르기 전에 아무 일도 안 일어나므로
+ * *"다 골랐는데 왜 안 바뀌지"* 가 되기 쉽다. 다음에 할 일이 보여야 한다.
  */
-.swatches .use {
-  flex: 1 1 auto;
+.swatches .pick-acts {
+  display: flex;
+  gap: 6px;
+}
+
+.swatches .pick-acts button {
+  flex: 1 1 0;
   white-space: nowrap;
 }
 

@@ -238,8 +238,22 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
      "★ **고르는 동안에는 안 들어간다** — 지나가던 색이 남으면 안 된다");
 
-  const use = [...t.$$(".drawer-bot .swatches button")].find((b) => b.textContent === "이 색으로");
-  ok(use !== undefined, "★ 확정 단추가 있다");
+  const acts = t.$(".drawer-bot .swatches .pick-acts");
+  const labels = [...acts.children].map((b) => b.textContent);
+  console.log(`   끝내는 단추: ${labels.join(" / ")}`);
+
+  /*
+   * ★ 둘 다 «이 판을 끝내는» 동작이다 — 하나는 고른 것을 넣고, 하나는 버린다.
+   * 층이 갈려 있으면 «적용은 커스텀 전용이고 기본은 전체인가»가 된다.
+   */
+  ok(labels.join() === "적용,기본값으로",
+     `★ **같은 층에 나란히** (${labels.join(" / ")})`);
+
+  const use = acts.children[0];
+  ok(use.className.includes("primary"),
+     `★ **«적용»이 눈에 띈다** (${use.className}) — 누르기 전엔 아무 일도 안 일어나므로 다음 할 일이 보여야 한다`);
+  ok(acts.children[1].className.includes("ghost"), "★ «기본값으로»는 보통 단추");
+
   use.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");
   ok(posted?.color === "#123456", `★ **누르면 그 색이 들어간다** (${posted?.color})`);
@@ -250,7 +264,7 @@ console.log("\n[★ «기본»으로 되돌리면 빈 값이 간다]");
   const t = mount();
   open(t);
   openDrawer(t);
-  const back = [...t.$$(".drawer-bot .swatches button")].find((b) => b.textContent === "기본");
+  const back = [...t.$$(".drawer-bot .swatches button")].find((b) => b.textContent === "기본값으로");
   ok(back !== undefined, "★ 되돌리는 길이 있다");
   back.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");

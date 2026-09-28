@@ -310,8 +310,15 @@ function colorPick(
     value: /^#[0-9a-f]{6}$/i.test(now ?? "") ? now! : "#888888",
   });
 
+  /*
+   * ★ **«적용»은 강조 단추다** (2026-09-28).
+   *
+   * 커스텀 칸은 **누르기 전에는 아무 일도 안 일어난다.** 그러면 «다 골랐는데
+   * 왜 안 바뀌지»가 되기 쉬우므로, 다음에 할 일이 **눈에 띄어야** 한다.
+   * 알약(`link`)은 «행 안의 잔 동작» 자리라 여기서는 약하다(§2.2 G5).
+   */
   const apply = el("button", {
-    class: "link use", type: "button", text: "이 색으로",
+    class: "primary apply", type: "button", text: "적용",
     title: "고른 색을 적용합니다",
     onclick: () => { pick(custom.value, ink); close(); },
   });
@@ -320,11 +327,20 @@ function colorPick(
     "div",
     { class: "swatches" },
     ...BOT_COLORS.map((c) => preset(c.css, c.label)),
-    el("div", { class: "custom-row" }, custom, apply),
+    el("div", { class: "custom-row" }, custom),
     el("div", { class: "inks" }, inkBtn("black"), inkBtn("white")),
-    // 안 고른 상태로 되돌린다 → 테마가 주는 평소 말풍선으로
-    el("button", { class: "link", type: "button", text: "기본",
-                   onclick: () => { pick("", undefined); close(); } }),
+    /*
+     * ★ **«적용»과 «기본값으로»는 같은 층이다.** 둘 다 «이 판을 끝내는» 동작이라
+     * 한 줄에 나란히 둔다 — 하나는 고른 것을 넣고, 하나는 고른 것을 버린다.
+     */
+    el(
+      "div",
+      { class: "pick-acts" },
+      apply,
+      el("button", { class: "ghost", type: "button", text: "기본값으로",
+                     title: "테마가 주는 평소 말풍선으로 되돌립니다",
+                     onclick: () => { pick("", undefined); close(); } }),
+    ),
   );
 
   /*
