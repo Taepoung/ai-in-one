@@ -409,7 +409,7 @@ export function sendsContent(
  */
 export function isInside(path: string, cwd: string): boolean {
   if (!cwd) return false;
-  const base = cwd.replace(/[\/]+$/, "");
+  const base = cwd.replace(/[\\/]+$/, "");
   return path === base || path.startsWith(`${base}/`) || path.startsWith(`${base}\\`);
 }
 
@@ -997,6 +997,55 @@ export function botLabel(
   if (here) return { name: here.name, gone: false };
   const gone = room.left?.find((b) => b.id === botId);
   return gone ? { name: gone.name, gone: true } : undefined;
+}
+
+/**
+ * ★ **이 경로가 이미 절대경로인가** (E9 · 2026-09-28).
+ *
+ * 🔴 여기 있던 판정이 `/^([a-zA-Z]:[\/]|[\/])/` 였다. 문자 묶음 안의 `[\/]`
+ * 는 **«/» 하나뿐**이다 — 역슬래시를 escape 한 게 아니라 슬래시를 쓸데없이
+ * escape 한 것이라, `C:\Users\…` 가 **상대경로로 판정됐다.** 그러면 앞에
+ * cwd 가 한 번 더 붙어서 이런 것이 열린다:
+ *
+ * ```
+ * c:\Users\BASE\Desktop\Taein Yoon\c:\Users\BASE\Desktop\Taein Yoon\ABOUT.md
+ * ```
+ *
+ * 에이전트는 **플랫폼 기본 구분자**로 경로를 준다. Windows 에서는 역슬래시가
+ * 보통이므로, 사실상 **Windows 에서 파일 열기가 늘 깨져 있었다.**
+ *
+ * UNC(`\\서버\공유`)도 절대경로다 — 첫 글자가 구분자이므로 같이 걸린다.
+ */
+export function isAbsPath(p: string): boolean {
+  return /^([a-zA-Z]:[\\/]|[\\/])/.test(p);
+}
+
+/**
+ * ★ **경로에서 파일 이름만** (2026-09-28).
+ *
+ * 🔴 여기저기서 `path.split(/[\/]/).pop()` 으로 뽑고 있었다. 같은 실수다 —
+ * `[\/]` 는 «/» 하나뿐이라 **역슬래시 경로는 안 쪼개진다.** 그러면 이름
+ * 자리에 **경로가 통째로** 들어간다:
+ *
+ * ```
+ * 지금  c:\Users\BASE\Desktop\ABOUT.md  →  «c:\Users\BASE\Desktop\ABOUT.md»
+ * 고침  c:\Users\BASE\Desktop\ABOUT.md  →  «ABOUT.md»
+ * ```
+ *
+ * 첨부 이름 · blob 문서 제목 · 선택 영역 이름 · 거절 메시지에서 그랬다.
+ * 다섯 자리가 같은 병을 앓고 있었으므로 **한 자리로 모은다.**
+ */
+export function baseName(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+}
+
+/**
+ * 상대 경로면 방의 작업 폴더를 앞에 붙인다 (E9).
+ *
+ * 구분자는 «/» 로 잇는다 — Windows 도 섞인 구분자를 받는다.
+ */
+export function underCwd(cwd: string, p: string): string {
+  return isAbsPath(p) ? p : `${cwd}/${p}`;
 }
 
 export function inBotView(m: Message, botId: string): boolean {

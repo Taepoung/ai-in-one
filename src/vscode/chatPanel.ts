@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
 import type { RoomStore } from "../core/store.js";
-import { sendsContent } from "../core/types.js";
+import { baseName, sendsContent, underCwd } from "../core/types.js";
 import type {
   AgentDef,
   Attachment,
@@ -450,7 +450,7 @@ export class ChatPanel implements AskTarget {
           const change = msg?.files?.find((f) => f.path === m.path);
           if (!change) break;
 
-          const name = m.path.split(/[\/]/).pop() ?? m.path;
+          const name = baseName(m.path);
           await vscode.commands.executeCommand(
             "vscode.diff",
             BlobDocuments.uri(change.oldSha256, m.path, "이전"),
@@ -461,10 +461,9 @@ export class ChatPanel implements AskTarget {
           break;
         }
         case "openFile": {
-          // 상대 경로로 온 것은 워크스페이스 기준이다 (E9)
-          const abs = /^([a-zA-Z]:[\/]|[\/])/.test(m.path)
-            ? m.path
-            : `${this.rooms.listMetas().find((r) => r.id === this.openRoomId)?.cwd ?? ""}/${m.path}`;
+          // 상대 경로로 온 것은 워크스페이스 기준이다 (E9 — 판정은 `isAbsPath`)
+          const cwd = this.rooms.listMetas().find((r) => r.id === this.openRoomId)?.cwd ?? "";
+          const abs = underCwd(cwd, m.path);
           const editor = await vscode.window.showTextDocument(vscode.Uri.file(abs), {
             viewColumn: vscode.ViewColumn.One,
           });
@@ -499,7 +498,7 @@ export class ChatPanel implements AskTarget {
     if (!editor || editor.selection.isEmpty || !this.openRoomId) return false;
 
     const text = editor.document.getText(editor.selection);
-    const name = editor.document.uri.fsPath.split(/[\/]/).pop() ?? "selection";
+    const name = baseName(editor.document.uri.fsPath) || "selection";
     const from = editor.selection.start.line + 1;
     const to = editor.selection.end.line + 1;
 
@@ -535,13 +534,13 @@ export class ChatPanel implements AskTarget {
       try {
         const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(p));
         items.push({
-          name: p.split(/[\/]/).pop() ?? p,
+          name: baseName(p),
           mimeType: mimeFromPath(p),
           data: Buffer.from(bytes),
           path: p,
         });
       } catch {
-        rejected.push(`${p.split(/[\/]/).pop()} — 읽을 수 없습니다`);
+        rejected.push(`${baseName(p)} — 읽을 수 없습니다`);
       }
     }
     await this.storeAttachments(roomId, items, rejected);

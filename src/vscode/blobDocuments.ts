@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RoomStore } from "../core/store.js";
+import { baseName } from "../core/types.js";
 
 /** 가상 문서 스킴. blob 해시를 경로로 받는다 */
 export const BLOB_SCHEME = "ai-in-one-blob";
@@ -17,7 +18,7 @@ export class BlobDocuments implements vscode.TextDocumentContentProvider {
   constructor(private readonly store: RoomStore) {}
 
   static uri(sha256: string | undefined, path: string, label: string): vscode.Uri {
-    const name = path.split(/[\/]/).pop() ?? "file";
+    const name = baseName(path) || "file";
     // 해시가 없으면 (새로 만든 파일의 «이전») 빈 문서가 된다
     return vscode.Uri.from({
       scheme: BLOB_SCHEME,
