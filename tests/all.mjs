@@ -66,6 +66,34 @@ function sweep() {
 }
 sweep();
 
+/*
+ * ★ **돌리기 전에 짓는다** (2026-09-29).
+ *
+ * 🔴 **낡은 번들을 재고 «통과»라고 말하고 있었다.**
+ *
+ * `.mjs` 화면 검사들은 `dist/webview.js` 를 통째로 `eval` 한다 — 원본이 아니라
+ * **지어놓은 것**이다. 그런데 이 자리에 짓는 코드가 없었다. 그래서 화면 코드를
+ * 고치고 `npm test` 를 돌리면:
+ *
+ * ```
+ * 고친 것은 src/webview/main.ts   ← 아무도 안 본다
+ * 검사가 보는 것은 dist/webview.js ← 어제 것
+ * 결과: 46 통과 · 0 실패          ← **아무것도 안 잰 초록불**
+ * ```
+ *
+ * 색 고르개를 고치다 실제로 걸렸다. 새 동작을 재는 검사를 새로 썼는데 계속
+ * 실패해서 «왜 안 되지» 를 한참 팠다 — 코드는 멀쩡했고 번들이 낡아 있었다.
+ * 반대쪽이 더 무섭다: **고친 곳을 안 재고 초록불이 뜨는 것.**
+ *
+ * 짓는 데 60ms 다. 재는 것과 지어진 것이 어긋날 자리를 아예 없앤다.
+ */
+execFileSync("node", ["esbuild.mjs"], { cwd: ROOT, encoding: "utf8" });
+{
+  const js = path.join(ROOT, "dist", "webview.js");
+  const age = ((Date.now() - fs.statSync(js).mtimeMs) / 1000).toFixed(1);
+  console.log(`(지었다 — dist/webview.js ${age}초 전)`);
+}
+
 const files = fs.readdirSync(HERE)
   .filter((f) => ALSO.has(f) || ((f.endsWith(".mts") || f.endsWith(".mjs")) && !SKIP.has(f)))
   .sort();

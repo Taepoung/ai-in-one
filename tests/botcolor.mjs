@@ -275,10 +275,28 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   const box = t.$(".drawer-bot .swatches .sw.custom");
   ok(box !== null, "★ 커스텀 칸이 있다");
 
+  // **그 봇의 글자칸만** 본다 — 서랍에는 봇이 둘이고 판도 둘이다
+  const mineInks = () => [...box.closest(".swatches").querySelectorAll(".ink")];
+  const inksBefore = mineInks().map((b) => b.style.background);
   box.value = "#123456";
   box.dispatchEvent(new t.w.Event("input", { bubbles: true }));
   ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
      "★ **고르는 동안에는 안 들어간다** — 지나가던 색이 남으면 안 된다");
+
+  /*
+   * ★ **고른 색이 글자칸에 깔린다** (2026-09-29).
+   *
+   * 🔴 글자칸이 늘 «이미 적용된 색» 을 깔고 있었다. 그래서 커스텀으로 남색을
+   * 고르는 중에도 글자칸은 옛 색 위에 「가」를 그렸다 — **어느 글자색이
+   * 읽히는지 볼 수가 없었다.** 정작 골라야 할 때 못 보여준 셈이다.
+   *
+   * 사용자 말: *"그래야 색 선택하고 글자 색도 결정하지"*.
+   */
+  const inksAfter = mineInks().map((b) => b.style.background);
+  console.log(`   글자칸 배경: ${inksBefore.join(",")} → ${inksAfter.join(",")}`);
+  ok(inksAfter.every((c) => /#123456|rgb\(18, ?52, ?86\)/.test(c)),
+     `★ **글자칸이 고른 색으로 깔린다** (${inksAfter[0]}) — 이제 대비를 보고 고를 수 있다`);
+  ok(inksAfter.join() !== inksBefore.join(), "★ 실제로 바뀌었다 — 원래 색과 다르다");
 
   /*
    * ★ **«적용»은 커스텀 칸 «옆»에 있어야 한다** (2026-09-29).
@@ -294,6 +312,29 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   const inRow = [...customRow.children].map((c) => c.textContent || c.type);
   console.log(`   커스텀 줄: ${inRow.join(" / ")}`);
   ok(customRow.querySelector("input[type=color]") !== null, "★ 커스텀 칸이 그 줄에 있다");
+
+  /*
+   * ★ **「가」 를 누르면 색과 글자색이 같이 들어간다** (2026-09-29).
+   *
+   * 「스포이드 창 안에 «적용» 을 넣을 수 없나」 에서 나온 것이다. OS 가 그리는
+   * 창이라 거기엔 못 넣는다 — 대신 **창을 닫고 나온 자리**에서 둘을 한 번에
+   * 끝내게 한다. 색을 고른 뒤 「가」 하나만 더 누르면 되므로 «적용» 을 따로
+   * 찾아갈 일이 없다.
+   */
+  {
+    const t2 = mount();
+    open(t2);
+    openDrawer(t2);
+    const c2 = t2.$(".drawer-bot .swatches .sw.custom");
+    c2.value = "#0b3d2e";
+    c2.dispatchEvent(new t2.w.Event("input", { bubbles: true }));
+    t2.$$(".drawer-bot .swatches .ink")[1].click();   // 하양
+    const sent = t2.sent.find((m) => m.t === "setBotColor");
+    console.log(`   「가」(하양) 누름 → ${JSON.stringify(sent?.color)} · ${JSON.stringify(sent?.ink)}`);
+    ok(sent?.color === "#0b3d2e",
+       `★ **고른 색이 실려 간다** (${sent?.color}) — 옛 색이 아니다`);
+    ok(sent?.ink === "white", `★ **글자색도 같이** (${sent?.ink})`);
+  }
 
   const use = customRow.querySelector("button.apply");
   ok(use !== null, "★ **«적용»이 같은 줄에** — 무엇에 적용하는지가 보인다");

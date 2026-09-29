@@ -289,6 +289,17 @@ function colorPick(
     });
 
   /*
+   * **지금 이 판이 다루고 있는 색.** 커스텀 칸을 건드리면 그쪽으로 옮겨간다.
+   *
+   * 🔴 예전에는 이 자리가 없어서 글자칸이 **늘 «이미 적용된 색»** 을 깔고
+   * 있었다. 그래서 커스텀으로 남색을 고르는 중에도 글자칸은 옛 회색 위에
+   * 「가」를 그렸다 — **어느 글자색이 읽히는지 볼 수가 없었다.** 정작 골라야
+   * 할 때 못 보여주고 있었던 셈이다.
+   */
+  let draft = now ?? fallback;
+  const inks: HTMLElement[] = [];
+
+  /*
    * ★ **글자는 검정이나 하양, 둘뿐이다** (2026-09-28).
    *
    * 배경을 **섞지 않고 그대로** 칠하므로 대비를 우리가 못 잡는다. 그렇다고
@@ -297,16 +308,23 @@ function colorPick(
    *
    * 그래서 **보고 고르게 한다.** 두 칸을 **지금 배경 위에** 그려두면 어느 쪽이
    * 읽히는지 눈으로 바로 갈린다 — 설명이 필요 없다.
+   *
+   * ★ 그 «지금 배경» 이 이제 **고르는 중인 색**이다 (2026-09-29). 그리고
+   * 누르면 **색과 글자색이 같이** 들어간다 — 색을 고른 뒤 「가」 하나만 더
+   * 누르면 끝이라, «적용» 을 따로 찾을 일이 없다.
    */
-  const inkBtn = (v: "black" | "white") =>
-    el("button", {
+  const inkBtn = (v: "black" | "white") => {
+    const b = el("button", {
       class: `ink${ink === v ? " on" : ""}`,
       type: "button",
-      title: v === "black" ? "검정 글자" : "하양 글자",
-      style: { background: now ?? fallback, color: v === "black" ? "#000" : "#fff" },
+      title: v === "black" ? "이 색에 검정 글자" : "이 색에 하양 글자",
+      style: { background: draft, color: v === "black" ? "#000" : "#fff" },
       text: "가",
-      onclick: () => { pick(now ?? fallback, v); close(); },
+      onclick: () => { pick(draft, v); close(); },
     });
+    inks.push(b);
+    return b;
+  };
 
   /*
    * 커스텀은 **에디터가 주는 색 고르개**를 쓴다. 우리가 그리면 테마를 또
@@ -320,6 +338,13 @@ function colorPick(
    * 남는다.** 프리셋은 «한 번 누르면 그 색»이라 괜찮지만 커스텀은 다르다.
    *
    * 그래서 고르개는 **미리보기**만 하고, 넣는 것은 단추가 한다.
+   *
+   * ★ **그 미리보기가 이제 글자칸까지 간다** (2026-09-29).
+   *
+   * 「스포이드 창 안에 «적용» 을 넣을 수 없나」 하는 물음에서 나왔다. OS 가
+   * 그리는 창이라 거기엔 못 넣는다 — 대신 **그 창을 닫고 나온 자리**에서
+   * 색과 글자색을 한눈에 고르게 한다. 고른 색이 글자칸 두 개의 배경으로
+   * 즉시 깔리므로, 「가」를 누르는 것이 곧 «이 색 + 이 글자색» 이 된다.
    */
   const custom = el("input", {
     type: "color",
@@ -327,6 +352,11 @@ function colorPick(
     title: "직접 고르기",
     // `var(--vscode-…)` 는 hex 가 아니라 여기 못 넣는다 — 무난한 값에서 시작한다
     value: /^#[0-9a-f]{6}$/i.test(now ?? "") ? now! : "#888888",
+    oninput: () => {
+      draft = custom.value;
+      // 배경만 갈아준다 — **넣는 것은 여전히 단추가 한다**
+      for (const b of inks) b.style.background = draft;
+    },
   });
 
   /*
@@ -338,8 +368,9 @@ function colorPick(
    */
   const apply = el("button", {
     class: "primary apply", type: "button", text: "적용",
-    title: "고른 색을 적용합니다",
-    onclick: () => { pick(custom.value, ink); close(); },
+    title: "고른 색을 지금 글자색 그대로 적용합니다",
+    // **글자색을 안 바꿀 때의 길.** 바꿀 거면 아래 「가」 를 누르면 된다
+    onclick: () => { pick(draft, ink); close(); },
   });
 
   const panel = el(
