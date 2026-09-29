@@ -121,6 +121,53 @@ async function main(): Promise<void> {
     mgr.dispose();
   }
 
+  console.log("\n[★ id 만 갈리고 모델은 그대로면 입을 다문다]");
+  {
+    /*
+     * 🔴 **핀을 올리면 당장 터질 뻔했다** (2026-09-29).
+     *
+     * 어댑터 0.81.2 → 0.84.0 에서 `opus[1m]` 이 `opus` 가 되는데 **둘 다
+     * 「Opus 5.5」**다. 모델은 그대로고 id 표기만 갈린 것인데, 그대로 두면
+     * 모든 방에 이런 줄이 뜬다:
+     *
+     *   「Opus 5.5이(가) 더 이상 없어 Opus 5.5(으)로 바뀌었습니다」
+     *
+     * 읽는 사람에게는 아무 일도 안 일어났다. 그런 줄이 방마다 쌓이면
+     * **진짜 변화를 못 알아본다.**
+     */
+    const twin = path.join(dir, "twin.jsonl");
+    const { agent, host } = make(dir, twin, { AIO_FAKE_ALIAS: "opus[1m]" });
+    const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
+    mgr.on("roomError", () => {});
+    const room = await mgr.createRoom({
+      agentId: "fake", title: "쌍둥이 방", configValues: { model: "opus[1m]" },
+    });
+    ok(room.participants[0]?.modelLabel === "Opus 5", "★ 「Opus 5」 로 잡혔다");
+    mgr.dispose();
+
+    // 이제 `opus[1m]` 이 사라진다 — 남는 것은 같은 이름의 `opus`
+    const back = make(dir, twin);
+    const mgr2 = new RoomManager({
+      host: back.host, store, agents: [back.agent], configProbeMs: 20000,
+    });
+    mgr2.on("roomError", () => {});
+    const again = await mgr2.openRoom(room.id);
+    await mgr2.send(again.id, "안녕");
+    for (let i = 0; i < 400 && mgr2.statusOf(again.id) !== "idle"; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    const bot = again.participants[0]!;
+    console.log(`   지금: ${bot.modelLabel} · 고른 값: ${JSON.stringify(bot.model)}`);
+    ok(bot.modelLabel === "Opus 5", "★ 이름은 그대로다 — 같은 모델이다");
+
+    const told = again.messages.filter((m) => m.role === "system" && /Opus 5/.test(m.text));
+    console.log(`   알려준 줄: ${told.length}개 ${told.map((m) => `«${m.text}»`).join(" ")}`);
+    ok(told.length === 0,
+       "★ **입을 다문다** — 「Opus 5이(가) 없어 Opus 5으로 바뀌었습니다」는 잡음이다");
+    mgr2.dispose();
+  }
+
   console.log("\n[★ 별명은 그대로인데 뒤의 판이 올라갔다]");
   {
     /*

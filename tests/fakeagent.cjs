@@ -13,6 +13,9 @@ const STATE = process.env.AIO_FAKE_STATE;
 const MODELS = [
   { value: "opus", name: "Opus 5" },
   { value: "sonnet", name: "Sonnet 5" },
+  // **같은 모델인데 id 만 다르다.** 어댑터 0.81.2 → 0.84.0 에서
+  // `opus[1m]` 이 `opus` 가 되면서 실제로 이 모양이 됐다 — 둘 다 「Opus 5.5」.
+  ...(process.env.AIO_FAKE_ALIAS ? [{ value: process.env.AIO_FAKE_ALIAS, name: "Opus 5" }] : []),
 ];
 const MODES = [
   { value: "default", name: "Manual" },

@@ -4056,6 +4056,19 @@ export class RoomManager extends EventEmitter<Events> {
       const live = now.find((o) => o.id === g.id);
       const label = nameOf(now, g.id, live?.currentValue) ?? String(live?.currentValue ?? "");
       if (!label) continue;
+      /*
+       * 🔴 **이름이 그대로면 입을 다문다** (2026-09-29).
+       *
+       * id 만 갈리고 모델은 같은 경우가 있다. 실제로 어댑터 0.81.2 → 0.84.0
+       * 에서 `opus[1m]` 이 `opus` 가 되는데 **둘 다 「Opus 5.5」**다. 그대로
+       * 두면 모든 방에 이렇게 뜬다:
+       *
+       *   「Opus 5.5이(가) 더 이상 없어 Opus 5.5(으)로 바뀌었습니다」
+       *
+       * 읽는 사람에게는 아무 일도 안 일어난 것이고, 그런 줄이 방마다 하나씩
+       * 쌓이면 **진짜 변화를 못 알아본다.** 알릴 것이 없으면 안 알린다.
+       */
+      if (label === g.was) continue;
       const what = (g.category && CONFIG_WORD[g.category]) ?? live?.name ?? g.id;
       this.noteRoom(
         room,
