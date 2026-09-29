@@ -391,19 +391,29 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   ok(inksAfter.join() !== inksBefore.join(), "★ 실제로 바뀌었다 — 원래 색과 다르다");
 
   /*
-   * ★ **«적용»은 커스텀 칸 «옆»에 있어야 한다** (2026-09-29).
+   * ★ **스포이드는 프리셋 오른쪽 기둥에** (2026-09-29).
    *
-   * 🔴 한때 아래 줄에 `[기본값으로] [적용]` 으로 나란히 뒀다. 끝내는 동작끼리
-   * 모은 것인데, **적용은 커스텀에만 쓰인다** — 프리셋도 글자색도 누르면 바로
-   * 들어간다. 아래에 있으면 *"뭘 적용하는 거지"* 가 된다.
+   * 🔴 아래에 뒀더니 **저를 누르면 뜨는 에디터 창이 판을 덮었다.** 하필
+   * 글자칸이 이제 «고른 색을 비추는 자리» 라, 색을 끌어 고르는 동안 정작
+   * 봐야 할 것이 가려져 있었다.
    *
-   * 단추는 **제가 다루는 것 옆에.** 그래야 «이 칸의 값을 넣는다»가 설명 없이
-   * 읽힌다.
+   * 그 창의 자리는 **에디터가 정한다** — 우리가 옮길 수 있는 것은 «창이
+   * 매달리는 칸» 뿐이다. 그래서 칸을 옆으로 보낸다.
+   *
+   * 판은 격자다. 스포이드가 **격자의 직계 자식**이어야 기둥에 설 수 있으므로
+   * 감싸던 `.custom-row` 를 없앴다 — 이 단언이 그 구조를 붙잡는다.
    */
-  const customRow = t.$(".drawer-bot .swatches .custom-row");
-  const inRow = [...customRow.children].map((c) => c.textContent || c.type);
-  console.log(`   커스텀 줄: ${inRow.join(" / ")}`);
-  ok(customRow.querySelector("input[type=color]") !== null, "★ 커스텀 칸이 그 줄에 있다");
+  const panel = t.$(".drawer-bot .swatches");
+  const custom = panel.querySelector("input[type=color]");
+  ok(custom.parentElement === panel,
+     "★ **스포이드가 판의 직계 자식** — 감싸면 오른쪽 기둥에 못 선다");
+  ok(t.$(".drawer-bot .swatches .custom-row") === null,
+     "★ 감싸던 줄은 없앴다");
+  const kids = [...panel.children];
+  console.log(`   판 구성: …${kids.slice(-4).map((c) => c.className).join(" / ")}`);
+  const lastPreset = kids.map((c) => c.className).lastIndexOf("sw");
+  ok(kids.indexOf(custom) === lastPreset + 1,
+     "★ 프리셋 **바로 뒤에** 온다 — 격자의 일곱째 기둥 자리");
 
   /*
    * ★ **스포이드 + 글자색을 «적용» 한 번으로** (2026-09-29).
@@ -445,8 +455,8 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   console.log(`   아래 줄: ${labels.join(" / ")}`);
   ok(labels.join() === "기본값으로,적용",
      `★ **«기본값으로» 왼쪽, «적용» 오른쪽** (${labels.join(" / ")})`);
-  ok(customRow.querySelector("button.apply") === null,
-     "★ 커스텀 줄에는 단추가 없다 — 그 칸만 적용되는 것이 아니다");
+  ok(panel.querySelectorAll("button.apply").length === 1,
+     "★ «적용»은 판에 하나뿐 — 커스텀 칸 옆에 따로 없다. 그 칸만 적용되는 게 아니다");
 
   const use = acts.querySelector("button.apply");
   ok(use.className.includes("primary"),
