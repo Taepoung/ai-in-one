@@ -38,6 +38,30 @@
   --font: var(--vscode-font-family);
   --font-code: var(--vscode-editor-font-family);
 
+  /*
+   * ★ **글꼴 «크기»도 VSCode 를 따른다** (2026-09-29).
+   *
+   * 🔴 글꼴 **모양**은 위에서 `--vscode-font-family` 로 받아 쓰면서, **크기**는
+   * 80 곳에 `px` 로 박아뒀다. 그래서 VSCode 글꼴을 키운 사람에게 우리 패널만
+   * 작게 남았다 — 키울 방법이 **아예 없었다.** 전체 확대(`Ctrl` `+`)는 편집기
+   * 까지 같이 커지므로 «패널만» 이 안 된다.
+   *
+   * 박혀 있던 값은 여섯 가지뿐이었다(9·10·11·12·13·14). 그래서 **13 을 기준으로
+   * 한 사다리**로 묶는다 — VSCode 가 13px 를 주면 지금과 **한 픽셀도 안
+   * 달라지고**, 키우면 여섯 칸이 **비율을 지키며** 같이 커진다.
+   *
+   * ⚠️ 글자만 커지고 테두리·여백은 `px` 그대로다. 아주 키우면 좁은 칸에서
+   * 글이 넘칠 수 있다 — 실제로 겪으면 그 자리만 고친다. 여백까지 한꺼번에
+   * 늘리는 것(`rem` 전환)은 80 곳이 아니라 수백 곳을 건드리는 일이다.
+   */
+  --fs: var(--vscode-font-size, 13px);
+  --fs-9: calc(var(--fs) * 9 / 13);
+  --fs-10: calc(var(--fs) * 10 / 13);
+  --fs-11: calc(var(--fs) * 11 / 13);
+  --fs-12: calc(var(--fs) * 12 / 13);
+  --fs-13: var(--fs);
+  --fs-14: calc(var(--fs) * 14 / 13);
+
   --slide: 0.24s cubic-bezier(0.22, 0.8, 0.24, 1);
 }
 
@@ -52,7 +76,7 @@ body {
   padding: 0;
   overflow: hidden;
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs-13);
   color: var(--chat-fg);
   background: var(--chat-bg);
 }
@@ -108,7 +132,7 @@ body {
 .bar h1 {
   flex: 1 1 auto;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -117,7 +141,7 @@ body {
 
 .bar .sub {
   display: block;
-  font-size: 11px;
+  font-size: var(--fs-11);
   font-weight: 400;
   color: var(--chat-dim);
   white-space: nowrap;
@@ -232,7 +256,7 @@ select:focus-visible {
   border-radius: 50%;
   background: var(--list-hover);
   color: var(--chat-dim);
-  font-size: 14px;
+  font-size: var(--fs-14);
 }
 
 .room:hover .room-icon {
@@ -264,7 +288,7 @@ select:focus-visible {
 
 .room-time {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -273,7 +297,7 @@ select:focus-visible {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -317,7 +341,7 @@ select:focus-visible {
   border-radius: 9px;
   background: var(--badge-bg);
   color: var(--badge-fg);
-  font-size: 11px;
+  font-size: var(--fs-11);
   text-align: center;
 }
 
@@ -353,7 +377,7 @@ select:focus-visible {
 }
 
 .field > label {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -386,7 +410,7 @@ fieldset.bot {
 
 fieldset.bot > legend {
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -429,7 +453,7 @@ fieldset.bot > legend {
 }
 
 .agent-desc {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -485,7 +509,7 @@ button.ghost:hover {
 
 .error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 /* ── 채팅 ─────────────────────────────────────────────────────────────── */
@@ -553,7 +577,7 @@ button.ghost:hover {
   align-items: center;
   gap: 5px;
   margin: 0 2px 3px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -772,7 +796,7 @@ button.ghost:hover {
   padding: 3px 0;
   border: 1px solid var(--line);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: var(--fs-12);
   cursor: pointer;
 }
 
@@ -833,7 +857,7 @@ button.ghost:hover {
 .code-lang {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 10px;
+  font-size: var(--fs-10);
   color: var(--chat-dim);
   font-family: var(--font-code);
 }
@@ -884,7 +908,7 @@ button.ghost:hover {
 
 .bubble table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 .bubble th,
@@ -903,7 +927,7 @@ button.ghost:hover {
 
 .meta {
   margin: 3px 2px 0;
-  font-size: 10px;
+  font-size: var(--fs-10);
   color: var(--chat-dim);
 }
 
@@ -916,7 +940,7 @@ button.ghost:hover {
 .msg.system .bubble {
   background: transparent;
   color: var(--chat-dim);
-  font-size: 11px;
+  font-size: var(--fs-11);
   padding: 2px 8px;
 }
 
@@ -932,7 +956,7 @@ button.ghost:hover {
   background: transparent;
   color: var(--danger);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-11);
   cursor: pointer;
 }
 
@@ -943,7 +967,7 @@ button.ghost:hover {
   gap: 8px;
   margin: 6px 0;
   color: var(--badge-bg);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 /* 압축 경계 (C11) — «안 읽음»과 같은 선이되, 조용한 색 */
@@ -954,7 +978,7 @@ button.ghost:hover {
   width: 100%;
   margin: 6px 0;
   color: var(--chat-dim);
-  font-size: 11px;
+  font-size: var(--fs-11);
   white-space: nowrap;
 }
 
@@ -985,7 +1009,7 @@ button.ghost:hover {
 .tool {
   align-self: flex-start;
   max-width: 82%;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -1012,7 +1036,7 @@ button.ghost:hover {
   border-left: 2px solid var(--focus);
   border-radius: 0 6px 6px 0;
   background: color-mix(in srgb, var(--chat-bg) 88%, var(--vscode-foreground) 12%);
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 .plan-head {
@@ -1020,7 +1044,7 @@ button.ghost:hover {
   align-items: center;
   gap: 5px;
   margin-bottom: 3px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -1090,7 +1114,7 @@ button.ghost:hover {
   padding: 3px 7px;
   border-radius: 4px;
   background: var(--code-bg);
-  font-size: 11px;
+  font-size: var(--fs-11);
   overflow-x: auto;
   white-space: pre;
 }
@@ -1105,7 +1129,7 @@ button.ghost:hover {
 .activity .at {
   margin-left: 6px;
   opacity: 0.6;
-  font-size: 10px;
+  font-size: var(--fs-10);
 }
 
 .tool .files {
@@ -1120,7 +1144,7 @@ button.ghost:hover {
   background: transparent;
   color: var(--vscode-textLink-foreground);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-11);
   padding: 0;
   text-align: left;
   cursor: pointer;
@@ -1135,7 +1159,7 @@ button.ghost:hover {
   gap: 8px;
   padding: 5px 12px;
   border-top: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -1192,7 +1216,7 @@ button.ghost:hover {
   background: transparent;
   color: var(--chat-fg);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-11);
   padding: 1px 9px;
   cursor: pointer;
 }
@@ -1338,7 +1362,7 @@ button.ghost:hover {
 
 .menu .group {
   padding: 5px 10px 2px;
-  font-size: 10px;
+  font-size: var(--fs-10);
   color: var(--chat-dim);
 }
 
@@ -1389,7 +1413,7 @@ body.vscode-high-contrast .room:hover {
 .time {
   flex: 0 0 auto;
   padding-bottom: 3px;
-  font-size: 10px;
+  font-size: var(--fs-10);
   line-height: 1;
   color: var(--chat-dim);
   white-space: nowrap;
@@ -1418,7 +1442,7 @@ body.vscode-high-contrast .room:hover {
   border-radius: 10px;
   background: var(--bubble-bot-bg);
   color: var(--chat-dim);
-  font-size: 10px;
+  font-size: var(--fs-10);
 }
 
 /* ── 말풍선 안의 마크다운 ─────────────────────────────────────────────── */
@@ -1515,7 +1539,7 @@ body.vscode-high-contrast .room:hover {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--bubble-bot-bg);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 .chip.openable {
@@ -1553,7 +1577,7 @@ body.vscode-high-contrast .room:hover {
 
 .chip-x::before {
   content: "×";
-  font-size: 13px;
+  font-size: var(--fs-13);
 }
 
 .chip-x:hover {
@@ -1598,7 +1622,7 @@ body.vscode-high-contrast .room:hover {
   padding: 8px;
   border-radius: 6px;
   background: var(--code-bg);
-  font-size: 11px;
+  font-size: var(--fs-11);
   max-height: 180px;
   overflow: auto;
 }
@@ -1644,7 +1668,7 @@ body.vscode-high-contrast .room:hover {
 
 .hits-head {
   padding: 8px 12px 4px;
-  font-size: 10px;
+  font-size: var(--fs-10);
   color: var(--chat-dim);
 }
 
@@ -1682,7 +1706,7 @@ body.vscode-high-contrast .room:hover {
 }
 
 .hit-snippet {
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1784,7 +1808,7 @@ mark {
 
 .find-count {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--fs-11);
   min-width: 34px;
   text-align: right;
 }
@@ -1808,7 +1832,7 @@ mark {
   border-left: 2px solid var(--line);
   border-radius: 0 6px 6px 0;
   background: var(--code-bg);
-  font-size: 11px;
+  font-size: var(--fs-11);
   max-height: 260px;
   overflow: auto;
   white-space: pre-wrap;
@@ -1872,7 +1896,7 @@ input.rename {
  */
 .session-id {
   font-family: var(--font-code);
-  font-size: 11px;
+  font-size: var(--fs-11);
   cursor: pointer;
   border-bottom: 1px dotted var(--chat-dim);
 }
@@ -1885,12 +1909,12 @@ input.rename {
   display: flex;
   gap: 10px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 .info-row > .dim {
   flex: 0 0 96px;
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 .info-row > span:last-child {
@@ -1907,7 +1931,7 @@ input.rename {
 
 textarea.role {
   min-height: 64px;
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 /* 대화 속 file.ts:42 (E9) */
@@ -1952,7 +1976,7 @@ textarea.role {
   border-radius: 0 6px 6px 0;
   background: color-mix(in srgb, var(--chat-bg) 88%, var(--vscode-foreground) 12%);
   color: var(--chat-dim);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 /* 답해야 하는 배너는 왼쪽 띠를 강조색으로 — 테두리를 두르면 카드로 보인다 */
@@ -1993,7 +2017,7 @@ button.link {
   background: transparent;
   color: var(--chat-fg);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-11);
   text-decoration: none;
   cursor: pointer;
 }
@@ -2008,7 +2032,7 @@ button.link:hover {
  */
 button.link .codicon,
 .status .stop .codicon {
-  font-size: 12px;
+  font-size: var(--fs-12);
 }
 
 .room-sub .elsewhere {
@@ -2024,7 +2048,7 @@ button.link .codicon,
 details.advanced > summary {
   cursor: pointer;
   list-style: none;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
   padding: 2px 0;
 }
@@ -2047,7 +2071,7 @@ details.advanced[open] > summary .codicon-chevron-right {
 }
 
 .field > .dim {
-  font-size: 10px;
+  font-size: var(--fs-10);
   line-height: 1.4;
 }
 
@@ -2057,7 +2081,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--code-bg);
-  font-size: 12px;
+  font-size: var(--fs-12);
   overflow-x: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -2068,7 +2092,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   background: transparent;
   color: var(--vscode-textLink-foreground);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-11);
   padding: 0;
   text-align: left;
   cursor: pointer;
@@ -2109,7 +2133,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   background: transparent;
   color: var(--chat-dim);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-11);
   padding: 1px 0;
   text-align: left;
   cursor: default;
@@ -2218,7 +2242,7 @@ details.advanced[open] > summary .codicon-chevron-right {
 .sheet-bot .warn {
   margin: 0;
   color: var(--chat-fg);
-  font-size: 12px;
+  font-size: var(--fs-12);
   white-space: pre-wrap;
 }
 
@@ -2238,7 +2262,7 @@ details.advanced[open] > summary .codicon-chevron-right {
 .room-fork {
   display: block;
   margin-top: 1px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -2279,7 +2303,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-radius: 10px;
   background: var(--bubble-bot-bg);
   color: var(--chat-dim);
-  font-size: 10px;
+  font-size: var(--fs-10);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2305,7 +2329,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-left: 3px solid var(--focus);
   border-radius: 0 4px 4px 0;
   background: color-mix(in srgb, var(--chat-bg) 88%, var(--vscode-foreground) 12%);
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-fg);
 }
 
@@ -2441,13 +2465,13 @@ details.advanced[open] > summary .codicon-chevron-right {
 /* 이름이 이 줄의 주인공이다 — 색 점을 뺀 자리를 크기로 채운다 */
 .drawer-bot .who .name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--fs-14);
 }
 
 /* 모델(주) · 에이전트(부) — 이름보다 한 단 낮게 */
 .drawer-bot > .sub {
   margin-top: -4px;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -2476,7 +2500,7 @@ details.advanced[open] > summary .codicon-chevron-right {
  */
 .usage {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--fs-10);
   color: var(--chat-dim);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -2505,7 +2529,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-radius: 10px;
   background: var(--chat-bg);
   color: var(--chat-fg);
-  font-size: 11px;
+  font-size: var(--fs-11);
   text-decoration: none;
 }
 
@@ -2561,7 +2585,7 @@ fieldset.bot .bot-drop {
   position: absolute;
   top: 6px;
   right: 8px;
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 /*
@@ -2610,7 +2634,7 @@ fieldset.bot .bot-drop {
   border-radius: 9px;
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
-  font-size: 11px;
+  font-size: var(--fs-11);
   user-select: none;
 }
 
@@ -2657,7 +2681,7 @@ fieldset.bot .bot-drop {
   flex-wrap: wrap;
   gap: 8px;
   padding: 3px 12px 0;
-  font-size: 11px;
+  font-size: var(--fs-11);
   color: var(--chat-dim);
 }
 
@@ -2696,7 +2720,7 @@ fieldset.bot .bot-drop {
 .sheet-bot .policy > .field .dim {
   display: block;
   overflow: hidden;
-  font-size: 10px;
+  font-size: var(--fs-10);
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2784,7 +2808,7 @@ fieldset.bot .bot-drop {
 }
 
 .delivery .link {
-  font-size: 10px;
+  font-size: var(--fs-10);
   padding: 0;
 }
 
@@ -2814,7 +2838,7 @@ fieldset.bot .bot-drop {
 
 /* 들어가는 표시 — 이름보다 작고 흐리게. 눌러보면 그때 또렷해진다 */
 .drawer-bot .who .name-go .codicon {
-  font-size: 12px;
+  font-size: var(--fs-12);
   opacity: 0.45;
 }
 
@@ -2910,7 +2934,7 @@ fieldset.bot .bot-drop {
   border-radius: 6px;
   background: var(--badge-bg);
   color: var(--badge-fg);
-  font-size: 9px;
+  font-size: var(--fs-9);
   line-height: 12px;
   text-align: center;
 }
@@ -3006,7 +3030,7 @@ fieldset.bot .bot-drop {
   margin-left: 6px;
   padding: 0 5px;
   border-radius: 8px;
-  font-size: 10px;
+  font-size: var(--fs-10);
   background: color-mix(in srgb, currentColor 12%, transparent);
 }
 
@@ -3079,7 +3103,7 @@ fieldset.bot .bot-drop {
 .clashes {
   flex: 0 0 auto;
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 .clash {
@@ -3099,7 +3123,7 @@ fieldset.bot .bot-drop {
 }
 
 .clash-line .codicon {
-  font-size: 12px;
+  font-size: var(--fs-12);
   opacity: 0.7;
 }
 
@@ -3156,7 +3180,7 @@ fieldset.bot .bot-drop {
   gap: 6px;
   flex-wrap: wrap;
   padding: 6px 10px;
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 .approvals-head .count {
@@ -3199,7 +3223,7 @@ fieldset.bot .bot-drop {
   padding: 0 5px;
   border-radius: 8px;
   background: color-mix(in srgb, currentColor 14%, transparent);
-  font-size: 10px;
+  font-size: var(--fs-10);
   font-weight: 600;
 }
 
@@ -3207,7 +3231,7 @@ fieldset.bot .bot-drop {
 .approval .activity .meant {
   flex: 0 0 auto;
   margin-left: 4px;
-  font-size: 10px;
+  font-size: var(--fs-10);
   color: var(--warn);
 }
 
@@ -3221,7 +3245,7 @@ fieldset.bot .bot-drop {
   gap: 10px;
   flex-wrap: wrap;
   margin: 6px 0;
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 .swap-what > div {
@@ -3253,7 +3277,7 @@ fieldset.bot .bot-drop {
 
 .swap-ask .warn {
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: var(--fs-11);
 }
 
 .swap-ask .acts {
