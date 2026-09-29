@@ -150,11 +150,101 @@ console.log("\n[★ 글자색은 검정/하양 둘뿐 — 지금 배경 위에 �
   ok(pair[1].className.includes("on"),
      "★ 지금 고른 쪽(하양)이 표시돼 있다");
 
+  /*
+   * ★ **누른다고 들어가지 않는다** (2026-09-29).
+   *
+   * 🔴 예전엔 글자칸을 누르면 바로 적용되고 판이 닫혔다. 그러면 «색 고르고
+   * 글자색까지 정하기» 가 불가능하다 — 색을 누르는 순간 닫히니까.
+   * 이제 판 안의 모든 누름은 **고르기** 이고, 들어가는 것은 «적용» 뿐이다.
+   */
   pair[0].click();
+  ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
+     "★ **글자칸을 눌러도 아직 안 간다** — 판을 나가는 문은 «적용» 하나다");
+  ok(pair[0].className.includes("on") && !pair[1].className.includes("on"),
+     "★ 고른 표시는 옮겨간다 — 무엇이 적용될지 보여야 한다");
+
+  const use = [...t.$$(".drawer-bot .swatches .apply")][0];
+  use.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");
-  ok(posted?.ink === "black", `★ 고르면 올라간다 (${posted?.ink})`);
+  ok(posted?.ink === "black", `★ 적용을 누르면 올라간다 (${posted?.ink})`);
   ok(posted?.color.includes("ansiBlue"),
      "★ **색과 한 쌍으로** 보낸다 — 따로 보내면 한쪽만 바뀐 상태가 생긴다");
+}
+
+console.log("\n[★ 색 고르고 글자색까지 정한 뒤 «적용» 한 번]");
+{
+  /*
+   * 사용자 말: *"색 선택하고 글자색 선택까지 한 다음에 적용 눌러야 되도록
+   * 하자"* · *"글자 색 선택은 굳이 안해도 되고 적용으로한다는게 중요한거야"*.
+   *
+   * 이 칸이 그 흐름 전체다 — 프리셋을 고르고, 그 색 위에서 글자색을 보고
+   * 고르고, 한 번 «적용».
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+  const panel = t.$(".drawer-bot .swatches");
+  const sw = panel.querySelectorAll(".sw:not(.custom)")[3];
+
+  sw.click();
+  ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
+     "★ **프리셋을 눌러도 아직 안 간다** — 고른 것일 뿐이다");
+  ok(sw.className.includes("on"), "★ 고른 프리셋에 표시가 남는다 (판이 안 닫히므로 필요하다)");
+
+  const inkBg = [...panel.querySelectorAll(".ink")].map((b) => b.style.background);
+  ok(inkBg.every((c) => c === sw.style.background),
+     `★ **글자칸이 고른 색으로 깔린다** (${inkBg[0]}) — 그 위에서 대비를 본다`);
+
+  panel.querySelectorAll(".ink")[1].click();   // 하양
+  ok(t.sent.find((m) => m.t === "setBotColor") === undefined, "★ 여기까지도 안 간다");
+
+  panel.querySelector(".apply").click();
+  const posted = t.sent.find((m) => m.t === "setBotColor");
+  console.log(`   적용 → ${posted?.color} · ${posted?.ink}`);
+  ok(posted?.color === sw.style.background, "★ **고른 색이** 실려 간다");
+  ok(posted?.ink === "white", "★ **고른 글자색도 같이** — 한 번의 «적용» 으로 둘 다");
+}
+
+console.log("\n[★ 글자색은 안 건드려도 된다]");
+{
+  /*
+   * *"글자 색 선택은 굳이 안해도 되고"* — 안 건드리면 쓰던 것이 따라가야 한다.
+   * 여기서 글자색이 빠지면 새 색 위에 옛 대비가 남는 게 아니라 **아예 없어진다.**
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+  const panel = t.$(".drawer-bot .swatches");
+  panel.querySelectorAll(".sw:not(.custom)")[5].click();
+  panel.querySelector(".apply").click();
+  const posted = t.sent.find((m) => m.t === "setBotColor");
+  console.log(`   글자색 안 건드림 → ${JSON.stringify(posted?.ink)}`);
+  ok(posted?.ink === "white", `★ **쓰던 글자색이 그대로 간다** (${posted?.ink}) — 이 봇은 하양이었다`);
+}
+
+console.log("\n[★ 딴 데를 누르면 고르던 것이 버려진다]");
+{
+  /*
+   * 🔴 `<details>` 는 저 혼자 안 닫힌다. 예전엔 무엇을 누르든 바로 적용되고
+   * 닫혔으니 문제가 아니었는데, 이제 판이 **고르는 동안 계속 열려 있다.**
+   * 나가는 길이 «적용» 뿐이면 «그만둘래» 가 막힌다.
+   */
+  const t = mount();
+  open(t);
+  openDrawer(t);
+  const box = t.$(".drawer-bot .swatch");
+  box.setAttribute("open", "");
+  box.dispatchEvent(new t.w.Event("toggle"));
+
+  const panel = box.querySelector(".swatches");
+  panel.querySelectorAll(".sw:not(.custom)")[2].click();
+
+  const away = new t.w.Event("pointerdown", { bubbles: true });
+  t.$("#screen-chat").dispatchEvent(away);
+
+  ok(!box.hasAttribute("open"), "★ **딴 데를 누르면 닫힌다**");
+  ok(t.sent.find((m) => m.t === "setBotColor") === undefined,
+     "★ **고르던 것은 버려진다** — 딴 데 누르기가 곧 «그만두기» 다");
 }
 
 console.log("\n[★ 이름 앞 «점»은 그대로 — C9 가 허락한 자리다]");
@@ -207,9 +297,11 @@ console.log("\n[★ 서랍에서 고르면 올라간다]");
   const sw = swatches[0];
   ok(sw !== null, "★ 프리셋이 있다");
   sw.click();
+  // **고른 뒤 «적용»** — 누르는 족족 들어가던 때와 달라진 자리다 (2026-09-29)
+  picks[0].querySelector(".swatches .apply").click();
 
   const posted = t.sent.find((m) => m.t === "setBotColor");
-  ok(posted !== undefined, "★ 고르면 올라간다");
+  ok(posted !== undefined, "★ 고르고 «적용» 하면 올라간다");
   ok(posted.botId === "b1", `★ 그 봇에게 (${posted?.botId})`);
   /*
    * 🔴 여기 `charts-` 를 박아뒀다가 팔레트를 바꾸자 깨졌다. 재려던 것은
@@ -314,37 +406,51 @@ console.log("\n[★ 커스텀은 «확정»을 눌러야 들어간다]");
   ok(customRow.querySelector("input[type=color]") !== null, "★ 커스텀 칸이 그 줄에 있다");
 
   /*
-   * ★ **「가」 를 누르면 색과 글자색이 같이 들어간다** (2026-09-29).
+   * ★ **스포이드 + 글자색을 «적용» 한 번으로** (2026-09-29).
    *
    * 「스포이드 창 안에 «적용» 을 넣을 수 없나」 에서 나온 것이다. OS 가 그리는
-   * 창이라 거기엔 못 넣는다 — 대신 **창을 닫고 나온 자리**에서 둘을 한 번에
-   * 끝내게 한다. 색을 고른 뒤 「가」 하나만 더 누르면 되므로 «적용» 을 따로
-   * 찾아갈 일이 없다.
+   * 창이라 거기엔 못 넣는다 — 대신 **창을 닫고 나온 자리**를 «고르는 판» 으로
+   * 만들었다. 색도 글자색도 고르기만 하고, 넣는 것은 «적용» 이다.
    */
   {
     const t2 = mount();
     open(t2);
     openDrawer(t2);
-    const c2 = t2.$(".drawer-bot .swatches .sw.custom");
+    const p2 = t2.$(".drawer-bot .swatches");
+    const c2 = p2.querySelector(".sw.custom");
     c2.value = "#0b3d2e";
     c2.dispatchEvent(new t2.w.Event("input", { bubbles: true }));
-    t2.$$(".drawer-bot .swatches .ink")[1].click();   // 하양
+    p2.querySelectorAll(".ink")[1].click();   // 하양
+    ok(t2.sent.find((m) => m.t === "setBotColor") === undefined,
+       "★ 여기까지 아무것도 안 간다 — 스포이드도 글자칸도 «고르기» 다");
+
+    p2.querySelector(".apply").click();
     const sent = t2.sent.find((m) => m.t === "setBotColor");
-    console.log(`   「가」(하양) 누름 → ${JSON.stringify(sent?.color)} · ${JSON.stringify(sent?.ink)}`);
-    ok(sent?.color === "#0b3d2e",
-       `★ **고른 색이 실려 간다** (${sent?.color}) — 옛 색이 아니다`);
-    ok(sent?.ink === "white", `★ **글자색도 같이** (${sent?.ink})`);
+    console.log(`   적용 → ${JSON.stringify(sent?.color)} · ${JSON.stringify(sent?.ink)}`);
+    ok(sent?.color === "#0b3d2e", `★ **스포이드 색이 실려 간다** (${sent?.color})`);
+    ok(sent?.ink === "white", `★ **글자색도 같이** (${sent?.ink}) — 한 번의 «적용» 으로 둘 다`);
   }
 
-  const use = customRow.querySelector("button.apply");
-  ok(use !== null, "★ **«적용»이 같은 줄에** — 무엇에 적용하는지가 보인다");
-  ok(use.className.includes("primary"),
-     `★ 강조 단추다 (${use.className}) — 누르기 전엔 아무 일도 안 일어나므로 다음 할 일이 보여야 한다`);
-
+  /*
+   * ★ **«적용»은 아래 줄, «기본값으로» 옆** (2026-09-29).
+   *
+   * 🔴 한때 커스텀 칸 옆에 뒀다. 그때는 «적용은 커스텀에만 쓰인다» 가 맞았기
+   * 때문이다. 그 전제가 없어졌다 — 이제 판 전체를 넣는다. 커스텀 칸 옆에
+   * 두면 *"이 칸만 적용되나"* 로 읽혀 **자리가 뜻을 좁힌다.**
+   *
+   * 물러나는 것이 왼쪽, 진행하는 것이 오른쪽 — 앱 전체 규칙이다.
+   */
   const acts = t.$(".drawer-bot .swatches .pick-acts");
   const labels = [...acts.children].map((b) => b.textContent);
-  ok(labels.join() === "기본값으로",
-     `★ 아래 줄은 «기본값으로» 뿐 (${labels.join(" / ")}) — 이건 판 전체가 대상이다`);
+  console.log(`   아래 줄: ${labels.join(" / ")}`);
+  ok(labels.join() === "기본값으로,적용",
+     `★ **«기본값으로» 왼쪽, «적용» 오른쪽** (${labels.join(" / ")})`);
+  ok(customRow.querySelector("button.apply") === null,
+     "★ 커스텀 줄에는 단추가 없다 — 그 칸만 적용되는 것이 아니다");
+
+  const use = acts.querySelector("button.apply");
+  ok(use.className.includes("primary"),
+     `★ 강조 단추다 (${use.className}) — 누르기 전엔 아무것도 안 들어가므로 다음 할 일이 보여야 한다`);
 
   use.click();
   const posted = t.sent.find((m) => m.t === "setBotColor");

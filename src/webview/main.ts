@@ -281,23 +281,43 @@ function colorPick(
   const box = el("details", { class: "swatch" });
   const close = () => box.removeAttribute("open");
 
-  const preset = (css: string, label: string) =>
-    el("button", {
-      class: "sw", title: label, type: "button",
-      style: { background: css },
-      onclick: () => { pick(css, ink); close(); },
-    });
-
   /*
-   * **지금 이 판이 다루고 있는 색.** 커스텀 칸을 건드리면 그쪽으로 옮겨간다.
+   * ★ **판을 나가는 문은 «적용» 하나다** (2026-09-29).
    *
-   * 🔴 예전에는 이 자리가 없어서 글자칸이 **늘 «이미 적용된 색»** 을 깔고
-   * 있었다. 그래서 커스텀으로 남색을 고르는 중에도 글자칸은 옛 회색 위에
-   * 「가」를 그렸다 — **어느 글자색이 읽히는지 볼 수가 없었다.** 정작 골라야
-   * 할 때 못 보여주고 있었던 셈이다.
+   * 🔴 예전에는 **누르는 족족 들어갔다.** 프리셋도, 글자칸도 한 번 누르면
+   * 그대로 적용되고 판이 닫혔다. 그래서 «색 고르고 글자색까지 정하기» 가
+   * 아예 불가능했다 — 색을 누르는 순간 판이 닫혀서 글자색을 볼 기회가
+   * 없었고, 다시 열어서 또 한 번 눌러야 했다. 두 번 적용되는 셈이다.
+   *
+   * 이제 판 안의 모든 누름은 **고르는 것**이고, 들어가는 것은 «적용» 뿐이다.
+   * 딴 데를 누르면 고르던 것은 버려진다 — 되돌리기를 따로 둘 필요가 없다.
+   *
+   * 글자색은 **안 건드려도 된다.** 안 건드리면 쓰던 것이 그대로 따라간다.
    */
   let draft = now ?? fallback;
+  let draftInk = ink;
   const inks: HTMLElement[] = [];
+  const presets: Array<{ css: string; node: HTMLElement }> = [];
+
+  /** 고르던 것을 화면에 비춘다 — 무엇이 «적용» 될지가 보여야 한다 */
+  const repaint = (): void => {
+    for (const b of inks) {
+      b.style.background = draft;
+      b.classList.toggle("on", draftInk === (b.dataset["ink"] as "black" | "white"));
+    }
+    for (const p of presets) p.node.classList.toggle("on", p.css === draft);
+  };
+
+  const preset = (css: string, label: string) => {
+    const node = el("button", {
+      class: "sw", title: label, type: "button",
+      style: { background: css },
+      // **고르기만 한다.** 판은 열린 채 — 이어서 글자색을 볼 수 있어야 한다
+      onclick: () => { draft = css; repaint(); },
+    });
+    presets.push({ css, node });
+    return node;
+  };
 
   /*
    * ★ **글자는 검정이나 하양, 둘뿐이다** (2026-09-28).
@@ -315,12 +335,14 @@ function colorPick(
    */
   const inkBtn = (v: "black" | "white") => {
     const b = el("button", {
-      class: `ink${ink === v ? " on" : ""}`,
+      class: `ink${draftInk === v ? " on" : ""}`,
       type: "button",
+      "data-ink": v,
       title: v === "black" ? "이 색에 검정 글자" : "이 색에 하양 글자",
       style: { background: draft, color: v === "black" ? "#000" : "#fff" },
       text: "가",
-      onclick: () => { pick(draft, v); close(); },
+      // 여기도 **고르기만** 한다 — 안 눌러도 되고, 누르면 «적용» 때 같이 간다
+      onclick: () => { draftInk = v; repaint(); },
     });
     inks.push(b);
     return b;
@@ -352,11 +374,9 @@ function colorPick(
     title: "직접 고르기",
     // `var(--vscode-…)` 는 hex 가 아니라 여기 못 넣는다 — 무난한 값에서 시작한다
     value: /^#[0-9a-f]{6}$/i.test(now ?? "") ? now! : "#888888",
-    oninput: () => {
-      draft = custom.value;
-      // 배경만 갈아준다 — **넣는 것은 여전히 단추가 한다**
-      for (const b of inks) b.style.background = draft;
-    },
+    // 스포이드는 **끌면 바로 반영된다** — 고르는 중이니 확인 단계가 하나 더
+    // 있으면 거추장스럽다. 들어가는 것은 여전히 «적용» 뿐이다.
+    oninput: () => { draft = custom.value; repaint(); },
   });
 
   /*
@@ -368,9 +388,9 @@ function colorPick(
    */
   const apply = el("button", {
     class: "primary apply", type: "button", text: "적용",
-    title: "고른 색을 지금 글자색 그대로 적용합니다",
-    // **글자색을 안 바꿀 때의 길.** 바꿀 거면 아래 「가」 를 누르면 된다
-    onclick: () => { pick(draft, ink); close(); },
+    title: "고른 색과 글자색을 적용합니다",
+    // **판을 나가는 유일한 문.** 색과 글자색이 한 쌍으로 간다
+    onclick: () => { pick(draft, draftInk); close(); },
   });
 
   const panel = el(
@@ -378,27 +398,27 @@ function colorPick(
     { class: "swatches" },
     ...BOT_COLORS.map((c) => preset(c.css, c.label)),
     /*
-     * ★ **«적용»은 커스텀 칸 «옆»에** (2026-09-29).
+     * ★ **«적용»이 아래로 내려왔다** (2026-09-29).
      *
-     * 🔴 한때 아래 줄에 `[기본값으로] [적용]` 으로 나란히 뒀다. 끝내는 동작끼리
-     * 모은 것인데, **적용은 커스텀에만 쓰인다** — 프리셋도 글자색도 누르면
-     * 바로 들어간다. 아래에 있으면 *"뭘 적용하는 거지"* 가 된다.
+     * 한때 커스텀 칸 옆에 뒀다. 그때는 «적용은 커스텀에만 쓰인다» 가 맞았기
+     * 때문이다 — 프리셋도 글자칸도 누르면 바로 들어갔으니까.
      *
-     * 단추는 **제가 다루는 것 옆에** 있어야 «이 칸의 값을 넣는다»가 설명 없이
-     * 읽힌다.
+     * 🔴 **그 전제가 없어졌다.** 이제 판 안의 모든 누름이 «고르기» 이고
+     * «적용» 은 그 전부를 넣는다. 커스텀 칸 옆에 두면 오히려 *"이 칸만
+     * 적용되나"* 로 읽힌다 — 자리가 뜻을 좁혀버린다.
+     *
+     * 그래서 끝내는 동작끼리 아래 한 줄에 모은다. 물러나는 것이 왼쪽,
+     * 진행하는 것이 오른쪽 — 앱 전체 규칙 그대로다.
      */
-    el("div", { class: "custom-row" }, custom, apply),
+    el("div", { class: "custom-row" }, custom),
     el("div", { class: "inks" }, inkBtn("black"), inkBtn("white")),
-    /*
-     * 이 줄은 **판 전체**를 되돌린다 — 어느 한 칸이 아니라 «고른 것 전부»가
-     * 대상이라 아래에 혼자 둔다.
-     */
     el(
       "div",
       { class: "pick-acts" },
       el("button", { class: "ghost", type: "button", text: "기본값으로",
                      title: "테마가 주는 평소 말풍선으로 되돌립니다",
                      onclick: () => { pick("", undefined); close(); } }),
+      apply,
     ),
   );
 
@@ -422,11 +442,34 @@ function colorPick(
     panel.style.top = `${below + h > window.innerHeight - 8 ? Math.max(8, at.top - h - 6) : below}px`;
   };
   box.addEventListener("toggle", () => {
-    if (!box.open) return;
+    if (!box.open) {
+      // 닫혔으면 **고르던 것은 버린다** — 다음에 열 때 지금 쓰는 색에서 시작한다
+      draft = now ?? fallback;
+      draftInk = ink;
+      repaint();
+      return;
+    }
     place();
     const shut = () => box.removeAttribute("open");
     window.addEventListener("scroll", shut, { once: true, capture: true });
     window.addEventListener("resize", shut, { once: true });
+    /*
+     * ★ **딴 데를 누르면 닫힌다** (2026-09-29).
+     *
+     * 🔴 `<details>` 는 저 혼자 안 닫힌다. 예전에는 무엇을 누르든 바로 적용되고
+     * 닫혔으니 문제가 안 됐는데, 이제 판이 **고르는 동안 계속 열려 있다.**
+     * 나가는 길이 «적용» 뿐이면 «그만둘래» 가 막힌다 — 요약 점을 다시 찾아
+     * 눌러야 한다.
+     *
+     * 딴 데 누르기가 곧 «그만두기» 다. 위에서 고르던 것을 버리므로 되돌리기를
+     * 따로 둘 필요가 없다.
+     */
+    const away = (e: Event) => {
+      if (box.contains(e.target as Node)) return;
+      box.removeAttribute("open");
+      document.removeEventListener("pointerdown", away, true);
+    };
+    document.addEventListener("pointerdown", away, true);
   });
 
   box.append(el("summary", { title: "말풍선 색" }, dot), panel);
