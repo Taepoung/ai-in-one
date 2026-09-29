@@ -20,7 +20,7 @@ const os = require("node:os"), path = require("node:path"), fs = require("node:f
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aio-mid-"));
 const CMD = process.platform === "win32" ? "npx.cmd" : "npx";
-const proc = spawn(CMD, ["-y", "@agentclientprotocol/claude-agent-acp@0.81.2"], {
+const proc = spawn(CMD, ["-y", "@agentclientprotocol/claude-agent-acp@" + (process.env.AIO_ACP_VERSION || "0.81.2")], {
   cwd, shell: true, stdio: ["pipe", "pipe", "pipe"],
 });
 
