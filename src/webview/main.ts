@@ -2153,8 +2153,19 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
     row.append(
       el("span", {
         class: "chip to me",
-        // 봇이 못 가지는 모양이다 — `cleanBotName` 이 괄호를 걷어낸다
-        text: USER_CHIP,
+        /*
+         * ★ **`@` 를 붙인다** (2026-09-29).
+         *
+         * 🔴 괄호만 두르고 `@` 를 빼먹었다. 바로 옆 봇 칩은 `@이름` 인데
+         * 혼자 `(사용자)` 라서, **같은 줄에서 같은 일을 하는 칩 둘이 다른
+         * 말투**였다. 멘션처럼 안 읽히니 «받는 이» 가 아니라 무슨 꼬리표처럼
+         * 보인다.
+         *
+         * `@` 는 봇 칩과 같은 자리에서 붙이고, 괄호는 `USER_CHIP` 이 들고
+         * 있는다 — 그게 **봇이 못 가지는 모양**이라 이름과 안 겹친다
+         * (`cleanBotName` 이 괄호를 걷어낸다).
+         */
+        text: `@${USER_CHIP}`,
         title: "나에게 한 말입니다",
       }),
     );
