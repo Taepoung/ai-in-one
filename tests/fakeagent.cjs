@@ -87,8 +87,18 @@ function optionsOf(s) {
       id: "model", name: "Model", category: "model", type: "select",
       currentValue: s.model,
       // 목록에서 사라진 모델을 흉낸다 — CLI 버전이 바뀌면 실제로 일어난다
+      //
+      // `AIO_FAKE_BUMP` 는 **별명은 그대로 두고 이름만** 올린다
+      // (`sonnet` → 「Sonnet 6」). 진짜 어댑터가 주는 id 가 전부 별명이라
+      // 판이 올라가면 이 모양으로 온다 — id 는 안 움직인다.
       options: MODELS.filter((m) => m.value !== process.env.AIO_FAKE_DROP_MODEL)
-        .map((m) => ({ ...m, description: `${m.name} 설명` })),
+        .map((m) => ({
+          ...m,
+          ...(process.env.AIO_FAKE_BUMP === m.value
+            ? { name: m.name.replace(/(\d+)$/, (n) => String(Number(n) + 1)) }
+            : {}),
+          description: `${m.name} 설명`,
+        })),
     },
     {
       id: "mode", name: "Mode", category: "mode", type: "select",

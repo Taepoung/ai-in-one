@@ -364,13 +364,6 @@ function readVerdict(text: string): "allow" | "deny" | undefined {
 }
 
 /**
- * 세션이 쓰는 모델 이름을 봇에 적어 둔다 (B5). 바뀌었으면 `true`.
- *
- * **id가 아니라 보이는 이름이다.** 목록에 `Claude · Opus 5`로 나가는데
- * 거기에 `opus-5`가 뜨면 방 만들기 화면에서 고른 것과 달라 보인다.
- * 선택지는 평평하게도, 그룹으로 묶여서도 오므로 둘 다 훑는다.
- */
-/**
  * 칸 하나의 **보이는 이름** (`opus` → `Opus 5`). 없으면 id 를 그대로 돌려준다.
  *
  * 사용자가 고른 것은 이름 쪽이다 — 시스템 줄에 `sonnet` 이라고 적으면
@@ -402,9 +395,31 @@ const CONFIG_WORD: Record<string, string> = {
   thought_level: "사고 강도",
 };
 
-function noteModel(bot: BotInstance, options: acp.SessionConfigOption[]): boolean {
+/**
+ * 세션이 쓰는 모델 이름을 봇에 적어 둔다 (B5).
+ *
+ * **id가 아니라 보이는 이름이다.** 목록에 `Claude · Opus 5`로 나가는데
+ * 거기에 `opus-5`가 뜨면 방 만들기 화면에서 고른 것과 달라 보인다.
+ * 선택지는 평평하게도, 그룹으로 묶여서도 오므로 둘 다 훑는다.
+ *
+ * ★ **판이 올라간 것도 여기서 잡힌다** (2026-09-29).
+ *
+ * 실측해보니(`tests/probes/modelids.cjs`) 어댑터가 주는 모델 id 는 **전부
+ * 별명**이다 — `default`, `opus[1m]`, `sonnet`, `haiku`. 날짜 박힌 id 가
+ * 하나도 없다. 그래서 `sonnet` 뒤의 판이 갈려도 **id 는 그대로**고, 사라진
+ * 값을 지켜보는 `restoreChoices` 의 감시망에는 **처음부터 안 걸린다.**
+ *
+ *   바뀌는 것은 **이름**이다 — `Sonnet 5` → `Sonnet 6`.
+ *
+ * 그 신호가 바로 이 함수의 «달라졌다» 였는데, 화면 새로고침에만 쓰고
+ * **말은 안 했다.** 이제 «같은 id 인데 이름이 달라진 것»을 따로 알린다.
+ */
+function noteModel(
+  bot: BotInstance,
+  options: acp.SessionConfigOption[],
+): { changed: boolean; renamed?: string } {
   const opt = options.find((o) => o.category === "model");
-  if (!opt || opt.type !== "select") return false;
+  if (!opt || opt.type !== "select") return { changed: false };
 
   const current = opt.currentValue;
   for (const entry of opt.options) {
@@ -415,13 +430,25 @@ function noteModel(bot: BotInstance, options: acp.SessionConfigOption[]): boolea
           ? entry
           : undefined;
     if (!found) continue;
+
+    /*
+     * **id 는 그대로인데 이름이 달라졌다** — 별명 뒤의 판이 바뀐 것이다.
+     *
+     * 사용자가 직접 고르면 id 가 바뀌므로 여기 안 걸린다 — 그쪽은 `setConfig`
+     * 가 이미 알린다. 처음 붙는 봇도 옛 이름이 없어 안 걸린다.
+     */
+    const was =
+      bot.model === current && bot.modelLabel !== undefined && bot.modelLabel !== found.name
+        ? bot.modelLabel
+        : undefined;
+
     // **id도 같이 적는다** — 이름만으로는 나중에 다시 적용할 수 없다
     bot.model = found.value;
-    if (bot.modelLabel === found.name) return false;
+    if (bot.modelLabel === found.name) return { changed: false };
     bot.modelLabel = found.name;
-    return true;
+    return { changed: true, ...(was !== undefined ? { renamed: was } : {}) };
   }
-  return false;
+  return { changed: false };
 }
 
 /**
@@ -4048,7 +4075,18 @@ export class RoomManager extends EventEmitter<Events> {
     this.roomConfigs.set(configKeyOf(room.id, bot.id), options);
     // 만들기 화면의 기본값으로도 쓴다 — 최소한 최근에 본 목록이다
     this.configCache.set(bot.agentId, options);
-    if (noteModel(bot, options)) this.emitMetas();
+    const model = noteModel(bot, options);
+    if (model.changed) this.emitMetas();
+    if (model.renamed !== undefined) {
+      // **고른 값은 그대로**라는 것까지 적는다 — 안 그러면 «내가 뭘 잘못 눌렀나»가 된다
+      this.noteRoom(
+        room,
+        `${this.whose(room, bot)}${model.renamed}이(가) ${bot.modelLabel}(으)로 ` +
+          `바뀌었습니다 — 고른 값 «${bot.model ?? ""}»은 그대로입니다.`,
+        "info",
+        [bot.id],
+      );
+    }
 
     const mode = options.find((o) => o.category === "mode");
     if (mode && typeof mode.currentValue === "string") bot.agentMode = mode.currentValue;
