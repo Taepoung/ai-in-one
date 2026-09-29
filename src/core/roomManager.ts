@@ -370,6 +370,38 @@ function readVerdict(text: string): "allow" | "deny" | undefined {
  * 거기에 `opus-5`가 뜨면 방 만들기 화면에서 고른 것과 달라 보인다.
  * 선택지는 평평하게도, 그룹으로 묶여서도 오므로 둘 다 훑는다.
  */
+/**
+ * 칸 하나의 **보이는 이름** (`opus` → `Opus 5`). 없으면 id 를 그대로 돌려준다.
+ *
+ * 사용자가 고른 것은 이름 쪽이다 — 시스템 줄에 `sonnet` 이라고 적으면
+ * «내가 고른 그것» 과 같은 것인지 한 번 더 생각해야 한다.
+ */
+function nameOf(
+  options: acp.SessionConfigOption[],
+  id: string,
+  value: unknown,
+): string | undefined {
+  const opt = options.find((o) => o.id === id);
+  if (!opt || opt.type !== "select") return undefined;
+  for (const entry of opt.options) {
+    const found =
+      "group" in entry
+        ? entry.options.find((v) => v.value === value)
+        : entry.value === value
+          ? entry
+          : undefined;
+    if (found) return found.name;
+  }
+  return undefined;
+}
+
+/** 칸 범주를 사람 말로. 에이전트가 주는 이름은 영어다 (`Model`) */
+const CONFIG_WORD: Record<string, string> = {
+  model: "모델",
+  mode: "권한 모드",
+  thought_level: "사고 강도",
+};
+
 function noteModel(bot: BotInstance, options: acp.SessionConfigOption[]): boolean {
   const opt = options.find((o) => o.category === "model");
   if (!opt || opt.type !== "select") return false;
@@ -3942,6 +3974,19 @@ export class RoomManager extends EventEmitter<Events> {
   ): Promise<void> {
     const want = bot.configValues ?? {};
     let now = options;
+    /**
+     * ★ **사라진 칸을 모아둔다** (2026-09-29).
+     *
+     * 아래에서 «안 주는 값이면 우기지 않는다» 로 접는데, 접고 **말을 안 했다.**
+     * 그래서 CLI 가 올라가며 모델 하나가 목록에서 빠지면 — 이름이 바뀌든
+     * 내려가든 실제로 일어난다 — Sonnet 으로 쓰던 방이 창을 껐다 켜면 조용히
+     * Opus 가 되어 있었다. 게다가 바로 뒤 `noteRoomConfig` 가 저장값까지
+     * 덮으므로 **되돌릴 근거도 남지 않았다.**
+     *
+     * 접는 것 자체는 맞다 — 세션이 진실이다. 다만 §0 뺄셈 규칙대로,
+     * **뺐으면 적는다.**
+     */
+    const gone: Array<{ id: string; category?: string; was: string }> = [];
 
     // **권한을 먼저.** 모델·강도를 바꾸는 사이에도 권한은 지켜져야 한다.
     const order = (o: acp.SessionConfigOption) => (o.category === "mode" ? 0 : 1);
@@ -3957,7 +4002,18 @@ export class RoomManager extends EventEmitter<Events> {
         const offered = live.options.some((e) =>
           "group" in e ? e.options.some((v) => v.value === value) : e.value === value,
         );
-        if (!offered) continue;
+        if (!offered) {
+          gone.push({
+            id: live.id,
+            ...(live.category != null ? { category: live.category } : {}),
+            // 이 값은 **이미 목록에 없으므로** 지금 목록에서는 이름을 못 찾는다.
+            // 모델이라면 지난 세션에서 받아 적어둔 이름이 남아 있다.
+            was: (live.category === "model" ? bot.modelLabel : undefined)
+              ?? nameOf(options, live.id, value)
+              ?? String(value),
+          });
+          continue;
+        }
       }
 
       try {
@@ -3967,6 +4023,21 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
     this.noteRoomConfig(room, bot, now);
+
+    // **바뀐 것을 적는다.** 조용히 넘어가면 «왜 얘가 갑자기 딴 소리를 하지»가 된다
+    for (const g of gone) {
+      const live = now.find((o) => o.id === g.id);
+      const label = nameOf(now, g.id, live?.currentValue) ?? String(live?.currentValue ?? "");
+      if (!label) continue;
+      const what = (g.category && CONFIG_WORD[g.category]) ?? live?.name ?? g.id;
+      this.noteRoom(
+        room,
+        `${this.whose(room, bot)}${what} ${g.was}이(가) ` +
+          `${this.agentOrThrow(bot.agentId).label}에 더 이상 없어 ${label}(으)로 바뀌었습니다.`,
+        "info",
+        [bot.id],
+      );
+    }
   }
 
   private noteRoomConfig(
