@@ -74,17 +74,17 @@ const settle = async (mgr: RoomManager, id: string) => {
   }
 };
 
-async function run(label: string, bots: number): Promise<boolean[]> {
+async function run(label: string, bots: number, agentId = "claude"): Promise<boolean[]> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-leave-"));
   const store = new RoomStore(dir); await store.init();
-  const claude = DEFAULT_AGENTS.find((a) => a.id === "claude")!;
-  const mgr = new RoomManager({ host: hostAt(dir), store, agents: [claude], configProbeMs: 60000 });
+  const agent = DEFAULT_AGENTS.find((a) => a.id === agentId)!;
+  const mgr = new RoomManager({ host: hostAt(dir), store, agents: [agent], configProbeMs: 60000 });
   mgr.on("roomError", (_r, e) => console.log("   roomError:", e));
 
   console.log(`\n[${label}]`);
   const room = await mgr.createRoom({
-    agentId: "claude", title: "나가기",
-    ...(bots > 1 ? { bots: Array.from({ length: bots }, () => ({ agentId: "claude" })) } : {}),
+    agentId, title: "나가기",
+    ...(bots > 1 ? { bots: Array.from({ length: bots }, () => ({ agentId })) } : {}),
   });
   /*
    * 🔴 **봇마다 한 마디씩 시켜야 한다.**
@@ -124,10 +124,80 @@ async function run(label: string, bots: number): Promise<boolean[]> {
   return out;
 }
 
+/**
+ * ★ **Codex 는 어디에 남나** (2026-09-30).
+ *
+ * Claude 는 `~/.claude/projects/<슬러그>/<세션id>.jsonl` 하나뿐이라 그 파일만
+ * 보면 된다. 🔴 **Codex 는 둘이다** — 파일(`~/.codex/sessions/…/rollout-…`)과
+ * **sqlite 인덱스**(`state_5.threads`). 우리가 파일만 지워서 DB 행이 붕 뜬
+ * 적이 있다(목록엔 뜨는데 열면 «파일이 없다»).
+ *
+ * 그러니 «지워졌나» 를 파일로만 재면 반쪽이다. 둘 다 본다.
+ */
+async function codexLeft(sessionId: string): Promise<{ file: boolean; row: boolean }> {
+  const root = path.join(os.homedir(), ".codex");
+  let file = false;
+  const walk = (dir: string): void => {
+    let names: fs.Dirent[];
+    try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of names) {
+      if (e.isDirectory()) { walk(path.join(dir, e.name)); continue; }
+      if (e.name.includes(sessionId)) file = true;
+    }
+  };
+  walk(path.join(root, "sessions"));
+
+  let row = false;
+  try {
+    const { execFileSync } = await import("node:child_process");
+    const out = execFileSync("node", ["-e", `
+      const s=require("node:sqlite");
+      const db=new s.DatabaseSync(${JSON.stringify(path.join(root, "state_5.sqlite"))},{readOnly:true});
+      const r=db.prepare("select count(*) c from threads where id=?").get(${JSON.stringify(sessionId)});
+      console.log(r.c);
+    `], { encoding: "utf8" });
+    row = Number(out.trim()) > 0;
+  } catch { row = false; }
+  return { file, row };
+}
+
+async function codexRun(): Promise<boolean[]> {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-leave-cx-"));
+  const store = new RoomStore(dir); await store.init();
+  const agent = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
+  const mgr = new RoomManager({ host: hostAt(dir), store, agents: [agent], configProbeMs: 60000 });
+  mgr.on("roomError", (_r, e) => console.log("   roomError:", e));
+
+  console.log("\n[③ Codex — 파일과 sqlite 인덱스 둘 다]");
+  const room = await mgr.createRoom({ agentId: "codex", title: "나가기" });
+  await mgr.send(room.id, "«봤다» 라고만 답해. 도구 쓰지 마.");
+  await settle(mgr, room.id);
+
+  const sid = room.participants[0]?.sessionId ?? "";
+  const before = await codexLeft(sid);
+  console.log(`   세션 ${sid.slice(0, 18)}…`);
+  console.log(`   나가기 전: 파일 ${before.file ? "있다" : "없다"} · DB행 ${before.row ? "있다" : "없다"}`);
+
+  await mgr.leaveRoom(room.id);
+  await new Promise((r) => setTimeout(r, 3000));
+  const after = await codexLeft(sid);
+  console.log(`   나간 뒤  : 파일 ${after.file ? "있다" : "없다"} · DB행 ${after.row ? "있다" : "없다"}`);
+
+  const out = [
+    mark(before.file, "★ 나가기 전엔 파일이 있었다 (이 측정이 뜻을 가지려면)"),
+    mark(!after.file, "★ **파일이 사라진다**"),
+    mark(!after.row, "★ **sqlite 인덱스 행도 사라진다** — 안 지워지면 목록에 뜨고 열면 «파일이 없다»"),
+  ];
+  mgr.dispose();
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 잠겼으면 다음에 */ }
+  return out;
+}
+
 async function main(): Promise<void> {
   const r1 = await run("① 1:1 방", 1);
   const r2 = await run("② 단체방 (봇 둘) — 여기에 «하나만 지우던» 버그가 있었다", 2);
-  const all = [...r1, ...r2];
+  const r3 = await codexRun();
+  const all = [...r1, ...r2, ...r3];
   console.log(`\n  ${all.filter(Boolean).length}/${all.length}`);
   process.exit(all.every(Boolean) ? 0 : 1);
 }

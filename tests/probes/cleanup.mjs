@@ -33,6 +33,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 const GO = process.argv.includes("--yes");
+/**
+ * `--codex-all` : Codex 세션을 **전부** 지운다 (임시폴더 것만이 아니라).
+ *
+ * 🔴 Codex 는 **파일과 sqlite 인덱스 둘**에 산다. 파일만 지우면 목록엔 뜨는데
+ * 열면 «파일이 없다» 가 난다 — 실제로 한 번 그렇게 만들었다. 둘을 **같이**
+ * 지운다.
+ *
+ * ⚠️ 이건 **사용자의 진짜 대화**다. 우리가 만든 찌꺼기가 아니다.
+ */
+const ALL_CODEX = process.argv.includes("--codex-all");
 const HOUR = 60 * 60 * 1000;
 const HOME = os.homedir();
 
@@ -79,7 +89,7 @@ const walk = (dir) => {
     if (fresh(full)) continue;
     let text;
     try { text = fs.readFileSync(full, "utf8"); } catch { continue; }
-    if (fromTemp(text)) plan.codex.push(full);
+    if (ALL_CODEX || fromTemp(text)) plan.codex.push(full);
   }
 };
 walk(cxRoot);
@@ -126,6 +136,51 @@ if (!GO) {
 let gone = 0;
 for (const f of [...plan.codex, ...plan.husk]) {
   try { fs.rmSync(f); gone++; } catch (e) { console.log(`   못 지움: ${f} (${e.code})`); }
+}
+
+/*
+ * ★ **Codex 는 인덱스도 같이 지운다** (2026-09-30).
+ *
+ * 🔴 파일만 지웠다가 DB 행이 붕 떴다 — 확장 목록에는 뜨는데 열면 «파일이
+ * 없다» 가 난다. 그리고 **우리 앱으로 나가도 같은 일이 난다**: Codex 어댑터의
+ * `session/delete` 가 파일만 지우고 인덱스는 안 건드린다(`leavereal.mts` 실측).
+ *
+ * 그래서 «파일이 실제로 없는 행» 을 싹 걷는다 — 우리가 지운 것이든 어댑터가
+ * 반만 지운 것이든, **열 수 없는 행**이라는 점은 같다.
+ */
+if (plan.codex.length > 0) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const cx = path.join(HOME, ".codex");
+  let ids = [];
+  try {
+    const db = new DatabaseSync(path.join(cx, "state_5.sqlite"), { readOnly: true });
+    ids = db.prepare("select id, rollout_path from threads").all()
+      .filter((r) => !r.rollout_path || !fs.existsSync(r.rollout_path))
+      .map((r) => r.id);
+    db.close();
+  } catch (e) { console.log(`   인덱스를 못 읽었다: ${e.message}`); }
+
+  let rows = 0;
+  for (const name of fs.readdirSync(cx).filter((f) => f.endsWith(".sqlite"))) {
+    let db;
+    try { db = new DatabaseSync(path.join(cx, name)); } catch { continue; }
+    try {
+      for (const { name: t } of db.prepare(
+        "select name from sqlite_master where type='table'").all()) {
+        for (const col of ["id", "thread_id"]) {
+          const has = db.prepare(`pragma table_info("${t}")`).all().some((d) => d.name === col);
+          if (!has) continue;
+          for (const id of ids) {
+            try {
+              rows += db.prepare(`delete from "${t}" where "${col}" = ?`).run(id).changes;
+            } catch { /* 그 표엔 없다 */ }
+          }
+        }
+      }
+    } catch (e) { console.log(`   ${name}: ${e.message}`); }
+    try { db.close(); } catch { /* 이미 닫혔다 */ }
+  }
+  if (rows) console.log(`   Codex 인덱스에서 ${rows}행 지움 (붕 뜬 스레드 ${ids.length}개)`);
 }
 for (const d of plan.slug) {
   try { fs.rmSync(d, { recursive: true }); gone++; } catch (e) { console.log(`   못 지움: ${d} (${e.code})`); }
