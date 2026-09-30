@@ -163,7 +163,7 @@ const agentById = new Map(boot.agents.map((a) => [a.id, a]));
 
 // ── 화면 전환 (F8) ──────────────────────────────────────────────────────
 
-type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots";
+type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite";
 
 /**
  * 화면 칸을 찾는다. **없으면 만든다.**
@@ -208,6 +208,16 @@ const screens: Record<ScreenName, HTMLElement> = {
    */
   perm: screenEl("screen-perm"),
   bots: screenEl("screen-bots"),
+  /**
+   * ★ **봇 부르기도 화면** (2026-09-30).
+   *
+   * 대화 목록 안에 카드로 붙어 있었다. 🔴 **스크롤에 밀린다** — 에이전트·이름·
+   * 색·모델·역할을 고르는 동안 새 말이 오면 카드가 위로 떠내려간다.
+   *
+   * **참여자 화면 «위에» 얹는다.** 부르고 나면 뒤로가기 하나로 참여자로
+   * 돌아오고, 거기 새 봇이 늘어 있다 — 온 길과 돌아가는 길이 같다.
+   */
+  invite: screenEl("screen-invite"),
 };
 let stack: ScreenName[] = ["list"];
 
@@ -1386,7 +1396,7 @@ function leaveChat(): void {
    * 스택 밖에 남게 됐는데, 안 비우면 다음 방에서 열었을 때 **앞 방의 봇
    * 이름이 한 순간 스친다** — 다시 그리기 전까지.
    */
-  for (const s of [screens.perm, screens.bots, screens.fix]) s.replaceChildren();
+  for (const s of [screens.perm, screens.bots, screens.fix, screens.invite]) s.replaceChildren();
   stack = ["list"];
   paintScreens();
 }
@@ -1423,7 +1433,7 @@ function renderFix(r: Room): void {
         class: "icon", title: "목록으로",
         // **가둬두지 않는다.** 이 방을 지금 안 쓰겠다는 것도 답이다
         onclick: () => { room = null; chat = null; go("list"); },
-      }, icon("back")),
+      }, icon("arrow-left")),
       el("h1", { text: "모델을 다시 골라 주세요" }),
     ),
     el("div", { class: "fix-why" },
@@ -4666,7 +4676,7 @@ function paintPermissionSheet(r: Room): void {
     el(
       "header",
       { class: "bar" },
-      el("button", { class: "icon", title: "돌아가기", onclick: () => closeSheet() }, icon("back")),
+      el("button", { class: "icon", title: "돌아가기", onclick: () => closeSheet() }, icon("arrow-left")),
       el("h1", {}, icon("shield"), " 권한 설정"),
     ),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
@@ -5574,7 +5584,7 @@ function paintDrawer(r: Room): void {
     el(
       "header",
       { class: "bar" },
-      el("button", { class: "icon", title: "돌아가기", onclick: () => closeDrawer() }, icon("back")),
+      el("button", { class: "icon", title: "돌아가기", onclick: () => closeDrawer() }, icon("arrow-left")),
       el("h1", {}, icon("organization"), ` 참여자 ${r.participants.length}`),
     ),
     ...r.participants.map((bot) => drawerBot(r, bot)),
@@ -5597,7 +5607,7 @@ function inviteRow(r: Room): HTMLElement {
     el("button", {
       class: "ghost",
       text: "+ 봇 부르기",
-      onclick: () => (closeDrawer(), askInvite(r)),
+      onclick: () => askInvite(r),
     }),
   );
 }
@@ -5723,7 +5733,7 @@ function askInvite(r: Room): void {
       el(
         "div",
         { class: "card-actions" },
-        el("button", { text: "취소", onclick: () => renderChat() }),
+        el("button", { text: "취소", onclick: () => back() }),
         el("button", {
           class: "primary",
           text: "부르기",
@@ -5738,18 +5748,29 @@ function askInvite(r: Room): void {
               ...(draft.role.trim() ? { rolePrompt: draft.role.trim() } : {}),
               ...(draft.picks.size > 0 ? { configValues: Object.fromEntries(draft.picks) } : {}),
             });
-            renderChat();
+            // 참여자 화면으로 돌아간다 — 거기 방금 부른 봇이 늘어 있다
+            back();
           },
         }),
       ),
     );
 
-    const old = chat?.list.querySelector(".card");
-    if (old) old.replaceWith(card);
-    else chat?.list.append(card);
-    if (chat?.list) scrollInside(chat.list, card, "end");
+    /*
+     * 화면이라 **통째로 갈아끼운다.** 에이전트를 바꾸면 아래 칸들이 다 바뀌므로
+     * 어차피 다시 그리는 자리다 — 카드 시절에도 `replaceWith` 였다.
+     */
+    screens.invite.replaceChildren(
+      el(
+        "header",
+        { class: "bar" },
+        el("button", { class: "icon", title: "돌아가기", onclick: () => back() }, icon("arrow-left")),
+        el("h1", {}, icon("organization"), " 봇 부르기"),
+      ),
+      card,
+    );
   };
   paint();
+  push("invite");
 }
 
 
@@ -5957,39 +5978,17 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
   //
   // 🔴 색 점을 뺐다. 에이전트를 **칸으로 직접 고르게 된 뒤로** 색은 같은 것을
   // 한 번 더 말하는 것이 됐고, 이름이 작아 보이게만 했다.
-  const nameCell = el("span", { class: "name" });
   /*
-   * ★ **이름을 누르면 그 봇의 뷰로 간다** (v2.1 · §5).
+   * ⏪ **이름을 단추로 쓰던 것을 물렀다** (2026-09-30).
    *
-   * 🔴 v2.0 에서는 **입력창에 칩을 꽂을 뿐**이었다. 그건 «히스토리 화면이
-   * 생기기 전까지»의 임시 동작이라고 적어둔 것이고, 이제 그 화면이 생겼다.
+   * v2.1 에서 봇별 뷰를 만들면서 **이름 자체를 입구**로 삼았다. 눌러지는 티가
+   * 안 난다고 밑줄을 긋고 `›` 를 붙이며 애썼는데, 🔴 **이름은 읽는 것이지
+   * 누르는 것이 아니다** — 무엇을 꾸며도 «이름인가 단추인가» 가 남는다.
    *
-   * 멘션 삽입이 없어져도 아쉽지 않다 — **뷰 안에서 친 말은 자동으로 그 봇에게
-   * 가므로**(§5) 칩을 꽂을 이유 자체가 사라진다. 방 전체에서 지목하고 싶으면
-   * 입력창에서 `@` 를 치면 된다.
+   * 입구를 아래 «1:1로 보기» 단추로 옮겼다. 압축·내보내기와 나란히 서면
+   * «이 봇에 할 수 있는 일» 중 하나로 곧장 읽힌다.
    */
-  const nameBtn = r.participants.length > 1
-    ? el(
-        "button",
-        {
-          class: "link name-go",
-          title: `${bot.name}와(과) 주고받은 것만 봅니다`,
-          onclick: () => openBotView(bot.id),
-        },
-        bot.name,
-        /*
-         * ★ **들어갈 수 있다는 티** (v2.1).
-         *
-         * 🔴 이름이 본문색에 밑줄도 없어서 **눌러지는 티가 하나도 안 났다.**
-         * 칩을 꽂던 시절에는 «있으면 편한 것»이라 괜찮았는데, 지금은 **봇별
-         * 뷰의 유일한 입구**다 — 안 보이면 기능이 없는 것과 같다.
-         *
-         * 목록 행의 `›` 와 같은 뜻으로 읽힌다: **누르면 그 안으로 들어간다.**
-         */
-        icon("chevron-right"),
-      )
-    : el("span", { text: bot.name });
-  nameCell.append(nameBtn);
+  const nameCell = el("span", { class: "name" }, el("span", { text: bot.name }));
 
   const head = el(
     "div",
@@ -6102,6 +6101,28 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
         text: "대화 압축",
         title: "지금까지를 요약으로 바꿔 컨텍스트를 비웁니다. 이 봇만.",
         onclick: () => (closeDrawer(), post({ t: "compact", roomId: r.id, botId: bot.id })),
+      }),
+    );
+  }
+
+  /*
+   * ★ **1:1 뷰로 가는 단추 — 압축과 내보내기 사이** (2026-09-30).
+   *
+   * 🔴 여태 **봇 이름 자체가 단추**였다(`.name-go`). 이름에 밑줄을 긋고 «들어갈
+   * 수 있다는 티» 를 내려고 애썼는데, 그래도 **이름인지 단추인지 모호했다** —
+   * 이름은 읽는 것이지 누르는 것이 아니다.
+   *
+   * 여기 있는 것들과 나란히 두면 «이 봇에 할 수 있는 일» 중 하나로 읽힌다.
+   * 자리는 압축과 내보내기 사이다 — 내보내기는 **되돌릴 수 없는 것**이라 늘
+   * 맨 끝에 있어야 하고, 그 앞이 평범한 동작들의 자리다.
+   */
+  if (r.participants.length > 1) {
+    acts.push(
+      el("button", {
+        class: "ghost",
+        text: "1:1로 보기",
+        title: `${bot.name}와(과) 주고받은 것만 봅니다`,
+        onclick: () => openBotView(bot.id),
       }),
     );
   }

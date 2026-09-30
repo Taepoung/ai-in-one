@@ -86,10 +86,20 @@ function open(t, bots) {
   t.send({ t: "room", room: room(bots), compactable: false });
   return t;
 }
-/** 서랍을 열고 그 봇 이름을 눌러 뷰로 들어간다 — 실제 경로 그대로 */
+/**
+ * ⏪ **이름이 아니라 «1:1로 보기» 단추다** (2026-09-30).
+ *
+ * v2.1 은 봇 이름 자체를 입구로 썼다. 밑줄을 긋고 `›` 를 붙여도
+ * «이름인가 단추인가» 가 남아서, 압축·내보내기와 나란한 단추로 옮겼다.
+ */
+const goBtn = (t, n) =>
+  t.$$("#screen-bots .drawer-bot").map((c) =>
+    [...c.querySelectorAll("button")].find((b) => /1:1로 보기/.test(b.textContent)))[n];
+
+/** 참여자를 열고 «1:1로 보기» 를 눌러 뷰로 들어간다 — 실제 경로 그대로 */
 function enter(t, n) {
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-bots .drawer-bot .who .name-go")[n].click();
+  goBtn(t, n).click();
 }
 const texts = (t) => t.$$("#screen-chat .msg .bubble").map((n) => n.textContent);
 
@@ -123,17 +133,30 @@ console.log("\n[★ 들어갈 수 있다는 티가 난다]");
 {
   const t = open(mount());
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  const go = t.$("#screen-bots .drawer-bot .who .name-go");
+  const go = goBtn(t, 0);
 
   /*
-   * 🔴 이름이 본문색에 밑줄도 없어서 **눌러지는 티가 하나도 안 났다.** 칩을
-   * 꽂던 시절에는 «있으면 편한 것»이라 괜찮았는데, 지금은 **봇별 뷰의 유일한
-   * 입구**다 — 안 보이면 기능이 없는 것과 같다.
+   * ⏪ **`›` 표시를 뺐다** (2026-09-30).
+   *
+   * 🔴 이름이 본문색에 밑줄도 없어서 눌러지는 티가 안 나던 시절의 처방이다.
+   * 이름에 화살표를 붙여 «들어갈 수 있다» 를 말하려 했는데, 그 뒤로도
+   * «이름인가 단추인가» 가 계속 남았다. **꾸미는 대신 자리를 옮겼다** —
+   * 압축·내보내기와 나란히 서면 단추라는 게 설명 없이 읽힌다.
    */
-  ok(go.querySelector(".codicon-chevron-right") !== null,
-     "★ **들어가는 표시가 붙는다** — 목록 행의 `›` 와 같은 뜻");
-  ok(/구현/.test(go.textContent), "이름은 그대로");
+  ok(go.tagName === "BUTTON", "★ **단추다** — 이름을 꾸며서 단추처럼 보이게 하던 것을 물렀다");
+  ok(/1:1로 보기/.test(go.textContent), `★ 무엇인지 글로 말한다 (${go.textContent})`);
   ok(/주고받은 것만/.test(go.title), `★ 눌렀을 때 무엇이 되는지 (${go.title})`);
+
+  /*
+   * ★ **압축과 내보내기 사이**. 내보내기는 되돌릴 수 없는 것이라 늘 맨 끝이고,
+   * 그 앞이 평범한 동작들의 자리다.
+   */
+  const row = [...t.$$("#screen-bots .drawer-bot")[0].querySelectorAll("button")]
+    .map((b) => b.textContent).filter((x) => /압축|1:1|내보내기/.test(x));
+  console.log(`   단추 차례: ${row.join(" / ")}`);
+  const at = row.indexOf("1:1로 보기");
+  ok(at >= 0 && (row.indexOf("내보내기") < 0 || at < row.indexOf("내보내기")),
+     `★ **내보내기보다 앞에** (${row.join(" / ")})`);
 }
 
 console.log("\n[★ 그 봇이 본 것만 남는다]");
@@ -166,12 +189,12 @@ console.log("\n[★ 릴레이로 받은 말은 **양쪽 뷰에** 뜬다 (v3.0 �
   t.send({ t: "room", room: room(BOTH(), [...MSGS(), relay]), compactable: false });
 
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-bots .drawer-bot .who .name-go")[0].click();   // 구현(글쓴이)
+  goBtn(t, 0).click();   // 구현(글쓴이)
   ok(texts(t).join(" | ").includes("리뷰어야 이것 좀"), "★ 글쓴이 뷰에 뜬다");
 
   t.$("#screen-chat .bar .icon").click();
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-bots .drawer-bot .who .name-go")[1].click();   // 리뷰어(받은 쪽)
+  goBtn(t, 1).click();   // 리뷰어(받은 쪽)
   ok(texts(t).join(" | ").includes("리뷰어야 이것 좀"),
      "★ **받은 봇 뷰에도 뜬다** — 실제로 받은 말이 안 보이면 뷰가 거짓말이 된다");
 }

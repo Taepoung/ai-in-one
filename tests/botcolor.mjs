@@ -347,7 +347,8 @@ console.log("\n[★ 봇 부를 때도 색을 고른다]");
   ok(add !== undefined, "★ 서랍에 «봇 추가»가 있다");
   add.click();
 
-  const card = t.$("#screen-chat .card");
+  // ⏪ 부르기는 «화면» 이 됐다 (2026-09-30) — 대화 목록 안 카드는 스크롤에 밀렸다
+  const card = t.$("#screen-invite .card");
   ok(card !== null, "★ 부르기 카드가 떴다");
   ok(card.querySelector(".named .swatch") !== null,
      "★ **이름 칸 옆에 색 고르개** — 방 만들기와 같은 자리다");

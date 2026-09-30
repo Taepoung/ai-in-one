@@ -1997,8 +1997,7 @@ textarea.role {
  * 모양은 이미 있던 것을 따른다 — `.status .stop` 과 `.stop-bot` 이 쓰던
  * 11px 알약. 새로 지어내지 않는다.
  *
- * 이름(`.name-go`)처럼 **정말 글자여야 하는 것**은 제 규칙이 더 세서(0-3-0)
- * 그대로 남는다.
+ * 글자여야 하는 것은 제 규칙이 더 세서(0-3-0) 그대로 남는다.
  */
 button.link {
   /*
@@ -2390,6 +2389,11 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-top: 1px solid var(--line);
 }
 
+/* 이름은 이제 **읽는 것**이다 — 입구는 아래 «1:1로 보기» 단추로 옮겼다 */
+.drawer-bot .who .name {
+  font-weight: 600;
+}
+
 .drawer-bot .who {
   display: flex;
   align-items: center;
@@ -2732,38 +2736,6 @@ fieldset.bot .bot-drop {
 .tool > summary .by {
   color: var(--chat-fg);
   font-weight: 600;
-}
-
-/*
- * 이름을 **누를 수 있게** — 입력창에 멘션을 꽂아준다 (§4.2.1).
- * 줄 안에서 튀지 않게 링크 티를 죽이고 굵기만 남긴다.
- */
-.drawer-bot .who .name-go {
-  padding: 0;
-  font-weight: 600;
-  font-size: inherit;
-  color: var(--chat-fg);
-  text-decoration: none;
-}
-
-.drawer-bot .who .name-go {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-}
-
-/* 들어가는 표시 — 이름보다 작고 흐리게. 눌러보면 그때 또렷해진다 */
-.drawer-bot .who .name-go .codicon {
-  font-size: var(--fs-12);
-  opacity: 0.45;
-}
-
-.drawer-bot .who .name-go:hover {
-  text-decoration: underline;
-}
-
-.drawer-bot .who .name-go:hover .codicon {
-  opacity: 0.9;
 }
 
 /* 이름 바꾸기 연필 — 이름 옆에서 눈에 안 띄게 */
@@ -3346,4 +3318,43 @@ fieldset.bot .bot-drop {
 #screen-perm .sheet-bot:first-of-type,
 #screen-bots .drawer-bot:first-of-type {
   border-top: 1px solid var(--line);
+}
+
+/*
+ * ── 봇 부르기 화면 ──────────────────────────────────────────────────
+ *
+ * 대화 목록 안에 카드로 붙어 있었다 — **스크롤에 밀렸다.** 고르는 동안 새 말이
+ * 오면 카드가 위로 떠내려간다. 화면으로 빼면 제자리에 머문다.
+ *
+ * 카드 생김새(`.card`)는 그대로 쓴다 — 방 만들기와 같은 칸들이라 **같아 보여야**
+ * «같은 일» 로 읽힌다.
+ */
+#screen-invite {
+  overflow-y: auto;
+  padding-bottom: 24px;
+}
+
+#screen-invite > .bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-left: 4px;
+  background: var(--chat-bg);
+}
+
+#screen-invite > .bar h1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 화면 안에서는 카드가 «떠 있는 것» 이 아니다 — 테두리만 남기고 여백을 준다 */
+#screen-invite > .card {
+  margin: 12px;
+  box-shadow: none;
+}
+
+/* 화면 머리줄이 이미 말한다 — 카드 제목은 같은 말을 두 번 하는 것이다 */
+#screen-invite > .card > .card-title {
+  display: none;
 }

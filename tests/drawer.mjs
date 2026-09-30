@@ -321,8 +321,10 @@ console.log(NL + "[★ 봇 부르기 — 방 만들 때와 같은 모양]");
      "★ 봇이 하나면 내보내기를 안 보여준다");
 
   invite.click();
-  const card = t.$("#screen-chat .card");
-  ok(card !== null, "★ 드롭다운이 아니라 **카드가 뜨다**");
+  const card = t.$("#screen-invite .card");
+  ok(card !== null, "★ 드롭다운이 아니라 **제 화면이 뜬다** (2026-09-30)");
+  ok(t.$$(".screen.active").map((x) => x.id).includes("screen-invite"),
+     "★ **참여자 위에 얹힌다** — 부르고 나면 뒤로가기 하나로 참여자로 돌아온다");
   ok(card.querySelectorAll(".agent").length === 2, "에이전트를 고른다");
   ok(card.querySelector("textarea.role") !== null,
      "★ 역할도 여기서 — 모델·역할은 봇에 붙는 값이다");
@@ -330,7 +332,7 @@ console.log(NL + "[★ 봇 부르기 — 방 만들 때와 같은 모양]");
   card.querySelector("textarea.role").value = "너는 리뷰어";
   card.querySelector("textarea.role").dispatchEvent(new t.w.Event("input"));
   [...card.querySelectorAll(".agent")][1].click();
-  const after = t.$("#screen-chat .card");
+  const after = t.$("#screen-invite .card");
   [...after.querySelectorAll("button")].find((b) => b.textContent === "부르기").click();
 
   /*
@@ -350,7 +352,7 @@ console.log(NL + "[부르기 전에 **무엇을 모를지** 말해준다]");
   const t = mount();
   const d = open(t, [bot("b1", "claude")]);
   [...d.querySelectorAll("button")].find((b) => /부르기/.test(b.textContent)).click();
-  const warn = t.$("#screen-chat .card .warn-row");
+  const warn = t.$("#screen-invite .card .warn-row");
   ok(warn !== null && warn.textContent.includes("위 대화를 모릅니다"),
      "★ 화면에는 보이니 «알겠지»로 믿는다 — 그게 이 설계의 유일한 위험이다");
 }

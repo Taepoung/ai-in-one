@@ -194,8 +194,14 @@ console.log("\n[★ 봇을 누르면 그 봇의 뷰로 간다 (v2.1)]");
 {
   const t = mount();
   const d = open(t, BOTH());
-  const go = d.querySelector(".drawer-bot .name-go");
-  ok(go !== null, "★ 이름이 눌러진다");
+  /*
+   * ⏪ **이름이 아니라 단추다** (2026-09-30). v2.1 은 봇 이름 자체를 입구로
+   * 썼는데, 무엇을 꾸며도 «이름인가 단추인가» 가 남았다. 압축·내보내기와
+   * 나란한 «1:1로 보기» 로 옮겼다.
+   */
+  const go = [...d.querySelectorAll(".drawer-bot button")]
+    .find((b) => /1:1로 보기/.test(b.textContent));
+  ok(go !== undefined, "★ «1:1로 보기» 단추가 있다");
   go.click();
 
   ok(!t.$$(".screen.active").map((x) => x.id).includes("screen-bots"),
@@ -218,7 +224,7 @@ console.log("\n[1:1에서는 봇 뷰가 없다]");
 {
   const t = mount();
   const d = open(t, [bot("b1", "claude", "Claude")]);
-  ok(d.querySelector(".name-go") === null,
+  ok([...d.querySelectorAll("button")].every((b) => !/1:1로 보기/.test(b.textContent)),
      "★ 봇이 하나면 **이미 그 봇의 뷰**다 — 갈라 볼 것이 없다");
   ok(d.querySelector(".drawer-bot .who .icon.tiny") !== null,
      "★ 이름 바꾸기는 1:1에도 있다 — 나중에 봇을 부르면 그 이름으로 지목하게 된다");
