@@ -83,7 +83,7 @@ function open(t, bots, extra = {}) {
   t.$(".room").click();
   t.send({ t: "room", room: room(bots), compactable: false, ...extra });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  return t.$("#screen-chat .drawer");
+  return t.$("#screen-bots");
 }
 
 const BOTH = () => [bot("b1", "claude", "구현"), bot("b2", "codex", "리뷰어")];
@@ -198,7 +198,8 @@ console.log("\n[★ 봇을 누르면 그 봇의 뷰로 간다 (v2.1)]");
   ok(go !== null, "★ 이름이 눌러진다");
   go.click();
 
-  ok(t.$("#screen-chat .drawer") === null, "★ 들어가면 서랍은 닫힌다");
+  ok(!t.$$(".screen.active").map((x) => x.id).includes("screen-bots"),
+     "★ 들어가면 참여자 화면은 닫힌다 — 칸은 늘 있고 보이느냐는 스택이 정한다");
   // 헤더는 «방 이름 · @봇» 이다 — 방 이름이 먼저여야 «건너온 것»처럼 안 읽힌다
   ok(t.$("#screen-chat .view-head .view-of")?.textContent === "· @구현",
      `★ **그 봇의 뷰로 간다** (${t.$("#screen-chat .view-head")?.textContent.slice(0, 12)})`);

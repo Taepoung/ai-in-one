@@ -166,7 +166,7 @@ console.log("\n[★ 봇 부르기 카드에도 있다]");
 
   // 헤더 ⋮ 를 거치지 않고 카드를 직접 띄우는 길이 없으므로 참여자 서랍에서 부른다
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-chat .drawer button").find((b) => /부르기|초대|\+/.test(b.textContent)).click();
+  t.$$("#screen-bots button").find((b) => /부르기|초대|\+/.test(b.textContent)).click();
 
   const card = t.$("#screen-chat .card");
   ok(card !== null, "부르기 카드가 떴다");

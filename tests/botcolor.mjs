@@ -343,7 +343,7 @@ console.log("\n[★ 봇 부를 때도 색을 고른다]");
   const t = mount();
   open(t);
   openDrawer(t);
-  const add = [...t.$$(".drawer button")].find((b) => /봇 추가|부르기/.test(b.textContent));
+  const add = [...t.$$("#screen-bots button")].find((b) => /봇 추가|부르기/.test(b.textContent));
   ok(add !== undefined, "★ 서랍에 «봇 추가»가 있다");
   add.click();
 

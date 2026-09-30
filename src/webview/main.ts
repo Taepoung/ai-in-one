@@ -163,7 +163,7 @@ const agentById = new Map(boot.agents.map((a) => [a.id, a]));
 
 // ── 화면 전환 (F8) ──────────────────────────────────────────────────────
 
-type ScreenName = "list" | "new" | "chat" | "fix";
+type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots";
 
 /**
  * 화면 칸을 찾는다. **없으면 만든다.**
@@ -197,6 +197,17 @@ const screens: Record<ScreenName, HTMLElement> = {
    * 끝내 모른다.
    */
   fix: screenEl("screen-fix"),
+  /**
+   * ★ **권한·참여자를 시트·서랍에서 화면으로 뺀다** (2026-09-30).
+   *
+   * 둘 다 **덮개를 깔고 띄우는** 물건이었다. 그런데 안에 들어 있는 것이
+   * «잠깐만 보고 닫는 것» 이 아니다 — 봇마다 권한 모드·승인 주체·모델·
+   * 역할·색까지 들어 있어서 **세로로 길고**, 좌우로도 좀다.
+   *
+   * 화면으로 빼면 넓게 쓰고, 뒤로가기 하나로 나간다.
+   */
+  perm: screenEl("screen-perm"),
+  bots: screenEl("screen-bots"),
 };
 let stack: ScreenName[] = ["list"];
 
@@ -208,6 +219,26 @@ let stack: ScreenName[] = ["list"];
 function go(name: ScreenName): void {
   if (stack[stack.length - 1] === name) return;
   stack = name === "list" ? ["list"] : ["list", name];
+  paintScreens();
+}
+
+/**
+ * ★ **위에 얹는다 — 뒤로 가면 아래가 나온다** (2026-09-30).
+ *
+ * `go` 는 늘 `["list", 이름]` 으로 **갈아끼운다.** 화면이 셋뿐일 때는 그걸로
+ * 됐다 — 목록에서 방으로, 방에서 목록으로.
+ *
+ * 🔴 **권한·참여자를 화면으로 빼면서 어긋났다.** 채팅에서 권한을 열고 닫으면
+ * 채팅으로 돌아와야 하는데, `go("perm")` 은 스택에서 채팅을 **지워버린다** —
+ * 뒤로가기가 목록으로 가고, 돌아올 때도 «앞으로 가는» 것처럼 미끄러진다.
+ *
+ * 얹으면 `["list", "chat", "perm"]` 이 되고, `back()` 하나로 채팅이 제자리에
+ * 돌아온다(`.behind` 였다가 `.active` 로). 애니메이션도 뒤로 가는 모양이 된다.
+ */
+function push(name: ScreenName): void {
+  if (stack[stack.length - 1] === name) return;
+  // 같은 화면이 스택에 둘이면 «뒤로» 가 어디로 갈지 모호해진다
+  stack = [...stack.filter((s) => s !== name), name];
   paintScreens();
 }
 
@@ -1348,7 +1379,16 @@ function leaveChat(): void {
   post({ t: "back" });
   room = null;
   chat = null;
-  back();
+  /*
+   * ★ **딸린 화면들을 비운다** (2026-09-30).
+   *
+   * 권한·참여자·모델고르기는 **그 방의 것**이다. 화면으로 빼면서 내용이
+   * 스택 밖에 남게 됐는데, 안 비우면 다음 방에서 열었을 때 **앞 방의 봇
+   * 이름이 한 순간 스친다** — 다시 그리기 전까지.
+   */
+  for (const s of [screens.perm, screens.bots, screens.fix]) s.replaceChildren();
+  stack = ["list"];
+  paintScreens();
 }
 
 /* ── 모델이 없어졌다 — 고르기 전에는 못 쓴다 ─────────────────────────── */
@@ -1524,8 +1564,8 @@ function renderChat(): void {
      * 같이 날아간다.** 하필 그 순간이 «서랍에서 봇을 부른 직후»라,
      * 부르자마자 보던 화면이 사라지게 된다. 되살려둔다.
      */
-    const wasDrawer = screens.chat.querySelector(".drawer") !== null;
-    const wasSheet = screens.chat.querySelector(".sheet") !== null;
+    const wasDrawer = screens.bots.firstElementChild !== null;
+    const wasSheet = screens.perm.firstElementChild !== null;
     mountChat(r);
     paintChat(r);
     if (wasDrawer) paintDrawer(r);
@@ -2592,7 +2632,7 @@ function paintChat(r: Room): void {
   }
   // 서랍이 열려 있으면 **같이 갱신된다** — 사용량과 작업 중 표시가
   // 멈춰 있으면 서랍을 보는 동안에는 아무 일도 안 일어나는 것처럼 보인다.
-  if (screens.chat.querySelector(".drawer")) paintDrawer(r);
+  if (screens.bots.firstElementChild) paintDrawer(r);
   /*
    * ★ **권한 시트도 같이 갱신된다.**
    *
@@ -2601,7 +2641,7 @@ function paintChat(r: Room): void {
    * 있는 것도 같은 이유다. 시트는 «지금 방에 누가 있나»를 보여주는 곳이므로
    * 방이 바뀌면 따라가야 한다.
    */
-  if (screens.chat.querySelector(".sheet")) paintPermissionSheet(r);
+  if (screens.perm.firstElementChild) paintPermissionSheet(r);
 
   const atBottom = stick;
   const nodes: Node[] = [];
@@ -4584,17 +4624,14 @@ function paintApprovals(r: Room): void {
  * `⋮` 안에 숨기지 않는다.
  */
 function togglePermissionSheet(r: Room): void {
-  if (screens.chat.querySelector(".sheet")) {
-    closeSheet();
-    return;
-  }
+  if (stack[stack.length - 1] === "perm") { back(); return; }
   paintPermissionSheet(r);
+  push("perm");
 }
 
-/** 시트와 덮개를 함께 걱는다 — 하나만 남으면 화면이 먹힌다 */
+/** 화면이므로 **돌아가기만** 하면 된다 — 그린 것은 남겨둔다(다시 열 때 깜빡임 없게) */
 function closeSheet(): void {
-  screens.chat.querySelector(".sheet-veil")?.remove();
-  screens.chat.querySelector(".sheet")?.remove();
+  if (stack[stack.length - 1] === "perm") back();
 }
 
 /**
@@ -4613,43 +4650,30 @@ function paintPermissionSheet(r: Room): void {
     }
   }
 
-  const sheet = el(
-    "div",
-    // 열 때만 밀려 올라온다 — 갱신 때는 `.opening` 을 뗀다 (`paintPermissionSheet` 끝)
-    { class: "sheet opening" },
+  /*
+   * ★ **화면이라 제자리에 갈아끼운다** (2026-09-30).
+   *
+   * 🔴 시트일 때는 «덮개를 깔고 올리기» 와 «갈아끼우기» 를 갈라야 했다 —
+   * 갱신마다 다시 올라오면 보는 중에 화면이 계속 새로 나타났기 때문이다.
+   * 화면이 되면서 그 갈래가 통째로 없어졌다. 뜨고 지는 것은 스택이 한다.
+   *
+   * **스크롤은 지킨다.** 설정이 늦게 와서 다시 그릴 때마다 맨 위로 튀면
+   * 읽던 자리를 잃는다 — 시트 시절에 겪은 그대로다.
+   */
+  const host = screens.perm;
+  const keep = host.scrollTop;
+  host.replaceChildren(
     el(
-      "div",
-      { class: "sheet-bar" },
-      el("span", {}, icon("shield"), " 권한 설정"),
-      el(
-        "button",
-        { class: "icon", title: "닫기", onclick: () => closeSheet() },
-        icon("close"),
-      ),
+      "header",
+      { class: "bar" },
+      el("button", { class: "icon", title: "돌아가기", onclick: () => closeSheet() }, icon("back")),
+      el("h1", {}, icon("shield"), " 권한 설정"),
     ),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
-    sharedMemoryRow(r),
+    // `replaceChildren` 는 `el()` 과 달리 `null` 을 안 걸러준다
+    ...[sharedMemoryRow(r)].filter((n): n is HTMLElement => n !== null),
   );
-  const was = screens.chat.querySelector(".sheet");
-  if (was) {
-    // 서랍과 같은 이유 — 갱신은 갈아끼우기라 매번 다시 올라왔다
-    sheet.classList.remove("opening");
-    const top = was.scrollTop;
-    was.replaceWith(sheet);
-    sheet.scrollTop = top;
-  } else {
-    /*
-     * ★ **덮개를 깔고 올린다** — 서랍과 같은 이유다.
-     *
-     * 시트 배경은 테마에 따라 대화 배경과 거의 같은 색이 된다. 그러면
-     * 시트인지 대화인지 경계가 안 보여 **위에 떠 있다는 것자체가 안 읽힌다.**
-     * 그림자만으로는 부족했다 — 뒤를 깔아야 앞이 떠오른다.
-     */
-    screens.chat.append(
-      el("div", { class: "sheet-veil", onclick: () => closeSheet() }),
-      sheet,
-    );
-  }
+  host.scrollTop = keep;
 }
 
 /** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
@@ -4941,7 +4965,7 @@ function showRoomInfo(r: Room): void {
       { class: "card-actions" },
       el("button", { text: "닫기", onclick: () => closeModal() }),
       // 봇에 대한 것을 찾아 여기까지 온 사람을 **되돌려 보내지 않는다**
-      el("button", { text: "참여자 보기", onclick: () => (closeModal(), paintDrawer(r)) }),
+      el("button", { text: "참여자 보기", onclick: () => (closeModal(), paintDrawer(r), push("bots")) }),
     ),
   );
 
@@ -5484,17 +5508,14 @@ function forkInfoRows(r: Room): Kids {
  * 둘은 같은 시트를 연다 — 구현이 하나라 어긋날 수가 없다.
  */
 function toggleDrawer(r: Room): void {
-  const open = screens.chat.querySelector(".drawer");
-  if (open) {
-    closeDrawer();
-    return;
-  }
+  if (stack[stack.length - 1] === "bots") { back(); return; }
   paintDrawer(r);
+  push("bots");
 }
 
+/** 권한 화면과 같다 — 돌아가기만 한다 */
 function closeDrawer(): void {
-  screens.chat.querySelector(".drawer-veil")?.remove();
-  screens.chat.querySelector(".drawer")?.remove();
+  if (stack[stack.length - 1] === "bots") back();
 }
 
 /**
@@ -5512,7 +5533,8 @@ function paintDrawer(r: Room): void {
     }
   }
 
-  const was = screens.chat.querySelector(".drawer");
+  // 화면이 된 뒤로 «떠 있나» 가 아니라 «이미 그려 뒀나» 를 본다
+  const was = screens.bots.firstElementChild ? screens.bots : null;
 
   /*
    * 🔴 **글을 쓰는 중이면 건드리지 않는다.**
@@ -5535,36 +5557,30 @@ function paintDrawer(r: Room): void {
     && (focus as HTMLInputElement).type !== "color";
   if (was && focus && was.contains(focus) && typing) return;
 
-  const veil = el("div", { class: "drawer-veil", onclick: () => closeDrawer() });
-  const drawer = el(
-    "div",
-    /*
-     * ★ **열 때만 밀려 들어온다.**
-     *
-     * 🔴 `animation` 이 `.drawer` 에 붙어 있었다. 그런데 갱신은 **새 엘리먼트로
-     * 갈아끼우는** 것이라, 상태가 한 번 바뀔 때마다 **서랍이 오른쪽에서 다시
-     * 슬라이드됐다.** 보고 있는 중에 화면이 계속 새로 나타나는 꼴이다.
-     */
-    { class: was ? "drawer" : "drawer opening" },
+  /*
+   * ★ **화면이라 «열 때만 밀려 들어온다» 가 없어졌다** (2026-09-30).
+   *
+   * 🔴 서랍일 때는 `animation` 이 `.drawer` 에 붙어 있어서, 갱신마다 새
+   * 엘리먼트로 갈아끼우느라 **상태가 한 번 바뀔 때마다 오른쪽에서 다시
+   * 슬라이드됐다.** 보고 있는 중에 화면이 계속 새로 나타나는 꼴이었다.
+   * `.opening` 을 붙였다 뗐다 하며 피해 다녔는데, 화면이 되면서 **그 문제
+   * 자체가 없어졌다** — 뜨고 지는 것은 스택이 한다.
+   *
+   * 스크롤은 여전히 지킨다. 설정이 늦게 와서 다시 그릴 때마다 맨 위로
+   * 튀면 보던 자리를 잃는다.
+   */
+  const keep = screens.bots.scrollTop;
+  screens.bots.replaceChildren(
     el(
-      "div",
-      { class: "sheet-bar" },
-      el("span", {}, icon("organization"), ` 참여자 ${r.participants.length}`),
-      el("button", { class: "icon", title: "닫기", onclick: () => closeDrawer() }, icon("close")),
+      "header",
+      { class: "bar" },
+      el("button", { class: "icon", title: "돌아가기", onclick: () => closeDrawer() }, icon("back")),
+      el("h1", {}, icon("organization"), ` 참여자 ${r.participants.length}`),
     ),
     ...r.participants.map((bot) => drawerBot(r, bot)),
-    sharedMemoryRow(r),
-    inviteRow(r),
+    ...[sharedMemoryRow(r), inviteRow(r)].filter((n): n is HTMLElement => n !== null),
   );
-
-  if (was) {
-    // 갈아끼우면 스크롤이 맨 위로 돌아간다 — 보던 자리를 지킨다
-    const top = was.scrollTop;
-    was.replaceWith(drawer);
-    drawer.scrollTop = top;
-  } else {
-    screens.chat.append(veil, drawer);
-  }
+  screens.bots.scrollTop = keep;
 }
 
 /**
@@ -6413,11 +6429,11 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (!m.roomId && stack[stack.length - 1] === "new") renderNew(m.error);
       // 서랍도 마찬가지다 — 열어둔 뒤에 온 설정이 갈 곳이 없으면
       // 모델 칸이 영영 비어 있거나 낡은 값을 보여준다
-      if (room && m.roomId === room.id && screens.chat.querySelector(".drawer")) {
+      if (room && m.roomId === room.id && screens.bots.firstElementChild) {
         paintDrawer(room);
       }
       // 열려 있는 권한 시트는 **늦게 온 설정을 받아 다시 그린다**
-      if (room && m.roomId === room.id && screens.chat.querySelector(".sheet")) {
+      if (room && m.roomId === room.id && screens.perm.firstElementChild) {
         paintPermissionSheet(room);
       }
       /*

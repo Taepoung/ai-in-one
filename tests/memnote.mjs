@@ -71,7 +71,7 @@ function openInfo(t, bots) {
   t.$(".room").click();
   t.send({ t: "room", room: room(bots), compactable: false });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  return t.$("#screen-chat .drawer");
+  return t.$("#screen-bots");
 }
 
 const SAYS = "기억은 봇마다 나뉘지 않습니다";
@@ -110,7 +110,7 @@ console.log("\n[권한 설정 — 봇이 나란히 보이는 자리에도]");
   const perm = t.$("#screen-chat .perm");
   ok(perm !== null, "입력창 옆에 권한 버튼이 있다");
   perm.click();
-  const sheet = t.$("#screen-chat .sheet");
+  const sheet = t.$("#screen-perm");
   ok(sheet.querySelectorAll(".sheet-bot").length === 2, "봇 둘이 나란히 보인다");
   ok(sheet.textContent.includes(SAYS),
      "★ 봇마다 설정을 나누는 화면이라 «기억도 나뉘겠지»로 읽기 쉽다 — 여기서 짚는다");
@@ -127,7 +127,7 @@ console.log("\n[1:1 권한 설정 — 여기서도 조용하다]");
   // 이 방엔 b1(claude) 하나뿐이다 — 설정은 봇 단위다
   t.send({ t: "config", agentId: "claude", roomId: "r1", botId: "b1", options: MODE });
   t.$("#screen-chat .perm").click();
-  ok(!t.$("#screen-chat .sheet").textContent.includes(SAYS), "★ 봇이 하나면 시트에도 없다");
+  ok(!t.$("#screen-perm").textContent.includes(SAYS), "★ 봇이 하나면 시트에도 없다");
 }
 
 console.log(String.fromCharCode(10) + "[★ 권한 세 칸은 가로로 누운다]");
@@ -137,7 +137,7 @@ console.log(String.fromCharCode(10) + "[★ 권한 세 칸은 가로로 누운�
   t.send({ t: "room", room: room([bot("b1", "claude"), bot("b2", "codex")]), compactable: false });
   t.$("#screen-chat .perm").click();
 
-  const blocks = t.$$("#screen-chat .sheet-bot");
+  const blocks = t.$$("#screen-perm .sheet-bot");
   ok(blocks.length === 2, "봇 둘");
   for (const b of blocks) {
     const row = b.querySelector(".policy");
@@ -159,22 +159,28 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
   t.$(".room").click();
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
   t.$("#screen-chat .perm").click();
-  ok(t.$$("#screen-chat .sheet-bot").length === 1, "열 때는 하나");
+  ok(t.$$("#screen-perm .sheet-bot").length === 1, "열 때는 하나");
 
   // 시트를 열어둔 채 봇을 부른다
   t.send({ t: "room", room: room([bot("b1", "claude"), bot("b2", "codex")]), compactable: false });
-  ok(t.$$("#screen-chat .sheet-bot").length === 2,
+  ok(t.$$("#screen-perm .sheet-bot").length === 2,
      "★ **새 봇이 바로 들어온다** — 열던 순간으로 멈춰 있으면 그 봇 권한을 못 정한다");
 
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
-  ok(t.$$("#screen-chat .sheet-bot").length === 1,
+  ok(t.$$("#screen-perm .sheet-bot").length === 1,
      "★ 내보낸 봇도 바로 빠진다");
 
-  ok(t.$("#screen-chat .sheet-veil") !== null,
-     "★ 덮개가 깔려 있다 — 시트 배경은 테마에 따라 대화와 거의 같은 색이 된다");
-  t.$("#screen-chat .sheet-veil").click();
-  ok(t.$("#screen-chat .sheet") === null && t.$("#screen-chat .sheet-veil") === null,
-     "★ 덮개를 누르면 둘 다 걱힌다 — 하나만 남으면 화면이 먹힌다");
+  /*
+   * ⏪ **덮개가 없어졌다** (2026-09-30) — 권한이 «화면»이 되면서다.
+   *
+   * 덮개는 시트 배경이 대화와 거의 같은 색이 되는 것을 가리려던 물건이었다.
+   * 화면은 뒤가 안 비치므로 가릴 것이 없다.
+   */
+  const outBtn = t.$("#screen-perm .bar button");
+  ok(outBtn !== null, "★ 머리줄에 돌아가기가 있다");
+  outBtn.click();
+  ok(t.$$(".screen.active").map((x) => x.id).includes("screen-chat"),
+     "★ **누르면 채팅으로 돌아온다** — 목록이 아니라 보던 방으로");
 }
 
 console.log("\n전부 통과");

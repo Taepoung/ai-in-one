@@ -493,7 +493,7 @@ function main() {
 
 
     ok(t.$(".session-id").textContent === "s-abc-123", "**세션 id가 그대로 보인다**");
-    ok(!t.$(".drawer").textContent.includes("복구 대상이 아닙니다"),
+    ok(!t.$("#screen-bots").textContent.includes("복구 대상이 아닙니다"),
        "써본 세션에는 군더더기를 안 붙인다");
 
     let copied = "";
@@ -510,7 +510,7 @@ function main() {
     t.send({ t: "room", compactable: false, room: { ...room(), participants: [bot] } });
     t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
 
-    ok(t.$(".drawer").textContent.includes("복구 대상이 아닙니다"),
+    ok(t.$("#screen-bots").textContent.includes("복구 대상이 아닙니다"),
        "**왜 복구가 안 되는지**를 여기서 알 수 있다");
   }
 
@@ -623,13 +623,19 @@ function main() {
 
     ok(t.$(".composer .perm") !== null, "입력창 옆에 권한 버튼");
     ok(t.$(".composer .auto") === null, "자율 모드 버튼은 없어졌다");
-    ok(t.$(".sheet") === null, "처음엔 닫혀 있다");
+    /*
+   * ⏪ 권한이 **화면**이 되면서(2026-09-30) «엘리먼트가 있나» 로는 못 잰다 —
+   * 칸은 늘 있다. 보이느냐는 스택이, 그려졌느냐는 자식이 말한다.
+   */
+    ok(t.$("#screen-perm").firstElementChild === null, "처음엔 안 그려져 있다");
 
     t.$(".composer .perm").click();
-    const sheet = t.$(".sheet");
-    ok(sheet !== null, "**누르면 올라온다**");
+    const sheet = t.$("#screen-perm");
+    ok(sheet.firstElementChild !== null, "**누르면 그려진다**");
+    ok(t.$$(".screen.active").map((x) => x.id).includes("screen-perm"),
+       "**그리고 그 화면으로 간다**");
 
-    const labels = t.$$(".sheet .field > label").map((l) => l.textContent);
+    const labels = t.$$("#screen-perm .field > label").map((l) => l.textContent);
     ok(labels.join(",") === "권한 모드,승인 주체,질문",
        `**봇 : 권한 모드 : 승인 주체** (${labels.join(",")})`);
     ok(sheet.querySelector(".who").textContent.includes("Claude"), "봇 이름이 머리에");
@@ -646,15 +652,16 @@ function main() {
     const sent = t.sent.find((m) => m.t === "setConfig");
     ok(sent.configId === "mode" && sent.value === "acceptEdits", "**바로 세션에 적용된다**");
 
-    t.$(".sheet .sheet-bar .icon").click();
-    ok(t.$(".sheet") === null, "닫힌다");
+    t.$("#screen-perm .bar .icon").click();
+    ok(t.$$(".screen.active").map((x) => x.id).includes("screen-chat"),
+       "**돌아가면 보던 방으로** — 목록이 아니다");
   }
 
   console.log("\n[승인 주체 · 질문도 같은 자리에서]");
   {
     const t = enter(mount(boot([meta()])));
     t.$(".composer .perm").click();
-    const selects = t.$$(".sheet select");
+    const selects = t.$$("#screen-perm select");
 
     // 방에 다른 봇이 없으면 사용자뿐
     const who = selects[0];
@@ -744,7 +751,7 @@ function main() {
       ]},
     ]});
     t.$(".composer .perm").click();
-    ok(t.$$(".sheet select")[0].value === "plan", "이 방은 계획 모드");
+    ok(t.$$("#screen-perm select")[0].value === "plan", "이 방은 계획 모드");
 
     // 다른 방의 값이 와도 이 방 시트는 안 바뀐다
     t.send({ t: "config", agentId: "claude", roomId: "r2", botId: "b1", options: [
@@ -752,7 +759,7 @@ function main() {
         { id: "default", name: "Manual" }, { id: "plan", name: "Plan" },
       ]},
     ]});
-    ok(t.$$(".sheet select")[0].value === "plan",
+    ok(t.$$("#screen-perm select")[0].value === "plan",
        "**다른 방 값이 흘러들지 않는다** — 예전엔 캐시가 하나라 섞였다");
   }
 
@@ -762,8 +769,8 @@ function main() {
     const t = enter(mount(boot([meta()])));
 
     t.$(".composer .perm").click();
-    ok(t.$(".sheet") !== null, "설정이 없어도 시트는 열린다");
-    ok(t.$(".sheet .dim").textContent.includes("불러오는 중"),
+    ok(t.$("#screen-perm") !== null, "설정이 없어도 시트는 열린다");
+    ok(t.$("#screen-perm .dim").textContent.includes("불러오는 중"),
        "«없다»가 아니라 «불러오는 중»이라고 한다");
     ok(t.sent.filter((m) => m.t === "needConfig" && m.agentId === "claude").length > 0,
        "**열어 보는 것 자체가 요청이다**");
@@ -774,9 +781,9 @@ function main() {
       ]},
     ]});
 
-    const labels = t.$$(".sheet .field > label").map((l) => l.textContent);
+    const labels = t.$$("#screen-perm .field > label").map((l) => l.textContent);
     ok(labels.includes("권한 모드"), `**늦게 온 설정이 시트에 들어간다** (${labels.join(",")})`);
-    ok(t.$(".sheet") !== null, "다시 그려도 시트는 열린 채로");
+    ok(t.$("#screen-perm") !== null, "다시 그려도 시트는 열린 채로");
   }
 
   console.log("\n[설정을 못 불러온 것과 모드가 없는 것은 다른 화면이다]");
@@ -784,22 +791,22 @@ function main() {
     const t = enter(mount(boot([meta()])));
     t.send({ t: "config", agentId: "claude", roomId: "r1", botId: "b1", options: [], error: "claude를 찾을 수 없습니다" });
     t.$(".composer .perm").click();
-    ok(t.$(".sheet .warn").textContent.includes("찾을 수 없습니다"),
+    ok(t.$("#screen-perm .warn").textContent.includes("찾을 수 없습니다"),
        "**고칠 수 있는 문제라고 말해 준다**");
 
     const before = t.sent.filter((m) => m.t === "needConfig").length;
-    t.$(".sheet button.link").click();
+    t.$("#screen-perm button.link").click();
     ok(t.sent.filter((m) => m.t === "needConfig").length > before,
        "**다시 시도가 있다** — 깔고 나서 방을 닫았다 열게 하지 않는다");
-    ok(t.$(".sheet .dim").textContent.includes("불러오는 중"), "누르면 다시 불러온다");
+    ok(t.$("#screen-perm .dim").textContent.includes("불러오는 중"), "누르면 다시 불러온다");
 
     const u = enter(mount(boot([meta()])));
     u.send({ t: "config", agentId: "claude", roomId: "r1", botId: "b1", options: [
       { configId: "model", name: "Model", category: "model", current: "a", values: [{ id: "a", name: "A" }] },
     ]});
     u.$(".composer .perm").click();
-    ok(u.$(".sheet .warn") === null, "설정은 왔는데 mode만 없으면 경고가 아니다");
-    ok(u.$(".sheet .dim").textContent.includes("알려주지 않습니다"), "그냥 없다고 한다");
+    ok(u.$("#screen-perm .warn") === null, "설정은 왔는데 mode만 없으면 경고가 아니다");
+    ok(u.$("#screen-perm .dim").textContent.includes("알려주지 않습니다"), "그냥 없다고 한다");
   }
 
   console.log("\n[방 만들기에는 권한이 없다 — 방 안에서 바꾼다]");

@@ -76,7 +76,7 @@ function open(t, bots, extra = {}) {
   t.$(".room").click();
   t.send({ t: "room", room: room(bots), compactable: false, ...extra });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  return t.$("#screen-chat .drawer");
+  return t.$("#screen-bots");
 }
 
 /** 말풍선을 우클릭하고 메뉴를 돌려준다 */
@@ -98,7 +98,17 @@ console.log("\n[1:1에도 서랍이 있다]");
   ok(d.querySelectorAll(".drawer-bot").length === 1, "봇 줄 하나");
   ok(!d.textContent.includes("/ws/proj"),
      "★ 방에 대한 것은 안 쌓는다 — 보러 온 봇이 아래로 밀리면 안 된다 (방 정보로)");
-  ok(t.$(".drawer-veil") !== null, "덮개를 눌러 닫는다");
+  /*
+   * ⏪ **덮개가 없어졌다** (2026-09-30) — 서랍이 «화면»이 되면서다.
+   *
+   * 덮개는 «뒤를 깔아야 앞이 떠오른다» 는 물건이었다. 화면은 뒤에 아무것도
+   * 안 비치므로 깔 것이 없다. 닫는 길은 머리줄의 뒤로가기다.
+   */
+  const outBtn = t.$("#screen-bots .bar button");
+  ok(outBtn !== null, "★ 머리줄에 돌아가기가 있다");
+  outBtn.click();
+  ok(t.$$(".screen.active").map((x) => x.id).includes("screen-chat"),
+     "★ **누르면 채팅으로 돌아온다** — 목록이 아니라 보던 방으로");
 }
 
 console.log("\n[컨텍스트 사용량은 **봇 이름 옆**에]");
@@ -323,10 +333,15 @@ console.log(NL + "[★ 봇 부르기 — 방 만들 때와 같은 모양]");
   const after = t.$("#screen-chat .card");
   [...after.querySelectorAll("button")].find((b) => b.textContent === "부르기").click();
 
-  const m = t.sent.at(-1);
-  ok(m.t === "addBot" && m.agentId === "codex",
+  /*
+   * 🔴 `at(-1)` 로 집다가 깨졌다 (2026-09-30). 서랍이 화면이 된 뒤로 부른 다음
+   * **설정을 다시 묻는 줄**(`needConfig`)이 뒤에 붙는다. 마지막이 아니라
+   * **찾는 것**으로 집는다 — 순서에 기대면 옆에서 한 줄만 더 보내도 깨진다.
+   */
+  const m = t.sent.find((x) => x.t === "addBot");
+  ok(m?.t === "addBot" && m.agentId === "codex",
      `★ 고른 에이전트로 부른다 (${JSON.stringify(m)})`);
-  ok(m.rolePrompt === "너는 리뷰어",
+  ok(m?.rolePrompt === "너는 리뷰어",
      "★ 역할도 같이 간다 — 부른 뒤에 따로 찾아가게 하지 않는다");
 }
 
@@ -439,11 +454,21 @@ console.log("\n[★ 갱신될 때 서랍이 다시 나타나지 않는다]");
 {
   const t = mount();
   const d = open(t, [bot("b1", "claude"), bot("b2", "codex")]);
-  ok(d.classList.contains("opening"), "★ 열 때는 밀려 들어온다");
+  /*
+   * ⏪ **`.opening` 이 없어졌다** (2026-09-30).
+   *
+   * 서랍일 때는 «열 때만 밀려 들어오고 갱신 때는 가만히» 를 클래스로 갈랐다 —
+   * 갱신이 새 엘리먼트로 갈아끼우는 것이라 매번 다시 슬라이드됐기 때문이다.
+   * 화면이 되면서 **그 문제 자체가 없어졌다.** 뜨고 지는 것은 스택이 한다.
+   *
+   * 아래 «갱신돼도 다시 안 나타난다» 는 그대로 잰다 — 뜻은 안 바뀌었다.
+   */
+  ok(t.$$(".screen.active").map((x) => x.id).includes("screen-bots"),
+     "★ 참여자 화면이 떴다");
 
   // 상태가 오면 서랍도 같이 갱신된다 (사용량·작업 중 표시가 멈추면 안 되므로)
   t.send({ t: "status", roomId: "r1", status: "streaming", bots: { b1: "streaming" } });
-  const now = t.$("#screen-chat .drawer");
+  const now = t.$("#screen-bots");
   ok(now !== null, "서랍은 그대로 열려 있고");
   ok(!now.classList.contains("opening"),
      "★ **다시 슬라이드되지 않는다** — 갱신은 갈아끼우기라 애니메이션이 매번 다시 돌았다");
@@ -455,7 +480,7 @@ console.log("\n[★ 갱신돼도 보던 자리를 지킨다]");
   const d = open(t, [bot("b1", "claude"), bot("b2", "codex")]);
   d.scrollTop = 40;
   t.send({ t: "status", roomId: "r1", status: "streaming", bots: { b1: "streaming" } });
-  ok(t.$("#screen-chat .drawer").scrollTop === 40,
+  ok(t.$("#screen-bots").scrollTop === 40,
      "★ 갈아끼우면 맨 위로 돌아간다 — 보던 자리를 옮긴다");
 }
 
@@ -470,9 +495,9 @@ console.log("\n[★ 글을 쓰는 중이면 안 건드린다]");
   box.focus();
 
   t.send({ t: "status", roomId: "r1", status: "streaming", bots: { b1: "streaming" } });
-  ok(t.$("#screen-chat .role-edit textarea") === box,
+  ok(t.$("#screen-bots .role-edit textarea") === box,
      "★ **같은 엘리먼트 그대로다** — 갈아끼우면 쓰던 글과 캐럿이 날아간다");
-  ok(t.$("#screen-chat .role-edit textarea").value === "리뷰만 해", "쓰던 글도 그대로");
+  ok(t.$("#screen-bots .role-edit textarea").value === "리뷰만 해", "쓰던 글도 그대로");
 }
 
 console.log("\n[★ 이름을 고치는 중에도 마찬가지]");

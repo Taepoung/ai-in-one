@@ -100,7 +100,7 @@ function drawer(t, bots = [bot("b1", "claude", "구현")], { status, config, con
   for (const c of configs ?? []) send(c);
   if (status) t.send({ t: "status", roomId: "r1", status: "streaming", bots: status });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  return t.$("#screen-chat .drawer");
+  return t.$("#screen-bots");
 }
 const fields = (d) => [...d.querySelectorAll(".drawer-bot .field label")].map((e) => e.textContent);
 const pickAgent = (t, id) => {
@@ -133,7 +133,7 @@ console.log("\n[★ 고르면 그 자리에서 «무엇을 잃나»가 펴진다
   const ask = t.$(".swap-ask");
   ok(ask !== null, "★ 고르면 나타난다");
   ok(t.$("#screen-chat .modal") === null, "★ **모달이 아니다**");
-  ok(t.$("#screen-chat .drawer") !== null,
+  ok(t.$("#screen-bots") !== null,
      "★ **서랍이 그대로 열려 있다** — 여기가 이 봇에 대한 것이 다 모이는 자리다");
 
   const gone = ask.querySelector(".swap-what .gone").textContent;

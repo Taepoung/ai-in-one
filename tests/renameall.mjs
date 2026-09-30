@@ -195,7 +195,7 @@ console.log("\n[★ 권한 설정 시트도 — **열 때** 지금 방을 본다
    * 그래서 더 찾기 어려웠다.
    */
   t.$("#screen-chat .composer .perm").click();
-  const sheet = t.$("#screen-chat .sheet").textContent;
+  const sheet = t.$("#screen-perm").textContent;
   ok(!sheet.includes("구현"), `★ **옛 이름이 안 남는다** (${sheet.slice(0, 40)}…)`);
   ok(sheet.includes("설계자"), "★ 지금 방을 본다");
 }

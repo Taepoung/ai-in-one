@@ -89,7 +89,7 @@ function open(t, bots) {
 /** 서랍을 열고 그 봇 이름을 눌러 뷰로 들어간다 — 실제 경로 그대로 */
 function enter(t, n) {
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-chat .drawer .drawer-bot .who .name-go")[n].click();
+  t.$$("#screen-bots .drawer-bot .who .name-go")[n].click();
 }
 const texts = (t) => t.$$("#screen-chat .msg .bubble").map((n) => n.textContent);
 
@@ -111,14 +111,19 @@ console.log("\n[★ 서랍에서 이름을 누르면 그 봇의 뷰로 간다]")
   ok(head.querySelector(".view-of")?.textContent === "· @구현",
      `★ 그 옆에 누구 갈래인지 (${head.querySelector(".view-of")?.textContent})`);
   ok(/1:1 뷰/.test(head.textContent), "★ 부제가 «뷰»임을 말한다 (§5)");
-  ok(t.$("#screen-chat .drawer") === null, "★ 서랍은 닫힌다");
+  /*
+   * ⏪ 서랍이 **화면**이 되면서(2026-09-30) «엘리먼트가 있나» 로는 못 잰다 —
+   * 칸은 늘 있고, 보이느냐는 스택이 정한다.
+   */
+  ok(!t.$$(".screen.active").map((x) => x.id).includes("screen-bots"),
+     "★ 참여자 화면은 닫힌다 — 봇 뷰로 들어가면 거기 머물 이유가 없다");
 }
 
 console.log("\n[★ 들어갈 수 있다는 티가 난다]");
 {
   const t = open(mount());
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  const go = t.$("#screen-chat .drawer .drawer-bot .who .name-go");
+  const go = t.$("#screen-bots .drawer-bot .who .name-go");
 
   /*
    * 🔴 이름이 본문색에 밑줄도 없어서 **눌러지는 티가 하나도 안 났다.** 칩을
@@ -161,12 +166,12 @@ console.log("\n[★ 릴레이로 받은 말은 **양쪽 뷰에** 뜬다 (v3.0 �
   t.send({ t: "room", room: room(BOTH(), [...MSGS(), relay]), compactable: false });
 
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-chat .drawer .drawer-bot .who .name-go")[0].click();   // 구현(글쓴이)
+  t.$$("#screen-bots .drawer-bot .who .name-go")[0].click();   // 구현(글쓴이)
   ok(texts(t).join(" | ").includes("리뷰어야 이것 좀"), "★ 글쓴이 뷰에 뜬다");
 
   t.$("#screen-chat .bar .icon").click();
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
-  t.$$("#screen-chat .drawer .drawer-bot .who .name-go")[1].click();   // 리뷰어(받은 쪽)
+  t.$$("#screen-bots .drawer-bot .who .name-go")[1].click();   // 리뷰어(받은 쪽)
   ok(texts(t).join(" | ").includes("리뷰어야 이것 좀"),
      "★ **받은 봇 뷰에도 뜬다** — 실제로 받은 말이 안 보이면 뷰가 거짓말이 된다");
 }

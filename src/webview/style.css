@@ -2165,40 +2165,6 @@ details.advanced[open] > summary .codicon-chevron-right {
   opacity: 0.75;
 }
 
-/* ── 권한 설정 시트 (D2) — 입력창 위로 올라온다 ───────────────────────── */
-
-.sheet {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 20;
-  max-height: 70%;
-  overflow-y: auto;
-  padding: 0 12px 12px;
-  border-top: 1px solid var(--line);
-  border-radius: 10px 10px 0 0;
-  background: var(--vscode-menu-background, var(--bubble-bot-bg));
-  box-shadow: 0 -6px 20px rgb(0 0 0 / 0.28);
-  /* 올라오는 것도 **열 때만** — `.opening` 참조 */
-}
-
-.sheet.opening {
-  animation: sheet-up 0.2s cubic-bezier(0.22, 0.8, 0.24, 1);
-}
-
-@keyframes sheet-up {
-  from {
-    transform: translateY(100%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sheet {
-    animation: none;
-  }
-}
-
 .sheet-bar {
   position: sticky;
   top: 0;
@@ -2233,7 +2199,7 @@ details.advanced[open] > summary .codicon-chevron-right {
  * 봇마다 설정을 나누는 화면 끝에 «그래도 기억은 안 나뉘다»를 붙인다.
  * 위의 블록들과 붙어 있으면 봇 하나의 설정처럼 읽힌다 — 선을 두고 떨어뜨린다.
  */
-.sheet > .warn-row {
+#screen-perm > .warn-row {
   margin-top: 10px;
   padding-top: 8px;
 }
@@ -2372,13 +2338,6 @@ details.advanced[open] > summary .codicon-chevron-right {
  * 단일 컬럼이라 상시 패널을 둘 폭이 없다. 권한 시트가 아래에서 올라오는 것과
  * 방향만 다르고, 덮개를 눌러 닫는 것도 모바일 메신저의 참여자 목록과 같다.
  */
-.drawer-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  background: rgb(0 0 0 / 0.28);
-}
-
 /*
  * ★ **참여자는 아래에서 올라온다** — 오른쪽 서랍이 아니라 (§4.2.1).
  *
@@ -2391,36 +2350,11 @@ details.advanced[open] > summary .codicon-chevron-right {
  * 아래로 읽힌다. 권한 시트와 **같은 문법**이지만 **다른 화면**이다 —
  * 하나는 «이 봇이 무엇으로 도는가», 하나는 «무엇까지 할 수 있는가».
  */
-.drawer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 21;
-  max-height: 78%;
-  overflow-y: auto;
-  padding: 0 12px 12px;
-  border-top: 1px solid var(--line);
-  border-radius: 12px 12px 0 0;
-  background: var(--vscode-menu-background, var(--bubble-bot-bg));
-  box-shadow: 0 -6px 20px rgb(0 0 0 / 0.28);
-  /* 애니메이션은 **열 때만** — `.opening` 참조. 갱신은 갈아끼우기라 매번 다시 돈다 */
-}
-
-.drawer.opening {
-  animation: drawer-in 180ms cubic-bezier(0.22, 0.8, 0.24, 1);
-}
-
-@keyframes drawer-in {
-  from { transform: translateY(100%); }
-  to { transform: none; }
-}
-
 /*
  * 가로가 넓어졌으므로 **칸을 나란히** 둔다. 좁으면 알아서 쌓인다.
  * 봇 하나가 «한 덩어리»로 읽혀야 해서 테두리로 묶는다.
  */
-.drawer .drawer-bot {
+#screen-bots .drawer-bot {
   padding: 10px;
   margin-top: 8px;
   border: 1px solid var(--line);
@@ -2428,14 +2362,14 @@ details.advanced[open] > summary .codicon-chevron-right {
   border-radius: 8px;
 }
 
-.drawer .drawer-bot .field {
+#screen-bots .drawer-bot .field {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin-right: 12px;
 }
 
-.drawer .drawer-bot .field select {
+#screen-bots .drawer-bot .field select {
   min-width: 120px;
 }
 
@@ -2444,7 +2378,7 @@ details.advanced[open] > summary .codicon-chevron-right {
   .drawer { animation: none; }
 }
 
-.drawer .info {
+#screen-bots .info {
   padding-bottom: 10px;
 }
 
@@ -2730,24 +2664,6 @@ fieldset.bot .bot-drop {
 .sheet-bot .policy > p,
 .sheet-bot .policy > button.link {
   flex: 1 1 100%;
-}
-
-/*
- * 권한 시트 뒤의 덮개 — 서랍과 같은 이유.
- *
- * 시트 배경은 테마에 따라 대화 배경과 거의 같은 색이 된다. 그러면 경계가 안
- * 보여 **위에 떠 있다는 것 자체가 안 읽힌다.** 그림자만으로는 부족했다.
- */
-.sheet-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 19;
-  background: rgb(0 0 0 / 0.28);
-}
-
-.sheet {
-  border: 1px solid var(--line);
-  border-bottom: none;
 }
 
 /*
@@ -3381,4 +3297,53 @@ fieldset.bot .bot-drop {
   width: 100%;
   padding: 5px 6px;
   font-size: var(--fs-12);
+}
+
+/*
+ * ── 권한 · 참여자 — 시트/서랍에서 «화면»으로 ─────────────────────────
+ *
+ * ★ 2026-09-30. 둘 다 덮개를 깔고 아래에서 올라오는 물건이었다.
+ *
+ * 🔴 **안에 든 것이 «잠깐 보고 닫는 것»이 아니었다.** 봇마다 권한 모드·승인
+ * 주체·질문 정책·모델·역할·색이 들어 있어서 **세로로 길고**, `max-height: 70%`
+ * 에 갇혀 늘 스크롤이었다. 봇이 둘만 돼도 화면의 3분의 1에서 그걸 다 훑어야
+ * 했다.
+ *
+ * 화면으로 빼면 세로를 다 쓴다. 뜨고 지는 것·뒤로가기는 화면 스택이 맡으므로
+ * `.opening` / 덮개 / `z-index` 가 **통째로 필요 없어졌다.**
+ */
+#screen-perm,
+#screen-bots {
+  overflow-y: auto;
+  padding: 0 12px 24px;
+}
+
+/*
+ * 머리줄은 다른 화면과 같은 `.bar` 다 — 화면끼리 생김새가 같아야
+ * «같은 깊이에 있는 것» 으로 읽힌다.
+ */
+#screen-perm > .bar,
+#screen-bots > .bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -12px;
+  padding-left: 4px;
+  background: var(--chat-bg);
+}
+
+#screen-perm > .bar h1,
+#screen-bots > .bar h1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/*
+ * 시트 안에서 첫 칸의 윗선을 지우던 규칙은 **머리줄이 생기면서** 어긋난다 —
+ * 이제 `:first-of-type` 이 머리줄 바로 아래라 선이 있는 편이 낫다.
+ */
+#screen-perm .sheet-bot:first-of-type,
+#screen-bots .drawer-bot:first-of-type {
+  border-top: 1px solid var(--line);
 }
