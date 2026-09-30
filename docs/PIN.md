@@ -62,6 +62,41 @@ args: ["-y", "@agentclientprotocol/claude-agent-acp@0.84.0"],
   «sonnet»은 그대로입니다」
 - **뒷말이 중요하다**: 고른 값이 멀쩡한데 이름만 달라지면 «내가 뭘 잘못 눌렀나»가 된다.
 
+### A2-1. 계열은 둘 다 있다 — 다른 건 «계열만 가리키는 이름»이다
+
+```
+Claude   계열   opus · sonnet · haiku · fable
+         id     claude-{계열}-{판}      claude-sonnet-5-5
+         별명   {계열}                  sonnet        ← 계열만 가리킨다
+
+Codex    계열   luna(빠름) · terra(균형)
+         id     gpt-{판}-{계열}         gpt-6-luna
+         별명   **없다**                              ← 계열만 가리킬 길이 없다
+```
+
+순서까지 뒤집혀 있다 — Claude 는 `계열-판`, Codex 는 `판-계열`.
+
+`luna` 는 판을 건너 반복된다(`gpt-5.6-luna` → `gpt-6-luna`). **Codex 에 계열이
+없는 게 아니라, 계열을 가리키는 이름이 없는 것**이다. `gpt-5.5` 처럼 계열
+꼬리가 아예 없는 것도 있다(legacy).
+
+그래서 핀을 올릴 때 두 쪽이 정반대로 움직인다:
+
+| 고른 값 | 새 판이 나오면 |
+|---|---|
+| Claude `sonnet` | **따라 올라간다.** 그 계열의 «지금 판» 에 매달려 있다 |
+| Codex `gpt-6-luna` | **안 따라간다.** 그 판에 고정돼 있다 |
+
+- Claude 는 가만히 둬도 최신을 쓰게 되고, 대신 **말없이 갈린다**(§A2 알림으로 갚는다).
+- Codex 는 조용한 대신 **가만히 두면 옛 판에 남는다.** 새 계열 판(`gpt-7-luna`)이
+  나와도 방은 `gpt-6-luna` 를 계속 쓴다 — 사용자가 직접 갈아타야 한다.
+
+> ⚠️ **§A2 알림이 Codex 에서 헛방을 친다.** 1.10.0 → 2.0.1 에서 `gpt-5.6-terra`
+> 는 id 가 그대로인데 이름만 「GPT-5.6-Terra」 → 「5.6 Terra」 로 바뀐다.
+> `noteModel` 의 기준이 **이름 문자열 비교뿐**이라 «판이 올라갔다» 로 읽는다.
+> 모델은 그대로다. 고치려면 기준을 이름이 아니라 **실제 모델 id** 로 옮겨야
+> 하는데, 그 값은 Claude 만 준다(`usage_update._meta["_claude/model"]`).
+
 ### A3. 새 id 가 생긴다
 
 `0.84.0` 에는 `claude-opus-5`·`claude-sonnet-5`·`claude-opus-4-6` 같은 **박힌 id**
