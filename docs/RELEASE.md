@@ -193,6 +193,7 @@ code --install-extension taein-yoon.ai-in-one
 |---|---|
 | **Claude Code** | 터미널에서 `claude` 를 실행해 설치·로그인 |
 | **Codex** | 터미널에서 `codex` 를 실행해 설치·로그인 |
+| **Gemini CLI** | 터미널에서 `gemini` 를 실행해 설치·로그인 |
 
 **터미널에서 한 번 직접 실행해 로그인까지 끝내는 게 핵심이다.** 그 뒤에야
 확장에서 방을 만들 수 있다.
