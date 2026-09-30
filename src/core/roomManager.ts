@@ -2502,6 +2502,17 @@ export class RoomManager extends EventEmitter<Events> {
     // 현재 값을 그대로 옮기므로, 우리가 보낸 값과 에이전트가 실제로 고른 값이
     // 다르면 에이전트 쪽이 이긴다.
     this.noteRoomConfig(room, bot, updated);
+    /*
+     * ★ **물음에 답한 것이다 — 띠를 걷는다** (2026-09-30).
+     *
+     * 고른 모델이 없어져서 «다시 고르세요» 를 띄워뒀다면, 여기서 고른 것이
+     * 그 답이다. **무엇을 골랐든 걷는다** — 대체된 그것을 그대로 고르는 것도
+     * 답이고, 그때도 다시 물으면 걷을 길이 없어진다.
+     *
+     * `participants` 는 배열째 갈아 끼우므로 `delete` 로 디스크에서도 사라진다 —
+     * 한 칸만 `undefined` 로 두는 것과 다르다(그쪽은 `store` 의 `erasable` 몫).
+     */
+    if (updated.find((o) => o.id === configId)?.category === "model") delete bot.modelGone;
     await this.saveProps(room, { participants: room.participants });
     /*
      * 🔴 **방을 다시 내보내야 한다.**
@@ -4013,7 +4024,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 접는 것 자체는 맞다 — 세션이 진실이다. 다만 §0 뺄셈 규칙대로,
      * **뺐으면 적는다.**
      */
-    const gone: Array<{ id: string; category?: string; was: string }> = [];
+    const gone: Array<{ id: string; category?: string; was: string; value: string }> = [];
 
     // **권한을 먼저.** 모델·강도를 바꾸는 사이에도 권한은 지켜져야 한다.
     const order = (o: acp.SessionConfigOption) => (o.category === "mode" ? 0 : 1);
@@ -4032,6 +4043,8 @@ export class RoomManager extends EventEmitter<Events> {
         if (!offered) {
           gone.push({
             id: live.id,
+            // **무엇이 없어졌나** — 다시 고를 때 «이것이 없어졌습니다» 를 적으려면 필요하다
+            value: String(value),
             ...(live.category != null ? { category: live.category } : {}),
             // 이 값은 **이미 목록에 없으므로** 지금 목록에서는 이름을 못 찾는다.
             // 모델이라면 지난 세션에서 받아 적어둔 이름이 남아 있다.
@@ -4077,6 +4090,25 @@ export class RoomManager extends EventEmitter<Events> {
         "info",
         [bot.id],
       );
+
+      /*
+       * ★ **모델이면 알리는 데서 끝내지 않는다 — 고르게 한다** (2026-09-30).
+       *
+       * 🔴 여기서 접고 남는 것은 «그 판의 기본값» 이고, **그건 계열째 다를 수
+       * 있다.** 실측한 것만 둘이다:
+       *
+       * ```
+       * Codex    gpt-6-luna(빠름)  →  gpt-5.6-terra(균형)
+       * Claude   sonnet            →  opus
+       * ```
+       *
+       * 우리가 계열을 안 보기 때문이다. 빠른 모델을 쓰려고 고른 방이 조용히
+       * 다른 성격으로 넘어간다 — 위 한 줄로는 그게 **얼마나 다른지** 가 안
+       * 읽힌다(`6 Luna` 와 `GPT-5.6-Terra` 는 이름만으로 못 잰다).
+       *
+       * **모델만 그런다.** 권한 모드·사고 강도는 대체돼도 성격이 안 갈린다.
+       */
+      if (g.category === "model") bot.modelGone = { value: g.value, label: g.was };
     }
   }
 

@@ -118,6 +118,31 @@ async function main(): Promise<void> {
     ok(told.length > 0,
        "★ **바뀌었다고 알려준다** — 고른 것이 말없이 사라지면 «왜 딴 모델이 돌지»가 된다");
 
+    /*
+     * ★ **알리는 데서 끝내지 않는다 — 고르게 한다** (2026-09-30).
+     *
+     * 대체는 **계열째** 갈릴 수 있다(luna→terra, sonnet→opus 실측).
+     * 시스템 줄 한 줄로는 «얼마나 다른지» 가 안 읽히고, 그 줄은 대화가
+     * 길어지면 **위로 밀려 안 보인다.** 표시를 남겨놓고 묻는다.
+     */
+    console.log(`   modelGone: ${JSON.stringify(bot.modelGone)}`);
+    ok(bot.modelGone?.value === "sonnet",
+       `★ **없어진 값을 적어둔다** (${bot.modelGone?.value}) — 화면이 이걸로 고르개를 띄운다`);
+    ok(bot.modelGone?.label === "Sonnet 5",
+       `★ 이름도 같이 (${bot.modelGone?.label}) — id 만 적으면 «sonnet 이 없어졌다» 가 된다`);
+
+    const onDisk = (await store.loadRoom(room.id))!.participants[0];
+    ok(onDisk?.modelGone?.value === "sonnet",
+       "★ **디스크에도 남는다** — 답 안 하고 창을 닫아도 다음에 다시 물어야 한다");
+
+    // 고르면 걷힌다 — **무엇을 고르든**. «이대로 쓰기» 도 답이다
+    await mgr.setConfig(room.id, "model", "opus");
+    ok(room.participants[0]?.modelGone === undefined,
+       "★ **고르면 걷힌다** — 답했는데 또 물으면 걷을 길이 없다");
+    const after = (await store.loadRoom(room.id))!.participants[0];
+    ok(after?.modelGone === undefined,
+       "★ 디스크에서도 사라졌다 — `delete` 가 배열째 갈려 저장되어야 한다");
+
     mgr.dispose();
   }
 

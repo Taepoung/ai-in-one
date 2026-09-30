@@ -2581,6 +2581,78 @@ function paintChat(r: Room): void {
     );
   }
 
+  /*
+   * ★ **고른 모델이 없어졌다 — 다시 고르게 한다** (2026-09-30).
+   *
+   * 어댑터 핀을 올리면 모델 목록이 바뀐다. 이 방이 들고 있던 값이 목록에 없으면
+   * 코어가 접고 세션 기본값이 남는다(대화는 안 잃는다 — 모델은 세션 신원이
+   * 아니다). 그리고 시스템 줄로 «…없어 …로 바뀌었습니다» 를 적는다.
+   *
+   * 🔴 **그 한 줄로는 모자랐다.** 대체는 **계열째** 갈린다:
+   *
+   * ```
+   * Codex    gpt-6-luna(빠름)  →  gpt-5.6-terra(균형)
+   * Claude   sonnet            →  opus
+   * ```
+   *
+   * 이름만으로는 «6 Luna» 와 «GPT-5.6-Terra» 가 얼마나 다른지 못 잰다. 그리고
+   * 시스템 줄은 **흘러가 버린다** — 대화가 길어지면 위로 밀려 안 보인다.
+   *
+   * 띠는 **답할 때까지 남는다.** `contextLost` 와 같은 자리·같은 결이다.
+   * **봇마다** 뜬다 — 단체방에서 한 봇만 해당될 수 있다(B1).
+   */
+  const gone = r.participants.filter((b) => b.modelGone);
+  for (const bot of gone) {
+    /*
+     * **그 봇의 세션이 주는 목록**을 본다 — 에이전트 기본값(`configs.get(agentId)`)
+     * 이 아니다. 고르는 것은 «이 세션에 걸 값» 이고, 세션은 봇 단위다(B1).
+     * 서랍의 모델 칸이 보는 것과 같은 자리여야 둘이 안 어긋난다.
+     */
+    const model = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
+    const many = r.participants.length > 1;
+    const pick = el("select", { class: "regone" }) as HTMLSelectElement;
+    pick.append(el("option", { value: "", text: "모델 고르기…", selected: true }));
+    for (const v of model?.values ?? []) {
+      pick.append(el("option", { value: v.id, text: v.name }));
+    }
+    pick.addEventListener("change", () => {
+      if (!pick.value || !model) return;
+      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: pick.value, botId: bot.id });
+    });
+
+    nodes.push(
+      el(
+        "div",
+        { class: "banner warn" },
+        el("span", {
+          text:
+            `${many ? `${bot.name}이(가) 쓰던 ` : ""}「${bot.modelGone!.label}」은(는) ` +
+            `${agentById.get(bot.agentId)?.label ?? bot.agentId}에 더 이상 없습니다. ` +
+            `지금은 「${bot.modelLabel ?? "기본값"}」으로 돌고 있습니다 — ` +
+            `성격이 다를 수 있으니 직접 골라 주세요. `,
+        }),
+        /*
+         * 고르개를 **띠 안에** 둔다. «서랍에서 고르세요» 라고 적으면 한 번 더
+         * 찾아가야 하고, 그 사이에 띠를 닫아버리면 무엇을 고르려 했는지 잊는다.
+         */
+        model?.values?.length ? pick : el("span", { class: "dim", text: "(목록을 불러오는 중…)" }),
+        /*
+         * **그대로 쓰겠다는 것도 답이다.** 이 길이 없으면 띠를 못 걷는다 —
+         * 지금 값이 마음에 드는 사람은 고를 것이 없기 때문이다.
+         */
+        el("button", {
+          class: "link",
+          text: "이대로 쓰기",
+          title: `「${bot.modelLabel ?? "지금 값"}」 으로 두고 이 알림을 걷습니다`,
+          onclick: () => {
+            if (!model || !bot.model) return;
+            post({ t: "setConfig", roomId: r.id, configId: model.configId, value: bot.model, botId: bot.id });
+          },
+        }),
+      ),
+    );
+  }
+
   // 🔴 **화면의 기록과 에이전트가 아는 것이 어긋났다** (F7).
   //
   // 예전 대화가 그대로 보이므로 말해주지 않으면 사용자는 상대가 다 안다고
@@ -6265,6 +6337,20 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       // 열려 있는 권한 시트는 **늦게 온 설정을 받아 다시 그린다**
       if (room && m.roomId === room.id && screens.chat.querySelector(".sheet")) {
         paintPermissionSheet(room);
+      }
+      /*
+       * ★ **«모델 다시 고르기» 띠도 늦게 온 설정을 기다린다** (2026-09-30).
+       *
+       * 🔴 설정은 방에 **들어올 때** 요청하고 답은 나중에 온다. 그런데 여기서
+       * 다시 그리는 것은 서랍과 권한 시트뿐이었다 — 본문은 안 그린다. 그래서
+       * 띠 안의 고르개가 **«목록을 불러오는 중…» 에서 영영 멈춘다.** 고르라고
+       * 띄워놓고 고를 수가 없다.
+       *
+       * **그 띠가 떠 있을 때만** 다시 그린다. 설정 메시지마다 본문을 그리면
+       * 스크롤 자리가 흔들린다.
+       */
+      if (room && m.roomId === room.id && room.participants.some((b) => b.modelGone)) {
+        renderChat();
       }
       break;
     }
