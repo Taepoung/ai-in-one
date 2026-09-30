@@ -4850,7 +4850,18 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
 
   return el(
     "div",
-    { class: "sheet-bot" },
+    /*
+     * ★ **칸 자체에 그 봇의 색을 입힌다** (2026-09-30).
+     *
+     * 점만으로는 약하다 — 10px 이라 봇이 셋이면 **훑어서는 안 잡힌다.** 이
+     * 화면은 «누가 무엇까지 할 수 있나» 를 **견주는** 자리라 어느 칸이 누구
+     * 것인지가 먼저 읽혀야 한다.
+     *
+     * 왼쪽 테두리를 그 색으로 굵게 긋는다. 배경을 칠하면 안의 칸·글자와
+     * 대비가 싸우므로(말풍선에서 글자색을 따로 고르게 한 것과 같은 문제)
+     * **가장자리만** 쓴다.
+     */
+    { class: "sheet-bot", style: { "--bot": botColor(bot, agent) } },
     el(
       "div",
       { class: "who" },

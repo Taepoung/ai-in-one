@@ -211,6 +211,19 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
     ok(/ansiGreen/.test(dots[0]),
        `★ **고른 색이 여기까지 온다** (${dots[0]}) — 에이전트 색을 쓰면 둘이 똑같아진다`);
     ok(dots[0] !== dots[1], "★ 같은 에이전트인데 점이 갈린다 — 이 화면이 가려야 할 바로 그 경우다");
+
+    /*
+     * ★ **칸 자체에도 색이 온다** (2026-09-30).
+     *
+     * 🔴 점만으로는 약하다 — 10px 이라 봇이 셋이면 훑어서는 안 잡힌다. 이
+     * 화면은 «누가 무엇까지 할 수 있나» 를 견주는 자리라 어느 칸이 누구 것인지가
+     * 먼저 읽혀야 한다. 왼쪽 가장자리를 그 색으로 긋는다(CSS 는 `--bot` 을 본다).
+     */
+    const edges = t2.$$("#screen-perm .sheet-bot")
+      .map((n) => n.style.getPropertyValue("--bot"));
+    console.log(`   칸 가장자리: ${edges.join("  /  ")}`);
+    ok(/ansiGreen/.test(edges[0]), `★ **칸에 그 봇 색이 실린다** (${edges[0]})`);
+    ok(edges[0] !== edges[1], "★ 칸끼리도 갈린다");
   }
 
   const outBtn = t.$("#screen-perm .bar button");
