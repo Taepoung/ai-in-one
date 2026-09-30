@@ -62,7 +62,49 @@ function sweep() {
     // 진짜 프로젝트는 임시 폴더에 안 산다 — 이 조건이 유일한 안전장치다
     (n) => n.includes("AppData-Local-Temp-"),
   );
-  if (tmp || proj) console.log(`(지난 판 찌꺼기 치움: 작업폴더 ${tmp} · 세션기록 ${proj})`);
+
+  /*
+   * ★ **Codex 쪽도 치운다** (2026-09-30).
+   *
+   * 🔴 위 두 줄이 `~/.claude` 만 보고 있었다. Codex 는 `~/.codex/sessions/`
+   * 에 쌓는데 **아무도 안 치웠다** — 사용자가 «codex에도 세션이 쌓인거 같은데»
+   * 로 알려줬고, 세어보니 12개가 남아 있었다(제일 오래된 것이 9-18).
+   *
+   * 경로에 날짜가 끼어 있어 이름만으로는 못 가린다(`sessions/2026/09/30/…`).
+   * **파일 속에 임시폴더 이름이 있는지**로 가른다 — 그 세션이 어디서 돌았는지가
+   * 거기 적혀 있다.
+   */
+  const codex = (() => {
+    const root = path.join(os.homedir(), ".codex", "sessions");
+    let n = 0;
+    const walk = (dir) => {
+      let names;
+      try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of names) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) { walk(full); continue; }
+        if (!e.name.endsWith(".jsonl") || !old(full)) continue;
+        let text;
+        try { text = fs.readFileSync(full, "utf8"); } catch { continue; }
+        // 우리 임시 작업폴더에서 돈 것만 — 사용자의 진짜 세션은 안 건드린다
+        if (!/aio-[a-z0-9]+-[A-Za-z0-9]+/.test(text)) continue;
+        try { fs.rmSync(full); n++; } catch { /* 잠겨 있으면 다음에 */ }
+      }
+    };
+    walk(root);
+    return n;
+  })();
+
+  if (tmp || proj || codex) {
+    console.log(`(지난 판 찌꺼기 치움: 작업폴더 ${tmp} · 세션기록 ${proj} · Codex ${codex})`);
+  }
+
+  /*
+   * ⚠️ **껍데기는 여기서 안 치운다.** `session/delete` 가 남기는 부스러기
+   * (`last-prompt`·`cost-state` 만 든 파일)는 **사용자의 진짜 프로젝트 안**에
+   * 섞여 있다 — 임시폴더라는 안전장치가 없다. 잘못 지우면 남의 기록이다.
+   * 손으로 돌리는 `tests/probes/cleanup.mjs` 가 그쪽을 맡는다.
+   */
 }
 sweep();
 
