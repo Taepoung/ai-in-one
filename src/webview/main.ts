@@ -994,7 +994,7 @@ let draftBots: DraftBot[] = [newDraftBot()];
  * v2.2 가 겨냥한 «같은 에이전트로 봇 여럿» 이 정확히 그 경우다.
  */
 /**
- * 안 고르면 이 색이다.
+ * 안 고르면 이 색이다 — **내 말풍선과 같은 파랑**이다.
  *
  * ⏪ 한때 **이미 쓴 색을 피해 다음 색**으로 넘겼다 — 봇 둘이 같은 파랑이면
  * 색을 준 보람이 없다고 봐서다. 사용자가 «봇끼리 색 겹쳐도 됨» 으로 정리했고,
@@ -1005,7 +1005,7 @@ let draftBots: DraftBot[] = [newDraftBot()];
  * 읽던 TDZ 방어, 새로 열 때 먼저 비우던 줄.
  */
 function defaultBotColor(): string {
-  return (BOT_COLORS.find((c) => c.id === "blue") ?? BOT_COLORS[0]!).css;
+  return (BOT_COLORS.find((c) => c.id === "default") ?? BOT_COLORS[0]!).css;
 }
 
 function newDraftBot(): DraftBot {

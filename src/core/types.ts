@@ -1240,6 +1240,18 @@ export function inBotView(m: Message, botId: string): boolean {
  * 뒤의 hex 는 그 변수를 안 주는 옛 버전용 폴백이다.
  */
 export const BOT_COLORS: ReadonlyArray<{ id: string; label: string; css: string }> = [
+  /*
+   * ★ **첫 칸은 «기본»** (2026-09-30).
+   *
+   * 새 봇에 아무것도 안 고르면 이 색이 들어간다 — **내 말풍선과 같은 파랑**
+   * (`--vscode-button-background`)이다. 테마가 강조색으로 고른 것이라 어느
+   * 테마에서든 «이 에디터의 파랑» 이고, 글자는 하양이 맞는다.
+   *
+   * 🔴 **팔레트에 없으면 돌아올 길이 없다.** 고르개의 «기본값으로» 는 색을
+   * 아예 지워 **테마 회색**으로 보내는 다른 동작이다. 한 번 딴 색을 고르면
+   * 처음 그 파랑을 다시 고를 수가 없었다.
+   */
+  { id: "default", label: "기본", css: "var(--vscode-button-background, #0e639c)" },
   { id: "red", label: "빨강", css: "var(--vscode-terminal-ansiRed, #cd3131)" },
   { id: "orange", label: "주황", css: "var(--vscode-terminal-ansiBrightRed, #f14c4c)" },
   { id: "yellow", label: "노랑", css: "var(--vscode-terminal-ansiYellow, #e5e510)" },

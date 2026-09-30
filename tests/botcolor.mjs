@@ -293,7 +293,17 @@ console.log("\n[★ 서랍에서 고르면 올라간다]");
    * 에서 **일반/밝은 쌍**으로 고르면 색상뿐 아니라 밝기까지 갈린다.
    */
   const swatches = picks[0].querySelectorAll(".swatches .sw:not(.custom)");
-  ok(swatches.length === 12, `★ **열둘** (${swatches.length}) — 여섯은 서로 비슷해 보였다`);
+  /*
+   * ★ **«기본» 한 칸이 앞에 붙었다** (2026-09-30) — 내 말풍선과 같은 파랑.
+   *
+   * 🔴 그 색이 팔레트에 없으면 **돌아올 길이 없다.** 고르개의 «기본값으로» 는
+   * 색을 아예 지워 테마 회색으로 보내는 **다른 동작**이라, 한 번 딴 색을
+   * 고르면 처음 그 파랑을 다시 고를 수가 없었다.
+   */
+  ok(swatches.length === 13, `★ **기본 + 열둘** (${swatches.length})`);
+  ok(swatches[0].title === "기본", `★ 맨 앞이 «기본» (${swatches[0].title})`);
+  ok(/button-background/.test(swatches[0].style.background),
+     `★ **내 말풍선과 같은 파랑** (${swatches[0].style.background})`);
   const sw = swatches[0];
   ok(sw !== null, "★ 프리셋이 있다");
   sw.click();

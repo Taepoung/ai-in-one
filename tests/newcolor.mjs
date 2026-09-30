@@ -9,12 +9,17 @@
  * 문제다 — 그 값은 편집기 배경을 글자색 쪽으로 8% 민 것이라 거의 회색이다.
  * 색을 고를 수 있게 만들어 놓고 **아무도 안 고르면 아무 방에도 색이 없었다.**
  *
+ * 그 파랑은 **내 말풍선과 같은 것**이다(`--vscode-button-background`) — 테마가
+ * 강조색으로 고른 값이라 어느 테마에서든 «이 에디터의 파랑» 이고, 글자는
+ * 하양이 맞는다. 팔레트 첫 칸(«기본»)에도 같은 색을 넣어 **돌아올 길**을 뒀다.
+ *
  * 재는 것:
- *   ① 안 고르면 파랑이 실려 간다
- *   ② 고르개에 그 파랑이 **보인다** — 숨은 기본값이 아니어야 바꿀 생각이 든다
- *   ③ 봇을 더하면 **다음 색**으로 간다 — 둘 다 파랑이면 색을 준 보람이 없다
- *   ④ 고르면 고른 것이 이긴다
- *   ⑤ «혼자 쓰면 1:1 방입니다» 가 없다
+ *   ① 안 고르면 그 파랑이 실려 간다
+ *   ② 고르개에 **보인다** — 숨은 기본값이 아니어야 바꿀 생각이 든다
+ *   ③ 봇을 더해도 같은 파랑 — 겹쳐도 된다(사용자 결정)
+ *   ④ 다시 열어도 처음과 같다
+ *   ⑤ 고르면 고른 것이 이긴다
+ *   ⑥ «혼자 쓰면 1:1 방입니다» 가 없다
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -75,7 +80,7 @@ console.log("\n[★ 안 고르면 파랑이 실려 간다]");
   const m = t.sent.find((x) => x.t === "createRoom");
   console.log(`   실려 간 색: ${m?.bots?.[0]?.color}`);
   ok(m !== undefined, "★ 방 만들기가 올라간다");
-  ok(/ansiBlue/.test(m.bots[0].color ?? ""),
+  ok(/button-background/.test(m.bots[0].color ?? ""),
      `★ **파랑이 기본** (${m.bots[0].color}) — 고를 수 있게 해놓고 기본이 없으면 아무도 색이 없다`);
   ok((m.bots[0].color ?? "").startsWith("var(--vscode-"),
      "★ 테마 변수로 — 하드코딩하면 라이트에서 안 읽힌다");
@@ -92,7 +97,7 @@ console.log("\n[★ 그 파랑이 고르개에 보인다]");
   const dot = s.querySelector(".swatch > summary .dot");
   console.log(`   고르개 점: ${dot?.style.background}`);
   ok(dot !== null, "★ 만들기 화면에 색 고르개가 있다");
-  ok(/ansiBlue/.test(dot.style.background), `★ **파랑으로 보인다** (${dot.style.background})`);
+  ok(/button-background/.test(dot.style.background), `★ **파랑으로 보인다** (${dot.style.background})`);
 }
 
 console.log("\n[★ 봇을 더해도 파랑 — 겹쳐도 된다]");
@@ -109,7 +114,7 @@ console.log("\n[★ 봇을 더해도 파랑 — 겹쳐도 된다]");
   const dots = t.$$("#screen-new .swatch > summary .dot").map((d) => d.style.background);
   console.log(`   ${dots.join("  /  ")}`);
   ok(dots.length === 2, `★ 봇이 둘 (${dots.length})`);
-  ok(dots.every((d) => /ansiBlue/.test(d)), "★ **둘 다 파랑** — 기본은 늘 같은 값이다");
+  ok(dots.every((d) => /button-background/.test(d)), "★ **둘 다 같은 파랑** — 기본은 늘 같은 값이다");
 }
 
 console.log("\n[★ 다시 열어도 파랑에서 시작한다]");
@@ -127,7 +132,7 @@ console.log("\n[★ 다시 열어도 파랑에서 시작한다]");
   const dots = t.$$("#screen-new .swatch > summary .dot").map((d) => d.style.background);
   console.log(`   다시 연 뒤: ${dots.join("  /  ")}`);
   ok(dots.length === 1, `★ 봇도 하나로 돌아온다 (${dots.length})`);
-  ok(/ansiBlue/.test(dots[0]), `★ **파랑에서 시작** (${dots[0]})`);
+  ok(/button-background/.test(dots[0]), `★ **파랑에서 시작** (${dots[0]})`);
 }
 
 console.log("\n[★ 고르면 고른 것이 이긴다]");
