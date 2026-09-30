@@ -186,6 +186,22 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
   const box = t.$("#screen-perm .sheet-bot");
   ok(box.querySelector(".who .name") !== null,
      "★ 이름이 제 칸에 있다 — 크기를 참여자 화면과 맞추려면 붙잡을 데가 있어야 한다");
+
+  /*
+   * ★ **점은 이름 «오른쪽»** (2026-09-30).
+   *
+   * 🔴 왼쪽에 뒀더니 이름이 뒤로 밀렸다. 칸마다 첫 글자가 안 맞아 **이름을
+   * 훑기가 어렵다** — 이 화면에서 제일 먼저 찾는 것이 이름인데. 오른쪽에
+   * 두면 이름들이 같은 자리에서 시작하고 색은 그 옆에서 따라온다.
+   */
+  const order = [...box.querySelector(".who").children].map((n) => n.className);
+  console.log(`   이름 줄: ${order.join(" / ")}`);
+  ok(order.indexOf("name") < order.indexOf("dot"),
+     `★ **이름이 먼저, 점이 뒤** (${order.join(" / ")})`);
+
+  // 고르개는 안 넣는다 — 참여자 화면에 이미 있고, 문이 둘이면 «어디서 바꾸지» 가 남는다
+  ok(box.querySelector(".swatch") === null,
+     "★ 여기에 색 고르개는 없다 — 보여주기만 한다");
   /*
    * 🔴 **처음엔 «에이전트 색이 아니다» 로 쟀다가 거짓 통과했다.** 이 봇은 색을
    * 안 골랐으므로 점이 에이전트 색인 것이 **맞다**(C9 — 작은 점에는 써도 된다).
