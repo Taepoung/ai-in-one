@@ -979,8 +979,47 @@ interface DraftBot {
 }
 let draftBots: DraftBot[] = [newDraftBot()];
 
+/**
+ * ★ **안 고르면 파랑** (2026-09-30).
+ *
+ * 🔴 여태 기본이 «테마가 주는 평소 말풍선»(`--bubble-bot-bg`)이었다. 그 값은
+ * 편집기 배경을 글자색 쪽으로 8% 민 것이라 **거의 회색**이고, 말풍선이 배경에
+ * 겨우 떠 있는 정도다. 색을 고를 수 있게 만들어 놓고 **아무도 안 고르면 아무
+ * 방에도 색이 없는** 상태가 기본이었다.
+ *
+ * 파랑을 기본으로 둔다. 고르개에 «파랑이 골라져 있는» 것으로 보이므로,
+ * 마음에 안 들면 그 자리에서 바꾸면 된다 — 숨은 기본값이 아니다.
+ *
+ * **봇을 더하면 다음 색으로 간다.** 둘 다 파랑이면 색을 준 보람이 없다 —
+ * v2.2 가 겨냥한 «같은 에이전트로 봇 여럿» 이 정확히 그 경우다.
+ */
+function nextDraftColor(): string {
+  /*
+   * 🔴 **이 함수는 «모듈이 아직 다 안 만들어진» 때 불린다.**
+   *
+   * `let draftBots = [newDraftBot()]` 이 이 함수를 부르는데, 그 줄이 도는
+   * 순간 `draftBots` 는 아직 TDZ 다. 그리고 여기서 쓰는 값들도 **위에 `const`
+   * 로 빼두면 같은 이유로 터진다** — 함수 선언만 끌어올려지고 `const` 는 안
+   * 된다. 실제로 한 번 그렇게 만들었다가 화면이 통째로 안 떴다.
+   *
+   * 그래서 전부 **함수 안에서** 만든다. 자주 도는 자리가 아니다.
+   */
+  // 파랑에서 시작하도록 돌려놓는다 — 첫 봇이 파랑이어야 «기본은 파랑»이 된다
+  const at = BOT_COLORS.findIndex((c) => c.id === "blue");
+  const order = at < 0 ? [...BOT_COLORS] : [...BOT_COLORS.slice(at), ...BOT_COLORS.slice(0, at)];
+
+  const soFar = typeof draftBots === "undefined" ? [] : draftBots;
+  const used = new Set(soFar.map((b) => b.color));
+  // 열둘을 다 썼으면 파랑으로 돌아간다 — 안 고른 것보다 겹치는 편이 낫다
+  return (order.find((c) => !used.has(c.css)) ?? order[0]!).css;
+}
+
 function newDraftBot(): DraftBot {
-  return { agentId: boot.agents[0]?.id ?? "", picks: new Map(), role: "", name: "", color: "" };
+  return {
+    agentId: boot.agents[0]?.id ?? "",
+    picks: new Map(), role: "", name: "",
+    color: nextDraftColor(),
+  };
 }
 
 /**
@@ -1012,6 +1051,12 @@ function openNewRoom(): void {
    * 남아 있었다 — 방을 만드는 것은 **매번 새로 정하는 일**이지 직전을 이어가는
    * 일이 아니다. 제목·역할은 매번 비워 주면서 봇 수만 남겨두면 더 이상하다.
    */
+  /*
+   * 🔴 **먼저 비우고 만든다.** `newDraftBot()` 이 «이미 쓴 색» 을 피해서 다음
+   * 색을 고르는데, 비우지 않으면 **지난번 초안이 아직 들어 있다** — 그래서
+   * 새로 연 화면의 첫 봇이 파랑이 아니라 자홍으로 시작했다.
+   */
+  draftBots = [];
   draftBots = [newDraftBot()];
   draftAt = 0;
   renderNew();
@@ -1098,9 +1143,17 @@ function renderNew(error?: string): void {
             renderNew();
           },
         }),
+        /*
+         * ⏪ **«혼자 쓰면 1:1 방입니다» 를 뺐다** (2026-09-30).
+         *
+         * 봇이 하나인 것은 **화면에 이미 보인다** — 봇 칸이 하나뿐이다. 보이는
+         * 것을 글로 한 번 더 말하면 «내가 뭘 잘못했나» 하고 읽게 된다.
+         * 여럿일 때만 적는다 — 그건 **처음 만들기 화면에서 안 보이던 것**
+         * (단체방이 된다는 결과)이라 말해줄 값이 있다.
+         */
         draftBots.length > 1
           ? el("span", { class: "dim", text: `봇 ${draftBots.length}개 — 단체방으로 만들어집니다` })
-          : el("span", { class: "dim", text: "혼자 쓰면 1:1 방입니다" }),
+          : null,
       ),
       el(
         "div",
