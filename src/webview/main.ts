@@ -1160,7 +1160,8 @@ function renderNew(error?: string): void {
         boot.hasWorkspace
           ? null
           : el("span", {
-              class: "dim",
+              // 고유 이름 — 이 화면에는 «흐린 글씨»가 여럿이라 그것만으론 못 고른다
+              class: "dim cwd-why",
               text: "열린 폴더가 없습니다. 에이전트가 일할 폴더를 고르세요.",
             }),
       ),
@@ -1182,21 +1183,25 @@ function renderNew(error?: string): void {
  * 전부 봇에 붙는 값이라(D2·B3) 봇마다 따로 받아야 한다.
  */
 function botFieldset(b: DraftBot, n: number): HTMLElement {
-  const label = boot.agents.find((a) => a.id === b.agentId)?.label ?? b.agentId;
   const name = el("input", {
     type: "text",
     value: b.name,
-    // 비워두면 에이전트 이름이 된다 — 빈 칸이 «이름 없음»이 아니라고 말해준다
-    placeholder: label,
+    /*
+     * ★ **빈 칸에 «실제로 붙을 이름»을 보여준다** (2026-09-30).
+     *
+     * 🔴 에이전트 이름(`Claude`)만 보여주고, 겹치면 아래에 ««Claude»은(는)
+     * 이미 있어서 «Claude 2»이(가) 됩니다» 라는 줄을 따로 띄웠다. 그런데
+     * **빈 칸에 이미 답이 들어갈 자리가 있었다** — 거기에 `Claude 2` 를
+     * 적으면 설명할 것이 없어진다. 글로 알려주는 대신 **그대로 보여준다.**
+     */
+    placeholder: draftNames()[n] ?? "",
   }) as HTMLInputElement;
-  // 고유 클래스 — 봇 상자 안에는 «흐린 글씨»가 여럿이라 그것만으로는 못 고른다
-  const bent = el("span", { class: "dim bot-bent", hidden: true });
   name.addEventListener("input", () => {
     b.name = name.value;
-    // 앞 봇의 이름이 바뀌면 **뒤 봇의 최종 이름도 바뀐다** — 전부 다시 본다
+    // 앞 봇의 이름이 바뀌면 **뒤 봇에 붙을 이름도 바뀐다** — 전부 다시 본다
     syncDraftNames();
   });
-  draftBent.push({ b, hint: bent });
+  draftBent.push({ b, hint: name });
 
   const role = el("textarea", {
     placeholder: "예) 너는 코드 리뷰어다. 구현하지 말고 지적만 해라.",
@@ -1213,7 +1218,11 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
       ? el(
           "button",
           {
-            class: "link bot-drop",
+            /*
+             * ★ **빨강으로** (2026-09-30). 되돌릴 수 없는 것은 색으로도 말한다 —
+             * 서랍의 «내보내기»와 같은 규칙이다(`.ghost.danger`).
+             */
+            class: "link danger bot-drop",
             onclick: () => {
               draftBots.splice(n, 1);
               draftAt = Math.min(draftAt, draftBots.length - 1);
@@ -1225,21 +1234,17 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
           "빼기",
         )
       : null,
-    el(
-      "div",
-      { class: "field" },
-      el("label", { text: "에이전트" }),
-      el("div", { class: "agents" }, ...boot.agents.map((a) => agentButton(a, b, n))),
-    ),
     /*
-     * ★ **부를 이름** — 에이전트 바로 아래 (v2.2 앞당김).
+     * ★ **이름이 먼저, 그다음 에이전트** (2026-09-30).
      *
-     * 🔴 같은 에이전트로 봇을 둘 넣으면 `Claude`·`Claude 2` 가 된다. 그러면
-     * **@로 지목할 때 누가 누군지 알 수가 없고**, 방에 들어가서 하나씩 고치게
-     * 된다. 이름은 에이전트를 고른 «그 자리»에서 정하는 게 맞다 —
-     * 기본값이 에이전트 이름이라 붙어 있어야 뜻이 통한다.
-     */
-    /*
+     * 🔴 에이전트를 먼저 물었다. 기본 이름이 에이전트 이름이라 «고른 다음에야
+     * 이름이 정해진다» 고 봤기 때문이다. 그런데 **빈 칸에 붙을 이름을 그대로
+     * 보여주게 되면서** 그 이유가 없어졌다 — 에이전트를 바꾸면 빈 칸의 글자도
+     * 따라 바뀐다.
+     *
+     * 사람이 정하는 순서는 «이 봇을 뭐라고 부를까 → 무엇으로 돌릴까» 다.
+     * 이름이 이 칸의 주인공이므로 맨 위가 맞다.
+     *
      * ★ **색은 이름 «옆»에** (2026-09-28). 칸을 따로 만들면 화면이 길어지는데,
      * 이름을 정하는 그 순간이 «이 봇을 무엇으로 부를까»를 정하는 때이고 색도
      * 같은 질문이다.
@@ -1253,51 +1258,73 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
             b.color = css;
             b.ink = pickedInk;
             renderNew();
-          })),
-      bent),
+          }))),
+    el(
+      "div",
+      { class: "field" },
+      el("label", { text: "에이전트" }),
+      agentSelect(b, n),
+    ),
     // 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15)
     ...configFields(configs.get(b.agentId), b.picks),
     el("div", { class: "field" }, el("label", { text: "역할 (선택)" }), role),
   );
 }
 
-/** 겹쳐서 **수가 붙는 봇**에게만 «이렇게 됩니다»를 단다 */
+/** 빈 칸 글씨를 다시 맞출 이름 입력칸들 — 앞 봇이 바뀌면 뒤 봇도 바뀐다 */
 const draftBent: Array<{ b: DraftBot; hint: HTMLElement }> = [];
 
+/**
+ * ⏪ **«이미 있어서 …이(가) 됩니다» 를 뺐다** (2026-09-30).
+ *
+ * 🔴 겹치는 이름에 «이렇게 바뀝니다» 를 글로 알려줬다. 그런데 **빈 칸에 이미
+ * 그 답이 들어갈 자리가 있었다** — 거기에 `Claude 2` 를 적으면 설명할 것이
+ * 없어진다. 글로 알려주는 대신 **그대로 보여준다.**
+ *
+ * 그래서 이 함수가 하는 일은 이제 «빈 칸 글씨를 다시 맞추는 것» 하나다 —
+ * 앞 봇의 이름이 바뀌면 뒤 봇에 붙을 이름도 바뀌기 때문이다.
+ */
 function syncDraftNames(): void {
   const names = draftNames();
-  for (const [n, { b, hint }] of draftBent.entries()) {
-    const label = boot.agents.find((a) => a.id === b.agentId)?.label ?? b.agentId;
-    const wanted = b.name.trim() || label;
-    const got = names[n] ?? wanted;
-    hint.hidden = got === wanted;
-    hint.textContent = `«${wanted}»은(는) 이미 있어서 «${got}»이(가) 됩니다.`;
+  for (const [n, { hint }] of draftBent.entries()) {
+    (hint as HTMLInputElement).placeholder = names[n] ?? "";
   }
 }
 
-function agentButton(a: AgentBrief, b: DraftBot, n: number): HTMLElement {
+/**
+ * ★ **에이전트는 드롭다운으로** (2026-09-30).
+ *
+ * 🔴 카드 단추를 줄줄이 세웠다. 둘일 때는 «골라 보세요» 가 잘 읽혔는데,
+ * 사용자가 `aiInOne.agents` 로 더할 수 있으므로 **몇 개가 될지 우리가 모른다.**
+ * 게다가 이 화면에는 이미 같은 일을 하는 칸이 여럿이다 — 모델·강도·권한 모드.
+ * **방 안에서 에이전트를 갈아탈 때도 드롭다운**을 쓴다(서랍). 만들 때와 바꿀
+ * 때가 다른 모양이면 «다른 일인가» 로 읽힌다.
+ *
+ * 설명(`a.description`)은 고른 것 아래 한 줄로 남긴다 — 드롭다운 안에서는
+ * 안 보이고, 그렇다고 버리면 «Codex 가 뭐지» 에 답할 데가 없어진다.
+ */
+function agentSelect(b: DraftBot, n: number): HTMLElement {
+  const pick = el("select", { class: "agent-pick" }) as HTMLSelectElement;
+  for (const a of boot.agents) {
+    pick.append(el("option", { value: a.id, text: a.label, selected: a.id === b.agentId }));
+  }
+  pick.addEventListener("change", () => {
+    if (pick.value === b.agentId) return;
+    b.agentId = pick.value;
+    // 모델은 에이전트마다 다르다 — 골랐던 것을 그대로 두면 없는 id 를 보낸다
+    b.picks.clear();
+    draftAt = n;
+    renderNew();
+    if (!configs.has(pick.value)) post({ t: "needConfig", agentId: pick.value });
+  });
+
+  const who = boot.agents.find((a) => a.id === b.agentId);
   return el(
-    "button",
-    {
-      class: "agent",
-      "aria-pressed": a.id === b.agentId,
-      onclick: () => {
-        if (a.id === b.agentId) return;
-        b.agentId = a.id;
-        // 모델은 에이전트마다 다르다 — 압은 것을 그대로 두면 없는 id를 보낸다
-        b.picks.clear();
-        draftAt = n;
-        renderNew();
-        if (!configs.has(a.id)) post({ t: "needConfig", agentId: a.id });
-      },
-    },
-    el("span", { class: "dot", style: { background: a.color } }),
-    el(
-      "span",
-      { class: "agent-main" },
-      el("span", { class: "agent-name", text: a.label }),
-      a.description ? el("span", { class: "agent-desc", text: a.description }) : null,
-    ),
+    "div",
+    { class: "agent-row" },
+    el("span", { class: "dot", style: { background: who?.color ?? "#888" } }),
+    pick,
+    who?.description ? el("span", { class: "dim agent-desc", text: who.description }) : null,
   );
 }
 

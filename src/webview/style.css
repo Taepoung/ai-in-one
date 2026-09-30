@@ -415,45 +415,35 @@ fieldset.bot > legend {
   color: var(--chat-dim);
 }
 
-.agents {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.agent {
+/*
+ * ── 에이전트 고르기 — 드롭다운 (2026-09-30) ────────────────────────
+ *
+ * 🔴 카드 단추를 줄줄이 세웠다. 둘일 때는 잘 읽혔는데 사용자가
+ * `aiInOne.agents` 로 더할 수 있어 **몇 개가 될지 우리가 모른다.** 그리고
+ * 방 안에서 갈아탈 때는 이미 드롭다운이다 — 만들 때와 바꿀 때가 다른 모양이면
+ * «다른 일인가» 로 읽힌다.
+ */
+.agent-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.agent:hover {
-  background: var(--list-hover);
+.agent-row .dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }
 
-.agent[aria-pressed="true"] {
-  border-color: var(--focus);
-  background: var(--list-hover);
+.agent-row select {
+  flex: 0 1 auto;
 }
 
-.agent-main {
-  display: flex;
-  flex-direction: column;
-}
-
-.agent-name {
-  font-weight: 500;
-}
-
+/* 설명은 고른 것 아래가 아니라 **옆**에 — 한 줄이라 붙여도 안 답답하다 */
 .agent-desc {
+  flex: 1 1 100%;
   font-size: var(--fs-11);
   color: var(--chat-dim);
 }
@@ -2532,6 +2522,18 @@ fieldset.bot .bot-drop {
   top: 6px;
   right: 8px;
   font-size: var(--fs-11);
+}
+
+/*
+ * ★ **빼기는 빨강** (2026-09-30) — 서랍의 «내보내기» 와 같은 규칙이다.
+ * 되돌릴 수 없는 것은 색으로도 말한다.
+ */
+fieldset.bot .bot-drop.danger {
+  color: var(--danger);
+}
+
+fieldset.bot .bot-drop.danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 /*

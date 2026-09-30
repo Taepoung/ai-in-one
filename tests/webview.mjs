@@ -535,8 +535,12 @@ function main() {
     const t = mount({ ...boot([], "new"), hasWorkspace: false, cwd: "/home/me" });
     const create = t.$("#screen-new .actions .primary");
     ok(create.disabled === true, "**폴더를 고르기 전엔 못 만든다**");
-    // 봇 칸에도 «흐린 글씨»가 있다(이름 겹침 안내) — 작업 폴더 칸의 것을 집는다
-    ok(t.$("#screen-new .field .dim:not(.bot-bent)").textContent.includes("열린 폴더가 없습니다"),
+    /*
+     * 🔴 «흐린 글씨 중 `.bot-bent` 가 아닌 것» 으로 집고 있었다. 이름 겹침
+     * 안내가 없어지자(2026-09-30) 그 셀렉터가 **에이전트 설명**을 집었다 —
+     * 그것도 `.field` 안의 `.dim` 이기 때문이다. 제 이름으로 집는다.
+     */
+    ok(t.$("#screen-new .cwd-why").textContent.includes("열린 폴더가 없습니다"),
        "왜 잠겼는지 말한다");
 
     t.send({ t: "cwdPicked", path: "/work/repo" });

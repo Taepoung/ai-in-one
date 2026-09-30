@@ -81,7 +81,14 @@ console.log("\n[★ 에이전트를 바꾸면 기본 이름도 따라간다]");
 {
   const t = mount();
   t.$("#btn-new").click();
-  t.$$("#screen-new .agent").find((b) => b.textContent.includes("Codex")).click();
+  /*
+   * ⏪ 에이전트가 **드롭다운**이 됐다 (2026-09-30) — 카드 단추를 줄줄이 세우던
+   * 것을 물렀다. 몇 개가 될지 우리가 모르고(`aiInOne.agents`), 방 안에서
+   * 갈아탈 때는 이미 드롭다운이었다.
+   */
+  const pick = t.$("#screen-new .agent-pick");
+  pick.value = "codex";
+  pick.dispatchEvent(new t.w.Event("change", { bubbles: true }));
   ok(nameInputs(t)[0].placeholder === "Codex",
      `★ 고른 에이전트의 이름이 기본값이다 (${nameInputs(t)[0].placeholder})`);
 }
@@ -119,12 +126,18 @@ console.log("\n[★ 겹치면 «이렇게 됩니다»를 미리 보여준다]");
   typeIn(t, nameInputs(t)[0], "리뷰어");
   typeIn(t, nameInputs(t)[1], "리뷰어");
 
-  const hints = t.$$("#screen-new fieldset.bot .bot-bent").filter((n) => !n.hidden);
-  ok(hints.length === 1, `★ **뒤엣 것에만** 붙는다 (${hints.length}개) — 앞엣 것은 친 그대로다`);
-  ok(hints[0].textContent.includes("«리뷰어 2»"),
-     `★ **무엇이 될지** 말한다 (${hints[0].textContent})`);
-  ok(hints[0].textContent.includes("«리뷰어»은(는) 이미 있어서"),
-     "★ 왜 그렇게 되는지도 — 조용히 바꾸면 «왜 2가 붙었지»가 된다");
+  /*
+   * ⏪ **«이미 있어서 …이(가) 됩니다» 를 뺐다** (2026-09-30).
+   *
+   * 🔴 겹치는 이름에 «이렇게 바뀝니다» 를 글로 알려줬다. 그런데 **빈 칸에
+   * 이미 그 답이 들어갈 자리가 있었다** — 거기에 `리뷰어 2` 를 적으면 설명할
+   * 것이 없어진다. 글로 알려주는 대신 **그대로 보여준다.**
+   */
+  const holes = nameInputs(t).map((i) => i.placeholder);
+  console.log(`   빈 칸 글씨: ${holes.join("  /  ")}`);
+  ok(holes[1] === "리뷰어 2",
+     `★ **뒤엣 칸이 «리뷰어 2»** (${holes[1]}) — 비워두면 그 이름이 된다`);
+  ok(t.$("#screen-new .bot-bent") === null, "★ 따로 알려주는 줄은 없다");
 }
 
 console.log("\n[★ 안 겹치면 아무 말도 안 한다]");
@@ -133,9 +146,9 @@ console.log("\n[★ 안 겹치면 아무 말도 안 한다]");
   t.$("#btn-new").click();
   addBotBtn(t).click();
   typeIn(t, nameInputs(t)[0], "구현");
-  typeIn(t, nameInputs(t)[1], "리뷰어");
-  ok(t.$$("#screen-new fieldset.bot .bot-bent").every((n) => n.hidden),
-     "★ 겹치지 않으면 조용하다");
+  const holes2 = nameInputs(t).map((i) => i.placeholder);
+  console.log(`   빈 칸 글씨: ${holes2.join("  /  ")}`);
+  ok(holes2[1] === "Claude", `★ 겹칠 것이 없으면 수가 안 붙는다 (${holes2[1]})`);
 }
 
 console.log("\n[★ 앞엣 것을 고치면 뒤엣 것 안내도 따라간다]");
@@ -143,13 +156,21 @@ console.log("\n[★ 앞엣 것을 고치면 뒤엣 것 안내도 따라간다]")
   const t = mount();
   t.$("#btn-new").click();
   addBotBtn(t).click();
-  typeIn(t, nameInputs(t)[0], "리뷰어");
-  typeIn(t, nameInputs(t)[1], "리뷰어");
-  ok(t.$$("#screen-new fieldset.bot .bot-bent").filter((n) => !n.hidden).length === 1, "겹쳤다");
+  /*
+   * 최종 이름은 **순서로** 정해진다 — 앞이 바뀌면 뒤에 붙을 이름도 바뀐다.
+   * 빈 칸 글씨가 그걸 못 따라가면 «비워뒀더니 딴 이름이 됐다» 가 된다.
+   *
+   * 🔴 처음엔 **둘 다 «리뷰어» 를 쳐놓고** 뒤 칸의 빈 글씨를 봤다. 그건 못
+   * 잰다 — 친 값이 있으면 그 값이 곧 최종 이름이라 빈 글씨도 «리뷰어» 가
+   * 맞고, 애초에 **글씨가 안 보인다.** 뒤는 비워둬야 잴 수 있다.
+   */
+  ok(nameInputs(t)[1].placeholder === "Claude 2",
+     `★ 둘 다 비었을 때는 뒤가 «Claude 2» (${nameInputs(t)[1].placeholder})`);
 
   typeIn(t, nameInputs(t)[0], "구현");
-  ok(t.$$("#screen-new fieldset.bot .bot-bent").every((n) => n.hidden),
-     "★ **앞을 고치면 뒤가 풀린다** — 최종 이름은 순서로 정해지므로 전부 다시 봐야 한다");
+  console.log(`   앞에 «구현» 을 친 뒤: ${nameInputs(t).map((i) => i.placeholder).join("  /  ")}`);
+  ok(nameInputs(t)[1].placeholder === "Claude",
+     `★ **앞을 고치면 뒤 빈 칸도 풀린다** (${nameInputs(t)[1].placeholder}) — 더 이상 안 겹친다`);
 }
 
 console.log("\n[★ 봇 부르기 카드에도 있다]");
