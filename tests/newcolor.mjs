@@ -95,17 +95,39 @@ console.log("\n[★ 그 파랑이 고르개에 보인다]");
   ok(/ansiBlue/.test(dot.style.background), `★ **파랑으로 보인다** (${dot.style.background})`);
 }
 
-console.log("\n[★ 봇을 더하면 다음 색으로]");
+console.log("\n[★ 봇을 더해도 파랑 — 겹쳐도 된다]");
 {
+  /*
+   * ⏪ 한때 **이미 쓴 색을 피해 다음 색**으로 넘겼다. 둘 다 파랑이면 색을 준
+   * 보람이 없다고 봐서다. 사용자가 «봇끼리 색 겹쳐도 됨» 으로 정리했고 그
+   * 편이 맞다 — 겹치는 것이 싫으면 **고르면 된다.** 안 겹치게 해주려다
+   * «내가 파랑을 골랐는데 왜 자홍이지» 가 생기는 쪽이 더 나쁘다.
+   */
   const t = mount();
   const s = openNew(t);
   [...s.querySelectorAll("button")].find((b) => /봇 추가/.test(b.textContent)).click();
   const dots = t.$$("#screen-new .swatch > summary .dot").map((d) => d.style.background);
   console.log(`   ${dots.join("  /  ")}`);
   ok(dots.length === 2, `★ 봇이 둘 (${dots.length})`);
-  ok(dots[0] !== dots[1],
-     "★ **색이 갈린다** — 둘 다 파랑이면 v2.2 가 겨냥한 «같은 에이전트 봇 여럿» 에서 뜻이 없다");
-  ok(/ansiBlue/.test(dots[0]), "★ 첫 봇은 그대로 파랑");
+  ok(dots.every((d) => /ansiBlue/.test(d)), "★ **둘 다 파랑** — 기본은 늘 같은 값이다");
+}
+
+console.log("\n[★ 다시 열어도 파랑에서 시작한다]");
+{
+  /*
+   * 🔴 «이미 쓴 색 피하기» 시절, 새로 열 때 **지난 초안이 아직 들어 있어서**
+   * 첫 봇이 자홍으로 시작했다. 피하기를 걷으면서 그 자리도 없어졌지만,
+   * «다시 열면 처음과 같다» 는 그대로 지켜야 한다.
+   */
+  const t = mount();
+  const s = openNew(t);
+  [...s.querySelectorAll("button")].find((b) => /봇 추가/.test(b.textContent)).click();
+  t.$("#screen-new .bar button").click();        // 목록으로
+  t.$("#btn-new").click();                        // 다시 새 방
+  const dots = t.$$("#screen-new .swatch > summary .dot").map((d) => d.style.background);
+  console.log(`   다시 연 뒤: ${dots.join("  /  ")}`);
+  ok(dots.length === 1, `★ 봇도 하나로 돌아온다 (${dots.length})`);
+  ok(/ansiBlue/.test(dots[0]), `★ **파랑에서 시작** (${dots[0]})`);
 }
 
 console.log("\n[★ 고르면 고른 것이 이긴다]");

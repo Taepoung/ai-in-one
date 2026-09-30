@@ -993,32 +993,26 @@ let draftBots: DraftBot[] = [newDraftBot()];
  * **봇을 더하면 다음 색으로 간다.** 둘 다 파랑이면 색을 준 보람이 없다 —
  * v2.2 가 겨냥한 «같은 에이전트로 봇 여럿» 이 정확히 그 경우다.
  */
-function nextDraftColor(): string {
-  /*
-   * 🔴 **이 함수는 «모듈이 아직 다 안 만들어진» 때 불린다.**
-   *
-   * `let draftBots = [newDraftBot()]` 이 이 함수를 부르는데, 그 줄이 도는
-   * 순간 `draftBots` 는 아직 TDZ 다. 그리고 여기서 쓰는 값들도 **위에 `const`
-   * 로 빼두면 같은 이유로 터진다** — 함수 선언만 끌어올려지고 `const` 는 안
-   * 된다. 실제로 한 번 그렇게 만들었다가 화면이 통째로 안 떴다.
-   *
-   * 그래서 전부 **함수 안에서** 만든다. 자주 도는 자리가 아니다.
-   */
-  // 파랑에서 시작하도록 돌려놓는다 — 첫 봇이 파랑이어야 «기본은 파랑»이 된다
-  const at = BOT_COLORS.findIndex((c) => c.id === "blue");
-  const order = at < 0 ? [...BOT_COLORS] : [...BOT_COLORS.slice(at), ...BOT_COLORS.slice(0, at)];
-
-  const soFar = typeof draftBots === "undefined" ? [] : draftBots;
-  const used = new Set(soFar.map((b) => b.color));
-  // 열둘을 다 썼으면 파랑으로 돌아간다 — 안 고른 것보다 겹치는 편이 낫다
-  return (order.find((c) => !used.has(c.css)) ?? order[0]!).css;
+/**
+ * 안 고르면 이 색이다.
+ *
+ * ⏪ 한때 **이미 쓴 색을 피해 다음 색**으로 넘겼다 — 봇 둘이 같은 파랑이면
+ * 색을 준 보람이 없다고 봐서다. 사용자가 «봇끼리 색 겹쳐도 됨» 으로 정리했고,
+ * 그 편이 맞다: 겹치는 것이 싫으면 **고르면 된다.** 안 겹치게 해주려다
+ * «내가 파랑을 골랐는데 왜 자홍이지» 가 생기는 쪽이 더 나쁘다.
+ *
+ * 그리고 피하기를 걷으면서 딸려 있던 것들이 같이 없어졌다 — `draftBots` 를
+ * 읽던 TDZ 방어, 새로 열 때 먼저 비우던 줄.
+ */
+function defaultBotColor(): string {
+  return (BOT_COLORS.find((c) => c.id === "blue") ?? BOT_COLORS[0]!).css;
 }
 
 function newDraftBot(): DraftBot {
   return {
     agentId: boot.agents[0]?.id ?? "",
     picks: new Map(), role: "", name: "",
-    color: nextDraftColor(),
+    color: defaultBotColor(),
   };
 }
 
@@ -1051,12 +1045,6 @@ function openNewRoom(): void {
    * 남아 있었다 — 방을 만드는 것은 **매번 새로 정하는 일**이지 직전을 이어가는
    * 일이 아니다. 제목·역할은 매번 비워 주면서 봇 수만 남겨두면 더 이상하다.
    */
-  /*
-   * 🔴 **먼저 비우고 만든다.** `newDraftBot()` 이 «이미 쓴 색» 을 피해서 다음
-   * 색을 고르는데, 비우지 않으면 **지난번 초안이 아직 들어 있다** — 그래서
-   * 새로 연 화면의 첫 봇이 파랑이 아니라 자홍으로 시작했다.
-   */
-  draftBots = [];
   draftBots = [newDraftBot()];
   draftAt = 0;
   renderNew();
