@@ -163,11 +163,40 @@ const agentById = new Map(boot.agents.map((a) => [a.id, a]));
 
 // ── 화면 전환 (F8) ──────────────────────────────────────────────────────
 
-type ScreenName = "list" | "new" | "chat";
+type ScreenName = "list" | "new" | "chat" | "fix";
+
+/**
+ * 화면 칸을 찾는다. **없으면 만든다.**
+ *
+ * 🔴 `getElementById(...)!` 로만 두었더니 **화면을 하나 더할 때마다 열여섯 곳이
+ * 깨졌다** — 호스트 HTML(`chatPanel.ts`)과 검사마다 들고 있는 셸이 전부 그
+ * 목록을 따로 적고 있었기 때문이다. 하나만 빠져도 `null.classList` 로 터진다.
+ *
+ * **화면 목록은 웹뷰 안 사정이다.** 껍데기가 그걸 미리 알아야 할 이유가 없다.
+ */
+function screenEl(id: string): HTMLElement {
+  const found = document.getElementById(id);
+  if (found) return found;
+  const made = document.createElement("section");
+  made.className = "screen";
+  made.id = id;
+  (document.getElementById("app") ?? document.body).append(made);
+  return made;
+}
+
 const screens: Record<ScreenName, HTMLElement> = {
-  list: document.getElementById("screen-list")!,
-  new: document.getElementById("screen-new")!,
-  chat: document.getElementById("screen-chat")!,
+  list: screenEl("screen-list"),
+  new: screenEl("screen-new"),
+  chat: screenEl("screen-chat"),
+  /**
+   * ★ **고른 모델이 없어졌을 때 막아서서 고르게 하는 자리** (2026-09-30).
+   *
+   * 띄로 띄우다가 전체화면으로 옮겼다. 띄는 **지나치기 쉬운데**, 이건
+   * 지나치면 안 되는 일이다 — 대체된 모델은 **계열째 다를 수 있고**
+   * (luna→terra, sonnet→opus 실측), 모르고 쓰면 답이 왜 달라졌는지를
+   * 끝내 모른다.
+   */
+  fix: screenEl("screen-fix"),
 };
 let stack: ScreenName[] = ["list"];
 
@@ -1320,6 +1349,107 @@ function leaveChat(): void {
   room = null;
   chat = null;
   back();
+}
+
+/* ── 모델이 없어졌다 — 고르기 전에는 못 쓴다 ─────────────────────────── */
+
+/** 고른 모델이 없어진 봇들. 비어 있으면 평소 방이다 */
+function needsModel(r: Room): BotInstance[] {
+  return r.participants.filter((b) => b.modelGone);
+}
+
+/**
+ * ★ **전체화면으로 막고 고르게 한다** (2026-09-30).
+ *
+ * 처음엔 방 위에 띠로 띄웠다. 🔴 **띠는 지나치기 쉽다** — 대화가 보이므로 그냥
+ * 쓰게 되고, 그러면 **고르지도 않은 모델로 대화가 쌓인다.** 대체는 계열째
+ * 다를 수 있어서(luna→terra, sonnet→opus 실측) 나중에 «왜 답이 달라졌지» 의
+ * 답을 영영 못 찾는다.
+ *
+ * **고른 모델이 없어진 봇만** 여기 나온다. 멀쩡한 봇까지 세워두면 «내 방이
+ * 통째로 고장났나» 가 된다 — 실제로는 한 봇의 설정 하나가 빈 것뿐이다.
+ */
+function renderFix(r: Room): void {
+  const hit = needsModel(r);
+  const host = screens.fix;
+  host.replaceChildren();
+  if (hit.length === 0) return;
+
+  host.append(
+    el(
+      "header",
+      { class: "bar" },
+      el("button", {
+        class: "icon", title: "목록으로",
+        // **가둬두지 않는다.** 이 방을 지금 안 쓰겠다는 것도 답이다
+        onclick: () => { room = null; chat = null; go("list"); },
+      }, icon("back")),
+      el("h1", { text: "모델을 다시 골라 주세요" }),
+    ),
+    el("div", { class: "fix-why" },
+      el("p", {
+        text:
+          `${r.title}의 ${hit.length > 1 ? `봇 ${hit.length}개가` : `${hit[0]!.name}이(가)`} ` +
+          `쓰던 모델이 없어졌습니다. 고르기 전에는 이 방을 쓸 수 없습니다.`,
+      }),
+      /*
+       * **왜 막는지**를 적는다. 안 적으면 «그냥 쓰면 되지 왜 막아» 가 된다.
+       * 핵심은 «비슷한 걸로 바꿔놨다» 가 아니라 **성격이 다를 수 있다** 이다.
+       */
+      el("p", { class: "dim",
+        text:
+          "대신 들어간 모델은 성격이 다를 수 있습니다 — 빠른 모델이 균형 모델로 " +
+          "바뀌기도 합니다. 모르고 쓰면 답이 왜 달라졌는지 나중에 알 수 없습니다.",
+      }),
+    ),
+  );
+
+  for (const bot of hit) {
+    const model = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
+    const pick = el("select", { class: "regone" }) as HTMLSelectElement;
+    pick.append(el("option", { value: "", text: "고르세요…", selected: true }));
+    for (const v of model?.values ?? []) {
+      pick.append(el("option", { value: v.id, text: v.name }));
+    }
+    pick.addEventListener("change", () => {
+      if (!pick.value || !model) return;
+      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: pick.value, botId: bot.id });
+    });
+
+    host.append(
+      el(
+        "div",
+        { class: "fix-bot" },
+        el("div", { class: "fix-name" },
+          el("span", { class: "dot", style: { background: botColor(bot, agentById.get(bot.agentId)) } }),
+          el("strong", { text: bot.name }),
+          el("span", { class: "dim", text: agentById.get(bot.agentId)?.label ?? bot.agentId }),
+        ),
+        el("div", { class: "fix-was" },
+          el("span", { class: "gone", text: bot.modelGone!.label }),
+          el("span", { class: "dim", text: " 은(는) 이제 없습니다" }),
+        ),
+        model?.values?.length
+          ? pick
+          : el("p", { class: "dim", text: "고를 수 있는 모델을 불러오는 중…" }),
+        /*
+         * **지금 들어가 있는 것을 그대로 쓰는 것도 답이다.** 이 길이 없으면
+         * 대체된 것이 마음에 드는 사람은 **빠져나갈 수가 없다** — 고르개에서
+         * 같은 값을 고르는 셈이라 손이 안 간다.
+         */
+        bot.model
+          ? el("button", {
+              class: "ghost", type: "button",
+              text: `지금 들어간 「${bot.modelLabel ?? bot.model}」 그대로 쓰기`,
+              onclick: () => {
+                if (!model) return;
+                post({ t: "setConfig", roomId: r.id, configId: model.configId, value: bot.model!, botId: bot.id });
+              },
+            })
+          : null,
+      ),
+    );
+  }
 }
 
 function flushDraft(): void {
@@ -2581,77 +2711,6 @@ function paintChat(r: Room): void {
     );
   }
 
-  /*
-   * ★ **고른 모델이 없어졌다 — 다시 고르게 한다** (2026-09-30).
-   *
-   * 어댑터 핀을 올리면 모델 목록이 바뀐다. 이 방이 들고 있던 값이 목록에 없으면
-   * 코어가 접고 세션 기본값이 남는다(대화는 안 잃는다 — 모델은 세션 신원이
-   * 아니다). 그리고 시스템 줄로 «…없어 …로 바뀌었습니다» 를 적는다.
-   *
-   * 🔴 **그 한 줄로는 모자랐다.** 대체는 **계열째** 갈린다:
-   *
-   * ```
-   * Codex    gpt-6-luna(빠름)  →  gpt-5.6-terra(균형)
-   * Claude   sonnet            →  opus
-   * ```
-   *
-   * 이름만으로는 «6 Luna» 와 «GPT-5.6-Terra» 가 얼마나 다른지 못 잰다. 그리고
-   * 시스템 줄은 **흘러가 버린다** — 대화가 길어지면 위로 밀려 안 보인다.
-   *
-   * 띠는 **답할 때까지 남는다.** `contextLost` 와 같은 자리·같은 결이다.
-   * **봇마다** 뜬다 — 단체방에서 한 봇만 해당될 수 있다(B1).
-   */
-  const gone = r.participants.filter((b) => b.modelGone);
-  for (const bot of gone) {
-    /*
-     * **그 봇의 세션이 주는 목록**을 본다 — 에이전트 기본값(`configs.get(agentId)`)
-     * 이 아니다. 고르는 것은 «이 세션에 걸 값» 이고, 세션은 봇 단위다(B1).
-     * 서랍의 모델 칸이 보는 것과 같은 자리여야 둘이 안 어긋난다.
-     */
-    const model = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
-    const many = r.participants.length > 1;
-    const pick = el("select", { class: "regone" }) as HTMLSelectElement;
-    pick.append(el("option", { value: "", text: "모델 고르기…", selected: true }));
-    for (const v of model?.values ?? []) {
-      pick.append(el("option", { value: v.id, text: v.name }));
-    }
-    pick.addEventListener("change", () => {
-      if (!pick.value || !model) return;
-      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: pick.value, botId: bot.id });
-    });
-
-    nodes.push(
-      el(
-        "div",
-        { class: "banner warn" },
-        el("span", {
-          text:
-            `${many ? `${bot.name}이(가) 쓰던 ` : ""}「${bot.modelGone!.label}」은(는) ` +
-            `${agentById.get(bot.agentId)?.label ?? bot.agentId}에 더 이상 없습니다. ` +
-            `지금은 「${bot.modelLabel ?? "기본값"}」으로 돌고 있습니다 — ` +
-            `성격이 다를 수 있으니 직접 골라 주세요. `,
-        }),
-        /*
-         * 고르개를 **띠 안에** 둔다. «서랍에서 고르세요» 라고 적으면 한 번 더
-         * 찾아가야 하고, 그 사이에 띠를 닫아버리면 무엇을 고르려 했는지 잊는다.
-         */
-        model?.values?.length ? pick : el("span", { class: "dim", text: "(목록을 불러오는 중…)" }),
-        /*
-         * **그대로 쓰겠다는 것도 답이다.** 이 길이 없으면 띠를 못 걷는다 —
-         * 지금 값이 마음에 드는 사람은 고를 것이 없기 때문이다.
-         */
-        el("button", {
-          class: "link",
-          text: "이대로 쓰기",
-          title: `「${bot.modelLabel ?? "지금 값"}」 으로 두고 이 알림을 걷습니다`,
-          onclick: () => {
-            if (!model || !bot.model) return;
-            post({ t: "setConfig", roomId: r.id, configId: model.configId, value: bot.model, botId: bot.id });
-          },
-        }),
-      ),
-    );
-  }
 
   // 🔴 **화면의 기록과 에이전트가 아는 것이 어긋났다** (F7).
   //
@@ -6256,6 +6315,29 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       }
       renderChat();
 
+      /*
+       * ★ **모델이 없어진 봇이 있으면 채팅 대신 고르기 화면으로** (2026-09-30).
+       *
+       * 방을 여는 순간 갈린다. `renderChat()` 은 위에서 그대로 돌려둔다 —
+       * 고르고 나면 바로 그 방으로 들어가야 하므로 뒤에 준비돼 있어야 한다.
+       *
+       * 고르면 코어가 `modelGone` 을 지우고 방을 다시 내보낸다. 그때 이 자리가
+       * **다시 돌아** 남은 봇이 없으면 채팅으로 넘긴다 — 봇이 여럿이면 하나씩
+       * 지워지다가 마지막에 열린다.
+       */
+      if (needsModel(m.room).length > 0) {
+        renderFix(m.room);
+        if (stack[stack.length - 1] !== "fix") go("fix");
+      } else {
+        /*
+         * 막을 것이 없으면 **비워둔다.** 화면이 안 보인다고 남겨두면, 다음에
+         * 다른 방이 걸렸을 때 **앞 방의 봇 이름이 한 순간 스친다** — 설정이
+         * 늦게 와서 다시 그리기 전까지.
+         */
+        screens.fix.replaceChildren();
+        if (stack[stack.length - 1] === "fix") go("chat");
+      }
+
       // **방을 만들었으면 바로 들어간다.**
       // 생성 응답은 방 데이터만 주므로, 화면 전환은 여기서 해야 한다 —
       // 안 하면 만들기 화면에 그대로 서 있게 된다.
@@ -6349,8 +6431,8 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
        * **그 띠가 떠 있을 때만** 다시 그린다. 설정 메시지마다 본문을 그리면
        * 스크롤 자리가 흔들린다.
        */
-      if (room && m.roomId === room.id && room.participants.some((b) => b.modelGone)) {
-        renderChat();
+      if (room && m.roomId === room.id && needsModel(room).length > 0) {
+        renderFix(room);
       }
       break;
     }

@@ -3312,3 +3312,73 @@ fieldset.bot .bot-drop {
 .drawer-bot select:disabled {
   opacity: 0.55;
 }
+
+/*
+ * ── 모델이 없어졌을 때 막아서는 화면 ────────────────────────────────
+ *
+ * ★ **띠가 아니라 전체화면이다** (2026-09-30).
+ *
+ * 🔴 처음엔 방 위에 띠로 띄웠다. 대화가 그대로 보이니 **그냥 쓰게 되고**,
+ * 그러면 고르지도 않은 모델로 대화가 쌓인다. 대체는 계열째 다를 수 있어서
+ * (luna→terra · sonnet→opus 실측) 나중에 «왜 답이 달라졌지» 의 답을 못 찾는다.
+ *
+ * 세우는 자리라 **넓게 쓴다** — 읽고, 고르고, 나가는 것 말고는 할 일이 없다.
+ */
+#screen-fix {
+  overflow-y: auto;
+  padding-bottom: 24px;
+}
+
+.fix-why {
+  padding: 4px 16px 12px;
+}
+
+.fix-why p {
+  margin: 0 0 8px;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+}
+
+/* 봇 하나가 한 칸 — **해당되는 봇만** 여기 온다 */
+.fix-bot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 16px 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-bg, transparent);
+}
+
+.fix-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-12);
+}
+
+.fix-name .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.fix-was {
+  font-size: var(--fs-11);
+}
+
+/*
+ * **없어진 이름에 줄을 긋는다.** «이제 없습니다» 라는 글보다 먼저 읽힌다 —
+ * 무엇이 사라졌는지가 이 칸의 첫 정보다.
+ */
+.fix-was .gone {
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.fix-bot select.regone {
+  width: 100%;
+  padding: 5px 6px;
+  font-size: var(--fs-12);
+}

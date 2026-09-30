@@ -89,66 +89,110 @@ const feedConfig = (t, botId) => t.send({
   options: [{ configId: "model", name: "Model", category: "model", current: "opus",
               values: [{ id: "opus", name: "Opus 5" }, { id: "haiku", name: "Haiku 4.5" }] }],
 });
-
-console.log("\n[★ 없어진 모델이 있는 봇에만 띠가 뜬다]");
+console.log("\n[★ 방에 들어가는 순간 «고르기» 화면으로 끌려간다]");
 {
   const t = mount();
   open(t);
-  const banners = t.$$("#screen-chat .banner.warn");
-  console.log(`   띠 ${banners.length}개: ${banners.map((b) => b.textContent.slice(0, 50)).join(" | ")}`);
-  ok(banners.length === 1, `★ **한 개** (${banners.length}) — 봇이 둘인데 해당되는 건 하나다`);
-  const txt = banners[0].textContent;
-  ok(txt.includes("구현"), "★ 어느 봇인지 짚는다 — 단체방에서 멀쩡한 봇까지 못 미더워지면 안 된다");
-  ok(txt.includes("Sonnet 5"), "★ **없어진 것**을 이름으로 적는다");
-  ok(txt.includes("Opus 5"), "★ **지금 도는 것**도 적는다 — 둘 다 있어야 무엇이 무엇으로인지 안다");
+  const top = t.$$(".screen.active").map((s) => s.id);
+  console.log(`   지금 화면: ${top.join(",")}`);
+  ok(top.includes("screen-fix"), `★ **채팅이 아니라 고르기 화면** (${top.join(",")})`);
+  ok(!top.includes("screen-chat"), "★ 채팅은 안 보인다 — 보이면 그냥 쓰게 된다");
+  const txt = t.$("#screen-fix").textContent;
+  ok(/쓸 수 없습니다/.test(txt), "★ **못 쓴다고 말한다**");
+  ok(/성격이 다를 수 있습니다/.test(txt),
+     "★ **왜 막는지** 적는다 — 안 적으면 «그냥 쓰면 되지 왜 막아» 가 된다");
 }
 
-console.log("\n[★ 아무도 안 해당되면 안 뜬다]");
+console.log("\n[★ 모델이 없어진 봇만 세운다]");
+{
+  const t = mount();
+  open(t);
+  const cards = t.$$("#screen-fix .fix-bot");
+  const names = cards.map((c) => c.querySelector("strong").textContent);
+  console.log(`   세운 봇: ${names.join(", ")}`);
+  ok(cards.length === 1, `★ **하나** (${cards.length}) — 봇이 둘인데 해당되는 건 하나다`);
+  ok(names[0] === "구현", "★ 그 봇만 — 멀쩡한 봇까지 세우면 «방이 통째로 고장났나» 가 된다");
+  ok(/Sonnet 5/.test(cards[0].textContent), "★ **없어진 것**을 이름으로 적는다");
+  ok(cards[0].querySelector(".gone") !== null, "★ 줄 그은 자리에 — 무엇이 사라졌는지가 첫 정보다");
+}
+
+console.log("\n[★ 아무도 안 해당되면 평소처럼 채팅으로]");
 {
   const t = mount();
   open(t, [bot("b1", "구현", { model: "opus", modelLabel: "Opus 5" })]);
-  ok(t.$$("#screen-chat .banner.warn").length === 0, "★ 조용하다 — 평소 방은 안 바뀐다");
+  const top = t.$$(".screen.active").map((s) => s.id);
+  console.log(`   지금 화면: ${top.join(",")}`);
+  ok(top.includes("screen-chat"), "★ 채팅으로 간다 — 평소 방은 안 바뀐다");
+  ok(t.$("#screen-fix").children.length === 0, "★ 고르기 화면은 비어 있다");
 }
 
-console.log("\n[★ 띠 안에서 바로 고른다 — 설정이 늦게 와도]");
+console.log("\n[★ 고르개는 늦게 온 설정을 기다린다]");
 {
+  /*
+   * 🔴 **막아놓고 고를 수가 없으면 방이 통째로 잠긴다.** 설정은 방에 들어온
+   * 뒤에 오므로, 그때 이 화면을 다시 안 그리면 «불러오는 중…» 에서 멈춘다.
+   * 띠였을 때보다 훨씬 나쁘다 — 그땐 그냥 쓸 수라도 있었다.
+   */
   const t = mount();
   open(t);
-  const before = t.$("#screen-chat .banner.warn select.regone");
-  console.log(`   설정 오기 전: ${before ? "고르개 있음" : "(불러오는 중)"}`);
+  ok(t.$("#screen-fix select.regone") === null, "★ 설정 전엔 고르개가 없다");
+  ok(/불러오는 중/.test(t.$("#screen-fix").textContent), "★ 대신 기다린다고 적는다");
 
   feedConfig(t, "b1");
-  const pick = t.$("#screen-chat .banner.warn select.regone");
-  ok(pick !== null, "★ **늦게 온 설정으로 고르개가 채워진다** — 안 그리면 영영 못 고른다");
-  const names = [...pick.options].map((o) => o.textContent);
-  console.log(`   고를 수 있는 것: ${names.join(" / ")}`);
-  ok(names.includes("Haiku 4.5"), "★ 목록이 실렸다");
+  const pick = t.$("#screen-fix select.regone");
+  ok(pick !== null, "★ **늦게 온 설정으로 채워진다** — 안 그리면 방이 잠긴다");
+  console.log(`   고를 수 있는 것: ${[...pick.options].map((o) => o.textContent).join(" / ")}`);
 
   pick.value = "haiku";
   pick.dispatchEvent(new t.w.Event("change", { bubbles: true }));
   const sent = t.sent.find((m) => m.t === "setConfig");
   console.log(`   → ${JSON.stringify(sent)}`);
   ok(sent?.value === "haiku", `★ 고른 값이 올라간다 (${sent?.value})`);
-  ok(sent?.botId === "b1", `★ **그 봇 앞으로** (${sent?.botId}) — 봇이 둘이면 엉뚱한 쪽이 바뀐다`);
-  ok(sent?.configId === "model", "★ 모델 칸으로");
+  ok(sent?.botId === "b1", `★ **그 봇 앞으로** (${sent?.botId})`);
 }
 
-console.log("\n[★ «이대로 쓰기» — 지금 값이 좋은 사람도 띠를 걷어야 한다]");
+console.log("\n[★ 다 고르면 채팅으로 넘어간다]");
+{
+  const t = mount();
+  open(t);
+  ok(t.$$(".screen.active").map((s) => s.id).includes("screen-fix"), "★ 막혀 있다");
+
+  // 코어가 고쳐서 방을 다시 내보낸 것 — `modelGone` 이 지워져서 온다
+  open(t, [bot("b1", "구현", { model: "haiku", modelLabel: "Haiku 4.5" }), TWO[1]]);
+  const top = t.$$(".screen.active").map((s) => s.id);
+  console.log(`   지금 화면: ${top.join(",")}`);
+  ok(top.includes("screen-chat"), "★ **채팅으로 열린다** — 고르자마자 쓸 수 있어야 한다");
+  ok(t.$("#screen-fix").children.length === 0, "★ 고르기 화면은 비워둔다");
+}
+
+console.log("\n[★ «지금 것 그대로» 도 답이다]");
 {
   /*
-   * 이 길이 없으면 **띠를 못 걷는다.** 대체된 것이 마음에 드는 사람은 고르개에서
-   * 고를 것이 없기 때문이다 — 같은 값을 고르는 셈이라 손이 안 간다.
+   * 이 길이 없으면 대체된 것이 마음에 드는 사람은 **빠져나갈 수가 없다** —
+   * 고르개에서 같은 값을 고르는 셈이라 손이 안 간다.
    */
   const t = mount();
   open(t);
   feedConfig(t, "b1");
-  const keep = [...t.$$("#screen-chat .banner.warn button")].find((b) => /이대로/.test(b.textContent));
-  ok(keep !== undefined, "★ «이대로 쓰기» 가 있다");
+  const keep = [...t.$$("#screen-fix button")].find((b) => /그대로 쓰기/.test(b.textContent));
+  ok(keep !== undefined, "★ «그대로 쓰기» 가 있다");
+  console.log(`   단추: ${keep.textContent}`);
+  ok(/Opus 5/.test(keep.textContent), "★ **무엇을** 그대로 쓰는지 이름이 적혀 있다");
   keep.click();
   const sent = t.sent.find((m) => m.t === "setConfig");
-  console.log(`   → ${JSON.stringify(sent)}`);
-  ok(sent?.value === "opus", `★ **지금 값 그대로** 올린다 (${sent?.value}) — 코어가 그걸 답으로 보고 걷는다`);
-  ok(sent?.botId === "b1", "★ 그 봇 앞으로");
+  ok(sent?.value === "opus", `★ 지금 값 그대로 올린다 (${sent?.value})`);
+}
+
+console.log("\n[★ 가둬두지 않는다]");
+{
+  const t = mount();
+  open(t);
+  const out = t.$("#screen-fix .bar button");
+  ok(out !== null, "★ 나가는 길이 있다");
+  out.click();
+  const top = t.$$(".screen.active").map((s) => s.id);
+  console.log(`   나간 뒤: ${top.join(",")}`);
+  ok(top.includes("screen-list"), "★ **목록으로 돌아간다** — 지금 안 쓰겠다는 것도 답이다");
 }
 
 console.log("\n전부 통과");

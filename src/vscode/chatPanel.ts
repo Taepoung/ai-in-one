@@ -721,6 +721,7 @@ ${hint}` : reason,
 
   <section class="screen" id="screen-new"></section>
   <section class="screen" id="screen-chat"></section>
+  <section class="screen" id="screen-fix"></section>
 </div>
 <script type="application/json" id="boot" nonce="${nonce}">${jsonForHtml(boot)}</script>
 <script nonce="${nonce}" src="${asset("dist", "webview.js")}"></script>
