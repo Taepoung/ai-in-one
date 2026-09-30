@@ -4854,8 +4854,14 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
     el(
       "div",
       { class: "who" },
-      el("span", { class: "dot", style: { background: agent?.color ?? "#888" } }),
-      bot.name,
+      /*
+       * 🔴 **에이전트 색을 쓰고 있었다.** 그러면 같은 에이전트로 봇을 둘 두면
+       * **점이 똑같다** — 정작 봇을 가려야 하는 화면에서 구별을 못 해준다.
+       * 말풍선·참여자 화면과 **같은 색**(`botColor`)을 쓴다.
+       */
+      el("span", { class: "dot", style: { background: botColor(bot, agent) } }),
+      // 이름은 이 칸의 주인공이다 — 참여자 화면과 같은 크기로 (`.who .name`)
+      el("span", { class: "name", text: bot.name }),
     ),
     /*
      * ★ **세 칸을 가로로 누인다** (v2.0).

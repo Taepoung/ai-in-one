@@ -57,8 +57,8 @@ function mount() {
   };
 }
 
-const bot = (id, agentId) => ({ id, agentId, name: agentId, sessionId: "s" + id,
-                                approver: { kind: "user" }, answerPolicy: "ask" });
+const bot = (id, agentId, extra = {}) => ({ id, agentId, name: agentId, sessionId: "s" + id,
+                                approver: { kind: "user" }, answerPolicy: "ask", ...extra });
 
 const room = (bots) => ({
   id: "r1", title: "방", cwd: "/ws", participants: bots,
@@ -176,6 +176,43 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
    * 덮개는 시트 배경이 대화와 거의 같은 색이 되는 것을 가리려던 물건이었다.
    * 화면은 뒤가 안 비치므로 가릴 것이 없다.
    */
+  /*
+   * ★ **봇끼리 구분돼야 한다** (2026-09-30).
+   *
+   * 🔴 윗선 하나로만 갈라뒀다. 안에 권한 모드·승인 주체·질문이 **가로로 누워**
+   * 있어서 좁은 폭에서 줄이 접히면 **어느 줄이 어느 봇 것인지** 알 수 없었다.
+   * 참여자 화면과 같은 «한 덩어리» 상자로 맞췄다.
+   */
+  const box = t.$("#screen-perm .sheet-bot");
+  ok(box.querySelector(".who .name") !== null,
+     "★ 이름이 제 칸에 있다 — 크기를 참여자 화면과 맞추려면 붙잡을 데가 있어야 한다");
+  /*
+   * 🔴 **처음엔 «에이전트 색이 아니다» 로 쟀다가 거짓 통과했다.** 이 봇은 색을
+   * 안 골랐으므로 점이 에이전트 색인 것이 **맞다**(C9 — 작은 점에는 써도 된다).
+   * 게다가 jsdom 이 `rgb()` 로 정규화해서 hex 로 찾던 것이 애초에 안 걸렸다.
+   *
+   * 재야 할 것은 **고른 색이 여기까지 오나** 다. 그게 안 오면 같은 에이전트로
+   * 봇을 둘 두었을 때 권한 화면에서 둘을 가릴 수가 없다.
+   */
+  const dot = box.querySelector(".who .dot")?.style.background ?? "";
+  console.log(`   색 안 고른 봇: ${dot}`);
+  ok(dot !== "", "★ 점이 칠해져 있다");
+
+  {
+    const t2 = mount();
+    t2.$(".room").click();
+    t2.send({ t: "room", compactable: false, room: room([
+      bot("b1", "claude", { color: "var(--vscode-terminal-ansiGreen, #0dbc79)" }),
+      bot("b2", "claude"),
+    ]) });
+    t2.$("#screen-chat .perm").click();
+    const dots = t2.$$("#screen-perm .sheet-bot .who .dot").map((d) => d.style.background);
+    console.log(`   같은 에이전트 둘: ${dots.join("  /  ")}`);
+    ok(/ansiGreen/.test(dots[0]),
+       `★ **고른 색이 여기까지 온다** (${dots[0]}) — 에이전트 색을 쓰면 둘이 똑같아진다`);
+    ok(dots[0] !== dots[1], "★ 같은 에이전트인데 점이 갈린다 — 이 화면이 가려야 할 바로 그 경우다");
+  }
+
   const outBtn = t.$("#screen-perm .bar button");
   ok(outBtn !== null, "★ 머리줄에 돌아가기가 있다");
   outBtn.click();

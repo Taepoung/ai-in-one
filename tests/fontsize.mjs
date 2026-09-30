@@ -38,7 +38,7 @@ console.log("\n[★ 사다리가 VSCode 값에 매달려 있다]");
   ok(/--fs:\s*var\(--vscode-font-size,\s*13px\)/.test(css),
      "★ 못 받으면 13px — 지금 쓰던 값이 그대로 폴백이다");
 
-  for (const n of [9, 10, 11, 12, 14]) {
+  for (const n of [9, 10, 11, 12, 14, 15]) {
     const re = new RegExp(`--fs-${n}:\\s*calc\\(var\\(--fs\\) \\* ${n} / 13\\)`);
     ok(re.test(css), `★ --fs-${n} 이 --fs 에서 나온다 (${n}/13)`);
   }
