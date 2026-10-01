@@ -39,7 +39,7 @@ const mark = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, 
 const CX = path.join(os.homedir(), ".codex");
 
 /** 그 세션이 지금 파일·인덱스에 남아 있나 */
-function left(id: string): { file: boolean; row: boolean } {
+function left(id: string): { file: boolean; row: boolean; cat: boolean } {
   let file = false;
   const walk = (dir: string): void => {
     let names: fs.Dirent[];
@@ -51,15 +51,36 @@ function left(id: string): { file: boolean; row: boolean } {
   };
   walk(path.join(CX, "sessions"));
 
-  let row = false;
-  try {
-    const db = new DatabaseSync(path.join(CX, "state_5.sqlite"), { readOnly: true });
-    const r = db.prepare("select count(*) c from threads where id = ?").get(id) as { c: number };
-    row = r.c > 0;
-    db.close();
-  } catch { /* 못 읽으면 모르는 것으로 둔다 */ }
-  return { file, row };
+  const count = (file_: string, sql: string): boolean => {
+    try {
+      const db = new DatabaseSync(path.join(CX, file_), { readOnly: true });
+      const r = db.prepare(sql).get(id) as { c: number };
+      db.close();
+      return r.c > 0;
+    } catch { return false; }
+  };
+
+  return {
+    file,
+    row: count("state_5.sqlite", "select count(*) c from threads where id = ?"),
+    /*
+     * ★ **앱이 목록을 읽는 자리는 여기다** (2026-10-01).
+     *
+     * 🔴 `.codex` 바로 아래의 `*.sqlite` 만 보다가 **`sqlite/` 하위 폴더를
+     * 놓쳤다.** 파일과 `threads` 를 다 비워놓고 «깨끗하다» 고 세 번 말했는데,
+     * 앱은 계속 목록에 띄웠다 — 열면 *"no rollout found for thread id …"*.
+     *
+     * 증상이 가리키는 id 로 **전체를 뒤졌어야** 했다. 아는 자리를 하나씩
+     * 확인하는 방식은 «내가 아는 자리» 밖을 못 본다.
+     */
+    cat: count(path.join("sqlite", "codex-dev.db"),
+               "select count(*) c from local_thread_catalog where thread_id = ?"),
+  };
 }
+
+/** 세 자리를 한 줄로 */
+const show = (s: { file: boolean; row: boolean; cat: boolean }): string =>
+  `파일 ${s.file ? "있다" : "없다"} · threads ${s.row ? "있다" : "없다"} · 목록 ${s.cat ? "있다" : "없다"}`;
 
 /** `codex delete <id>` 를 돌리고 무슨 말을 했는지 돌려준다 */
 function codexDelete(id: string): { ok: boolean; say: string } {
@@ -148,7 +169,7 @@ async function liveOrder(): Promise<boolean[]> {
 
   await mgr.leaveRoom(room.id);
   const mid = left(id);
-  console.log(`   나간 직후 · 파일 ${mid.file ? "있다" : "없다"} · 행 ${mid.row ? "있다" : "없다"}`);
+  console.log(`   나간 직후 · ${show(mid)}`);
 
   /*
    * ★ **이제 제품이 스스로 한다** (2026-10-01).
@@ -162,16 +183,16 @@ async function liveOrder(): Promise<boolean[]> {
    *
    * 뒷정리는 기다리지 않고 띄우므로(나가기를 막으면 안 된다) 잠시 기다린다.
    */
-  for (let i = 0; i < 60 && left(id).row; i++) {
+  for (let i = 0; i < 60 && (left(id).row || left(id).cat); i++) {
     await new Promise((x) => setTimeout(x, 250));
   }
   const after = left(id);
-  console.log(`   잠시 뒤 · 행 ${after.row ? "있다" : "없다"}`);
+  console.log(`   잠시 뒤 · ${show(after)}`);
 
   const out = [
     mark(!mid.file, "★ ACP delete 가 파일을 지웠다"),
-    mark(!after.row,
-         "★ **나가기만 했는데 행까지 걷혔다** — `purgeSession` 이 제품에서 돌았다"),
+    mark(!after.row && !after.cat,
+         "★ **나가기만 했는데 threads 와 앱 목록까지 걷혔다** — `purgeSession` 이 돌았다"),
   ];
   mgr.dispose();
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 잠겼으면 다음에 */ }
@@ -185,8 +206,24 @@ async function main(): Promise<void> {
   {
     const r = await makeRoom();
     const before = left(r.id);
-    console.log(`   ${r.id.slice(0, 18)}… · 파일 ${before.file ? "있다" : "없다"} · 행 ${before.row ? "있다" : "없다"}`);
-    out.push(mark(before.file && before.row, "★ 지우기 전엔 둘 다 있었다"));
+    console.log(`   ${r.id.slice(0, 18)}… · ${show(before)}`);
+    /*
+     * ★ **앱 목록은 «쓰는 자리» 가 아니라 «긁는 자리» 다** (2026-10-01).
+     *
+     * 여기서 `before.cat` 까지 있을 거라 둘었다가 NO 를 받았다. 눈금이
+     * 틀렸다 — `local_thread_catalog` 은 세션을 만들 때 써지는 게 아니다.
+     * 옆에 `…_scan_checkpoints` 와 `…_scan_entries` 가 같이 있는 것이
+     * 답이다: **앱이 `sessions/` 를 돌면서 채운다.**
+     *
+     * 그래서 우리가 내는 세션은 «들어갔다 나오는» 게 아니라 **아예 안
+     * 들어간다** — 긁기 전에 파일이 없어지니까. 사용자가 본 유령들은
+     * `purgeSession` 이 없던 시절에 **긁힐 만큼 오래 남아있던** 것들이다.
+     *
+     * 그래서 여기선 파일과 `threads` 만 본다. `cat` 은 **지운 뒤에도 없어야
+     * 한다**는 쪽으로만 재고, 그건 아래에서 따진다.
+     */
+    out.push(mark(before.file && before.row, "★ 지우기 전엔 파일과 threads 가 있었다"));
+    out.push(mark(!before.cat, "★ 앱 목록엔 애초 안 들어간다 — 거길 채우는 건 앱의 긁기다"));
 
     /*
      * 🔴 **붙잡고 있는 세션은 못 지운다.** 처음엔 방을 열어둔 채로 불렀다가
@@ -200,9 +237,10 @@ async function main(): Promise<void> {
     const said = codexDelete(r.id);
     console.log(`   codex delete → ${said.ok ? "성공" : "실패"} ${said.say ? `«${said.say}»` : ""}`);
     const after = left(r.id);
-    console.log(`   지운 뒤 · 파일 ${after.file ? "있다" : "없다"} · 행 ${after.row ? "있다" : "없다"}`);
+    console.log(`   지운 뒤 · ${show(after)}`);
     out.push(mark(!after.file, "★ 파일이 사라진다"));
     out.push(mark(!after.row, "★ **인덱스 행도 사라진다** — ACP delete 가 못 하던 바로 그것"));
+    out.push(mark(!after.cat, "★ **앱 목록에서도 빠진다** — 여기가 남으면 «열 수 없는 세션» 이 된다"));
   }
 
   console.log("\n[② 우리 앱이 먼저 반만 지운 뒤에도 뒤처리가 되나]");
@@ -233,13 +271,13 @@ async function main(): Promise<void> {
     walk(path.join(CX, "sessions"));
 
     const mid = left(id);
-    console.log(`   파일만 지운 뒤 · 파일 ${mid.file ? "있다" : "없다"} · 행 ${mid.row ? "있다" : "없다"}`);
+    console.log(`   파일만 지운 뒤 · ${show(mid)}`);
     out.push(mark(!mid.file && mid.row, "★ **붕 뜬 상태를 만들었다** — 우리 앱이 나갈 때 되는 그 모양"));
 
     const said = codexDelete(id);
     console.log(`   codex delete → ${said.ok ? "성공" : "실패"} ${said.say ? `«${said.say}»` : ""}`);
     const after = left(id);
-    console.log(`   그 뒤 · 행 ${after.row ? "있다" : "없다"}`);
+    console.log(`   그 뒤 · ${show(after)}`);
     out.push(mark(!after.row,
       "★ **파일이 없어도 행을 걷는다** — 되면 뒤처리로 쓸 수 있다"));
   }
