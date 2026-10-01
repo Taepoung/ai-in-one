@@ -2677,9 +2677,21 @@ export class RoomManager extends EventEmitter<Events> {
       const options = await withTimeout(
         this.connection(agentId).probeConfigOptions(this.opts.host.defaultCwd()),
         limit,
-        `${this.agentOrThrow(agentId).label}이(가) 응답하지 않습니다 (${Math.round(
-          limit / 1000,
-        )}초). 터미널에서 한 번 실행해 로그인·설치를 마쳤는지 확인하세요.`,
+        /*
+         * ⚠️ **첫 실행이면 이건 고장이 아니다** (2026-10-01).
+         *
+         * 어댑터를 `npx` 가 그때 받는다 — Codex 쪽은 **445MB** 라 느린 망에선
+         * 90초를 넘긴다. 예전 문구는 «응답하지 않습니다 · 설치를 마쳤는지
+         * 확인하세요» 였는데, 둘 다 틀렸다 — 저쪽은 멀줦히 살아서 **받는 중**
+         * 이고, 사용자가 깔 것은 우리가 쓰지도 않는다(`docs/PIN.md` §F5).
+         *
+         * 물어볼 것은 둘이다: **다시 해보기**(받기가 끝나면 된다)와
+         * **로그인**. 설치 판을 맞추라고 하면 엉뙡한 일을 시키는 것이다.
+         */
+        `${this.agentOrThrow(agentId).label}이(가) ${Math.round(limit / 1000)}초 안에 ` +
+          `응답하지 않았습니다. 첫 실행이라면 어댑터를 받는 중일 수 있습니다 ` +
+          `(Codex 는 445MB). 잠시 뒤 다시 해보고, 계속 그러면 터미널에서 ` +
+          `한 번 실행해 로그인을 마쳤는지 확인하세요.`,
       );
       this.configCache.set(agentId, options);
       return options;
