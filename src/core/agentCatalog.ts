@@ -119,7 +119,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      */
     args: ["-y", "@agentclientprotocol/claude-agent-acp@0.84.0"],
     color: "#d97757",
-    install: "Node 20+ 가 필요합니다. 로그인은 터미널에서 `claude` 를 한 번 실행해 마치세요 (CLI 판은 안 맞춰도 됩니다).",
+    install: "Node 20+ 가 필요합니다. 그리고 Claude Code 로 한 번 로그인해 두셔야 합니다 — 어댑터는 우리가 받지만 **로그인 자리는 사용자 것**입니다. CLI 판은 안 맞춰도 됩니다.",
   },
   {
     id: "codex",
@@ -155,7 +155,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      */
     args: ["-y", ...CODEX_PIN, "codex-acp"],
     color: "#10a37f",
-    install: "Node 20+ 가 필요합니다. 로그인은 터미널에서 `codex` 를 한 번 실행해 마치세요 (CLI 판은 안 맞춰도 됩니다).",
+    install: "Node 20+ 만 있으면 됩니다. CLI 를 안 깔았으면 터미널에서 `npx @openai/codex login` 으로 로그인하세요 (설치 불필요).",
     /*
      * ★ **나간 뒤 한 번 더 치운다** (2026-10-01).
      *
