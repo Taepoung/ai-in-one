@@ -21,6 +21,16 @@ export interface AgentBrief {
   label: string;
   description?: string;
   color: string;
+  /**
+   * ★ **받아두었나** (2026-10-01) — `docs/INSTALL.md`.
+   *
+   * 안 받은 에이전트는 **방 만들기 목록에 안 뜨고**, 이미 그걸 쓰던
+   * 방은 모델이 없어졌을 때처럼 **막고 고르게 한다.**
+   *
+   * 없으면 있는 것으로 본다 — 사용자가 `aiInOne.agents` 로 적은 것은
+   * 우리가 받는 게 아니므로 «안 받았다» 고 말하면 거짓말이 된다.
+   */
+  available?: boolean;
 }
 
 export interface ConfigOptionBrief {
@@ -88,6 +98,8 @@ export type ToWebview =
         color: string;
         /** 없으면 우리가 받는 에이전트가 아니다 (사용자 설정) */
         managed: boolean;
+        /** 방 만들기 목록에 뜨나 — 안 받았으면 안 뜨고, 쓰던 방은 막힌다 */
+        available: boolean;
         state: "none" | "stale" | "needLogin" | "ready";
         version?: string;
         wanted?: string;

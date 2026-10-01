@@ -609,6 +609,20 @@ export class ChatPanel implements AskTarget {
    * `roomId`를 주면 **그 방의 세션이 들고 있는 값**을, 없으면 에이전트 기본값을
    * 보낸다 (만들기 화면에는 아직 방이 없다).
    */
+  /**
+   * ★ **지금 쓸 수 있는 에이전트인가** (2026-10-01).
+   *
+   * 받지 않았으면 아니다. **로그인은 안 륌다** — 그건 붙을 때
+   * 저쪽이 알려주고, 미리 막으면 «자격 파일은 있는데 만료된» 같은
+   * 어림짐작 한 가지로 방을 통째로 막게 된다.
+   *
+   * `pkg` 가 없는 것은 항상 쓸 수 있다 — 사용자가 적은 것이다.
+   */
+  private isAvailable(a: AgentDef): boolean {
+    if (!a.pkg) return true;
+    return stateOf(a, this.ctx.globalStorageUri.fsPath, os.homedir()).state !== "none";
+  }
+
   /** 받기가 도는 중인 에이전트와 그 마지막 줄 */
   private readonly busy = new Map<string, string>();
 
@@ -631,6 +645,7 @@ export class ChatPanel implements AskTarget {
           label: a.label,
           color: a.color,
           managed: a.pkg !== undefined,
+          available: this.isAvailable(a),
           state: st.state,
           ...(st.version ? { version: st.version } : {}),
           ...(st.wanted ? { wanted: st.wanted } : {}),
@@ -794,6 +809,7 @@ ${hint}` : reason,
           label: a.label,
           ...(a.description ? { description: a.description } : {}),
           color: a.color,
+          available: this.isAvailable(a),
         }),
       ),
       reducedMotion: false,

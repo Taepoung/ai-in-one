@@ -161,6 +161,22 @@ function dropCard(id: string): boolean {
 
 const agentById = new Map(boot.agents.map((a) => [a.id, a]));
 
+/**
+ * ★ **지금 쓸 수 있는 에이전트** (2026-10-01) — `docs/INSTALL.md`.
+ *
+ * 안 받은 것은 방 만들기 목록에 안 뜨고, 이미 쓰던 방은 막힌다.
+ * `boot` 으로 시작해서 설정 화면이 줄 `agents` 로 갱신된다 — 받자마자
+ * 목록에 뜨게 하려는 것이다.
+ */
+const agentAvail = new Set(
+  boot.agents.filter((a) => a.available !== false).map((a) => a.id),
+);
+
+/** 그 봇이 지금 돌 수 없는 상태인가 */
+function agentGone(b: BotInstance): boolean {
+  return !agentAvail.has(b.agentId);
+}
+
 // ── 화면 전환 (F8) ──────────────────────────────────────────────────────
 
 type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents";
@@ -1317,7 +1333,8 @@ function syncDraftNames(): void {
  */
 function agentSelect(b: DraftBot, n: number): HTMLElement {
   const pick = el("select", { class: "agent-pick" }) as HTMLSelectElement;
-  for (const a of boot.agents) {
+  /* 받지 않은 것은 안 띄운다 — 고르게 해두고 나중에 막으면 더 나쁘다 */
+  for (const a of boot.agents.filter((x) => agentAvail.has(x.id))) {
     pick.append(el("option", { value: a.id, text: a.label, selected: a.id === b.agentId }));
   }
   pick.addEventListener("change", () => {
@@ -1485,7 +1502,14 @@ function leaveChat(): void {
 
 /** 고른 모델이 없어진 봇들. 비어 있으면 평소 방이다 */
 function needsModel(r: Room): BotInstance[] {
-  return r.participants.filter((b) => b.modelGone);
+  /*
+   * ★ **두 가지를 같은 문으로 받는다** (2026-10-01).
+   *
+   * «고른 모델이 없어졌다» 와 «그 에이전트를 안 받았다» 는 사용자
+   * 입장에서 같다 — **이 방은 지금 못 쓴다.** 고치는 길도 같다:
+   * 다른 걸 고르거나 봇을 내보낸다. 그래서 한 화면에서 처리한다.
+   */
+  return r.participants.filter((b) => b.modelGone || agentGone(b));
 }
 
 /**
@@ -1610,6 +1634,8 @@ function renderAgents(): void {
 
 function renderFix(r: Room): void {
   const hit = needsModel(r);
+  /** 한 봇이라도 «에이전트가 없다» 면 글이 달라진다 — 모델 이야기만 하면 틀린 말이 된다 */
+  const anyAgent = hit.some((b) => agentGone(b));
   const host = screens.fix;
   host.replaceChildren();
   if (hit.length === 0) return;
@@ -1623,71 +1649,153 @@ function renderFix(r: Room): void {
         // **가둬두지 않는다.** 이 방을 지금 안 쓰겠다는 것도 답이다
         onclick: () => { room = null; chat = null; go("list"); },
       }, icon("arrow-left")),
-      el("h1", { text: "모델을 다시 골라 주세요" }),
+      el("h1", { text: anyAgent ? "이 방을 쓰려면 정리가 필요합니다" : "모델을 다시 골라 주세요" }),
     ),
     el("div", { class: "fix-why" },
       el("p", {
         text:
-          `${r.title}의 ${hit.length > 1 ? `봇 ${hit.length}개가` : `${hit[0]!.name}이(가)`} ` +
-          `쓰던 모델이 없어졌습니다. 고르기 전에는 이 방을 쓸 수 없습니다.`,
+          `${r.title}의 ${hit.length > 1 ? `봇 ${hit.length}개` : hit[0]!.name}가 ` +
+          `지금 돌 수 없어 이 방을 쓸 수 없습니다. 하나씩 정리하면 돌아갑니다.`,
       }),
       /*
        * **왜 막는지**를 적는다. 안 적으면 «그냥 쓰면 되지 왜 막아» 가 된다.
        * 핵심은 «비슷한 걸로 바꿔놨다» 가 아니라 **성격이 다를 수 있다** 이다.
        */
       el("p", { class: "dim",
-        text:
-          "대신 들어간 모델은 성격이 다를 수 있습니다 — 빠른 모델이 균형 모델로 " +
-          "바뀌기도 합니다. 모르고 쓰면 답이 왜 달라졌는지 나중에 알 수 없습니다.",
+        text: anyAgent
+          ? "받지 않은 에이전트는 부를 수 없습니다. 로봇 아이콘에서 받아두거나, " +
+            "여기서 다른 에이전트로 바꾸거나 봇을 내보내면 됩니다."
+          : "대신 들어간 모델은 성격이 다를 수 있습니다 — 빠른 모델이 균형 모델로 " +
+            "바꿔도 합니다. 모르고 쓰면 답이 왜 달라졌는지 나중에 알 수 없습니다.",
       }),
     ),
   );
 
   for (const bot of hit) {
-    const model = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
-    const pick = el("select", { class: "regone" }) as HTMLSelectElement;
-    pick.append(el("option", { value: "", text: "고르세요…", selected: true }));
-    for (const v of model?.values ?? []) {
-      pick.append(el("option", { value: v.id, text: v.name }));
-    }
-    pick.addEventListener("change", () => {
-      if (!pick.value || !model) return;
-      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: pick.value, botId: bot.id });
-    });
+    const who = agentById.get(bot.agentId);
+    const gone = agentGone(bot);
 
-    host.append(
-      el(
-        "div",
-        { class: "fix-bot" },
-        el("div", { class: "fix-name" },
-          el("span", { class: "dot", style: { background: botColor(bot, agentById.get(bot.agentId)) } }),
-          el("strong", { text: bot.name }),
-          el("span", { class: "dim", text: agentById.get(bot.agentId)?.label ?? bot.agentId }),
-        ),
-        el("div", { class: "fix-was" },
-          el("span", { class: "gone", text: bot.modelGone!.label }),
-          el("span", { class: "dim", text: " 은(는) 이제 없습니다" }),
-        ),
-        model?.values?.length
-          ? pick
-          : el("p", { class: "dim", text: "고를 수 있는 모델을 불러오는 중…" }),
-        /*
-         * **지금 들어가 있는 것을 그대로 쓰는 것도 답이다.** 이 길이 없으면
-         * 대체된 것이 마음에 드는 사람은 **빠져나갈 수가 없다** — 고르개에서
-         * 같은 값을 고르는 셈이라 손이 안 간다.
-         */
-        bot.model
-          ? el("button", {
-              class: "ghost", type: "button",
-              text: `지금 들어간 「${bot.modelLabel ?? bot.model}」 그대로 쓰기`,
-              onclick: () => {
-                if (!model) return;
-                post({ t: "setConfig", roomId: r.id, configId: model.configId, value: bot.model!, botId: bot.id });
-              },
-            })
-          : null,
+    const card = el("div", { class: "fix-bot" },
+      el("div", { class: "fix-name" },
+        el("span", { class: "dot", style: { background: botColor(bot, who) } }),
+        el("strong", { text: bot.name }),
+        el("span", { class: "dim", text: who?.label ?? bot.agentId }),
       ),
     );
+
+    if (gone) {
+      /*
+       * ★ **에이전트를 안 받은 경우** (2026-10-01).
+       *
+       * 모델을 고를 수가 없다 — 모델 목록은 **그 어댑터를 띄워야** 오는데
+       * 띄울 것이 없기 때문이다. 그래서 여기서는 **다른 에이전트로
+       * 갈아타거나 내보내거나** 둘뿐이다. 받아오는 길은 로봇 아이콘이고,
+       * 받으면 `agents` 가 와서 이 화면이 알아서 걷힌다.
+       */
+      const others = boot.agents.filter((x) => agentAvail.has(x.id));
+      if (others.length === 0) {
+        card.append(el("p", { class: "dim",
+          text: `「${who?.label ?? bot.agentId}」 을(를) 아직 받지 않았고, 바꿔 달 다른 에이전트도 없습니다. ` +
+            "위의 로봇 아이콘에서 먼저 받아주세요.",
+        }));
+      } else {
+        const swap = el("select", { class: "regone" }) as HTMLSelectElement;
+        swap.append(el("option", { value: "", text: "다른 에이전트로…", selected: true }));
+        for (const x of others) swap.append(el("option", { value: x.id, text: x.label }));
+        swap.addEventListener("change", () => {
+          if (!swap.value) return;
+          /*
+           * 모델은 안 실어 보낸다 — 저쪽 기본값으로 붙고, 마음에 안 들면
+           * 서람에서 바꾸면 된다. 여기서까지 고르게 하면 **막힌 사람에게
+           * 일을 두 번 시키는** 셋이 된다.
+           */
+          post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: swap.value });
+        });
+        /*
+         * ★ **옮기기 전을 왼쪽에 둔다** (2026-10-01).
+         *
+         * 사용자: *"이전 모델 -> [모델 선택] 이렇게"*.
+         *
+         * 따로 적어놓으면 **무엇을 무엇으로 바꾸는 중인지**를 두 번 읽어
+         * 엮어야 한다. 한 줄에 두면 고르는 동안에도 왔던 자리가 눈에 남는다.
+         */
+        card.append(
+          el("div", { class: "fix-swap" },
+            el("span", { class: "gone", text: who?.label ?? bot.agentId }),
+            el("span", { class: "dim", text: "→" }),
+            swap,
+          ),
+        );
+      }
+    } else {
+      const model = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
+      const pick = el("select", { class: "regone" }) as HTMLSelectElement;
+      pick.append(el("option", { value: "", text: "고르세요…", selected: true }));
+      for (const v of model?.values ?? []) {
+        pick.append(el("option", { value: v.id, text: v.name }));
+      }
+      pick.addEventListener("change", () => {
+        if (!pick.value || !model) return;
+        post({ t: "setConfig", roomId: r.id, configId: model.configId, value: pick.value, botId: bot.id });
+      });
+
+      /*
+       * ★ **«여기서 저기로» 를 한 줄에** (2026-10-01).
+       *
+       * 사용자: *"이전 모델이 뭔지도 보여주자 · 이전 모델 -> [모델 선택]"*.
+       *
+       * 예전엔 «「옆은것」 은(는) 이제 없습니다» 를 적고 **고르개는 따로**
+       * 놓았다. 그러면 고르는 순간에는 이전이 무엇이었는지가 눈에서 멀어진다 —
+       * 하필 그때 제일 알고 싶은 것인데.
+       */
+      card.append(
+        model?.values?.length
+          ? el("div", { class: "fix-swap" },
+              el("span", { class: "gone", text: bot.modelGone!.label }),
+              el("span", { class: "dim", text: "→" }),
+              pick,
+            )
+          : el("div", { class: "fix-was" },
+              el("span", { class: "gone", text: bot.modelGone!.label }),
+              el("span", { class: "dim", text: " 은(는) 이제 없습니다 — 고를 수 있는 모델을 불러오는 중…" }),
+            ),
+      );
+
+      /*
+       * **지금 들어가 있는 것을 그대로 쓰는 것도 답이다.** 이 길이 없으면
+       * 대체된 것이 마음에 드는 사람은 **빠져나갈 수가 없다.**
+       */
+      if (bot.model) {
+        card.append(el("button", {
+          class: "ghost", type: "button",
+          text: `지금 들어간 「${bot.modelLabel ?? bot.model}」 그대로 쓰기`,
+          onclick: () => {
+            const model2 = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
+            if (!model2) return;
+            post({ t: "setConfig", roomId: r.id, configId: model2.configId, value: bot.model!, botId: bot.id });
+          },
+        }));
+      }
+    }
+
+    /*
+     * ★ **내보내기 — 두 경우 모두** (2026-10-01).
+     *
+     * 사용자: *"판 올려서 모델 바꾸는 상황에서도 봇 내보내기 선택지 있게"*.
+     *
+     * 예전엔 «고르기» 밖에 없어서, **그 봇을 더 안 쓰고 싶은 사람은
+     * 갇혀 있었다** — 안 고르면 방 전체가 막힌 채로 남았다.
+     *
+     * 한 봇씩 지워지므로(`removeBot` → `room` 갱신 → 다시 그린다) 여럿이면
+     * 하나씩 정리하게 된다. 마지막 하나까지 지우면 막음이 풀리고 방으로 간다.
+     */
+    card.append(el("button", {
+      class: "ghost danger", type: "button",
+      text: `「${bot.name}」 내보내기`,
+      onclick: () => post({ t: "removeBot", roomId: r.id, botId: bot.id }),
+    }));
+
+    host.append(card);
   }
 }
 
@@ -6651,10 +6759,19 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       }
       break;
 
-    case "agents":
+    case "agents": {
       agentRows = m.list;
+      /*
+       * 받거나 지우면 방 만들기 목록과 막음이 **같이** 바뀜다.
+       * 설정 화면만 고치고 나면 받아놓고도 목록에 안 뜨는 꼴이 된다.
+       */
+      agentAvail.clear();
+      for (const a of m.list) if (a.available) agentAvail.add(a.id);
       renderAgents();
+      if (stack[stack.length - 1] === "new") renderNew();
+      if (room && needsModel(room).length > 0) { renderFix(room); go("fix"); }
       break;
+    }
 
     case "config": {
       const key = configKey(m.agentId, m.roomId, m.botId);

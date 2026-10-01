@@ -3462,3 +3462,36 @@ fieldset.bot .bot-drop.danger:hover {
   margin: 0;
   font-size: var(--fs-12);
 }
+
+/* 막음 화면의 «내보내기» — 봇 빼기와 같은 무게다 (docs/INSTALL.md) */
+.fix-bot .ghost.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.fix-bot .ghost.danger:hover {
+  background: var(--danger);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+/*
+ * «이전 것 → [고르개]» 한 줄 (2026-10-01).
+ *
+ * 고르는 동안에도 **왔던 자리가 눈에 남아야** 한다 — 따로 적어두면 무엇을
+ * 무엇으로 바꾸는 중인지 두 번 읽어 엮어야 한다.
+ */
+.fix-swap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fix-swap .gone {
+  flex: 0 0 auto;
+}
+
+.fix-swap select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
