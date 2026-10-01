@@ -29,7 +29,34 @@ function argsOf(id) {
   if (at < 0) throw new Error(`agentCatalog 에 ${id} 가 없다`);
   const m = /args: \[([^\]]*)\]/.exec(src.slice(at));
   if (!m) throw new Error(`${id} 의 args 를 못 찾았다`);
-  return m[1].split(",").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean);
+
+  const one = (t) => t.trim().replace(/^"|"$/g, "");
+  const out = [];
+  for (const tok of m[1].split(",")) {
+    const t = tok.trim();
+    if (!t) continue;
+    /*
+     * ★ **`...CODEX_PIN` 같은 펼침도 풀어준다** (2026-10-01).
+     *
+     * 어댑터와 엔진을 한 줄에 묶어두면서 상수가 생겼다. 여기서 안
+     * 풀면 probe 는 «...CODEX_PIN» 이라는 **글자열을 어댑터로 띄우려 한다.**
+     */
+    const spread = t.startsWith("...") ? t.slice(3) : "";
+    if (spread) {
+      const head = `const ${spread} = [`;
+      const at2 = src.indexOf(head);
+      if (at2 < 0) throw new Error(`${spread} 〖을〗 못 찾았다`.replace("〖을〗", "을"));
+      const end = src.indexOf("]", at2);
+      for (const x of src.slice(at2 + head.length, end).split(",")) {
+        const v2 = one(x);
+        if (v2) out.push(v2);
+      }
+      continue;
+    }
+    const v = one(t);
+    if (v) out.push(v);
+  }
+  return out;
 }
 
 /** `-y` 를 뺀 패키지 이름 하나 (`ask(pkg)` 꼴 probe 용) */
