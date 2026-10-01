@@ -46,7 +46,7 @@
  * ```
  *
  * ⚠️ 첫 프롬프트를 손대는 것은 **사용자의 말을 고치는 일**이다. 목록을
- * 예쪽게 하자고 보내는 말에 우리 글을 섮는 것은 따로 정할 일이다.
+ * 예쪽게 하자고 보내는 말에 우리 글을 섬는 것은 따로 정할 일이다.
  */
 const { spawn, execFileSync } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
