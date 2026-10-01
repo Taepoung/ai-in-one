@@ -119,7 +119,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      */
     args: ["-y", "@agentclientprotocol/claude-agent-acp@0.84.0"],
     color: "#d97757",
-    install: "터미널에서 `claude` 를 실행해 설치·로그인하세요.",
+    install: "Node 20+ 가 필요합니다. 로그인은 터미널에서 `claude` 를 한 번 실행해 마치세요 (CLI 판은 안 맞춰도 됩니다).",
   },
   {
     id: "codex",
@@ -155,7 +155,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      */
     args: ["-y", ...CODEX_PIN, "codex-acp"],
     color: "#10a37f",
-    install: "터미널에서 `codex` 를 실행해 설치·로그인하세요.",
+    install: "Node 20+ 가 필요합니다. 로그인은 터미널에서 `codex` 를 한 번 실행해 마치세요 (CLI 판은 안 맞춰도 됩니다).",
     /*
      * ★ **나간 뒤 한 번 더 치운다** (2026-10-01).
      *
