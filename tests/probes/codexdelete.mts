@@ -118,6 +118,66 @@ async function makeRoom(): Promise<{ id: string; close: () => void }> {
   };
 }
 
+/**
+ * ★ **제품이 실제로 밟을 순서** (2026-10-01).
+ *
+ * ①②는 «어댑터를 끈 뒤» 불렀다. 그런데 제품에서는 `leaveRoom` 안에서 부르게
+ * 되므로 **어댑터가 아직 살아 있다.** 붙잡고 있는 세션은 못 지운다는 걸
+ * ①에서 봤으니, 이 순서로도 되는지는 따로 재야 한다.
+ *
+ * ```
+ * leaveRoom  →  ACP session/delete   (파일이 사라진다)
+ *            →  codex delete --force (행을 걷는다)   ← 이게 여기서 되나?
+ * ```
+ *
+ * 안 되면 설계를 바꿔야 한다 — 연결을 놓은 뒤로 미루거나, 나중에 모아서
+ * 치우거나.
+ */
+async function liveOrder(): Promise<boolean[]> {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-cxlive-"));
+  const store = new RoomStore(dir); await store.init();
+  const agent = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
+  const mgr = new RoomManager({ host: hostAt(dir), store, agents: [agent], configProbeMs: 60000 });
+  mgr.on("roomError", (_r, e) => console.log("   roomError:", e));
+
+  console.log("\n[③ 제품 순서 — leaveRoom 직후, 어댑터가 **살아 있는 채로**]");
+  const room = await mgr.createRoom({ agentId: "codex", title: "살아있는채로" });
+  await mgr.send(room.id, "«봤다» 라고만 답해. 도구 쓰지 마.");
+  await settle(mgr, room.id);
+  const id = room.participants[0]?.sessionId ?? "";
+
+  await mgr.leaveRoom(room.id);
+  const mid = left(id);
+  console.log(`   나간 직후 · 파일 ${mid.file ? "있다" : "없다"} · 행 ${mid.row ? "있다" : "없다"}`);
+
+  /*
+   * ★ **이제 제품이 스스로 한다** (2026-10-01).
+   *
+   * `AgentDef.purgeSession` 에 적어두고 `deleteSession` 이 부른다. 그래서
+   * 여기서는 **우리가 따로 안 부른다** — 나간 것만으로 행이 걷혀야 한다.
+   *
+   * 🔴 한 번 여기서 `codexDelete` 를 또 불렀다가 «failed to delete session»
+   * 을 받았다. **제품이 먼저 지워버린 뒤**라 지울 것이 없었던 것이다 —
+   * 기능이 도는 증거였는데 실패로 읽을 뻔했다.
+   *
+   * 뒷정리는 기다리지 않고 띄우므로(나가기를 막으면 안 된다) 잠시 기다린다.
+   */
+  for (let i = 0; i < 60 && left(id).row; i++) {
+    await new Promise((x) => setTimeout(x, 250));
+  }
+  const after = left(id);
+  console.log(`   잠시 뒤 · 행 ${after.row ? "있다" : "없다"}`);
+
+  const out = [
+    mark(!mid.file, "★ ACP delete 가 파일을 지웠다"),
+    mark(!after.row,
+         "★ **나가기만 했는데 행까지 걷혔다** — `purgeSession` 이 제품에서 돌았다"),
+  ];
+  mgr.dispose();
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 잠겼으면 다음에 */ }
+  return out;
+}
+
 async function main(): Promise<void> {
   const out: boolean[] = [];
 
@@ -183,6 +243,8 @@ async function main(): Promise<void> {
     out.push(mark(!after.row,
       "★ **파일이 없어도 행을 걷는다** — 되면 뒤처리로 쓸 수 있다"));
   }
+
+  out.push(...(await liveOrder()));
 
   console.log(`\n  ${out.filter(Boolean).length}/${out.length}`);
   process.exit(out.every(Boolean) ? 0 : 1);

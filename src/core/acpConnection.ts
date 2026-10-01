@@ -651,6 +651,46 @@ export class AcpConnection {
       // 여기서 close로 폴백하지 않는다 — 실패한 delete 뒤의 close도 실패한다.
       // 프로세스가 끝날 때 정리된다.
     }
+    this.purge(sessionId);
+  }
+
+  /**
+   * ★ **ACP delete 가 못 치운 것을 그 CLI 가 치우게 한다** (2026-10-01).
+   *
+   * 🔴 Codex 는 세션을 **파일과 sqlite 인덱스 둘**에 두는데 ACP 의
+   * `session/delete` 는 파일만 지운다. 그래서 방을 나갈 때마다 붕 뜬 행이
+   * 쌓이고, 확장 목록엔 뜨는데 열면 *"file does not exist"* 가 난다.
+   *
+   * sqlite 를 우리가 직접 만지지 않는다 — **남의 제품 스키마**라 바뀌면 조용히
+   * 깨진다. 대신 그 CLI 의 지우기 명령을 부른다(`AgentDef.purgeSession`).
+   *
+   * **기다리지 않고 실패도 삼킨다.** 이건 뒷정리지 나가기의 조건이 아니다 —
+   * `codex` 가 PATH 에 없거나 느리다고 방 나가기가 막히면 안 된다. 어댑터가
+   * 살아 있는 채로 불러도 되는 것은 실측으로 확인했다(`codexdelete.mts` ③).
+   */
+  private purge(sessionId: string): void {
+    const p = this.agent.purgeSession;
+    if (!p) return;
+    const args = p.args.map((a) => a.replace("{id}", sessionId));
+    try {
+      const child = spawn(p.command, args, {
+        stdio: "ignore",
+        // Windows 에서 `codex` 는 `.cmd` 라 shell 없이는 `ENOENT` 다
+        shell: process.platform === "win32",
+        detached: false,
+        /*
+         * **에이전트의 환경변수를 그대로 물린다.** 그 CLI 가 어디를 보고 세션을
+         * 찾는지는 환경이 정한다(`CODEX_HOME` 같은 것). 어댑터를 띄울 때 준
+         * 환경을 여기서 빼면 **딴 곳을 뒤지게 된다** — 지울 것을 못 찾거나,
+         * 더 나쁘게는 엉뚱한 데서 찾는다.
+         */
+        ...(this.agent.env ? { env: { ...process.env, ...this.agent.env } } : {}),
+      });
+      child.on("error", (e) =>
+        this.host.log(`[${this.agent.id}] 세션 뒷정리를 못 했습니다: ${describe(e)}`));
+    } catch (err) {
+      this.host.log(`[${this.agent.id}] 세션 뒷정리를 못 했습니다: ${describe(err)}`);
+    }
   }
 
   // ── 이벤트 ────────────────────────────────────────────────────────────

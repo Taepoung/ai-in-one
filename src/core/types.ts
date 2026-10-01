@@ -21,6 +21,25 @@ export interface AgentDef {
    */
   install?: string;
   env?: Record<string, string>;
+  /**
+   * ★ **세션을 지운 뒤 한 번 더 치워야 하는 에이전트가 있다** (2026-10-01).
+   *
+   * 🔴 Codex 는 세션을 **파일과 sqlite 인덱스 둘**에 둔다. 그런데 ACP 의
+   * `session/delete` 는 **파일만 지운다**(`leavereal.mts` 실측). 그래서 방을
+   * 나갈 때마다 인덱스에 붕 뜬 행이 하나씩 쌓이고, 확장 목록에는 뜨는데 열면
+   * *"failed to resolve rollout path … file does not exist"* 가 난다.
+   *
+   * 우리가 그 sqlite 를 직접 만질 수도 있지만 **남의 제품 스키마**다 —
+   * 바뀌면 조용히 깨진다. 대신 **그 CLI 가 제 손으로 치우게** 한다:
+   * `codex delete --force <id>` 가 파일과 인덱스를 둘 다 걷는다.
+   *
+   * 여기를 **선언으로** 두는 이유: «코덱스면 이렇게» 를 코드에 박으면 에이전트가
+   * 늘 때마다 분기가 는다. 에이전트는 데이터다(`aiInOne.agents` 로 더할 수 있다).
+   *
+   * `{id}` 자리에 세션 id 가 들어간다. **실패해도 그냥 넘어간다** — 이건
+   * 뒷정리지 나가기의 조건이 아니다.
+   */
+  purgeSession?: { command: string; args: string[] };
 }
 
 /**

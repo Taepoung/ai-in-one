@@ -92,6 +92,20 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     args: ["-y", "@agentclientprotocol/codex-acp"],
     color: "#10a37f",
     install: "터미널에서 `codex` 를 실행해 설치·로그인하세요.",
+    /*
+     * ★ **나간 뒤 한 번 더 치운다** (2026-10-01).
+     *
+     * 🔴 Codex 는 세션을 **파일과 sqlite 인덱스 둘**에 두는데, ACP 의
+     * `session/delete` 는 **파일만 지운다.** 그래서 방을 나갈 때마다 인덱스에
+     * 붕 뜬 행이 쌓이고 확장 목록에 «열 수 없는 세션» 으로 남는다.
+     *
+     * `--force` 가 있어야 한다 — 없으면 «터미널이 아니라 확인을 못 받는다»
+     * 며 거절한다. 사람이 아닌 것이 부를 때를 위해 둔 문이다.
+     *
+     * ⚠️ Claude 에는 이 줄이 없다. 거기선 **파일이 곧 목록**이라 ACP delete
+     * 하나로 끝난다 — 할 일이 없는데 명령을 띄우면 느려지기만 한다.
+     */
+    purgeSession: { command: npx() === "npx.cmd" ? "codex.cmd" : "codex", args: ["delete", "--force", "{id}"] },
   },
 ];
 
