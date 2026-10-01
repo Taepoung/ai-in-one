@@ -329,7 +329,24 @@ export function stateOf(
 export function withInstalled(agent: AgentDef, root: string): AgentDef {
   if (!agent.pkg) return agent;
   const dir = dirFor(root, agent.id);
-  if (!statusOf(dir, agent.pkg).installed) return agent;
+  if (!statusOf(dir, agent.pkg).installed) {
+    /*
+     * 🔴 **안 받았으면 띄우지 않는다** (2026-10-01).
+     *
+     * 예전엔 여기서 그냥 `agent` 를 돌려줬다 — 즉 적혀 있는 `npx -y …`
+     * 로 **조용히 돌았다.** 편해 보였지만 그게 바로 고치려던 것이다:
+     * 방을 열었을 뿐인데 **445MB 를 모르고 받게** 된다. 화면은 막아두고
+     * 엔진만 관대하면 «목록엔 안 보이는데 어륄70 받고 있다» 가 된다.
+     *
+     * 돌리는 것은 **고칠 수 있는 말**이다 — 어디서 받는지까지 적는다.
+     */
+    return {
+      ...agent,
+      unavailable:
+        `${agent.label}을(를) 아직 받지 않았습니다. ` +
+        `목록 화면 위의 로봇 아이콘에서 받아주세요.`,
+    };
+  }
   const s = spawnSpecFor(dir, agent.pkg);
   return { ...agent, command: s.command, args: s.args, env: { ...agent.env, ...s.env } };
 }

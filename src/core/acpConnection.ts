@@ -212,6 +212,14 @@ export class AcpConnection {
    */
   async ensureStarted(onSlowStart?: () => void): Promise<void> {
     if (this.isRunning) return;
+    /*
+     * ★ **안 받은 에이전트는 여기서 막는다** (2026-10-01).
+     *
+     * 화면이 이미 막고 있지만 **입구가 거기뿐이 아니다** — 설정 교체,
+     * 이어받기, 백그라운드 조회가 다 이 길로 온다. 막을 거면 **띄우는 자리
+     * 하나에서** 막아야 새는 데가 없다.
+     */
+    if (this.agent.unavailable) throw new Error(this.agent.unavailable);
     if (!this.starting) {
       const slow = onSlowStart
         ? setTimeout(onSlowStart, SLOW_START_MS)

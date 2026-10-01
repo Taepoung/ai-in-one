@@ -50,6 +50,17 @@ export interface AgentDef {
    * 왜 우리 자리로 옮기는지는 `docs/INSTALL.md`.
    */
   pkg?: AgentPackage;
+  /**
+   * 🔴 **지금 못 띄운다 — 그 까닭** (2026-10-01).
+   *
+   * `withInstalled` 가 붙인다. 붙어 있으면 `ensureStarted` 가 **아예 안
+   * 띄운다** — 이 글을 그대로 올려보낸다.
+   *
+   * 예전엔 안 받았으면 **조용히 `npx -y …` 로 돌았다.** 편했지만 그게
+   * 고치려던 것이였다 — 방을 열다가 **445MB를 모르고 받게** 된다.
+   * 화면은 막고 엔진은 관대하면 «막혔는데 왜 받지» 가 된다.
+   */
+  unavailable?: string;
 }
 
 /**

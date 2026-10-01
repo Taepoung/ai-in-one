@@ -21,9 +21,13 @@
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { spawn, execFileSync } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import {
-  dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, findOne, realNpm,
+  dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, findOne, realNpm, withInstalled,
 } from "../../src/core/agentInstaller.js";
+import { RoomManager } from "../../src/core/roomManager.js";
+import { RoomStore } from "../../src/core/store.js";
+import type { WorkspaceHost } from "../../src/core/workspaceHost.js";
 import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
 import type { AgentDef } from "../../src/core/types.js";
 
@@ -128,6 +132,96 @@ async function one(agent: AgentDef, root: string, out: boolean[]): Promise<void>
   }
 }
 
+/**
+ * ★ **받은 것으로 끝까지 도나** (2026-10-01).
+ *
+ * 🔴 fallback 을 빼면서 **이 길이 유일한 길**이 됐다. 그전까지는 안 받았으면
+ * `npx -y …` 로 조용히 돌았고, 실측도 전부 그쪽으로 했다(`codexdelete.mts`
+ * 9/9, `smokereal` · `leavereal`). 즉 **여태껏 잰 것은 사라진 길이다.**
+ *
+ * 위에서는 `initialize` 까지만 봤다. 열리는 것과 **쓰이는 것은 다르다**:
+ *
+ * ```
+ * 방 만들기  →  한 마디  →  나가기  →  세션이 정리되나
+ * ```
+ *
+ * `CODEX_PATH` 가 제대로 박혔는지도 여기서 드러난다 — 안 박혔으면 사용자
+ * 기계의 판이 돌아서 **뒷정리가 엉뚱한 자리를 보게** 된다.
+ */
+async function roundTrip(root: string, out: boolean[]): Promise<void> {
+  console.log("\n[★ 받은 것으로 방을 열고 나가기까지]");
+  const raw = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
+  const agent = withInstalled(raw, root);
+  console.log(`   띄우는 것: …${agent.command.slice(-34)}`);
+  out.push(mark(agent.unavailable === undefined, "★ 받았으니 막히지 않는다"));
+  out.push(mark(!agent.command.includes("npx"),
+    "★ **npx 가 아니라 우리 자리를 띄운다** — fallback 을 뺀 뒤라 이게 유일한 길이다"));
+  out.push(mark(agent.env?.["CODEX_PATH"] !== undefined, "★ CODEX_PATH 가 박혀 있다"));
+
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-rt-"));
+  const store = new RoomStore(dir); await store.init();
+  const host: WorkspaceHost = {
+    readTextFile: async () => "", writeTextFile: async () => {},
+    requestPermission: async () => ({ outcome: "cancelled" }),
+    log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
+  };
+  const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 120000 });
+  mgr.on("roomError", (_r, e) => console.log("   roomError:", e));
+
+  try {
+    const room = await mgr.createRoom({ agentId: "codex", title: "끝까지" });
+    await mgr.send(room.id, "«봤다» 라고만 답해. 도구 쓰지 마.");
+    for (let i = 0; i < 2400 && !["idle", "error"].includes(mgr.statusOf(room.id)); i++) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const sid = room.participants[0]?.sessionId ?? "";
+    const saved = await store.loadRoom(room.id);
+    const said = (saved?.messages ?? [])
+      .filter((m) => m.role === "agent").map((m) => m.text).join(" ");
+    console.log(`   세션 ${sid.slice(0, 18)}… · 답 ${JSON.stringify(said.trim().slice(0, 40))}`);
+    out.push(mark(sid.length > 0, "★ **세션이 붙는다**"));
+    out.push(mark(said.trim().length > 0, "★ **답이 온다** — 열리는 것과 쓰이는 것은 다르다"));
+
+    await mgr.leaveRoom(room.id);
+    for (let i = 0; i < 60; i++) {
+      if (!leftOver(sid)) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    console.log(`   나간 뒤 · 세션 ${leftOver(sid) ? "남았다" : "없다"}`);
+    out.push(mark(!leftOver(sid),
+      "★ **나가면 정리된다** — 뒷정리도 우리 자리의 codex 가 한다"));
+    out.push(mark((await store.loadRoom(room.id)) == null, "★ 방도 지워졌다"));
+  } catch (e) {
+    console.log("   터졌다:", e instanceof Error ? e.message.slice(0, 200) : String(e));
+    out.push(mark(false, "★ 끝까지 도는가"));
+  }
+  mgr.dispose();
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 잠겼으면 다음에 */ }
+}
+
+/** 그 세션이 파일이나 인덱스에 남아 있나 */
+function leftOver(id: string): boolean {
+  if (!id) return false;
+  const CX = path.join(os.homedir(), ".codex");
+  let file = false;
+  const walk = (at: string): void => {
+    let names: fs.Dirent[];
+    try { names = fs.readdirSync(at, { withFileTypes: true }); } catch { return; }
+    for (const e of names) {
+      if (e.isDirectory()) { walk(path.join(at, e.name)); continue; }
+      if (e.name.includes(id)) file = true;
+    }
+  };
+  walk(path.join(CX, "sessions"));
+  let row = false;
+  try {
+    const db = new DatabaseSync(path.join(CX, "state_5.sqlite"), { readOnly: true });
+    row = (db.prepare("select count(*) c from threads where id = ?").get(id) as { c: number }).c > 0;
+    db.close();
+  } catch { /* 없으면 없는 것 */ }
+  return file || row;
+}
+
 async function main(): Promise<void> {
   const out: boolean[] = [];
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-real-"));
@@ -138,6 +232,8 @@ async function main(): Promise<void> {
     if (!a.pkg) { console.log(`\n[${a.label}] pkg 가 없다 — 건너뛴다`); continue; }
     await one(a, root, out);
   }
+
+  await roundTrip(root, out);
 
   console.log("\n[★ 치운다 — 우리 자리라 마음대로]");
   const before = sizeOf(root);
