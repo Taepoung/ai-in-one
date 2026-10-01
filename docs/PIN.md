@@ -470,6 +470,68 @@ npx -y -p …codex-acp@2.1.0 -p @openai/codex@0.159.3 codex delete --force <id>
 
 ---
 
+## G. 에이전트마다 **모양이 다르다** — 핀이 가능한지부터 갈린다
+
+> 사용자 물음 (2026-10-01): *"모든 cli들이 똑같다는 거지? Claude, Codex
+> 그리고 다른 애들 (Antigravity, Grok build 등)"*.
+>
+> **안 같다.** §A–F 는 전부 «공식 어댑터를 npx 로 받는다» 를 전제하는데,
+> 그 전제가 성립하지 않는 에이전트가 있다.
+
+공식 scope(`@agentclientprotocol/`)에 있는 것은 **셋뿐**이다 — `sdk`,
+`claude-agent-acp`, `codex-acp`. 나머지는 전부 남의 포크다(npm 에 codex-acp
+포크만 열 개 넘게 있다).
+
+| | 어댑터 | 엔진 | 핀 | 사용자 CLI |
+|---|---|---|---|---|
+| **Claude** | 공식 | **품고 다닌다** (`claude-agent-sdk: 0.3.284` 못) | 어댑터 하나로 끝 | 안 쓴다 |
+| **Codex** | 공식 | 범위 `^0.159.1` | **둘 다 지명**해야 한다 (§F4) | 안 쓴다 (§F5) |
+| **Gemini** | 없다 — **CLI 자체에 `--acp`** | = CLI | ❌ **못 박는다** | **그게 전부다** |
+| **Antigravity · Grok** | 공식 없다 | — | — | — |
+
+### G1. Gemini 꼴 — 못 박을 것이 없다
+
+Gemini 는 별도 어댑터가 아니라 `@google/gemini-cli --acp` 다. 즉 **우리가
+받는 것이 없고**, 사용자가 깐 판이 곧 우리 판이다. §A(모델)·§F(뒷정리)가
+통째로 사용자 손에 있다.
+
+그래서 이 꼴은 핀을 박을 수 없다. 설정으로 `npx -y @google/gemini-cli@<판>`
+을 쓰게 할 수는 있지만 **로그인 자리가 사용자 것**이라 판을 가르면 어긋난다.
+
+> ⚠️ 지금 Gemini 는 다른 이유로 기본 목록에 없다 — 개인 구글 계정 로그인이
+> 막혀 **API 키만 남았고**, 그러면 §0 P3(«구독 그대로»)가 깨진다.
+> `agentCatalog.ts` 의 주석 참고.
+
+### G2. Antigravity · Grok — 공식 어댑터가 없다
+
+npm 에 있는 것은 전부 제삼자다:
+
+```
+@simonepri/refined-antigravity-acp   "A Google Antigravity ACP binary that actually works"
+paseo-agy-acp                        "proxies the official Google A…"
+dsh-grok-acp                         "Use Grok Build as an ACP-powered root agent…"
+```
+
+**남의 어댑터를 기본에 넣는 것은 다른 종류의 결정이다.** 어댑터는
+사용자의 로그인 자리와 작업 폴더를 그대로 받는다 — `@agentclientprotocol/`
+이 아닌 것을 우리가 골라 끼워주면, 그 사람 자격증명이 우리가 안 읽어본
+코드를 지나간다. §0 P3 가 지키려는 바로 그 선이다.
+
+쓰고 싶은 사람은 `aiInOne.agents` 설정으로 직접 넣을 수 있다(Gemini 와
+같은 길). **기본에 넣는 것과 넣을 수 있게 두는 것은 다르다.**
+
+### G3. 그래서 새 에이전트를 볼 때 묻는 순서
+
+```
+1. @agentclientprotocol/ 에 있나          없으면 → 기본에 안 넣는다 (G2)
+2. 어댑터가 엔진을 품나, 범위로 무나      범위면 → 엔진도 지명한다 (§F4)
+3. CLI 자체가 ACP 를 하나                그러면 → 핀이 불가능하다 (G1)
+4. 구독으로 로그인되나                   키만 되면 → §0 P3 위반 (Gemini)
+5. 나갈 때 ACP delete 로 다 지워지나      아니면 → `purgeSession` (§F)
+```
+
+---
+
 ## 밟는 순서
 
 ```bash
