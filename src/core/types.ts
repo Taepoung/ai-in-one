@@ -40,6 +40,87 @@ export interface AgentDef {
    * 뒷정리지 나가기의 조건이 아니다.
    */
   purgeSession?: { command: string; args: string[] };
+  /**
+   * ★ **우리 자리에 받아두는 꺼라면 여기 적는다** (2026-10-01).
+   *
+   * 적혀 있으면 `command`·`args` 를 **받은 뒤 덮어쓴다**
+   * (`agentInstaller.withInstalled`). 안 적혀 있으면 적힌 대로 띄운다 —
+   * 사용자가 `aiInOne.agents` 로 제 손으로 적은 것이 그 꼴이다.
+   *
+   * 왜 우리 자리로 옮기는지는 `docs/INSTALL.md`.
+   */
+  pkg?: AgentPackage;
+}
+
+/** 그 에이전트가 지금 어느 칸에 있나 — 화면이 보여줄 단추가 여기서 나온다 */
+export type AgentState =
+  /** 안 받았다 — **설치하기** */
+  | "none"
+  /** 받았는데 핀이 올라갔다 — **업데이트** */
+  | "stale"
+  /** 받았지만 로그인이 안 돼 있다 — **로그인** */
+  | "needLogin"
+  /** 다 됐다 — **로그아웃·사용량** */
+  | "ready";
+
+/**
+ * 받아둘 꺼리 하나.
+ *
+ * `npx -y <꺼리>` 로 띄우던 것을 **우리 자리에 미리 받아두고** 거기서
+ * 띄우기 위한 적음이다.
+ */
+export interface AgentPackage {
+  /** 판까지 박힌 npm 꺼리 — `"@agentclientprotocol/codex-acp@2.1.0"` */
+  spec: string;
+  /** `node_modules/.bin` 에 생기는 이름 — `"codex-acp"` */
+  bin: string;
+  /**
+   * 엔진 판을 눌러 박는다 (npm `overrides`).
+   *
+   * 어댑터가 엔진을 **범위로** 물면(`"^0.159.1"`) 받을 때마다 판이
+   * 달라진다 — 이 기계에 같은 어댑터 판을 받아둔 자리 둘의 엔진이
+   * 각각 0.159.2 와 0.159.3 이었다.
+   */
+  overrides?: Record<string, string>;
+  /**
+   * 🔴 **엔진 바이너리를 가리키는 env.**
+   *
+   * 두 어댑터 다 바이너리를 PATH 에서 찾는 문을 두는데 기본값이 다르다:
+   *
+   * ```
+   * Claude   CLAUDE_CODE_EXECUTABLE   기본: 품은 exe
+   * Codex    CODEX_PATH               기본: **"codex" — PATH 에서 찾는다**
+   * ```
+   *
+   * 그래서 Codex 는 **안 박으면 사용자 CLI 가 걸린다.** 오류도 안 나고
+   * 그냥 딸 판이 돌기 때문에 더 나쁘다.
+   */
+  exeEnv?: { name: string; bin: string };
+  /**
+   * 로그인이 됐나를 어떻게 보나.
+   *
+   * ⚠️ `file` 은 **어림짐작이다.** 홈 아래 그 파일이 있으면 로그인된
+   * 것으로 본다 — 만료된 자격도 파일은 남아 있으므로 **있다 ≠ 유효하다.**
+   * 정확히 알려면 어댑터를 띄워야 하는데, 그건 받은 뒤에나 된다.
+   * 화면이 받기 전에도 뭐라도 보여주려고 둔 것이다.
+   *
+   * `loginBin` 은 **ACP 로 로그인이 안 되는 에이전트**용 — 터미널로 띄운다.
+   * Codex 는 `authMethods` 에 `chat-gpt` 를 광고하므로 앱 안에서 된다.
+   */
+  auth?: {
+    /** 홈 아래 이 파일이 있으면 로그인된 것으로 본다 (어림짐작) */
+    file: string;
+    /**
+     * ACP 로 로그인이 안 되는 에이전트는 **터미널로** 띄운다.
+     *
+     * `find` 는 설치 자리 기준 경로이고 `*` 한 칸을 허용한다 — 플랫폼별
+     * 꺼리 이름이 달라서다(`claude-agent-sdk-win32-x64` · `-darwin-arm64` …).
+     *
+     * 🔴 Claude 는 `.bin` 에 `claude` 가 **안 나온다.** 품은 exe 가 꺼리 안에
+     * 그냥 놓여 있어서, 그걸 찾아 부르는 수밖에 없다.
+     */
+    login?: { bin?: string; find?: string; args: string[] };
+  };
 }
 
 /**

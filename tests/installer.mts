@@ -1,0 +1,182 @@
+/**
+ * **에이전트를 우리 자리에 받아두는 일** (2026-10-01).
+ *
+ * `npx -y <꾸러미>` 를 그만 쓰고 우리가 받아두기로 했다 — 왜인지는
+ * `docs/INSTALL.md`. 여기서는 그 배선을 잰다.
+ *
+ * ⚠️ **망을 안 탄다.** 진짜 `npm install` 은 꾸러미 하나가 445MB 라 검사가
+ * 밟을 일이 아니다. `npm` 을 부르는 자리를 주입식으로 빼뒀으므로 **가짜를
+ * 물려** 나머지를 전부 잰다. 진짜로 받아지는지는 사람이 한 번 보면 된다.
+ *
+ * 재는 것:
+ *
+ * ```
+ * ① `package.json` 에 overrides 가 들어간다   ← 엔진을 한 판으로 누르는 자리
+ * ② 상태가 사용자가 정한 표대로 나온다
+ * ③ **Codex 는 CODEX_PATH 가 박힌다**         ← 빠지면 조용히 딴 판이 돈다
+ * ④ 받다 말면 «받았다» 고 안 한다
+ * ⑤ 지우면 자리가 비고, pkg 없는 에이전트는 안 건드린다
+ * ```
+ *
+ * ③이 제일 중요하다. 어댑터 안이 `process.env["CODEX_PATH"] ?? "codex"` 라
+ * **안 박으면 사용자 기계의 codex 가 걸린다** — 오류도 안 나고 그냥 다른
+ * 판이 돈다.
+ */
+import { fileURLToPath } from "node:url";
+import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import {
+  dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
+  install, remove, findOne, withInstalled, type Run,
+} from "../src/core/agentInstaller.js";
+import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import type { AgentDef } from "../src/core/types.js";
+
+const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
+const WIN = process.platform === "win32";
+const claude = DEFAULT_AGENTS.find((a) => a.id === "claude")!;
+const codex = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
+
+/** 받아진 척 — 진짜 npm 대신 나무만 만든다 */
+function fakeTree(dir: string, agent: AgentDef, version: string): void {
+  const { name } = splitSpec(agent.pkg!.spec);
+  const home = path.join(dir, "node_modules", ...name.split("/"));
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, "package.json"),
+    JSON.stringify({ name, version }), "utf8");
+  const bin = path.join(dir, "node_modules", ".bin");
+  fs.mkdirSync(bin, { recursive: true });
+  for (const b of [agent.pkg!.bin, agent.pkg!.exeEnv?.bin].filter(Boolean) as string[]) {
+    fs.writeFileSync(path.join(bin, WIN ? b + ".cmd" : b), "", "utf8");
+  }
+}
+
+async function main(): Promise<void> {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-inst-"));
+  const home = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-home-"));
+
+  console.log("\n[★ package.json 에 엔진이 한 판으로 눌린다]");
+  {
+    const m = JSON.parse(manifestFor(codex.pkg!)) as Record<string, unknown>;
+    console.log(`   ${JSON.stringify(m["dependencies"])} · overrides ${JSON.stringify(m["overrides"])}`);
+    ok(JSON.stringify(m["dependencies"]).includes("codex-acp"), "★ 어댑터가 의존으로 들어간다");
+    ok(JSON.stringify(m["overrides"]).includes("@openai/codex"),
+       "★ **overrides 로 엔진이 눌린다** — 범위로 두면 받을 때마다 판이 달라진다");
+    ok(!JSON.stringify(m["dependencies"]).includes("^"),
+       "★ 어댑터 판에 범위 기호가 없다");
+
+    const c = JSON.parse(manifestFor(claude.pkg!)) as Record<string, unknown>;
+    ok(c["overrides"] === undefined, "★ 엔진이 못인 쪽은 overrides 를 안 넣는다");
+  }
+
+  console.log("\n[★ 상태가 표대로 나온다]");
+  {
+    const s0 = stateOf(codex, root, home);
+    console.log(`   받기 전 · ${s0.state}`);
+    ok(s0.state === "none", "★ 안 받았다 → `none` (설치하기)");
+
+    fakeTree(dirFor(root, codex.id), codex, "2.1.0");
+    const s1 = stateOf(codex, root, home);
+    console.log(`   받은 뒤 · ${s1.state} (로그인 ${s1.loggedIn ? "됨" : "안됨"})`);
+    ok(s1.state === "needLogin", "★ 받았는데 로그인 안 됨 → `needLogin` (로그인)");
+
+    fs.mkdirSync(path.join(home, ".codex"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".codex", "auth.json"), "{}", "utf8");
+    const s2 = stateOf(codex, root, home);
+    console.log(`   로그인 뒤 · ${s2.state}`);
+    ok(s2.state === "ready", "★ 받았고 로그인됨 → `ready` (로그아웃·사용량)");
+
+    /* 핀을 올린 꼴 — 받아둔 것은 2.1.0 인데 원하는 것이 달라진다 */
+    const bumped: AgentDef = { ...codex, pkg: { ...codex.pkg!, spec: "@agentclientprotocol/codex-acp@2.2.0" } };
+    const s3 = stateOf(bumped, root, home);
+    console.log(`   핀 올린 뒤 · ${s3.state} (있는 것 ${s3.version} · 원하는 것 ${s3.wanted})`);
+    ok(s3.state === "stale", "★ 핀이 올라갔다 → `stale` (업데이트)");
+    ok(s3.version === "2.1.0" && s3.wanted === "2.2.0", "★ 두 판을 같이 보여준다");
+
+    const s4 = stateOf(codex, root, home);
+    ok(s4.state === "ready", "★ **핀이 안 올라갔으면 그대로 둔다** — 괜히 다시 받지 않는다");
+    ok(s4.size > 0, `★ 자리가 얼마나 먹는지 센다 (${s4.size}B)`);
+  }
+
+  console.log("\n[★ Codex 는 CODEX_PATH 가 박힌다]");
+  {
+    const dir = dirFor(root, codex.id);
+    const sp = spawnSpecFor(dir, codex.pkg!);
+    console.log(`   command = …${sp.command.slice(-28)}`);
+    console.log(`   env     = ${JSON.stringify(Object.keys(sp.env))}`);
+    ok(sp.command.includes("codex-acp"), "★ 어댑터 bin 을 띄운다");
+    ok(sp.env["CODEX_PATH"] !== undefined,
+       "★ **CODEX_PATH 가 박힌다** — 안 박으면 사용자 기계의 codex 가 걸린다");
+    ok(sp.env["CODEX_PATH"]!.startsWith(dir),
+       "★ 그게 **우리 자리**를 가리킨다");
+    ok(!sp.env["CODEX_PATH"]!.includes("codex-acp"),
+       "★ 어댑터가 아니라 엔진 쪽이다 — 둘을 바꿔 넣으면 제가 저를 부른다");
+
+    const cl = spawnSpecFor(dirFor(root, claude.id), claude.pkg!);
+    ok(Object.keys(cl.env).length === 0,
+       "★ Claude 는 안 박는다 — 내버려두면 **제가 품은 exe** 를 쓴다");
+  }
+
+  console.log("\n[★ 받다 말면 «받았다» 고 안 한다]");
+  {
+    const dir = dirFor(root, "half");
+    const half: AgentDef = { ...codex, id: "half" };
+
+    /** 0 으로 끝나는데 아무것도 안 만드는 npm */
+    const liar: Run = async () => ({ code: 0, say: "added 0 packages" });
+    const r1 = await install(dir, half.pkg!, liar);
+    console.log(`   거짓말하는 npm → ${r1.ok ? "통과" : "막힘"} «${r1.say}»`);
+    ok(!r1.ok, "★ **종료코드만 믿지 않는다** — bin 이 생겼는지 본다");
+
+    const real: Run = async (args, at) => { fakeTree(at, half, "2.1.0"); return { code: 0, say: "ok" }; };
+    const r2 = await install(dir, half.pkg!, real);
+    ok(r2.ok, "★ 제대로 받으면 통과한다");
+    ok(fs.existsSync(path.join(dir, "package.json")), "★ 우리 package.json 이 남는다");
+
+    let called = 0;
+    const count: Run = async (a, at) => { called++; fakeTree(at, half, "2.1.0"); return { code: 0, say: "" }; };
+    await install(dir, half.pkg!, count);
+    ok(called === 0, "★ **이미 맞는 판이 있으면 npm 을 안 부른다**");
+  }
+
+  console.log("\n[★ 지우기 · 안 건드리기]");
+  {
+    const dir = dirFor(root, codex.id);
+    ok(fs.existsSync(dir), "★ 있다가");
+    await remove(dir);
+    ok(!fs.existsSync(dir), "★ **지우면 비는 자리다** — 우리 것이라 마음대로 지운다");
+
+    const mine = withInstalled(codex, root);
+    ok(mine.command === codex.command,
+       "★ 안 받아져 있으면 예전 길 그대로 — npx 로 뜬다");
+
+    const user: AgentDef = { ...codex, id: "user", pkg: undefined };
+    ok(withInstalled(user, root) === user,
+       "★ **`pkg` 없는 에이전트는 손도 안 댄다** — 사용자가 제 손으로 적은 것이다");
+    ok(stateOf(user, root, home).state === "ready",
+       "★ 그런 건 «안 받았다» 고 말하지 않는다 — 거짓말이 된다");
+  }
+
+  console.log("\n[★ 플랫폼마다 다른 꾸러미 이름을 찾는다]");
+  {
+    const dir = dirFor(root, "glob");
+    const deep = path.join(dir, "node_modules", "@anthropic-ai", "claude-agent-sdk-win32-x64");
+    fs.mkdirSync(deep, { recursive: true });
+    fs.writeFileSync(path.join(deep, "claude.exe"), "", "utf8");
+    const hit = findOne(dir, "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*");
+    console.log(`   찾은 것: …${(hit ?? "(없음)").slice(-34)}`);
+    ok(hit !== undefined && hit.endsWith("claude.exe"),
+       "★ **`*` 로 찾는다** — `-win32-x64` 와 `-darwin-arm64` 가 같은 자리를 쓴다");
+    ok(findOne(dir, "node_modules/@anthropic-ai/nope-*/x") === undefined,
+       "★ 없으면 없다고 한다");
+  }
+
+  await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
+  await fsp.rm(home, { recursive: true, force: true }).catch(() => undefined);
+  console.log("\n전부 통과");
+}
+
+void main().catch((e: unknown) => {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(1);
+});

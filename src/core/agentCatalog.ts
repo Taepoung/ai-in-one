@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import type { AgentDef } from "./types.js";
 
 /**
@@ -120,6 +121,25 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     args: ["-y", "@agentclientprotocol/claude-agent-acp@0.84.0"],
     color: "#d97757",
     install: "Node 20+ 가 필요합니다. 그리고 Claude Code 로 한 번 로그인해 두셔야 합니다 — 어댑터는 우리가 받지만 **로그인 자리는 사용자 것**입니다. CLI 판은 안 맞춰도 됩니다.",
+    /*
+     * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/INSTALL.md`.
+     *
+     * `exeEnv` 가 없다. Claude 어댑터는 내버려두면 **제가 품은 exe** 를
+     * 쓰므로 건드릴 일이 없다. Codex 는 그렇지 않다(아래).
+     *
+     * 로그인은 `find` 로 찾아 터미널에 띄운다. 🔴 `.bin` 에 `claude` 가
+     * **안 나온다** — `claude-agent-acp`·`anthropic-ai-sdk`·`node-which` 뿐이라
+     * 꺼리 안에 놓인 exe 를 직접 찾는 수밖에 없다. 플랫폼별로 꺼리 이름이
+     * 갈리므로(`-win32-x64` · `-darwin-arm64` …) `*` 로 두고 받은 것을 찾는다.
+     */
+    pkg: {
+      spec: "@agentclientprotocol/claude-agent-acp@0.84.0",
+      bin: "claude-agent-acp",
+      auth: {
+        file: path.join(".claude", ".credentials.json"),
+        login: { find: "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*", args: [] },
+      },
+    },
   },
   {
     id: "codex",
@@ -156,6 +176,34 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     args: ["-y", ...CODEX_PIN, "codex-acp"],
     color: "#10a37f",
     install: "Node 20+ 만 있으면 됩니다. CLI 를 안 깔았으면 터미널에서 `npx @openai/codex login` 으로 로그인하세요 (설치 불필요).",
+    /*
+     * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/INSTALL.md`.
+     *
+     * 🔴 **`exeEnv` 가 빠지면 조용히 딸 판이 돈다.** 어댑터 안은 이렇다:
+     *
+     * ```js
+     * const codexPath = process.env["CODEX_PATH"] ?? "codex";
+     * ```
+     *
+     * 기본값이 **PATH 의 `codex`** 다. 지금까지 핀 판이 돌았던 것은 `npx` 가
+     * 제 `.bin` 을 PATH 앞에 끼워줬기 때문이고, 우리 자리에서 직접 띄우면
+     * 그 도움이 없어 **사용자가 깔아둔 codex** 가 걸린다(이 기계: 0.155.0).
+     * 오류도 안 나고 그냥 다른 판이 돌기 때문에 더 나쁘다.
+     *
+     * `overrides` 는 엔진 범위(`^0.159.1`)를 한 판으로 눌러 박는다 — npx 로는
+     * `-p` 를 둘 주는 꺼미를 썼는데, 우리 `package.json` 이 생기니 정식 길이 열렸다.
+     */
+    pkg: {
+      spec: "@agentclientprotocol/codex-acp@2.1.0",
+      bin: "codex-acp",
+      overrides: { "@openai/codex": "0.159.3" },
+      exeEnv: { name: "CODEX_PATH", bin: "codex" },
+      auth: {
+        file: path.join(".codex", "auth.json"),
+        /* ACP 가 `chat-gpt` 를 광고하므로 나중엔 앱 안에서. 지금은 그 CLI 로 */
+        login: { bin: "codex", args: ["login"] },
+      },
+    },
     /*
      * ★ **나간 뒤 한 번 더 치운다** (2026-10-01).
      *
