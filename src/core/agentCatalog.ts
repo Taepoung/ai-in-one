@@ -71,7 +71,14 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      *    글로만 적는 probe 가 여럿이라 **본문**도 맞춰야 한다
      * 5. node tests/probes/bumpsafe.cjs <새판>   ← 세션·되돌리기
      * 6. 이 줄을 고치고 `npm test`
+     * 7. npx tsx tests/probes/codexdelete.mts  ← **세션 뒷정리**
      * ```
+     *
+     * 7번은 이 핀과 상관이 없어 보이지만 **그래서** 같이 볼 일이다. 나갈 때 도는
+     * 뒷정리는 ACP 가 아니라 **사용자 기계에 깔린 `codex` CLI** 라 핀 밖에서
+     * 아무 때나 바뀜고, 깨져도 나가기를 안 막으므로 **볼 일을 정해두지 않으면
+     * 아무도 모른다.** 핀을 올리는 날이 정해진 유일한 «다 같이 보는 날» 이라
+     * 여기 붙였다. 자세한 건 `docs/PIN.md` §F.
      *
      * ⚠️ tarball 이 실제로 받아지는지 확인할 것 — 레지스트리에 «있다»는 것과
      * «받아진다»는 것은 다르다. `sweep` 을 돌렸으면 이미 받아본 것이다.
@@ -104,6 +111,10 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      *
      * ⚠️ Claude 에는 이 줄이 없다. 거기선 **파일이 곧 목록**이라 ACP delete
      * 하나로 끝난다 — 할 일이 없는데 명령을 띄우면 느려지기만 한다.
+     *
+     * ⚠️ **이 줄은 핀이 안 지켜준다.** `codex` 는 사용자가 언제든 올리고,
+     * `delete` 나 `--force` 가 바뀜면 그날 깨진다. 막지는 않으나 **로그는
+     * 남긴다** — 종료코드만 바뀌는 고장을 예전엔 통째로 못 봤다. `docs/PIN.md` §F.
      */
     purgeSession: { command: npx() === "npx.cmd" ? "codex.cmd" : "codex", args: ["delete", "--force", "{id}"] },
   },

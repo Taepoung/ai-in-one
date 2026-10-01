@@ -667,6 +667,17 @@ export class AcpConnection {
    * **기다리지 않고 실패도 삼킨다.** 이건 뒷정리지 나가기의 조건이 아니다 —
    * `codex` 가 PATH 에 없거나 느리다고 방 나가기가 막히면 안 된다. 어댑터가
    * 살아 있는 채로 불러도 되는 것은 실측으로 확인했다(`codexdelete.mts` ③).
+   *
+   * ⚠️ **삼키는 것과 못 보는 것은 다르다** (2026-10-01).
+   *
+   * 처음엔 `stdio: "ignore"` 에 `error` 만 들었다. 그러면 **명령이 돌았는데
+   * 1 로 죽는 경우를 통째로 못 본다.** `error` 는 띄우기 자체가 안 될 때만
+   * 온다. 하필 그게 **제일 있을법한 고장**이다 — 저쪽 CLI 가 `--force` 를
+   * 갈아끼우거나 `delete` 를 옮기면 띄우기는 되고 종료코드만 바뀜다.
+   *
+   * 그러면 사용자는 **몇 달 뒤 목록이 유령으로 차고나서** 알게 된다. 이미
+   * 한 번 걷은 길이다. 그래서 **막지는 않되 남긴다** — 종료코드와 stderr 를
+   * 받아 로그로 흘린다. 나가기는 여전히 기다리지 않는다.
    */
   private purge(sessionId: string): void {
     const p = this.agent.purgeSession;
@@ -674,7 +685,12 @@ export class AcpConnection {
     const args = p.args.map((a) => a.replace("{id}", sessionId));
     try {
       const child = spawn(p.command, args, {
-        stdio: "ignore",
+        /*
+         * stderr 만 받는다. 저쪽이 왜 거절했는지는 거기에 있고, 받아두지
+         * 않으면 «안 됐다» 만 알고 **왜인지를 모른다.** 읽는 손을 반드시
+         * 달아둔다 — 파이프를 열고 안 읽으면 저쪽이 막힌다.
+         */
+        stdio: ["ignore", "ignore", "pipe"],
         // Windows 에서 `codex` 는 `.cmd` 라 shell 없이는 `ENOENT` 다
         shell: process.platform === "win32",
         detached: false,
@@ -686,8 +702,23 @@ export class AcpConnection {
          */
         ...(this.agent.env ? { env: { ...process.env, ...this.agent.env } } : {}),
       });
+      let said = "";
+      child.stderr?.setEncoding("utf8");
+      child.stderr?.on("data", (c: string) => { said = (said + c).slice(-500); });
+
       child.on("error", (e) =>
         this.host.log(`[${this.agent.id}] 세션 뒷정리를 못 했습니다: ${describe(e)}`));
+      /*
+       * ★ **띄우기는 됐는데 거절당한 경우.** 여기가 없으면 저쪽 CLI 가
+       * 플래그를 바꿔도 우리는 모른다 — 세션이 다시 쌀이기 시작하는데
+       * 아무 말도 안 남는다.
+       */
+      child.on("exit", (code) => {
+        if (code === 0 || code === null) return;
+        this.host.log(
+          `[${this.agent.id}] 세션 뒷정리가 ${code} 로 끝났습니다 ` +
+            `(${p.command} ${args.join(" ")})${said ? `: ${said.trim()}` : ""}`);
+      });
     } catch (err) {
       this.host.log(`[${this.agent.id}] 세션 뒷정리를 못 했습니다: ${describe(err)}`);
     }

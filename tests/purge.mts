@@ -16,6 +16,7 @@
  * ② `{id}` 자리에 **그 세션 id** 가 들어간다
  * ③ 안 적어둔 에이전트는 **아무것도 안 띄운다** (Claude 가 그렇다)
  * ④ 명령이 없어도 나가기가 안 막힌다 — 뒷정리지 조건이 아니다
+ * ⑤ **돌았는데 1 로 죽으면 로그에 남는다** — 삼키는 것과 못 보는 것은 다르다
  * ```
  *
  * ④가 제일 중요하다. `codex` 가 PATH 에 없는 사람에게 **방이 안 닫히면**
@@ -33,11 +34,12 @@ const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); c
 const here = path.dirname(fileURLToPath(import.meta.url));
 const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const logs: string[] = [];
 function hostAt(dir: string): WorkspaceHost {
   return {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
+    log: (m: string) => { logs.push(m); }, defaultCwd: () => dir, hasWorkspace: () => true,
   };
 }
 
@@ -140,6 +142,55 @@ async function main(): Promise<void> {
 
     const left = await store.loadRoom(room.id);
     ok(left === undefined || left === null, "★ 방도 제대로 지워졌다");
+  }
+
+  console.log("\n[★ 돌았는데 거절당하면 로그에 남는다]");
+  {
+    /*
+     * 🔴 **삼키는 것과 못 보는 것은 다르다** (2026-10-01).
+     *
+     * 위의 «깨진것» 은 **띄우기 자체가** 안 된다 — `error` 가 온다. 그런데
+     * 저쪽 CLI 가 `--force` 를 갈아끼우는 쪽이 **훨씬 있을법하고**, 그때는
+     * 띄우기가 멀줦히 되고 **종료코드만 바뀜다.**
+     *
+     * 예전엔 `stdio: "ignore"` 에 `error` 만 들어서 그걸 통째로 못 봤다. 그러면
+     * 세션이 다시 쌀이기 시작하는데 **아무 기록도 안 남고**, 사용자는 몇 달
+     * 뒤 목록이 유령으로 차고나서 알게 된다. 이미 한 번 걷은 길이다.
+     *
+     * 막지는 않되 **남긴다.**
+     */
+    const bad = path.join(dir, "bad.cjs");
+    fs.writeFileSync(bad, [
+      "process.stderr.write('unknown option --force');",
+      "process.exit(2);",
+    ].join("\n"), "utf8");
+    const refuses = {
+      ...fake, id: "refuser", label: "거절하는것",
+      purgeSession: { command: "node", args: [bad, "{id}"] },
+    };
+    const m2 = new RoomManager({
+      host: hostAt(dir), store, agents: [refuses], configProbeMs: 20000,
+    });
+    m2.on("roomError", () => {}); m2.on("notice", () => {});
+
+    const room = await m2.createRoom({ agentId: "refuser", title: "거절한다" });
+    await m2.send(room.id, "안녕");
+    for (let i = 0; i < 800 && !["idle", "error"].includes(m2.statusOf(room.id)); i++) await nap(25);
+
+    logs.length = 0;
+    const began = Date.now();
+    await m2.leaveRoom(room.id);
+    const took = Date.now() - began;
+    ok(took < 3000, `★ 그래도 나가기는 안 막힌다 (${took}ms)`);
+
+    for (let i = 0; i < 80 && !logs.some((l) => l.includes("뒷정리")); i++) await nap(50);
+    const note = logs.find((l) => l.includes("뒷정리")) ?? "";
+    console.log(`   남은 말: «${note}»`);
+    ok(note.length > 0, "★ **조용히 안 넘어간다** — 종료코드가 로그로 남는다");
+    ok(note.includes("2"), "★ 몇으로 죽었는지가 들어 있다");
+    ok(note.includes("unknown option"),
+       "★ **저쪽이 한 말이 들어 있다** — 없으면 «안 됐다» 만 알고 왜인지를 모른다");
+    m2.dispose();
   }
 
   mgr.dispose();
