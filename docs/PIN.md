@@ -470,71 +470,96 @@ npx -y -p …codex-acp@2.1.0 -p @openai/codex@0.159.3 codex delete --force <id>
 
 ---
 
-## G. 에이전트마다 **모양이 다르다** — 핀이 가능한지부터 갈린다
+## G. 에이전트마다 모양이 다르다 — 그리고 **공식 목록이 따로 있다**
 
-> 사용자 물음 (2026-10-01): *"모든 cli들이 똑같다는 거지? Claude, Codex
-> 그리고 다른 애들 (Antigravity, Grok build 등)"*.
+> ⏪ **이 절을 한 번 틀리게 적었다** (2026-10-01).
 >
-> **안 같다.** §A–F 는 전부 «공식 어댑터를 npx 로 받는다» 를 전제하는데,
-> 그 전제가 성립하지 않는 에이전트가 있다.
+> 처음엔 npm 의 `@agentclientprotocol/` scope 만 보고 *"공식은 셋뿐이고
+> Antigravity·Grok 은 공식 어댑터가 없다"* 고 적었다. **둘 다 틀렸다.**
+> 사용자가 *"acp 지원 목록을 한번 봐봐"* 해서 공식 문서를 보고 알았다.
+>
+> npm scope 는 **배포 자리 하나**일 뿐이다. 목록은 다른 데 있었다 — 그리고
+> 거기 Antigravity 도 Grok 도 있다. **아는 자리만 뒤지면 아는 자리 밖을 못
+> 본다** 는 것을, 이 저장소에서 `codex-dev.db` 때 이미 한 번 겪고도 또 했다.
 
-공식 scope(`@agentclientprotocol/`)에 있는 것은 **셋뿐**이다 — `sdk`,
-`claude-agent-acp`, `codex-acp`. 나머지는 전부 남의 포크다(npm 에 codex-acp
-포크만 열 개 넘게 있다).
-
-| | 어댑터 | 엔진 | 핀 | 사용자 CLI |
-|---|---|---|---|---|
-| **Claude** | 공식 | **품고 다닌다** (`claude-agent-sdk: 0.3.284` 못) | 어댑터 하나로 끝 | 안 쓴다 |
-| **Codex** | 공식 | 범위 `^0.159.1` | **둘 다 지명**해야 한다 (§F4) | 안 쓴다 (§F5) |
-| **Gemini** | 없다 — **CLI 자체에 `--acp`** | = CLI | ❌ **못 박는다** | **그게 전부다** |
-| **Antigravity · Grok** | 공식 없다 | — | — | — |
-
-### G1. Gemini 꼴 — 못 박을 것이 없다
-
-Gemini 는 별도 어댑터가 아니라 `@google/gemini-cli --acp` 다. 즉 **우리가
-받는 것이 없고**, 사용자가 깐 판이 곧 우리 판이다. §A(모델)·§F(뒷정리)가
-통째로 사용자 손에 있다.
-
-그래서 이 꼴은 핀을 박을 수 없다. 설정으로 `npx -y @google/gemini-cli@<판>`
-을 쓰게 할 수는 있지만 **로그인 자리가 사용자 것**이라 판을 가르면 어긋난다.
-
-> ⚠️ 지금 Gemini 는 다른 이유로 기본 목록에 없다 — 개인 구글 계정 로그인이
-> 막혀 **API 키만 남았고**, 그러면 §0 P3(«구독 그대로»)가 깨진다.
-> `agentCatalog.ts` 의 주석 참고.
-
-### G2. Antigravity · Grok — 공식 어댑터가 없다
-
-npm 에 있는 것은 전부 제삼자다:
+### G1. 기계가 읽는 레지스트리가 있다
 
 ```
-@simonepri/refined-antigravity-acp   "A Google Antigravity ACP binary that actually works"
-paseo-agy-acp                        "proxies the official Google A…"
-dsh-grok-acp                         "Use Grok Build as an ACP-powered root agent…"
+https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
 ```
 
-**남의 어댑터를 기본에 넣는 것은 다른 종류의 결정이다.** 어댑터는
-사용자의 로그인 자리와 작업 폴더를 그대로 받는다 — `@agentclientprotocol/`
-이 아닌 것을 우리가 골라 끼워주면, 그 사람 자격증명이 우리가 안 읽어본
-코드를 지나간다. §0 P3 가 지키려는 바로 그 선이다.
+41개 에이전트, 전부 **판이 못 박힌 채로** 들어 있다. 한 항목의 모양:
 
-쓰고 싶은 사람은 `aiInOne.agents` 설정으로 직접 넣을 수 있다(Gemini 와
-같은 길). **기본에 넣는 것과 넣을 수 있게 두는 것은 다르다.**
+```jsonc
+{
+  "id": "codex-acp", "name": "Codex", "version": "2.1.0",
+  "authors": ["OpenAI", "JetBrains s.r.o", "Zed Industries"],
+  "license": "Apache-2.0",
+  "distribution": { "npx": { "package": "@agentclientprotocol/codex-acp@2.1.0" } },
+  "icon": "…/codex-acp.svg"
+}
+```
+
+★ **우리 핀 둘이 레지스트리와 정확히 같다** — `claude-agent-acp@0.84.0`,
+`codex-acp@2.1.0`. 손으로 고른 것이 공식 권장과 맞았다. 그러니 **다음에
+올릴 때는 이 파일을 먼저 본다.** §A–F 를 손으로 재기 전에, 저쪽이 무엇을
+권하는지가 여기 적혀 있다.
+
+받는 방식은 셋이다:
+
+```
+npx     22개   우리가 지금 쓰는 길
+binary  19개   zip 을 받아 풀어야 한다  ← 우리 AgentDef 로는 아직 못 쓴다
+uvx      2개   파이썬 쪽
+```
+
+`AgentDef` 는 `command` + `args` 뿐이라 **binary 꼴 19개는 지금 구조로
+못 받는다.** 받아서 풀고 캐시하는 일이 따로 필요하다.
+
+### G2. 물어본 것들 — 실제 항목
+
+| | 만든이 | 받는 법 | 라이선스 |
+|---|---|---|---|
+| **Claude Agent** | Anthropic · Zed · JetBrains | `npx @agentclientprotocol/claude-agent-acp@0.84.0` | proprietary |
+| **Codex** | OpenAI · JetBrains · Zed | `npx @agentclientprotocol/codex-acp@2.1.0` | Apache-2.0 |
+| **Gemini CLI** | Google | `npx @google/gemini-cli@0.62.0 --acp` | Apache-2.0 |
+| **Grok Build** | **xAI** | `npx @xai-official/grok@1.0.46 agent stdio` | proprietary |
+| **Google Antigravity** | **Google LLC** | binary — `dl.google.com/…/agy-acp-server-1.2.1-windows-x86_64.zip` → `agy_acp_server.exe` | proprietary |
+
+⏪ **«Gemini 는 핀을 못 박는다» 도 틀렸다.** CLI 자체가 ACP 를 하는 건
+맞지만 **그 CLI 를 npx 로 판 찍어 받으면 된다** — 레지스트리가 바로 그렇게
+한다. Gemini 가 기본 목록에 없는 진짜 이유는 핀이 아니라 **인증**이다:
+개인 구글 계정 로그인이 막혀 API 키만 남았고, 그러면 §0 P3 가 깨진다.
+
+⏪ **«Claude 어댑터는 Anthropic 것이 아니다» 도 손봐야 한다.** 관리자
+목록만 보고 그렇게 적었는데, 레지스트리의 `authors` 는 **Anthropic · Zed ·
+JetBrains** 셋을 나란히 적는다. 셋이 같이 보는 물건이다.
 
 ### G3. 그래서 새 에이전트를 볼 때 묻는 순서
 
 ```
-1. @agentclientprotocol/ 에 있나          없으면 → 기본에 안 넣는다 (G2)
-2. 어댑터가 엔진을 품나, 범위로 무나      범위면 → 엔진도 지명한다 (§F4)
-3. CLI 자체가 ACP 를 하나                그러면 → 핀이 불가능하다 (G1)
-4. 구독으로 로그인되나                   키만 되면 → §0 P3 위반 (Gemini)
-5. 나갈 때 ACP delete 로 다 지워지나      아니면 → `purgeSession` (§F)
+1. 레지스트리에 있나                      ← **여기부터.** npm 검색이 아니다
+2. 받는 방식이 npx 인가                   binary·uvx 면 받는 구조가 따로 필요하다
+3. 어댑터가 엔진을 품나, 범위로 무나       범위면 엔진도 지명한다 (§F4)
+4. 구독으로 로그인되나                    키만 되면 §0 P3 위반 (Gemini)
+5. 나갈 때 ACP delete 로 다 지워지나       아니면 `purgeSession` (§F)
 ```
+
+레지스트리에 **없는** 것을 기본에 넣는 일은 그 자체로 다른 결정이다.
+어댑터는 사용자의 로그인 자리와 작업 폴더를 그대로 받으므로, 아무도
+추려주지 않은 것을 우리가 골라 끼워주면 그 사람 자격증명이 **우리가 안
+읽어본 코드**를 지나간다. 쓰고 싶은 사람은 `aiInOne.agents` 로 직접 넣을
+수 있다 — **기본에 넣는 것과 넣을 수 있게 두는 것은 다르다.**
 
 ---
 
 ## 밟는 순서
 
 ```bash
+# 0. **공식 목록이 무엇을 권하나** — 손으로 재기 전에 (§G1)
+curl -s https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json |
+  python -c "import json,sys;[print(a['id'],a['version'],(a.get('distribution') or {}).get('npx',{}).get('package','')) for a in json.load(sys.stdin)['agents']]"
+
 # 1. 지금 무엇이 나와 있나
 npm view @agentclientprotocol/claude-agent-acp version
 
