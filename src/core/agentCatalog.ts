@@ -1,6 +1,9 @@
 import * as path from "node:path";
 import type { AgentDef } from "./types.js";
 
+/** 품은 `claude.exe` — `.bin` 에 안 나오므로 꺼리 안을 찾는다. 플랫폼마다 이름이 다르다 */
+const CLAUDE_EXE = "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*";
+
 /**
  * 기본 에이전트 목록.
  *
@@ -137,7 +140,8 @@ export const DEFAULT_AGENTS: AgentDef[] = [
       bin: "claude-agent-acp",
       auth: {
         file: path.join(".claude", ".credentials.json"),
-        login: { find: "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*", args: [] },
+        login: { find: CLAUDE_EXE, args: ["auth", "login"] },
+        logout: { find: CLAUDE_EXE, args: ["auth", "logout"] },
       },
     },
   },
@@ -202,6 +206,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
         file: path.join(".codex", "auth.json"),
         /* ACP 가 `chat-gpt` 를 광고하므로 나중엔 앱 안에서. 지금은 그 CLI 로 */
         login: { bin: "codex", args: ["login"] },
+        logout: { bin: "codex", args: ["logout"] },
       },
     },
     /*

@@ -73,6 +73,31 @@ export type AskAnswer =
   ;
 
 export type ToWebview =
+  /**
+   * ★ **에이전트마다 지금 어느 칸에 있나** (2026-10-01).
+   *
+   * 단추는 `state` 가 정한다(`docs/INSTALL.md`). `loggedIn` 을 따로 주는 것은
+   * `stale` 일 때도 로그인 상태를 같이 보여주기 위해서다 — 낡음이 앞서질
+   * 뿐 다른 걸 못 보게 될 이유는 없다.
+   */
+  | {
+      t: "agents";
+      list: {
+        id: string;
+        label: string;
+        color: string;
+        /** 없으면 우리가 받는 에이전트가 아니다 (사용자 설정) */
+        managed: boolean;
+        state: "none" | "stale" | "needLogin" | "ready";
+        version?: string;
+        wanted?: string;
+        /** 바이트. 0 이면 안 받은 것 */
+        size: number;
+        loggedIn: boolean;
+        /** 지금 받는 중이면 마지막 줄 */
+        busy?: string;
+      }[];
+    }
   | { t: "metas"; rooms: RoomMeta[] }
   | {
       t: "room";
@@ -320,6 +345,19 @@ export type FromWebview =
    * 에이전트(갈아타기 미리보기)가 그 길을 쓴다.
    */
   | { t: "needConfig"; agentId: string; roomId?: string; botId?: string }
+  /**
+   * ★ **에이전트 설정 화면** (2026-10-01) — `docs/INSTALL.md`.
+   *
+   * 지금 상태를 달라는 요청. 받기·지우기 뒤에도 이걸 다시 보낸다.
+   */
+  | { t: "agentsAsk" }
+  /**
+   * 그 에이전트에 무언가를 한다.
+   *
+   * `install` 과 `update` 는 속이 같다 — 가르는 것은 **부르는 쪽이 아니라
+   * 지금 상태**다(`none` 인가 `stale` 인가). 단추 글자만 다르게 보여준다.
+   */
+  | { t: "agentDo"; agentId: string; what: "install" | "remove" | "login" | "logout" }
   /** 끊긴 맥락을 되먹일지 (F7). `accept`면 다음 메시지에 실어 보낸다 */
   | { t: "refeed"; roomId: string; accept: boolean }
   /** 못 이어받은 세션에 다시 붙어본다 (F7) */

@@ -41,6 +41,7 @@ import type { WorkspaceHost } from "./workspaceHost.js";
 export interface RoomManagerOptions {
   host: WorkspaceHost;
   store: RoomStore;
+  /** 받기·지우기로 바뀔다 — `setAgents` 를 통한다 */
   agents: AgentDef[];
   /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
   configProbeMs?: number;
@@ -778,6 +779,20 @@ export class RoomManager extends EventEmitter<Events> {
    * 취소·타임아웃과 한 군데서 다뤄진다.
    */
   private readonly reviews = new Map<string, ReviewWait & { takenOver?: boolean }>();
+
+  /**
+   * ★ **목록을 갈아끼운다** (2026-10-01).
+   *
+   * 사용자가 에이전트를 받거나 지우면 `command`·`args` 가 바뀐다
+   * (`agentInstaller.withInstalled`). 그런데 여기는 만들 때 받은 배열을
+   * 그대로 쥐고 있어서, **받아놓고도 예전 길로 띄우는** 일이 생긴다.
+   *
+   * ⚠️ **이미 떠 있는 연결은 안 건드린다.** 대화 중에 CLI 를 갈아끼우면
+   * 세션이 끊긴다 — 다음에 여는 방부터 새 것을 쓴다.
+   */
+  setAgents(list: AgentDef[]): void {
+    this.opts.agents = list;
+  }
 
   constructor(private readonly opts: RoomManagerOptions) {
     super();

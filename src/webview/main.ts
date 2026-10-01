@@ -163,7 +163,7 @@ const agentById = new Map(boot.agents.map((a) => [a.id, a]));
 
 // ── 화면 전환 (F8) ──────────────────────────────────────────────────────
 
-type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite";
+type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents";
 
 /**
  * 화면 칸을 찾는다. **없으면 만든다.**
@@ -186,6 +186,8 @@ function screenEl(id: string): HTMLElement {
 
 const screens: Record<ScreenName, HTMLElement> = {
   list: screenEl("screen-list"),
+  /** 에이전트를 받고·지우고·로그인하는 자리 (`docs/INSTALL.md`) */
+  agents: screenEl("screen-agents"),
   new: screenEl("screen-new"),
   chat: screenEl("screen-chat"),
   /**
@@ -559,6 +561,16 @@ function replace(host: HTMLElement, ...kids: Kids): void {
 
 const roomsEl = document.getElementById("rooms")!;
 document.getElementById("btn-new")!.addEventListener("click", () => openNewRoom());
+document.getElementById("btn-agents")!.addEventListener("click", () => {
+  post({ t: "agentsAsk" });
+  /*
+   * **답이 오기 전에 한 번 그린다.** 설정을 읽고 자리 크기를 세는 데
+   * 잠시 걸리는데, 그동안 **헤더도 없는 빈 화면**이면 뒤로 갈 길조차
+   * 안 보인다. 머리말을 먼저 세우고 칸은 답이 오면 채운다.
+   */
+  renderAgents();
+  push("agents");
+});
 
 const filterEl = document.getElementById("filter") as HTMLInputElement;
 filterEl.addEventListener("input", () => onFilterInput(filterEl.value));
@@ -1487,6 +1499,115 @@ function needsModel(r: Room): BotInstance[] {
  * **고른 모델이 없어진 봇만** 여기 나온다. 멀쩡한 봇까지 세워두면 «내 방이
  * 통째로 고장났나» 가 된다 — 실제로는 한 봇의 설정 하나가 빈 것뿐이다.
  */
+/** 마지막으로 받은 에이전트 목록 — 화면을 다시 그릴 때 쓴다 */
+let agentRows: Extract<ToWebview, { t: "agents" }>["list"] = [];
+
+/** 바이트를 사람 글로 */
+function mb(n: number): string {
+  if (n <= 0) return "";
+  const m = n / 1048576;
+  return m >= 1024 ? (m / 1024).toFixed(1) + "GB" : m.toFixed(0) + "MB";
+}
+
+/**
+ * ★ **에이전트 설정 화면** (2026-10-01) — `docs/INSTALL.md`.
+ *
+ * 단추는 **전부 `state` 가 정한다.** 여기서 다시 판단하지 않는다 —
+ * 계산은 `agentInstaller.stateOf` 한 자리에만 둔다:
+ *
+ * ```
+ * none       설치하기
+ * stale      업데이트          + 제거
+ * needLogin  로그인            + 제거
+ * ready      로그아웃 · 사용량  + 제거
+ * ```
+ *
+ * 🔴 **제거는 로그인을 안 지운다.** 자격은 `~/.codex`·`~/.claude` 에 있고
+ * 거긴 우리 자리가 아니다. 그래서 둘이 **다른 단추**여야 한다 — 하나로
+ * 묶으면 «앱을 지웠더니 로그인도 날아갔다» 가 된다.
+ */
+function renderAgents(): void {
+  const host = screens.agents;
+  host.replaceChildren();
+  host.append(
+    el(
+      "header",
+      { class: "bar" },
+      el("button", {
+        class: "icon", title: "뒤로",
+        onclick: () => back(),
+      }, icon("arrow-left")),
+      el("h1", { text: "에이전트" }),
+    ),
+    el("div", { class: "agent-why" },
+      el("p", { class: "dim",
+        text:
+          "쓸 에이전트만 받아두면 됩니다. 받는 것은 우리 자리에만 쌓이고, " +
+          "제거하면 그대로 비워집니다.",
+      }),
+    ),
+  );
+
+  for (const a of agentRows) {
+    const act = (what: "install" | "remove" | "login" | "logout") =>
+      post({ t: "agentDo", agentId: a.id, what });
+
+    const head = el("div", { class: "agent-head" },
+      el("span", { class: "agent-name", text: a.label }),
+      el("span", { class: "dot", style: { background: a.color } }),
+    );
+
+    /* 오른쪽 끝에 판과 자리 — 받은 뒤에만 보여줄 것이 있다 */
+    const facts: string[] = [];
+    if (a.state === "stale") facts.push(`${a.version} → ${a.wanted}`);
+    else if (a.version) facts.push(a.version);
+    if (a.size > 0) facts.push(mb(a.size));
+    if (facts.length) head.append(el("span", { class: "agent-facts dim", text: facts.join(" · ") }));
+
+    const row = el("div", { class: "agent-card" }, head);
+
+    if (!a.managed) {
+      /* 사용자가 `aiInOne.agents` 로 적은 것 — 우리가 받는 게 아니다 */
+      row.append(el("p", { class: "dim", text: "설정에 직접 적은 에이전트입니다." }));
+      host.append(row);
+      continue;
+    }
+
+    if (a.busy !== undefined) {
+      row.append(el("p", { class: "agent-busy dim", text: a.busy }));
+      host.append(row);
+      continue;
+    }
+
+    const bar = el("div", { class: "agent-acts" });
+    if (a.state === "none") {
+      bar.append(el("button", { class: "agent-go", text: "설치하기", onclick: () => act("install") }));
+    } else {
+      if (a.state === "stale") {
+        bar.append(el("button", { class: "agent-go", text: "업데이트", onclick: () => act("install") }));
+      }
+      if (a.loggedIn) {
+        bar.append(el("button", { class: "agent-btn", text: "로그아웃", onclick: () => act("logout") }));
+      } else {
+        bar.append(el("button", { class: "agent-go", text: "로그인", onclick: () => act("login") }));
+      }
+      /* 제거는 늘 오른쪽 끝에, 빨간색으로 */
+      bar.append(el("button", {
+        class: "agent-btn danger", text: "제거", onclick: () => act("remove"),
+      }));
+    }
+    row.append(bar);
+
+    /* 로그인 안 됐으면 왜 필요한지 한 줄 — 안 적으면 그냥 막힌 것처럼 보인다 */
+    if (a.state === "needLogin") {
+      row.append(el("p", { class: "dim",
+        text: "터미널이 열립니다. 로그인을 마치면 이 화면이 알아서 바뀝니다.",
+      }));
+    }
+    host.append(row);
+  }
+}
+
 function renderFix(r: Room): void {
   const hit = needsModel(r);
   const host = screens.fix;
@@ -6528,6 +6649,11 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
           if (stick) list.scrollTop = list.scrollHeight;
         }
       }
+      break;
+
+    case "agents":
+      agentRows = m.list;
+      renderAgents();
       break;
 
     case "config": {

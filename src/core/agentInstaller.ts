@@ -2,7 +2,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
-import type { AgentDef, AgentPackage, AgentState } from "./types.js";
+import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
 /**
  * **에이전트를 우리 자리에 받아둔다** (2026-10-01).
@@ -118,6 +118,28 @@ export function spawnSpecFor(
   const env: Record<string, string> = {};
   if (pkg.exeEnv) env[pkg.exeEnv.name] = binPath(dir, pkg.exeEnv.bin);
   return { command: binPath(dir, pkg.bin), args: [], env };
+}
+
+/**
+ * `AgentCmd` 를 실제 경로로.
+ *
+ * `bin` 은 `.bin` 에서, `find` 는 꺼리 안에서 찾는다. 둘 다 없거나 못
+ * 찾으면 **`undefined` 를 돌려준다** — 없는 걸 불렀다가 «명령을 찾을 수
+ * 없습니다» 를 보여주는 것보다 단추를 안 보여주는 편이 낫다.
+ */
+export function cmdPath(
+  dir: string,
+  c: AgentCmd,
+): { exe: string; args: string[] } | undefined {
+  if (c.bin) {
+    const p2 = binPath(dir, c.bin);
+    return fs.existsSync(p2) ? { exe: p2, args: c.args } : undefined;
+  }
+  if (c.find) {
+    const hit = findOne(dir, c.find);
+    return hit ? { exe: hit, args: c.args } : undefined;
+  }
+  return undefined;
 }
 
 /** `npm` 한 번 — 밖에서 갈아끼울 수 있게 빼둔다 */

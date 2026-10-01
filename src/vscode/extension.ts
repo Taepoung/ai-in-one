@@ -1,5 +1,6 @@
 ﻿import * as vscode from "vscode";
 import { resolveAgents } from "../core/agentCatalog.js";
+import { withInstalled } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
 import { RoomStore } from "../core/store.js";
 import type { AgentDef } from "../core/types.js";
@@ -31,7 +32,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   await store.init();
   const storeTook = Date.now() - storeBegan;
 
-  let agents = readAgents();
+  const agentRoot = ctx.globalStorageUri.fsPath;
+  let agents = readAgents(agentRoot);
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
   // 방을 만들 때 봇마다 정하고, 그 뒤엔 자율 모드 버튼이나 참여자 서랍에서 바꾼다.
   const rooms = new RoomManager({ host, store, agents });
@@ -49,7 +51,13 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   rooms.on("metas", paint);
 
   const show = (screen?: "new") =>
-    ChatPanel.show(ctx, rooms, store, () => agents, (t) => host.setAskTarget(t), screen);
+    ChatPanel.show(
+      ctx, rooms, store,
+      () => agents,
+      (t) => host.setAskTarget(t),
+      () => { agents = readAgents(agentRoot); rooms.setAgents(agents); },
+      screen,
+    );
 
   ctx.subscriptions.push(
     out,
@@ -75,7 +83,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       if (!e.affectsConfiguration("aiInOne.agents")) return;
       // 에이전트 정의가 바뀌면 다음에 여는 방부터 반영된다. 이미 뜬 프로세스는 그대로 둔다 —
       // 대화 중에 CLI를 갈아끼우면 세션이 끊긴다.
-      agents = readAgents();
+      agents = readAgents(agentRoot);
+      rooms.setAgents(agents);
       out.appendLine("에이전트 설정이 바뀌었습니다. 새로 만드는 방부터 적용됩니다.");
     }),
   );
@@ -97,9 +106,16 @@ export function deactivate(): void {
   // `ctx.subscriptions`가 RoomManager를 정리한다. CLI 프로세스도 거기서 함께 내려간다.
 }
 
-function readAgents(): AgentDef[] {
+/**
+ * 설정을 읽고, **받아둔 것이 있으면 그쪽으로** 돌린다.
+ *
+ * `withInstalled` 는 받아둔 에이전트만 고친다 — 안 받았거나 `pkg` 가
+ * 없으면 적힌 대로(`npx -y …`) 둔다. 그래서 **받기 전에도 멀줦히 돌고**
+ * 받은 뒤에만 우리 자리를 쓴다(`docs/INSTALL.md`).
+ */
+function readAgents(root: string): AgentDef[] {
   const overrides = vscode.workspace
     .getConfiguration("aiInOne")
     .get<Record<string, Partial<AgentDef>>>("agents", {});
-  return resolveAgents(overrides);
+  return resolveAgents(overrides).map((a) => withInstalled(a, root));
 }

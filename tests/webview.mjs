@@ -37,7 +37,7 @@ const boot = (rooms = [], screen = "list") => ({
 const SHELL = `<!DOCTYPE html><html><body>
   <div id="app">
     <section class="screen" id="screen-list" data-active>
-      <header class="bar"><h1>AI in One</h1><button class="icon" id="btn-new"></button></header>
+      <header class="bar"><h1>AI in One</h1><button class="icon" id="btn-agents"></button><button class="icon" id="btn-new"></button></header>
       <div class="filter"><input type="text" id="filter"><button class="icon" id="only-here" aria-pressed="false"></button></div>
       <div class="rooms" id="rooms"></div>
     </section>

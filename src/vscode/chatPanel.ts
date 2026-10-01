@@ -1,5 +1,9 @@
 ﻿import { createHash } from "node:crypto";
+import * as os from "node:os";
 import * as vscode from "vscode";
+import {
+  cmdPath, dirFor, install, realNpm, remove, stateOf,
+} from "../core/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
 import type { RoomStore } from "../core/store.js";
@@ -45,6 +49,8 @@ export class ChatPanel implements AskTarget {
     store: RoomStore,
     agents: () => AgentDef[],
     onTarget: (t: AskTarget | null) => void,
+    /** 받기·지우기 뒤에 부른다 — `command`·`args` 가 바뀌므로 다시 읽혀야 한다 */
+    refreshAgents: () => void,
     screen?: "new",
   ): ChatPanel {
     if (ChatPanel.current) {
@@ -70,7 +76,8 @@ export class ChatPanel implements AskTarget {
     );
 
     // 첫 화면은 HTML에 실어 보낸다 — `nav`는 아직 받을 사람이 없다.
-    ChatPanel.current = new ChatPanel(ctx, panel, rooms, store, agents, onTarget, screen ?? "list");
+    ChatPanel.current = new ChatPanel(
+      ctx, panel, rooms, store, agents, refreshAgents, onTarget, screen ?? "list");
     return ChatPanel.current;
   }
 
@@ -84,6 +91,7 @@ export class ChatPanel implements AskTarget {
     private readonly rooms: RoomManager,
     private readonly store: RoomStore,
     private readonly agents: () => AgentDef[],
+    private readonly refreshAgents: () => void,
     private readonly onTarget: (t: AskTarget | null) => void,
     screen: "list" | "new" = "list",
   ) {
@@ -394,6 +402,12 @@ export class ChatPanel implements AskTarget {
         case "needConfig":
           await this.sendConfig(m.agentId, m.roomId, m.botId);
           break;
+        case "agentsAsk":
+          this.sendAgents();
+          break;
+        case "agentDo":
+          await this.agentDo(m.agentId, m.what);
+          break;
         case "refeed":
           await this.rooms.decideRefeed(m.roomId, m.accept);
           break;
@@ -595,6 +609,105 @@ export class ChatPanel implements AskTarget {
    * `roomId`를 주면 **그 방의 세션이 들고 있는 값**을, 없으면 에이전트 기본값을
    * 보낸다 (만들기 화면에는 아직 방이 없다).
    */
+  /** 받기가 도는 중인 에이전트와 그 마지막 줄 */
+  private readonly busy = new Map<string, string>();
+
+  /**
+   * ★ **에이전트마다 지금 어느 칸에 있나** (2026-10-01).
+   *
+   * 계산은 전부 `agentInstaller.stateOf` 가 한다 — 여기서 다시 판단하지
+   * 않는다. 두 자리에서 같은 규칙을 써놓으면 언젠가 갈라진다.
+   */
+  private sendAgents(): void {
+    const root = this.ctx.globalStorageUri.fsPath;
+    const home = os.homedir();
+    this.post({
+      t: "agents",
+      list: this.agents().map((a) => {
+        const st = stateOf(a, root, home);
+        const busy = this.busy.get(a.id);
+        return {
+          id: a.id,
+          label: a.label,
+          color: a.color,
+          managed: a.pkg !== undefined,
+          state: st.state,
+          ...(st.version ? { version: st.version } : {}),
+          ...(st.wanted ? { wanted: st.wanted } : {}),
+          size: st.size,
+          loggedIn: st.loggedIn,
+          ...(busy ? { busy } : {}),
+        };
+      }),
+    });
+  }
+
+  /**
+   * 받기·지우기·로그인·로그아웃.
+   *
+   * ① **끝날 때마다 목록을 다시 보낸다.** 단추가 상태에서 나오므로 화면이
+   *    제손으로 상태를 짐작하지 않게 한다.
+   * ② **로그인은 터미널로 띄운다.** 브라우저가 열리고 코드를 붙여넣는
+   *    흐름이라 우리 창 안에서 할 수 없다. Codex 는 ACP 가 `chat-gpt` 를
+   *    광고하므로 나중엔 앱 안에서도 된다(백로그).
+   */
+  private async agentDo(
+    agentId: string,
+    what: "install" | "remove" | "login" | "logout",
+  ): Promise<void> {
+    const agent = this.agents().find((a) => a.id === agentId);
+    if (!agent?.pkg) return;
+    const root = this.ctx.globalStorageUri.fsPath;
+    const dir = dirFor(root, agent.id);
+
+    if (what === "install") {
+      if (this.busy.has(agent.id)) return;
+      this.busy.set(agent.id, "준비하는 중…");
+      this.sendAgents();
+      const r = await install(dir, agent.pkg, realNpm, (line: string) => {
+        this.busy.set(agent.id, line.slice(0, 120));
+        this.sendAgents();
+      });
+      this.busy.delete(agent.id);
+      this.refreshAgents();
+      this.sendAgents();
+      if (!r.ok) {
+        void vscode.window.showErrorMessage(
+          `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}`);
+      }
+      return;
+    }
+
+    if (what === "remove") {
+      await remove(dir);
+      this.refreshAgents();
+      this.sendAgents();
+      return;
+    }
+
+    const cmd = what === "login" ? agent.pkg.auth?.login : agent.pkg.auth?.logout;
+    if (!cmd) return;
+    const found = cmdPath(dir, cmd);
+    if (!found) {
+      void vscode.window.showErrorMessage(
+        `${agent.label}의 명령을 찾지 못했습니다. 먼저 받아주세요.`);
+      return;
+    }
+    /*
+     * 🔴 **공백 든 경로는 묶어야 한다.** 저장소가 이걸로 한 번 데였다
+     * (`acpConnection.start` 의 주석) — `globalStorageUri` 에는 사용자 이름이
+     * 들어가므로 공백이 흔하다.
+     */
+    const term = vscode.window.createTerminal({ name: `${agent.label} ${what}`, cwd: dir });
+    term.show();
+    term.sendText([`"${found.exe}"`, ...found.args].join(" "));
+    /*
+     * 끝난 줄 모르므로 잠시 뒤에 한 번 더 본다. 자격 파일이 생기면 단추가
+     * 알아서 바뀐다 — 사용자가 화면을 다시 열지 않아도 된다.
+     */
+    setTimeout(() => this.sendAgents(), 20000);
+  }
+
   private async sendConfig(agentId: string, roomId?: string, botId?: string): Promise<void> {
     try {
       /*
@@ -713,6 +826,7 @@ ${hint}` : reason,
   <section class="screen" id="screen-list" data-active>
     <header class="bar">
       <h1>AI in One</h1>
+      <button class="icon" id="btn-agents" title="에이전트 설정"><i class="codicon codicon-robot"></i></button>
       <button class="icon" id="btn-new" title="새 대화방"><i class="codicon codicon-add"></i></button>
     </header>
     <div class="filter"><i class="codicon codicon-search"></i><input type="text" id="filter" placeholder="방 이름·대화 내용 찾기" spellcheck="false"><button class="icon" id="only-here" title="이 프로젝트의 방만 보기" aria-pressed="false"><i class="codicon codicon-filter"></i></button></div>
@@ -722,6 +836,7 @@ ${hint}` : reason,
   <section class="screen" id="screen-new"></section>
   <section class="screen" id="screen-chat"></section>
   <section class="screen" id="screen-fix"></section>
+  <section class="screen" id="screen-agents"></section>
 </div>
 <script type="application/json" id="boot" nonce="${nonce}">${jsonForHtml(boot)}</script>
 <script nonce="${nonce}" src="${asset("dist", "webview.js")}"></script>

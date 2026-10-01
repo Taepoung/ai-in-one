@@ -52,6 +52,18 @@ export interface AgentDef {
   pkg?: AgentPackage;
 }
 
+/**
+ * 받아둔 자리에서 부를 명령 하나.
+ *
+ * `bin` 은 `node_modules/.bin` 에 생기는 이름이고, `find` 는 거기 안 나오는
+ * 것을 위한 길이다 — Claude 가 그렇다(`.bin` 에 `claude` 가 없다).
+ */
+export interface AgentCmd {
+  bin?: string;
+  find?: string;
+  args: string[];
+}
+
 /** 그 에이전트가 지금 어느 칸에 있나 — 화면이 보여줄 단추가 여기서 나온다 */
 export type AgentState =
   /** 안 받았다 — **설치하기** */
@@ -119,7 +131,10 @@ export interface AgentPackage {
      * 🔴 Claude 는 `.bin` 에 `claude` 가 **안 나온다.** 품은 exe 가 꺼리 안에
      * 그냥 놓여 있어서, 그걸 찾아 부르는 수밖에 없다.
      */
-    login?: { bin?: string; find?: string; args: string[] };
+    /** 로그인 — 터미널로 띄운다 (브라우저가 열리고 코드를 붙여넣는다) */
+    login?: AgentCmd;
+    /** 로그아웃 — 마찬가지로 터미널로 */
+    logout?: AgentCmd;
   };
 }
 
