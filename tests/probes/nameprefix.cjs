@@ -35,6 +35,7 @@
  * 메서드를 낼 때고, 그때는 입력을 안 건드리고도 된다.
  */
 const { spawn, execFileSync } = require("node:child_process");
+const { argsOf, pkgOf } = require("./pinned.cjs");
 const { DatabaseSync } = require("node:sqlite");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
@@ -90,7 +91,7 @@ function dbTitle(id) {
 (async () => {
   const out = [];
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "aio-pfx-"));
-  const a = start(["-y", "@agentclientprotocol/codex-acp"], cwd);
+  const a = start(argsOf("codex"), cwd);
   let sid = "";
   try {
     await a.call("initialize", INIT);

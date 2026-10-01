@@ -19,18 +19,25 @@
  * 확인하는 것이 이 probe 의 절반이고, 나머지 절반은 **실제로 무슨 모델이
  * 나오는가** 다.
  *
- * 곁들여 하나 더 본다 — 우리는 Codex 어댑터에 **핀을 안 박았다**
- * (`agentCatalog.ts`). Claude 는 `latest` 때문에 한 번 데고 박았는데 Codex 는
- * 그대로다. 그 어댑터가 제 엔진을 어디에 묶어두었는지도 같이 찍는다.
+ * ⏪ **«핀을 안 박았다» 는 이제 아니다** (2026-10-01). 사용자가 박으라고 했고
+ * `@2.1.0` 으로 박혔다. 그래서 이 probe 도 더 이상 `latest` 를 안 본다 —
+ * `pinned.cjs` 가 `agentCatalog.ts` 에서 읽어오므로 **제품이 띄우는 바로 그
+ * 판**을 재다.
+ *
+ * 다만 박아도 **모델은 안 고정된다.** 엔진이 `^0.159.1` 로 물려 있어서다 —
+ * 아래가 바로 그걸 찍는다. 그리고 여기서 보이는 셋째 줄이 중요하다 —
+ * **사용자 PATH 의 `codex`** 는 또 다른 판이고, 나가기 뒷정리는 그걸 부른다
+ * (`docs/PIN.md` §F5).
  */
 const { spawn, execSync } = require("node:child_process");
+const { argsOf, pkgOf } = require("./pinned.cjs");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
 const CMD = process.platform === "win32" ? "npx.cmd" : "npx";
 const INIT = { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } } };
 
 function start(cwd) {
-  const proc = spawn(CMD, ["-y", "@agentclientprotocol/codex-acp"], {
+  const proc = spawn(CMD, argsOf("codex"), {
     cwd, shell: true, stdio: ["pipe", "pipe", "pipe"],
   });
   const waiting = new Map();

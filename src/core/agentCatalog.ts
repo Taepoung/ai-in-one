@@ -96,7 +96,34 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     label: "Codex",
     description: "OpenAI Codex CLI",
     command: npx(),
-    args: ["-y", "@agentclientprotocol/codex-acp"],
+    /*
+     * 🔴 **여기도 핀을 박는다** (2026-10-01).
+     *
+     * Claude 쪽은 데고 나서 박았는데(위 주석) 이쪽은 `latest` 로 두고
+     * 있었다. 같은 위험을 한쪽에만 치우고 있었던 것이다 — 이 어댑터도
+     * **65판을 냈고 하루에 여러 판을 낸 날이 있다**(2026-10-01 에만 셋).
+     *
+     * 2.1.0 은 **오늘 나왔고 `latest` 가 그것**이다. 즉 박아도 사용자가 지금
+     * 받는 것과 같다 — 뒤로 물리는 게 아니라 **지금을 고정하는** 것이다.
+     * tarball 은 받아봤다(200, 269KB) — «레지스트리에 있다» 와 «받아진다»
+     * 는 다르다(`docs/PIN.md` §D1).
+     *
+     * ⚠️ **이 핀은 모델까지 고정하진 않는다.** Claude 쪽과 다른 점이다:
+     *
+     * ```
+     * claude-agent-acp  "@anthropic-ai/claude-agent-sdk": "0.3.284"   ← 못
+     * codex-acp         "@openai/codex":                  "^0.159.1"  ← 범위
+     * ```
+     *
+     * 엔진이 범위라 `npx -y` 는 **받을 때마다 0.159.x 안에서 고른다.**
+     * 그래서 여기서 얻는 것은 «어댑터가 안 움직임» 이지 «모델이 안 움직임»
+     * 이 아니다. 반대로 어댑터가 범위를 올리면(`^0.160`) 그건 우리가 이
+     * 줄을 올려야 따라온다.
+     *
+     * 올릴 때는 Claude 와 같은 순서이고, **`codexdelete.mts` 를 꼭 돌린다**
+     * — 나가기 뒷정리가 저쪽 CLI 에 달려 있어서다(`docs/PIN.md` §F).
+     */
+    args: ["-y", "@agentclientprotocol/codex-acp@2.1.0"],
     color: "#10a37f",
     install: "터미널에서 `codex` 를 실행해 설치·로그인하세요.",
     /*

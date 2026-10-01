@@ -16,13 +16,14 @@
  *   node mcpcaps.cjs codex
  */
 const http = require("node:http");
+const { argsOf, pkgOf } = require("./pinned.cjs");
 const { spawn } = require("node:child_process");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
 const WHICH = (process.argv[2] || "claude").toLowerCase();
 const AGENT = {
   claude: ["-y", "@agentclientprotocol/claude-agent-acp@" + (process.env.AIO_ACP_VERSION || "0.81.2")],
-  codex: ["-y", "@agentclientprotocol/codex-acp"],
+  codex: argsOf("codex"),
 }[WHICH];
 if (!AGENT) { console.log("claude 또는 codex"); process.exit(1); }
 

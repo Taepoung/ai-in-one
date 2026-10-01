@@ -24,6 +24,7 @@
  * 모델의 자기 신고는 못 믿을 때가 있으므로 **선로에서 주운 id** 를 같이 본다.
  */
 const { spawn } = require("node:child_process");
+const { argsOf, pkgOf } = require("./pinned.cjs");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
 const CMD = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -129,10 +130,10 @@ async function ask(pkg, pick) {
   }
 
   console.log("\n[② Codex — id 가 판인가 별명인가]\n");
-  const cx = await ask("@agentclientprotocol/codex-acp", "gpt-5.5");
+  const cx = await ask(pkgOf("codex"), "gpt-5.5");
   console.log(`  gpt-5.5   「${cx.label}」`);
   console.log(`            자기 신고 ${cx.says}`);
-  const cx2 = await ask("@agentclientprotocol/codex-acp", "gpt-6-luna");
+  const cx2 = await ask(pkgOf("codex"), "gpt-6-luna");
   console.log(`  gpt-6-luna「${cx2.label}」`);
   console.log(`            자기 신고 ${cx2.says}`);
   console.log("\n  (고른 id 와 대는 이름이 같으면 **판**이다 — 움직일 자리가 없다)");

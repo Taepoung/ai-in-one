@@ -49,6 +49,7 @@
  * 예쪽게 하자고 보내는 말에 우리 글을 섬는 것은 따로 정할 일이다.
  */
 const { spawn, execFileSync } = require("node:child_process");
+const { argsOf, pkgOf } = require("./pinned.cjs");
 const { DatabaseSync } = require("node:sqlite");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
@@ -176,7 +177,7 @@ async function one(label, args, after) {
 (async () => {
   const out = [];
 
-  out.push(...await one("① Codex", ["-y", "@agentclientprotocol/codex-acp"], async (sid, o) => {
+  out.push(...await one("① Codex", argsOf("codex"), async (sid, o) => {
     /*
      * ③ **목록의 제목은 결국 어디서 오나.**
      *

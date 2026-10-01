@@ -18,13 +18,14 @@
  *   node elicit.cjs claude off    (광고 안 함)
  */
 const { spawn } = require("node:child_process");
+const { argsOf, pkgOf } = require("./pinned.cjs");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
 const WHICH = (process.argv[2] || "claude").toLowerCase();
 const ADVERTISE = process.argv[3] !== "off";
 const AGENT = {
   claude: ["-y", "@agentclientprotocol/claude-agent-acp@" + (process.env.AIO_ACP_VERSION || "0.81.2")],
-  codex: ["-y", "@agentclientprotocol/codex-acp"],
+  codex: argsOf("codex"),
 }[WHICH];
 if (!AGENT) { console.log("claude 또는 codex"); process.exit(1); }
 
