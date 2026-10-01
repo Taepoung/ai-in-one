@@ -507,7 +507,7 @@ function foldMiddle(text: string, max: number): string {
  * 그리고 이건 손해가 아니다 — **에이전트가 기억하던 것도 그 요약이었다.**
  * 압축 이전 원문을 다시 넣으면 오히려 압축 전보다 더 많은 걸 보내게 된다.
  */
-function transcriptText(room: Room, batch: Message[]): string {
+function transcriptText(room: Room, batch: Message[], kind?: "log" | "summary"): string {
   const skip = new Set(batch.map((m) => m.id));
   const name = (m: Message) =>
     m.role === "user"
@@ -535,6 +535,17 @@ function transcriptText(room: Room, batch: Message[]): string {
   });
 
   const head = summaries.length > 0 ? `[이전 요약] ${summaries.join("\n\n")}` : "";
+
+  /*
+   * ★ **요약만 넘기기** (2026-10-01).
+   *
+   * 길어진 방을 갈아탈 때 원문을 통째로 다시 보내면 첫 턴부터 엄청난 것을
+   * 물게 된다. 그럴 때 **에이전트가 압축하면서 준 요약만** 보낸다.
+   *
+   * 요약이 하나도 없으면 빈 글을 보내는 꼴이라, 그때는 화면이 아예 이
+   * 갈래를 안 보여준다 — 고를 수 없는 것을 띄우면 고르고 나서 알게 된다.
+   */
+  if (kind === "summary") return head;
   const rest = at >= 0 ? room.messages.slice(at + 1) : room.messages;
 
   const kept = rest.filter(
@@ -1267,6 +1278,8 @@ export class RoomManager extends EventEmitter<Events> {
        * 안 주면 «아직 못 정했다» — `contextLost` 배너가 떠서 그때 묻는다.
        */
       refeed?: boolean;
+      /** 넘길 때 **원문까지인가 요약만인가.** 안 주면 원문(`"log"`) */
+      refeedKind?: "log" | "summary";
     },
   ): Promise<void> {
     const room = await this.openRoom(roomId);
@@ -1336,6 +1349,17 @@ export class RoomManager extends EventEmitter<Events> {
      * 넘길지»가 정해져 있어야 **첫 프롬프트에 실려 간다**.
      */
     if (opts?.refeed !== undefined) await this.decideRefeed(roomId, opts.refeed);
+    /*
+     * ★ **무엇을 넘길지는 넘기기로 정한 뒤에 걸어야 한다** (2026-10-01).
+     *
+     * `decideRefeed` 가 봇마다 `refeedPending` 을 세우므로, 종류는 그 뒤에
+     * 덮어쓴다. 순서가 바뀌면 방금 섬 것이 지워진다.
+     */
+    if (opts?.refeed && opts.refeedKind) {
+      for (const b of room.participants) {
+        if (b.refeedPending) b.refeedKind = opts.refeedKind;
+      }
+    }
     if (opts?.model) {
       try {
         await this.setConfig(roomId, opts.model.configId, opts.model.value, botId);
@@ -3692,7 +3716,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
     // 끊긴 맥락을 되먹인다 (F7). **역할보다 뒤, 실제 요청보다 앞.**
     if (bot.refeedPending) {
-      const history = transcriptText(room, batch);
+      const history = transcriptText(room, batch, bot.refeedKind);
       if (history) {
         parts.push(
           // **줄여 보냈다는 걸 말해준다.** 모르면 «[중략]»을 만난 에이전트가

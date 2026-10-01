@@ -320,6 +320,8 @@ export type FromWebview =
       agentId: string;
       model?: { configId: string; value: string };
       refeed?: boolean;
+      /** 넘기면 원문까지인가 요약만인가 (2026-10-01) */
+      refeedKind?: "log" | "summary";
     }
   | { t: "leave"; roomId: string }
   /**

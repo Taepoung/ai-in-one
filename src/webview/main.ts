@@ -1632,6 +1632,34 @@ function renderAgents(): void {
   }
 }
 
+/**
+ * ★ **막음 화면에서 고르는 것들 — 누르기 전까지는 안 간다** (2026-10-01).
+ *
+ * 사용자: *"선택하자마자 없어지는게 아니라, 내보내기 옆에 적용 버튼이
+ * 있어야지"*.
+ *
+ * 예전엔 고르개를 건드리는 순간 `setAgent` 가 날아갔다. 🔴 **되돌릴 수 없는
+ * 일을 고르개 한 번으로 치른 것**이다 — 세션이 버려지고 맥락이 끊긴다.
+ * 게다가 에이전트와 모델을 **따로** 보내게 되어 순서도 안 지켜졌다.
+ *
+ * 그래서 고른 것을 여기 모아두고 «적용» 에서 **한 번에** 보낸다.
+ */
+const fixPick = new Map<string, { agentId?: string; model?: string; carry: "log" | "summary" | "none" }>();
+
+/** 이 방에 에이전트가 남긴 요약이 하나라도 있나 */
+function roomHasSummary(r: Room): boolean {
+  return r.messages.some((m) => m.mark === "compaction" && (m.summary ?? "").trim().length > 0);
+}
+
+/** 「이전 것」 → [고르개] 한 줄 */
+function swapRow(was: string, pick: HTMLElement): HTMLElement {
+  return el("div", { class: "fix-swap" },
+    el("span", { class: "gone", text: was }),
+    el("span", { class: "dim", text: "→" }),
+    pick,
+  );
+}
+
 function renderFix(r: Room): void {
   const hit = needsModel(r);
   /** 한 봇이라도 «에이전트가 없다» 면 글이 달라진다 — 모델 이야기만 하면 틀린 말이 된다 */
@@ -1674,6 +1702,16 @@ function renderFix(r: Room): void {
   for (const bot of hit) {
     const who = agentById.get(bot.agentId);
     const gone = agentGone(bot);
+    const got = fixPick.get(bot.id) ?? { carry: "log" as const };
+    if (!fixPick.has(bot.id)) fixPick.set(bot.id, got);
+
+    /** 바꾼 뒤에 돌 에이전트 — 안 골랐으면 지금 것 */
+    const nextAgent = got.agentId ?? (gone ? "" : bot.agentId);
+    const modelOpt = nextAgent
+      ? optionsFor(nextAgent, nextAgent === bot.agentId ? r.id : undefined,
+                   nextAgent === bot.agentId ? bot.id : undefined)
+          ?.find((o) => o.category === "model")
+      : undefined;
 
     const card = el("div", { class: "fix-bot" },
       el("div", { class: "fix-name" },
@@ -1683,16 +1721,9 @@ function renderFix(r: Room): void {
       ),
     );
 
+    /* ── 에이전트 줄 — 없어진 경우에만 ───────────────────────────── */
+    const others = boot.agents.filter((x) => agentAvail.has(x.id));
     if (gone) {
-      /*
-       * ★ **에이전트를 안 받은 경우** (2026-10-01).
-       *
-       * 모델을 고를 수가 없다 — 모델 목록은 **그 어댑터를 띄워야** 오는데
-       * 띄울 것이 없기 때문이다. 그래서 여기서는 **다른 에이전트로
-       * 갈아타거나 내보내거나** 둘뿐이다. 받아오는 길은 로봇 아이콘이고,
-       * 받으면 `agents` 가 와서 이 화면이 알아서 걷힌다.
-       */
-      const others = boot.agents.filter((x) => agentAvail.has(x.id));
       if (others.length === 0) {
         card.append(el("p", { class: "dim",
           text: `「${who?.label ?? bot.agentId}」 을(를) 아직 받지 않았고, 바꿔 달 다른 에이전트도 없습니다. ` +
@@ -1700,100 +1731,138 @@ function renderFix(r: Room): void {
         }));
       } else {
         const swap = el("select", { class: "regone" }) as HTMLSelectElement;
-        swap.append(el("option", { value: "", text: "다른 에이전트로…", selected: true }));
-        for (const x of others) swap.append(el("option", { value: x.id, text: x.label }));
+        swap.append(el("option", { value: "", text: "고르세요…", selected: !got.agentId }));
+        for (const x of others) {
+          swap.append(el("option", { value: x.id, text: x.label, selected: got.agentId === x.id }));
+        }
         swap.addEventListener("change", () => {
-          if (!swap.value) return;
-          /*
-           * 모델은 안 실어 보낸다 — 저쪽 기본값으로 붙고, 마음에 안 들면
-           * 서람에서 바꾸면 된다. 여기서까지 고르게 하면 **막힌 사람에게
-           * 일을 두 번 시키는** 셋이 된다.
-           */
-          post({ t: "setAgent", roomId: r.id, botId: bot.id, agentId: swap.value });
+          got.agentId = swap.value || undefined;
+          /* 에이전트가 바뀌면 모델도 다시 골라야 한다 — 남겨두면 없는 id 를 보낸다 */
+          got.model = undefined;
+          if (swap.value && !configs.has(swap.value)) post({ t: "needConfig", agentId: swap.value });
+          renderFix(r);
         });
+        card.append(swapRow(who?.label ?? bot.agentId, swap));
+      }
+    }
+
+    /* ── 모델 줄 ──────────────────────────────────────────────── */
+    if (nextAgent) {
+      const was = bot.modelGone?.label ?? bot.modelLabel ?? bot.model ?? "모델";
+      if (modelOpt?.values?.length) {
+        const pick = el("select", { class: "regone" }) as HTMLSelectElement;
+        pick.append(el("option", { value: "", text: "고르세요…", selected: !got.model }));
+        for (const v of modelOpt.values) {
+          pick.append(el("option", { value: v.id, text: v.name, selected: got.model === v.id }));
+        }
+        pick.addEventListener("change", () => {
+          got.model = pick.value || undefined;
+          renderFix(r);
+        });
+        card.append(swapRow(was, pick));
+      } else {
         /*
-         * ★ **옮기기 전을 왼쪽에 둔다** (2026-10-01).
+         * 🔴 **기다리는 동안에도 «여기서» 는 보여준다** (2026-10-01).
          *
-         * 사용자: *"이전 모델 -> [모델 선택] 이렇게"*.
-         *
-         * 따로 적어놓으면 **무엇을 무엇으로 바꾸는 중인지**를 두 번 읽어
-         * 엮어야 한다. 한 줄에 두면 고르는 동안에도 왔던 자리가 눈에 남는다.
+         * 한 번 불러오는 중이라고 줄을 통째로 빼봤다가 **없어진 모델 이름이
+         * 같이 사라졌다.** 설정은 방에 들어온 뒤에 오므로 처음 몇 순간은
+         * 늘 이 꼴인데, 하필 그때 제일 알고 싶은 것이 «무엇이 없어졌나» 이다.
          */
-        card.append(
-          el("div", { class: "fix-swap" },
-            el("span", { class: "gone", text: who?.label ?? bot.agentId }),
-            el("span", { class: "dim", text: "→" }),
-            swap,
-          ),
-        );
+        card.append(swapRow(was, el("span", { class: "dim", text: "불러오는 중…" })));
       }
-    } else {
-      const model = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
-      const pick = el("select", { class: "regone" }) as HTMLSelectElement;
-      pick.append(el("option", { value: "", text: "고르세요…", selected: true }));
-      for (const v of model?.values ?? []) {
-        pick.append(el("option", { value: v.id, text: v.name }));
-      }
-      pick.addEventListener("change", () => {
-        if (!pick.value || !model) return;
-        post({ t: "setConfig", roomId: r.id, configId: model.configId, value: pick.value, botId: bot.id });
-      });
+    }
 
-      /*
-       * ★ **«여기서 저기로» 를 한 줄에** (2026-10-01).
-       *
-       * 사용자: *"이전 모델이 뭔지도 보여주자 · 이전 모델 -> [모델 선택]"*.
-       *
-       * 예전엔 «「옆은것」 은(는) 이제 없습니다» 를 적고 **고르개는 따로**
-       * 놓았다. 그러면 고르는 순간에는 이전이 무엇이었는지가 눈에서 멀어진다 —
-       * 하필 그때 제일 알고 싶은 것인데.
-       */
-      card.append(
-        model?.values?.length
-          ? el("div", { class: "fix-swap" },
-              el("span", { class: "gone", text: bot.modelGone!.label }),
-              el("span", { class: "dim", text: "→" }),
-              pick,
-            )
-          : el("div", { class: "fix-was" },
-              el("span", { class: "gone", text: bot.modelGone!.label }),
-              el("span", { class: "dim", text: " 은(는) 이제 없습니다 — 고를 수 있는 모델을 불러오는 중…" }),
-            ),
+    /*
+     * ── 무엇을 넘길까 ─────────────────────────────────────────
+     *
+     * ★ **에이전트를 바꿀 때만 묻는다** (2026-10-01).
+     *
+     * 사용자: *"컨텍스트가 안이어지니까 우리그 기록만 넘기기, 요약 넘기기
+     * 이거 할 수 있게 해야지"*.
+     *
+     * 모델만 바꾸는 것은 **같은 세션 안의 일**이라 맥락이 안 끊긴다 — 거기서
+     * 물으면 없는 걱정을 만드는 셈이다. 에이전트를 바꿀 때만 세션이 버려진다.
+     *
+     * 🔴 **요약은 있을 때만 띄운다.** 요약은 우리가 만든 게 아니라 에이전트가
+     * 압축하면서 준 것이라, 압축한 적 없는 방에는 하나도 없다. 고르게 해두면
+     * **빈 것을 보내고 나서** 알게 된다.
+     */
+    if (gone && got.agentId) {
+      const hasSum = roomHasSummary(r);
+      const seg = el("div", { class: "fix-carry" },
+        el("span", { class: "dim", text: "지난 대화" }),
       );
+      const mk = (v: "log" | "summary" | "none", label: string, title: string) => {
+        const b = el("button", {
+          class: got.carry === v ? "chip on" : "chip", type: "button", title,
+          text: label,
+          onclick: () => { got.carry = v; renderFix(r); },
+        });
+        seg.append(b);
+      };
+      mk("log", "기록 넘기기", "지난 대화를 글로 실어 보냅니다. 계획과 읽은 파일 기억은 안 갑니다.");
+      if (hasSum) mk("summary", "요약 넘기기", "압축하면서 에이전트가 남긴 요약만 보냅니다.");
+      mk("none", "안 넘기기", "새 에이전트가 백지에서 시작합니다. 대화는 화면에만 남습니다.");
+      card.append(seg);
+      card.append(el("p", { class: "dim",
+        text: got.carry === "none"
+          ? "백지에서 시작합니다."
+          : got.carry === "summary"
+            ? "요약만 갑니다 — 짧지만 세부는 빠집니다."
+            : "글자만 갑니다 — 세운 계획과 읽은 파일 기억은 따라오지 않습니다.",
+      }));
+    }
 
-      /*
-       * **지금 들어가 있는 것을 그대로 쓰는 것도 답이다.** 이 길이 없으면
-       * 대체된 것이 마음에 드는 사람은 **빠져나갈 수가 없다.**
-       */
-      if (bot.model) {
-        card.append(el("button", {
-          class: "ghost", type: "button",
-          text: `지금 들어간 「${bot.modelLabel ?? bot.model}」 그대로 쓰기`,
-          onclick: () => {
-            const model2 = optionsFor(bot.agentId, r.id, bot.id)?.find((o) => o.category === "model");
-            if (!model2) return;
-            post({ t: "setConfig", roomId: r.id, configId: model2.configId, value: bot.model!, botId: bot.id });
-          },
-        }));
-      }
+    /* ── 단추 줄 ──────────────────────────────────────────────── */
+    const ready = gone ? Boolean(got.agentId && got.model) : Boolean(got.model);
+    const acts = el("div", { class: "fix-acts" });
+    const apply = el("button", {
+      class: "agent-go", type: "button", text: "적용",
+      onclick: () => {
+        const opt = modelOpt;
+        if (gone && got.agentId) {
+          post({
+            t: "setAgent", roomId: r.id, botId: bot.id, agentId: got.agentId,
+            refeed: got.carry !== "none",
+            ...(got.carry !== "none" ? { refeedKind: got.carry } : {}),
+            ...(got.model && opt ? { model: { configId: opt.configId, value: got.model } } : {}),
+          });
+        } else if (got.model && opt) {
+          post({ t: "setConfig", roomId: r.id, configId: opt.configId, value: got.model, botId: bot.id });
+        }
+        fixPick.delete(bot.id);
+      },
+    }) as HTMLButtonElement;
+    apply.disabled = !ready;
+    acts.append(apply);
+
+    /*
+     * **지금 들어가 있는 것을 그대로 쓰는 것도 답이다.** 이 길이 없으면
+     * 대체된 것이 마음에 드는 사람은 빠져나갈 수가 없다.
+     */
+    if (!gone && bot.model) {
+      acts.append(el("button", {
+        class: "ghost", type: "button",
+        text: `「${bot.modelLabel ?? bot.model}」 그대로 쓰기`,
+        onclick: () => {
+          if (!modelOpt) return;
+          fixPick.delete(bot.id);
+          post({ t: "setConfig", roomId: r.id, configId: modelOpt.configId, value: bot.model!, botId: bot.id });
+        },
+      }));
     }
 
     /*
      * ★ **내보내기 — 두 경우 모두** (2026-10-01).
      *
-     * 사용자: *"판 올려서 모델 바꾸는 상황에서도 봇 내보내기 선택지 있게"*.
-     *
-     * 예전엔 «고르기» 밖에 없어서, **그 봇을 더 안 쓰고 싶은 사람은
-     * 갇혀 있었다** — 안 고르면 방 전체가 막힌 채로 남았다.
-     *
-     * 한 봇씩 지워지므로(`removeBot` → `room` 갱신 → 다시 그린다) 여럿이면
-     * 하나씩 정리하게 된다. 마지막 하나까지 지우면 막음이 풀리고 방으로 간다.
+     * 예전엔 «고르기» 밖에 없어서 **그 봇을 더 안 쓰고 싶은 사람은 갇혀
+     * 있었다** — 안 고르면 방 전체가 막힌 채로 남았다.
      */
-    card.append(el("button", {
-      class: "ghost danger", type: "button",
-      text: `「${bot.name}」 내보내기`,
-      onclick: () => post({ t: "removeBot", roomId: r.id, botId: bot.id }),
+    acts.append(el("button", {
+      class: "ghost danger", type: "button", text: "내보내기",
+      onclick: () => { fixPick.delete(bot.id); post({ t: "removeBot", roomId: r.id, botId: bot.id }); },
     }));
+    card.append(acts);
 
     host.append(card);
   }
@@ -6800,7 +6869,14 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
        * **그 띠가 떠 있을 때만** 다시 그린다. 설정 메시지마다 본문을 그리면
        * 스크롤 자리가 흔들린다.
        */
-      if (room && m.roomId === room.id && needsModel(room).length > 0) {
+      /*
+       * ★ **방 몴이 아닌 설정도 받는다** (2026-10-01).
+       *
+       * 갈아타기를 고르면 **아직 방에 없는 에이전트**의 모델을 골라야
+       * 하는데, 그 설정은 `roomId` 없이 온다(«미리보기» 길). 방 것만
+       * 받으면 에이전트를 골라도 **모델 줄이 영영 안 나타난다.**
+       */
+      if (room && needsModel(room).length > 0 && (!m.roomId || m.roomId === room.id)) {
         renderFix(room);
       }
       break;

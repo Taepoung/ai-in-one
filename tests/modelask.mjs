@@ -145,6 +145,18 @@ console.log("\n[★ 고르개는 늦게 온 설정을 기다린다]");
 
   pick.value = "haiku";
   pick.dispatchEvent(new t.w.Event("change", { bubbles: true }));
+  /*
+   * ★ **고르기만 해서는 안 간다** (2026-10-01).
+   *
+   * 사용자: *"선택하자마자 없어지는게 아니라, 내보내기 옆에 적용
+   * 버튼이 있어야지"*. 고르개 한 번으로 치르면 손이 미끄러졌을 때
+   * 되돌릴 길이 없다.
+   */
+  ok(t.sent.find((m) => m.t === "setConfig") === undefined,
+     "★ **고르기만 해서는 안 간다**");
+  const apply = [...t.$$("#screen-fix button")].find((b) => b.textContent.trim() === "적용");
+  ok(apply !== undefined && !apply.disabled, "★ 고르면 «적용» 이 켬진다");
+  apply.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
   const sent = t.sent.find((m) => m.t === "setConfig");
   console.log(`   → ${JSON.stringify(sent)}`);
   ok(sent?.value === "haiku", `★ 고른 값이 올라간다 (${sent?.value})`);

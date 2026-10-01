@@ -371,6 +371,7 @@ export class ChatPanel implements AskTarget {
           await this.rooms.setAgent(m.roomId, m.botId, m.agentId, {
             ...(m.model ? { model: m.model } : {}),
             ...(m.refeed !== undefined ? { refeed: m.refeed } : {}),
+            ...(m.refeedKind ? { refeedKind: m.refeedKind } : {}),
           });
           break;
         case "fork": {

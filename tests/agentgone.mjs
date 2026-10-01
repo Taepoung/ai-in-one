@@ -127,9 +127,25 @@ console.log("\n[★ 거기서 다른 에이전트로 바꾸거나 내보낸다]"
   t.sent.length = 0;
   sel.value = "claude";
   sel.dispatchEvent(new t.w.Event("change", { bubbles: true }));
+  ok(t.sent.find((m) => m.t === "setAgent") === undefined,
+     "★ **고르기만 해서는 안 간다** — 되돌릴 수 없는 일을 고르개 한 번으로 치르면 안 된다");
+
+  /* 모델까지 고라야 «적용» 이 살아난다 */
+  t.send({ t: "config", agentId: "claude",
+    options: [{ configId: "model", name: "Model", category: "model", current: "opus",
+                values: [{ id: "opus", name: "Opus 5" }] }] });
+  const models = t.$$("#screen-fix select")[1];
+  ok(models !== undefined, "★ 에이전트를 고르면 **모델 줄도 생긴다**");
+  models.value = "opus";
+  models.dispatchEvent(new t.w.Event("change", { bubbles: true }));
+
+  const apply = [...t.$$("#screen-fix button")].find((b) => b.textContent.trim() === "적용");
+  ok(apply !== undefined && !apply.disabled, "★ 둘 다 고르면 «적용» 이 켬진다");
+  apply.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
   const posted = t.sent.find((m) => m.t === "setAgent");
   console.log(`   보낸 것: ${JSON.stringify(posted)}`);
-  ok(posted?.agentId === "claude" && posted.botId === "b1", "★ 갈아타기를 보낸다");
+  ok(posted?.agentId === "claude" && posted.botId === "b1", "★ **적용을 눌러야 간다**");
+  ok(posted?.model?.value === "opus", "★ 에이전트와 모델이 **한 번에** 간다");
 
   t.sent.length = 0;
   [...t.$$("#screen-fix button")].find((b) => /내보내기/.test(b.textContent))

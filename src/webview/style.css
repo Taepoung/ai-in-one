@@ -3495,3 +3495,45 @@ fieldset.bot .bot-drop.danger:hover {
   flex: 1 1 140px;
   min-width: 0;
 }
+
+/* 막음 화면: 무엇을 넘길지 · 단추 줄 (2026-10-01) */
+.fix-carry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.fix-carry .chip {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-11);
+  cursor: pointer;
+}
+
+.fix-carry .chip.on {
+  border-color: transparent;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+.fix-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* 내보내기는 오른쪽 끝으로 민다 — 적용과 섞이면 안 된다 */
+.fix-acts .ghost.danger {
+  margin-left: auto;
+}
+
+.fix-acts .agent-go:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
