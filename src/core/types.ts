@@ -144,6 +144,20 @@ export interface AgentPackage {
     login?: AgentCmd;
     /** 로그아웃 — 마찬가지로 터미널로 */
     logout?: AgentCmd;
+    /**
+     * ★ **지금 로그인됐나를 CLI 에게 묻는다** (2026-10-02).
+     *
+     * `file` 은 어림짐작이다 — 만료된 자격도 파일은 남고, 플랫폼에
+     * 따라 자격을 OS 열쇠고리에 두면 파일이 아예 없을 수도 있다. 그런데
+     * 두 CLI 다 **제대로 된 상태 명령**을 가지고 있다.
+     *
+     * 🔴 `codex login status` 는 **stderr 로 쓴다.** stdout 만 읽으면 빈 글이
+     * 와서 **로그인된 사람을 로그아웃된 것으로** 보게 된다(실측).
+     *
+     * `yes` 는 그 말 안에 이 글자가 있으면 로그인된 것으로 본다.
+     * `who` 는 «어느 계정인가» 를 뽑을 정규식 — 없으면 안 보여준다.
+     */
+    status?: AgentCmd & { yes: string; who?: string };
   };
 }
 

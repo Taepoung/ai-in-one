@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
 /**
@@ -141,6 +141,40 @@ export function cmdPath(
   }
   return undefined;
 }
+
+/**
+ * ★ **로그인됐나를 CLI 에게 묻는다** (2026-10-02).
+ *
+ * 파일이 있나로 보는 것은 어림짐작이다 — 만료된 자격도 파일은 남고,
+ * 자격을 OS 열쇠고리에 두는 플랫폼에선 파일이 아예 없을 수도 있다.
+ *
+ * 🔴 **두 흘림을 다 받는다.** `codex login status` 는 stderr 로 쓴다 —
+ * stdout 만 읽으면 빈 글이 와서 **로그인된 사람을 아니라고** 하게 된다.
+ * 한 번 그렇게 잎었다(`probes/logindoor.mts`).
+ */
+export function authStatus(
+  dir: string,
+  cmd: AgentCmd & { yes: string; who?: string },
+): { loggedIn: boolean; who?: string } | undefined {
+  const found = cmdPath(dir, cmd);
+  if (!found) return undefined;
+  const r = spawnSync(found.exe, found.args, {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    timeout: 20000,
+  });
+  const said = `${r.stdout ?? ""}${NEWLINE}${r.stderr ?? ""}`;
+  if (!said.trim()) return undefined;
+  const loggedIn = said.includes(cmd.yes);
+  let who: string | undefined;
+  if (loggedIn && cmd.who) {
+    const m = new RegExp(cmd.who).exec(said);
+    if (m?.[1]) who = m[1].trim();
+  }
+  return { loggedIn, ...(who ? { who } : {}) };
+}
+
+const NEWLINE = String.fromCharCode(10);
 
 /** `npm` 한 번 — 밖에서 갈아끼울 수 있게 빼둔다 */
 export type Run = (

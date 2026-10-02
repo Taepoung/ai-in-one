@@ -140,6 +140,12 @@ export const DEFAULT_AGENTS: AgentDef[] = [
         file: path.join(".claude", ".credentials.json"),
         login: { find: CLAUDE_EXE, args: ["auth", "login"] },
         logout: { find: CLAUDE_EXE, args: ["auth", "logout"] },
+        /*
+         * 🔴 정규식에 `\s` 같은 걸 쓰면 **TS 문자열이 먼저 먹는다** —
+         * 한 번 그렇게 써놓고 «계정 이름이 안 잡힌다» 로 헤맸다.
+         * `auth status` 가 뜨우는 JSON 은 모양이 고정이라 그냥 글자로 찾는다.
+         */
+        status: { find: CLAUDE_EXE, args: ["auth", "status"], yes: '"loggedIn": true', who: '"email": "([^"]+)"' },
       },
     },
   },
@@ -203,6 +209,13 @@ export const DEFAULT_AGENTS: AgentDef[] = [
         /* ACP 가 `chat-gpt` 를 광고하므로 나중엔 앱 안에서. 지금은 그 CLI 로 */
         login: { bin: "codex", args: ["login"] },
         logout: { bin: "codex", args: ["logout"] },
+        /* 🔴 이건 stderr 로 나온다 — 읽는 쪽이 두 흘림을 다 받아야 한다 */
+        /*
+         * ⚠️ **`who` 를 안 적는다.** `codex login status` 는 *"Logged in using
+         * ChatGPT"* 까지만 말한다 — 그건 **방법**이지 계정이 아니다.
+         * 가져다 붙이면 계정을 바꿔도 같은 글자가 떠 있어 **바뀜 줄 모르게** 한다.
+         */
+        status: { bin: "codex", args: ["login", "status"], yes: "Logged in" },
       },
     },
     /*

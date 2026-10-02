@@ -104,6 +104,8 @@ export type ToWebview =
         /** 바이트. 0 이면 안 받은 것 */
         size: number;
         loggedIn: boolean;
+        /** 어느 계정인지 — CLI 가 말해주면 (2026-10-02) */
+        who?: string;
         /** 지금 받는 중이면 마지막 줄 */
         busy?: string;
       }[];

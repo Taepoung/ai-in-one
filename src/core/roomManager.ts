@@ -4394,6 +4394,28 @@ export class RoomManager extends EventEmitter<Events> {
     return conn;
   }
 
+  /**
+   * ★ **그 에이전트의 CLI 를 내린다** (2026-10-02).
+   *
+   * 로그아웃했는데 프로세스가 그대로 떠 있으면 **옆 계정으로 계속
+   * 돌아간다** — 계정을 바�려는 사람 입장엔 «바�는데 옇 것으로
+   * 답한다» 가 된다.
+   *
+   * ⚠️ **세션 id 는 안 건드린다.** 사용자: *"세션은 유지되어야한다"*.
+   * 다음에 방을 열 때 먼저 이어받아 보고, 새 계정으로 되면 그대로
+   * 이어진다. 안 되면 **이미 있는 끕김 흐름**이 받아준다(대화 넘겨서 /
+   * 요약만 / 기록만 두고). 여기서 지워버리면 고를 거리를 없애는 셌이다.
+   */
+  dropConnection(agentId: string): void {
+    const conn = this.connections.get(agentId);
+    if (!conn) return;
+    conn.dispose();
+    this.connections.delete(agentId);
+    for (const rt of this.runtimes.values()) {
+      for (const bt of rt.bots.values()) bt.sessionId = undefined;
+    }
+  }
+
   /** 쓰이지 않는 CLI 프로세스를 정리한다 (B6) */
   private disposeUnusedConnections(): void {
     const inUse = new Set(this.listMetas().flatMap((m) => m.agentIds));

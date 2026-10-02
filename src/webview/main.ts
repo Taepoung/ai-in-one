@@ -1612,6 +1612,13 @@ function renderAgents(): void {
     if (a.state === "stale") facts.push(`${a.version} → ${a.wanted}`);
     else if (a.version) facts.push(a.version);
     if (a.size > 0) facts.push(mb(a.size));
+    /*
+     * ★ **어느 계정인지 보여준다** (2026-10-02).
+     *
+     * 예전엔 «로그인됨» 이 전부였다. 그러면 계정을 바꿔도 화면은
+     * 똑같아서 **바뀜 티가 안 난다** — 하필 그걸 확인하려고 들어온 자리인데.
+     */
+    if (a.who) facts.push(a.who);
     if (facts.length) head.append(el("span", { class: "agent-facts dim", text: facts.join(" · ") }));
 
     const row = el("div", { class: "agent-card" }, head);

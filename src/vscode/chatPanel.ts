@@ -2,7 +2,7 @@
 import * as os from "node:os";
 import * as vscode from "vscode";
 import {
-  cmdPath, dirFor, install, realNpm, remove, stateOf,
+  authStatus, cmdPath, dirFor, install, realNpm, remove, stateOf,
 } from "../core/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
@@ -632,6 +632,39 @@ export class ChatPanel implements AskTarget {
     return stateOf(a, this.ctx.globalStorageUri.fsPath, os.homedir()).state !== "none";
   }
 
+  /**
+   * ★ **CLI 가 말해준 로그인 상태** (2026-10-02).
+   *
+   * 파일이 있나는 어림짐작이라 CLI 에 직접 묻는다. 다만 그건
+   * 프로세스를 띄우는 일이라 **그릴 때마다 물을 수는 없다** — 받는 중엔
+   * npm 이 한 줄 뇴을 때마다 다시 그리므로 초당 여러 번이 된다.
+   *
+   * 그래서 **알던 값을 먼저 주고 뒤에서 갱신한다.** 갱신이 끝나면 목록을
+   * 한 번 더 보낸다 — 화면은 잠깐 사이에 저절로 바뀜다.
+   */
+  private readonly authAt = new Map<string, { at: number; loggedIn: boolean; who?: string }>();
+  private authBusy = new Set<string>();
+
+  private authOf(a: AgentDef): { loggedIn: boolean; who?: string } | undefined {
+    const cmd = a.pkg?.auth?.status;
+    if (!cmd) return undefined;
+    const got = this.authAt.get(a.id);
+    const stale = !got || Date.now() - got.at > 15000;
+    if (stale && !this.authBusy.has(a.id)) {
+      this.authBusy.add(a.id);
+      const dir = dirFor(this.ctx.globalStorageUri.fsPath, a.id);
+      setTimeout(() => {
+        const r = authStatus(dir, cmd);
+        this.authBusy.delete(a.id);
+        if (!r) return;
+        const was = this.authAt.get(a.id);
+        this.authAt.set(a.id, { at: Date.now(), ...r });
+        if (!was || was.loggedIn !== r.loggedIn || was.who !== r.who) this.sendAgents();
+      }, 0);
+    }
+    return got ? { loggedIn: got.loggedIn, ...(got.who ? { who: got.who } : {}) } : undefined;
+  }
+
   /** 받기가 도는 중인 에이전트와 그 마지막 줄 */
   private readonly busy = new Map<string, string>();
 
@@ -649,16 +682,22 @@ export class ChatPanel implements AskTarget {
       list: this.agents().map((a) => {
         const st = stateOf(a, root, home);
         const busy = this.busy.get(a.id);
+        /* CLI 가 말해주면 그걸 쓴다 — 파일 존재보다 참말이다 */
+        const auth = st.state === "none" ? undefined : this.authOf(a);
+        const loggedIn = auth ? auth.loggedIn : st.loggedIn;
         return {
           id: a.id,
           label: a.label,
           managed: a.pkg !== undefined,
           available: this.isAvailable(a),
-          state: st.state,
+          state: st.state === "needLogin" || st.state === "ready"
+            ? (loggedIn ? "ready" : "needLogin")
+            : st.state,
           ...(st.version ? { version: st.version } : {}),
           ...(st.wanted ? { wanted: st.wanted } : {}),
           size: st.size,
-          loggedIn: st.loggedIn,
+          loggedIn,
+          ...(auth?.who ? { who: auth.who } : {}),
           ...(busy ? { busy } : {}),
         };
       }),
@@ -721,14 +760,36 @@ export class ChatPanel implements AskTarget {
      * (`acpConnection.start` 의 주석) — `globalStorageUri` 에는 사용자 이름이
      * 들어가므로 공백이 흔하다.
      */
+    /*
+     * ★ **로그아웃은 돌던 CLI 를 내린다** (2026-10-02).
+     *
+     * 안 내리면 그 프로세스가 **옇 계정으로 계속 돌아간다.**
+     * 세션 id 는 그대로 둔다 — 다음에 이어받아 보고, 안 되면 끕김
+     * 흐름이 받는다.
+     */
+    if (what === "logout") this.rooms.dropConnection(agent.id);
+
     const term = vscode.window.createTerminal({ name: `${agent.label} ${what}`, cwd: dir });
     term.show();
     term.sendText([`"${found.exe}"`, ...found.args].join(" "));
     /*
+     * ★ **터미널이 닫히면 바로 다시 본다** (2026-10-02).
+     *
+     * 예전엔 20초 뒤 한 번이 전부였다 — 브라우저 로그인이 그보다 오래
+     * 걸리면 화면이 낡은 채로 남았다.
+     */
+    const done = vscode.window.onDidCloseTerminal((t) => {
+      if (t !== term) return;
+      done.dispose();
+      this.authAt.delete(agent.id);
+      this.sendAgents();
+    });
+    /*
      * 끝난 줄 모르므로 잠시 뒤에 한 번 더 본다. 자격 파일이 생기면 단추가
      * 알아서 바뀐다 — 사용자가 화면을 다시 열지 않아도 된다.
      */
-    setTimeout(() => this.sendAgents(), 20000);
+    /* 닫지 않고 내버려두는 사람도 있다 — 한 번은 스스로 다시 본다 */
+    setTimeout(() => { this.authAt.delete(agent.id); this.sendAgents(); }, 20000);
   }
 
   private async sendConfig(agentId: string, roomId?: string, botId?: string): Promise<void> {
