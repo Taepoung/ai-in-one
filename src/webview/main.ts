@@ -1646,10 +1646,6 @@ function renderAgents(): void {
  */
 const fixPick = new Map<string, { agentId?: string; model?: string; carry: "log" | "summary" | "none" }>();
 
-/** 이 방에 에이전트가 남긴 요약이 하나라도 있나 */
-function roomHasSummary(r: Room): boolean {
-  return r.messages.some((m) => m.mark === "compaction" && (m.summary ?? "").trim().length > 0);
-}
 
 /** 「이전 것」 → [고르개] 한 줄 */
 function swapRow(was: string, pick: HTMLElement): HTMLElement {
@@ -1758,11 +1754,26 @@ function renderFix(r: Room): void {
       card.append(swapRow(who?.label ?? bot.agentId, swap));
     }
 
-    /* ── 모델 줄 ──────────────────────────────────────────────── */
-    if (nextAgent) {
+    /*
+     * ── 모델 줄 ──────────────────────────────────────────────
+     *
+     * ★ **에이전트를 안 골랐어도 줄은 있다** (2026-10-02).
+     *
+     * 사용자: *"이전 에이전트, 모델 나와있고 에이전트 골랐을때 모델 선택이
+     * 활성화되는걸로"*.
+     *
+     * 🔴 예전엔 에이전트를 고르기 전까지 이 줄이 **아예 없었다.** 그러면
+     * 화면이 **고르는 동안 자라나서** 무엇을 더 정해야 하는지 미리 알 수
+     * 없었고, 「이전 모델」 이 무엇이었는지도 그때까진 안 보였다.
+     * 처음부터 둘 다 보여주고 **꺼둔 채로** 기다리는 쪽이 맞다.
+     */
+    {
       const was = bot.modelGone?.label ?? bot.modelLabel ?? bot.model ?? "모델";
-      if (modelOpt?.values?.length) {
-        const pick = el("select", { class: "regone" }) as HTMLSelectElement;
+      const pick = el("select", { class: "regone" }) as HTMLSelectElement;
+      if (!nextAgent) {
+        pick.append(el("option", { value: "", text: "에이전트를 먼저 고르세요", selected: true }));
+        pick.disabled = true;
+      } else if (modelOpt?.values?.length) {
         pick.append(el("option", { value: "", text: "고르세요…", selected: !got.model }));
         for (const v of modelOpt.values) {
           pick.append(el("option", { value: v.id, text: v.name, selected: got.model === v.id }));
@@ -1771,15 +1782,16 @@ function renderFix(r: Room): void {
           got.model = pick.value || undefined;
           renderFix(r);
         });
-        card.append(swapRow(was, pick));
       } else {
         /*
-         * 🔴 **기다리는 동안에도 «여기서» 는 보여준다** — 한 번 줄을 통째로
+         * 🔴 **기다리는 동안에도 「여기서」 는 보여준다** — 한 번 줄을 통째로
          * 뺐다가 **없어진 모델 이름이 같이 사라졌다.** 설정은 방에 들어온 뒤에
          * 오므로 처음 몇 순간은 늘 이 꼴인데, 하필 그때 제일 알고 싶은 것이다.
          */
-        card.append(swapRow(was, el("span", { class: "dim", text: "불러오는 중…" })));
+        pick.append(el("option", { value: "", text: "불러오는 중…", selected: true }));
+        pick.disabled = true;
       }
+      card.append(swapRow(was, pick));
     }
 
     /* ── 단추 줄 ──────────────────────────────────────────────── */
@@ -1823,10 +1835,9 @@ function renderFix(r: Room): void {
         b.disabled = !ready;
         acts.append(b);
       };
-      go("log", "기록 넘기기", "지난 대화를 글로 실어 보냅니다. 세운 계획과 읽은 파일 기억은 안 갑니다.");
-      if (roomHasSummary(r)) {
-        go("summary", "요약 넘기기", "압축하면서 에이전트가 남긴 요약만 보냅니다. 짧지만 세부는 빠집니다.");
-      }
+      go("log", "기록 넘기기", "지난 대화를 통째로 실어 보냅니다. 세운 계획과 읽은 파일 기억은 안 갑니다.");
+      go("summary", "요약 넘기기",
+         "압축 요약과 최근 대화만 보냅니다. 짧지만 예전 이야기는 빠집니다.");
       go("none", "안 넘기기", "새 에이전트가 백지에서 시작합니다. 대화는 화면에만 남습니다.");
     } else {
       const apply = el("button", {

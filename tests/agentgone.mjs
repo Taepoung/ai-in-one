@@ -117,11 +117,19 @@ console.log("\n[★ 거기서 다른 에이전트로 바꾸거나 내보낸다]"
   ok(!opts.some((x) => x.includes("Codex")),
      "★ 없는 것으로는 못 간다 — 같은 자리를 맴돈다");
 
-  /* 고르기 전엔 에이전트 줄 하나 — 무엇으로 갈지 모르면 모델도 못 고른다 */
+  /*
+   * ★ **고르기 전에도 줄은 둘이다** (2026-10-02).
+   *
+   * 이전 에이전트와 이전 모델이 처음부터 보이고, 모델 고르개는 **에이전트를
+   * 고를 때까지 꺼져 있다.** 무엇을 더 정해야 하는지 미리 보이는 쪽이 낫다.
+   */
   const first = t.$$("#screen-fix .fix-swap");
   console.log(`   줄: ${first.map((x) => x.querySelector(".gone").textContent).join(" / ")}`);
-  ok(first.length === 1 && first[0].querySelector(".gone").textContent.includes("Codex"),
-     "★ **«이전 것 → 고르개» 가 한 줄이다** — 왼쪽에 왔던 자리가 남는다");
+  ok(first.length === 2, `★ **줄이 처음부터 둘이다** (${first.length})`);
+  ok(first[0].querySelector(".gone").textContent.includes("Codex"),
+     "★ 왼쪽에 이전 에이전트가 남는다");
+  ok(t.$$("#screen-fix select.regone")[1].disabled,
+     "★ **모델 고르개는 꺼져 있다** — 어느 에이전트인지 모르면 모델도 모른다");
 }
 
 console.log("\n[★ 모델이 없어진 경우에도 내보내기가 있다]");

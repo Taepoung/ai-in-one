@@ -536,16 +536,6 @@ function transcriptText(room: Room, batch: Message[], kind?: "log" | "summary"):
 
   const head = summaries.length > 0 ? `[이전 요약] ${summaries.join("\n\n")}` : "";
 
-  /*
-   * ★ **요약만 넘기기** (2026-10-01).
-   *
-   * 길어진 방을 갈아탈 때 원문을 통째로 다시 보내면 첫 턴부터 엄청난 것을
-   * 물게 된다. 그럴 때 **에이전트가 압축하면서 준 요약만** 보낸다.
-   *
-   * 요약이 하나도 없으면 빈 글을 보내는 꼴이라, 그때는 화면이 아예 이
-   * 갈래를 안 보여준다 — 고를 수 없는 것을 띄우면 고르고 나서 알게 된다.
-   */
-  if (kind === "summary") return head;
   const rest = at >= 0 ? room.messages.slice(at + 1) : room.messages;
 
   const kept = rest.filter(
@@ -558,10 +548,32 @@ function transcriptText(room: Room, batch: Message[], kind?: "log" | "summary"):
       !m.sendFailed,
   );
 
-  // 최근 것은 손대지 않는다 — 이어서 할 지점이 거기다
-  const foldFrom = Math.max(0, kept.length - REFEED_KEEP_RECENT);
+  /*
+   * ★ **«요약 넘기기» 는 요약만이 아니다** (2026-10-02).
+   *
+   * ⏪ 처음엔 정말 **요약만** 돌려보냈다. 사용자가 바로 짚었다 —
+   * *"최근 채팅내역도 넘기는거 아니였음?"*. 맞다. 요약만 보내면
+   * **방금 하던 이야기가 통째로 사라진다** — 이어서 할 지점이 바로
+   * 거기인데.
+   *
+   * 그래서 둘의 차이는 «요약이냐 원문이냐» 가 아니라 **옮은 것을
+   * 얼마나 실는가** 다:
+   *
+   * ```
+   * log       요약 + 전부 (예전 것은 줄여서)
+   * summary   요약 + **최근 것만**
+   * ```
+   *
+   * 그래서 압축한 적 없는 방에서도 쓸모가 있다 — 그때는 그냥
+   * «짧게 넘기기» 가 된다. 예전에는 요약이 없으면 이 갈래를 아예
+   * 안 띄웠는데, 그건 «요약만» 이었기 때문이고 이젠 아니다.
+   */
+  const shown = kind === "summary" ? kept.slice(-REFEED_KEEP_RECENT) : kept;
 
-  const body = kept
+  // 최근 것은 손대지 않는다 — 이어서 할 지점이 거기다
+  const foldFrom = Math.max(0, shown.length - REFEED_KEEP_RECENT);
+
+  const body = shown
     .map((m, k) => {
       // 🔴 **첨부는 다시 안 보낸다.** 이미지를 통째로 재전송하면 비용이 글자와
       // 비교가 안 되고, 워크스페이스 파일은 에이전트가 직접 읽으면 된다(I4).

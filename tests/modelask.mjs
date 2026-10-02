@@ -135,8 +135,16 @@ console.log("\n[★ 고르개는 늦게 온 설정을 기다린다]");
    */
   const t = mount();
   open(t);
-  ok(t.$$("#screen-fix select.regone").length === 1,
-     "★ 설정 전에는 에이전트 고르개만 있다 — 모델 고르개는 아직 없다");
+  /*
+   * ★ **줄은 처음부터 둘이다** (2026-10-02).
+   *
+   * 사용자: *"이전 에이전트, 모델 나와있고 에이전트 골랐을때 모델 선택이
+   * 활성화되는걸로"*. 화면이 고르는 동안 **자라나면** 무엇을 더 정해야
+   * 하는지 미리 알 수 없다. 설정을 기다리는 동안에는 **꺼둔 채로** 둔다.
+   */
+  const early = t.$$("#screen-fix select.regone");
+  ok(early.length === 2, `★ 에이전트 줄과 모델 줄이 처음부터 둘 다 (${early.length})`);
+  ok(early[1].disabled, "★ **모델 고르개는 꺼져 있다** — 아직 고를 것이 안 왔다");
   ok(/불러오는 중/.test(t.$("#screen-fix").textContent), "★ 대신 기다린다고 적는다");
 
   feedConfig(t, "b1");
