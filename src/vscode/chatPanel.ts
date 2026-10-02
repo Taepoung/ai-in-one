@@ -745,7 +745,18 @@ export class ChatPanel implements AskTarget {
       });
     } catch (err) {
       // 에러 문구만 보여주면 뭐를 해야 하는지 모른다 (A8)
-      const hint = this.agents().find((a) => a.id === agentId)?.install;
+      /*
+       * ★ **안 받은 에이전트엔 설치 안내를 붙이지 않는다** (2026-10-02).
+       *
+       * 그 안내는 **로그인**에 대한 말이다(«Node 20+ · 한 번 로그인해
+       * 두세요»). 그런데 안 받은 상태의 오류는 이미 «로봇 아이콘에서
+       * 받으세요» 라고 말하므로, 둘을 같이 보여주면 **두 가지를 시키는
+       * 셌이 된다** — 사용자는 무엇부터 해야 하는지 알 수 없다.
+       *
+       * 받고 나면 로그인 차례고, 그때는 이 안내가 맞는 말이 된다.
+       */
+      const def = this.agents().find((a) => a.id === agentId);
+      const hint = def?.unavailable ? undefined : def?.install;
       const reason = err instanceof Error ? err.message : String(err);
       this.post({
         t: "config",

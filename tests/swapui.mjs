@@ -23,6 +23,15 @@ const { JSDOM } = await import(
 );
 const ok = (c, m) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 
+/**
+ * ★ **자리 말고 글자로 고른다** (2026-10-02).
+ *
+ * 갈래가 둘에서 셋으로 늘었는데 `[1]` 로 짚고 있어서 **엉뙡한 단추를
+ * 누르고도 검사가 조용했다.** 자리는 밀리지만 글자는 그대로다.
+ */
+const swapGo = (t, label) =>
+  [...t.$$(".swap-ask .acts button")].find((b) => b.textContent.trim() === label);
+
 const SHELL = `<!DOCTYPE html><html><body>
   <div id="app">
     <section class="screen" id="screen-list" data-active>
@@ -165,11 +174,18 @@ console.log("\n[★ 확인해야 바뀐다]");
   ok(t.sent.find((m) => m.t === "setAgent") === undefined,
      "★ **고른 것만으로는 안 바뀐다** — 되돌릴 수 없는 일이다");
 
+  /*
+   * ★ **네 갈래 — 막음 화면과 같은 셋에 «그대로 두기»** (2026-10-02).
+   *
+   * 사용자가 통일을 요청했다. 두 자리가 **같은 일**을 하는데 고를 수
+   * 있는 게 다르면, 어느 문으로 들어왔느냐에 따라 다른 선택을 하게 된다.
+   * «그대로 두기» 만 여기 더 있다 — 막음 화면엔 물러설 자리가 없다.
+   */
   const labels = [...t.$$(".swap-ask .acts button")].map((b) => b.textContent);
-  ok(labels.join(" | ") === "대화 넘겨서 바꾸기 | 기록만 두고 바꾸기 | 그대로 두기",
-     `★ **세 갈래다** (${labels.join(" | ")}) — 무엇을 잃는지 방금 읽은 자리에서 정한다`);
+  ok(labels.join(" | ") === "대화 넘겨서 바꾸기 | 요약만 넘겨서 바꾸기 | 기록만 두고 바꾸기 | 그대로 두기",
+     `★ **네 갈래다** (${labels.join(" | ")}) — 무엇을 잃는지 방금 읽은 자리에서 정한다`);
 
-  [...t.$$(".swap-ask .acts button")][0].click();
+  swapGo(t, "대화 넘겨서 바꾸기").click();
   const posted = t.sent.find((m) => m.t === "setAgent");
   ok(posted?.botId === "b1" && posted.agentId === "codex" && posted.roomId === "r1",
      "★ 그 봇을 그 에이전트로");
@@ -208,8 +224,8 @@ console.log("\n[★ 답하는 중에는 못 바꾼다 — 그 답이 갈 곳이 
   const warn = [...t.$$(".swap-ask .warn")].map((e) => e.textContent).join(" ");
   ok(warn.includes("답하는 중"), "★ 왜 안 되는지 말한다");
   const gos = [...t.$$(".swap-ask .acts button")].filter((b) => b.textContent.includes("바꾸기"));
-  ok(gos.length === 2 && gos.every((b) => b.disabled === true),
-     "★ 둘 다 잠긴다 — 코어도 거절하지만 누르게 두지 않는다");
+  ok(gos.length === 3 && gos.every((b) => b.disabled === true),
+     `★ 셋 다 잠긴다 (${gos.length}) — 코어도 거절하지만 누르게 두지 않는다`);
 }
 
 console.log("\n[★ 에이전트가 하나뿐이면 칸이 없다]");
@@ -226,7 +242,7 @@ console.log("\n[★ 기록만 두고 바꾸기 — 되먹임을 끈 채로]");
   const t = mount();
   drawer(t);
   pickAgent(t, "codex");
-  [...t.$$(".swap-ask .acts button")][1].click();
+  swapGo(t, "기록만 두고 바꾸기").click();
   const posted = t.sent.find((m) => m.t === "setAgent");
   ok(posted.refeed === false,
      "★ **대화는 화면에만 남는다** — 새 에이전트는 백지에서 시작");
@@ -250,7 +266,7 @@ console.log("\n[★ 갈아탈 에이전트의 모델을 같이 고른다]");
   ok(t.sent.find((m) => m.t === "setConfig") === undefined,
      "★ **아직 안 건다** — 그 세션은 아직 없다");
 
-  [...t.$$(".swap-ask .acts button")][0].click();
+  swapGo(t, "대화 넘겨서 바꾸기").click();
   const posted = t.sent.find((m) => m.t === "setAgent");
   ok(posted.model?.value === "mini" && posted.model.configId === "cfg-model",
      `★ **확정할 때 같이 간다** (${JSON.stringify(posted.model)}) — 한 번의 결정이다`);
@@ -267,7 +283,7 @@ console.log("\n[★ 에이전트를 다시 고르면 모델 선택은 버린다]
 
   pickAgent(t, "claude");   // 되돌렸다가
   pickAgent(t, "codex");    // 다시 고르면
-  [...t.$$(".swap-ask .acts button")][0].click();
+  swapGo(t, "대화 넘겨서 바꾸기").click();
   ok(t.sent.find((m) => m.t === "setAgent").model === undefined,
      "★ 다른 에이전트의 모델 값을 들고 있으면 안 된다");
 }
@@ -281,6 +297,22 @@ console.log("\n[★ 평소의 모델 바꾸기는 **봇을 실어 보낸다**]")
   const model = sels[sels.length - 1];
   model.value = "sonnet";
   model.dispatchEvent(new t.w.Event("change"));
+
+  /*
+   * ★ **고르기만 해서는 안 간다** (2026-10-02).
+   *
+   * 사용자: *"채팅창 안에서 봇 모델 바꿀때도 적용 버튼을 추가하자.
+   * 지금 선택하자마자 적용돼서 좀 그럴 수 있어"*.
+   *
+   * 세션을 버리진 않지만 **다음 턴부터 다른 모델이 답한다** — 스치다
+   * 바뀜는 일은 아니다.
+   */
+  ok(t.sent.find((m) => m.t === "setConfig") === undefined,
+     "★ **고르기만 해서는 안 간다**");
+  const apply = [...t.$$(".drawer-bot")[1].querySelectorAll(".field button")]
+    .find((b) => b.textContent.trim() === "적용");
+  ok(apply !== undefined, "★ 달라진 칸에만 «적용» 이 나타난다");
+  apply.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
 
   const posted = t.sent.find((m) => m.t === "setConfig");
   ok(posted?.botId === "b2",

@@ -1038,7 +1038,15 @@ function defaultBotColor(): string {
 
 function newDraftBot(): DraftBot {
   return {
-    agentId: boot.agents[0]?.id ?? "",
+    /*
+     * 🔴 **받아둔 것 중에서 고른다** (2026-10-02).
+     *
+     * 예전엔 무조건 `boot.agents[0]` 였다. 그러면 첫째를 안 받은 사람은
+     * **고르개에 없는 값이 박힌 채** 방을 만들게 된다 — 고르개는 받은
+     * 것만 보여주는데 속값은 Claude 에 고정돼 있어서, 눈에 보이는 것과
+     * 실제로 붙는 것이 어긋난다.
+     */
+    agentId: (boot.agents.find((a) => agentAvail.has(a.id)) ?? boot.agents[0])?.id ?? "",
     picks: new Map(), role: "", name: "",
     color: defaultBotColor(),
   };
@@ -1085,6 +1093,33 @@ function renderNew(error?: string): void {
   // 화면을 다시 만들므로 «이렇게 됩니다» 줄도 새로 모은다 — 옛 노드를 들고
   // 있으면 화면에 없는 것을 계속 고치게 된다
   draftBent.length = 0;
+
+  /*
+   * 🔴 **하나도 안 받았으면 만들기 형식을 안 보여준다** (2026-10-02).
+   *
+   * 고르개가 **텀 빈 채** 형식을 띄우면 사용자는 이름까지 정하고 «만들기» 를
+   * 누른 뒤에야 «안 받았다» 를 알게 된다. 막히는 데가 늦을수록 나쁘다.
+   */
+  if (boot.agents.length > 0 && agentAvail.size === 0) {
+    replace(
+      screens.new,
+      el(
+        "header",
+        { class: "bar" },
+        el("button", { class: "icon", title: "뒤로", onclick: () => back() }, icon("arrow-left")),
+        el("h1", { text: "새 대화방" }),
+      ),
+      el("div", { class: "empty" },
+        el("p", { text: "아직 받아둔 에이전트가 없습니다." }),
+        el("p", { class: "dim" }, "목록 화면 위의 ", icon("robot"), " 에서 하나 받으면 바로 만들 수 있습니다."),
+        el("button", {
+          class: "primary", type: "button", text: "에이전트 받으러 가기",
+          onclick: () => { post({ t: "agentsAsk" }); renderAgents(); push("agents"); },
+        }),
+      ),
+    );
+    return;
+  }
 
   const title = el("input", { type: "text", id: "new-title", placeholder: "비우면 «새 대화»" });
   const cwdInput = el("input", {
@@ -1835,10 +1870,10 @@ function renderFix(r: Room): void {
         b.disabled = !ready;
         acts.append(b);
       };
-      go("log", "기록 넘기기", "지난 대화를 통째로 실어 보냅니다. 세운 계획과 읽은 파일 기억은 안 갑니다.");
-      go("summary", "요약 넘기기",
+      go("log", "대화 넘겨서 바꾸기", "지난 대화를 통째로 실어 보냅니다. 세운 계획과 읽은 파일 기억은 안 갑니다.");
+      go("summary", "요약만 넘겨서 바꾸기",
          "압축 요약과 최근 대화만 보냅니다. 짧지만 예전 이야기는 빠집니다.");
-      go("none", "안 넘기기", "새 에이전트가 백지에서 시작합니다. 대화는 화면에만 남습니다.");
+      go("none", "기록만 두고 바꾸기", "새 에이전트가 백지에서 시작합니다. 대화는 화면에만 남습니다.");
     } else {
       const apply = el("button", {
         class: "agent-go", type: "button", text: "적용",
@@ -6279,7 +6314,8 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
    *
    * 되먹임은 **글자만** 옮긴다 — 위 경고에 적어뒀다. 그래서 두 갈래다.
    */
-  const mk = (label: string, title: string, refeed: boolean) => {
+  const mk = (label: string, title: string, carry: "log" | "summary" | "none") => {
+    const refeed = carry !== "none";
     const b = el("button", {
       class: refeed ? "primary" : "",
       text: label,
@@ -6291,6 +6327,7 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
         swapModel.delete(bot.id);
         post({
           t: "setAgent", roomId: r.id, botId: bot.id, agentId: nextId, refeed,
+          ...(refeed ? { refeedKind: carry } : {}),
           ...(model && opt ? { model: { configId: opt.configId, value: model } } : {}),
         });
       },
@@ -6298,8 +6335,16 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
     b.disabled = busy;
     return b;
   };
-  const goFeed = mk("대화 넘겨서 바꾸기", "지난 대화를 다음 메시지에 함께 보냅니다. 글자만 갑니다.", true);
-  const goBare = mk("기록만 두고 바꾸기", "대화는 화면에만 남고, 새 에이전트는 백지에서 시작합니다.", false);
+  /*
+   * ★ **세 갈래 — 막음 화면과 같은 것** (2026-10-02).
+   *
+   * 사용자: *"에이전트가 없어져서 다른 에이전트로 바�때도 똑같이
+   * 해줄래? (통일성)"*. 두 자리가 **같은 일**을 하는데 골라지는 것이
+   * 다르면, 사용자는 어느 문으로 들어왔느냐에 따라 다른 선택을 하게 된다.
+   */
+  const goFeed = mk("대화 넘겨서 바꾸기", "지난 대화를 다음 메시지에 함께 보냅니다. 글자만 갑니다.", "log");
+  const goSum = mk("요약만 넘겨서 바꾸기", "압축 요약과 최근 대화만 보냅니다. 짧지만 예전 이야기는 빠집니다.", "summary");
+  const goBare = mk("기록만 두고 바꾸기", "대화는 화면에만 남고, 새 에이전트는 백지에서 시작합니다.", "none");
 
   return [
     el("div", { class: "swap-what" },
@@ -6320,6 +6365,7 @@ function swapWarning(r: Room, bot: BotInstance, nextId: string): Kids {
       : null,
     el("div", { class: "acts" },
       goFeed,
+      goSum,
       goBare,
       el("button", {
         class: "ghost",
@@ -6404,9 +6450,22 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
    * 것 자체는 **세션을 버리는 일**이라 바로 안 바꾼다 — 고르면 **모델 칸
    * 아래에** 무엇을 잃는지 펴고 거기서 확인받는다.
    */
-  if (agentById.size > 1) {
+  /*
+   * 🔴 **안 받은 에이전트는 여기서도 뺀다** (2026-10-02).
+   *
+   * 사용자가 짚었다 — *"참여자 서랄에서 에이전트가 없는데 나오는
+   * 경우도 있음"*. 방 만들기만 걸러두고 여길 놓쳐서, **고르면 그제서야
+   * 막히는** 꼴이었다.
+   *
+   * 다만 지금 붙어 있는 것은 받지 않았어도 남긴다 — 고르개가 제 값을
+   * 안 담고 있으면 **엉뙡한 것이 고른 것처럼 보인다.**
+   */
+  const choosable = [...agentById.values()].filter(
+    (a) => agentAvail.has(a.id) || a.id === bot.agentId,
+  );
+  if (choosable.length > 1) {
     const pick = el("select") as HTMLSelectElement;
-    for (const a of agentById.values()) {
+    for (const a of choosable) {
       pick.append(el("option", { value: a.id, text: a.label, selected: a.id === showAgent }));
     }
     pick.addEventListener("change", () => {
@@ -6449,9 +6508,28 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
      */
     select.addEventListener("change", () => {
       if (pending) { swapModel.set(bot.id, select.value); return; }
-      post({ t: "setConfig", roomId: r.id, configId: model.configId, value: select.value, botId: bot.id });
+      drawerModel.set(bot.id, select.value);
+      paintDrawer(r);
     });
-    rows.push(el("div", { class: "field" }, el("label", { text: labelOf(model) }), select));
+    const staged = drawerModel.get(bot.id);
+    if (!pending && staged !== undefined && staged !== String(model.current ?? "")) {
+      select.value = staged;
+    }
+    const field = el("div", { class: "field" }, el("label", { text: labelOf(model) }), select);
+    /*
+     * «적용» 은 **고른 것이 지금것과 다를 때만** 나타난다. 항상 두면
+     * 누를 일이 없는 단추가 줄마다 서 있게 된다.
+     */
+    if (!pending && staged !== undefined && staged !== String(model.current ?? "")) {
+      field.append(el("button", {
+        class: "primary", type: "button", text: "적용",
+        onclick: () => {
+          drawerModel.delete(bot.id);
+          post({ t: "setConfig", roomId: r.id, configId: model.configId, value: staged, botId: bot.id });
+        },
+      }));
+    }
+    rows.push(field);
   } else if (pending) {
     rows.push(el("div", { class: "sub", text: `${agentById.get(pending)?.label ?? pending}의 모델을 불러오는 중…` }));
   }
@@ -6533,6 +6611,17 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
 const swapping = new Map<string, string>();
 /** 그때 **같이 고른 모델** — `botId` → 새 에이전트의 모델 값 */
 const swapModel = new Map<string, string>();
+
+/**
+ * ★ **서랄에서 고른 모델 — «적용» 전까지** (2026-10-02).
+ *
+ * 사용자: *"채팅창 안에서 봇 모델 바꿀때도 적용 버튼을 추가하자.
+ * 지금 선택하자마자 적용돼서 좀 그럴 수 있어"*.
+ *
+ * 모델을 바꾸는 것은 세션을 버리진 않지만 **다음 턴부터 다른 모델이
+ * 답한다.** 고르개를 스치다 바뀜는 일이 아니다.
+ */
+const drawerModel = new Map<string, string>();
 
 /**
  * 컨텍스트가 몇 퍼센트 찼나 — 모르면 `-1`.
