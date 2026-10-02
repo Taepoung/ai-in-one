@@ -18,7 +18,6 @@ export interface AgentDef {
    * 우리가 CLI를 대신 깔아주지 않는다 — 구독으로 쓰려면
    * 사용자가 직접 설치하고 로그인해야 한다 (§0 P3).
    */
-  install?: string;
   env?: Record<string, string>;
   /**
    * ★ **세션을 지운 뒤 한 번 더 치워야 하는 에이전트가 있다** (2026-10-01).

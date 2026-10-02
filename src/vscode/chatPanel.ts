@@ -78,6 +78,14 @@ export class ChatPanel implements AskTarget {
     // 첫 화면은 HTML에 실어 보낸다 — `nav`는 아직 받을 사람이 없다.
     ChatPanel.current = new ChatPanel(
       ctx, panel, rooms, store, agents, refreshAgents, onTarget, screen ?? "list");
+    /*
+     * 🔴 **열자마자 지금 상태를 보낸다** (2026-10-02).
+     *
+     * `boot` 은 HTML 에 한 번 실려 나가고 그 뒤로 안 바뀐다. 그래서 받아두고도
+     * 로봇 화면을 열어야 목록이 갱신되는 꼴이었다 — 그 사이에 방을 열면
+     * **받았는데도 «아직 안 받았다»** 로 보였다.
+     */
+    ChatPanel.current.sendAgents();
     return ChatPanel.current;
   }
 
@@ -410,7 +418,7 @@ export class ChatPanel implements AskTarget {
           await this.agentDo(m.agentId, m.what);
           break;
         case "refeed":
-          await this.rooms.decideRefeed(m.roomId, m.accept);
+          await this.rooms.decideRefeed(m.roomId, m.accept, m.kind);
           break;
         case "retryResume":
           await this.rooms.retryResume(m.roomId);
@@ -633,7 +641,7 @@ export class ChatPanel implements AskTarget {
    * 계산은 전부 `agentInstaller.stateOf` 가 한다 — 여기서 다시 판단하지
    * 않는다. 두 자리에서 같은 규칙을 써놓으면 언젠가 갈라진다.
    */
-  private sendAgents(): void {
+  sendAgents(): void {
     const root = this.ctx.globalStorageUri.fsPath;
     const home = os.homedir();
     this.post({
@@ -754,17 +762,13 @@ export class ChatPanel implements AskTarget {
        *
        * 받고 나면 로그인 차례고, 그때는 이 안내가 맞는 말이 된다.
        */
-      const def = this.agents().find((a) => a.id === agentId);
-      const hint = def?.unavailable ? undefined : def?.install;
       const reason = err instanceof Error ? err.message : String(err);
       this.post({
         t: "config",
         agentId,
         ...(roomId && botId ? { roomId, botId } : {}),
         options: [],
-        error: hint ? `${reason}
-
-${hint}` : reason,
+        error: reason,
       });
     }
   }

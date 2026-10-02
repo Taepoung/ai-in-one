@@ -371,7 +371,13 @@ export type FromWebview =
    */
   | { t: "agentDo"; agentId: string; what: "install" | "remove" | "login" | "logout" }
   /** 끊긴 맥락을 되먹일지 (F7). `accept`면 다음 메시지에 실어 보낸다 */
-  | { t: "refeed"; roomId: string; accept: boolean }
+  | {
+      t: "refeed";
+      roomId: string;
+      accept: boolean;
+      /** 넘기면 원문까지인가 요약+최근만인가 (2026-10-02) */
+      kind?: "log" | "summary";
+    }
   /** 못 이어받은 세션에 다시 붙어본다 (F7) */
   | { t: "retryResume"; roomId: string }
   | { t: "answer"; id: string; answer: AskAnswer }

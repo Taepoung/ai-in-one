@@ -96,16 +96,6 @@ npm run watch      # esbuild watch
 받아서 돌린다** — 사용자가 깔아둔 `claude`·`codex` 는 안 쓴다(실측:
 `tests/probes/whichcli.cjs`, `pinmismatch.mts`). 세션 뒷정리까지 우리 엔진이 한다.
 
-⚠️ **단 «설치가 아예 필요 없다» 고까지는 에이전트마다 다르다** (2026-10-01 실측):
-
-| | ACP 로 로그인 | 설치 없이 로그인 |
-|---|---|---|
-| **Codex** | `chat-gpt` 방법을 광고한다 | `npx @openai/codex login` |
-| **Claude** | `authMethods` 가 비어 있다 | Claude Code 로 한 번 해두어야 한다 |
-
-Codex 는 정말 아무것도 안 깔고 쓸 수 있다. Claude 는 로그인 한 번이 필요하다 —
-품은 `claude.exe` 가 있긴 한데 `bin` 으로 안 나와 경로로만 부를 수 있다.
-
 그래도 터미널 CLI 의 **판은** 낡아도 상관없다(이 기계: 0.155.0 vs 우리 핀 0.159.3).
 다만 **로그인 자리**(`~/.codex`·`~/.claude`)는 공유하므로 거기서는 만나야 한다.
 

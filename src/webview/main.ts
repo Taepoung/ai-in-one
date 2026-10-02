@@ -1597,13 +1597,6 @@ function renderAgents(): void {
       }, icon("arrow-left")),
       el("h1", { text: "에이전트" }),
     ),
-    el("div", { class: "agent-why" },
-      el("p", { class: "dim",
-        text:
-          "쓸 에이전트만 받아두면 됩니다. 받는 것은 우리 자리에만 쌓이고, " +
-          "제거하면 그대로 비워집니다.",
-      }),
-    ),
   );
 
   for (const a of agentRows) {
@@ -3224,7 +3217,21 @@ function paintChat(r: Room): void {
         el("button", {
           class: "link",
           text: "대화 넘겨서 시작",
-          onclick: () => post({ t: "refeed", roomId: r.id, accept: true }),
+          onclick: () => post({ t: "refeed", roomId: r.id, accept: true, kind: "log" }),
+        }),
+        /*
+         * ★ **여기에도 «요약만» 이 있어야 한다** (2026-10-02).
+         *
+         * 사용자: *"세션 끕겼을때도 … 4개 있어야되지 않아?"*.
+         * 갈아타기와 **같은 일**이다 — 세션이 없어졌으니 무엇을 실어
+         * 다시 시작할지를 정하는 것. 문이 다르다고 고를 수 있는 것이 다르면
+         * 사용자는 «어디서 들어왔느냐» 에 따라 다른 선택을 하게 된다.
+         */
+        el("button", {
+          class: "link",
+          text: "요약만 넘겨서 시작",
+          title: "압축 요약과 최근 대화만 보냅니다. 짧지만 예전 이야기는 빠집니다.",
+          onclick: () => post({ t: "refeed", roomId: r.id, accept: true, kind: "summary" }),
         }),
         el("button", {
           class: "link",
@@ -3273,7 +3280,13 @@ function paintChat(r: Room): void {
           el("button", {
             class: "link",
             text: "대화 넘겨서 시작",
-            onclick: () => post({ t: "refeed", roomId: r.id, accept: true }),
+            onclick: () => post({ t: "refeed", roomId: r.id, accept: true, kind: "log" }),
+          }),
+          el("button", {
+            class: "link",
+            text: "요약만 넘겨서 시작",
+            title: "압축 요약과 최근 대화만 보냅니다.",
+            onclick: () => post({ t: "refeed", roomId: r.id, accept: true, kind: "summary" }),
           }),
           el("button", {
             class: "link",

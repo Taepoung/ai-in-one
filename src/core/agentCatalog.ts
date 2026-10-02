@@ -122,7 +122,6 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * 차이 0, 세션·맥락·되돌리기 다 살아 있다. Sonnet 방만 모델이 올라간다.
      */
     args: ["-y", "@agentclientprotocol/claude-agent-acp@0.84.0"],
-    install: "Node 20+ 가 필요합니다. 그리고 Claude Code 로 한 번 로그인해 두셔야 합니다 — 어댑터는 우리가 받지만 **로그인 자리는 사용자 것**입니다. CLI 판은 안 맞춰도 됩니다.",
     /*
      * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/INSTALL.md`.
      *
@@ -177,7 +176,6 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * — 나가기 뒷정리가 저쪽 CLI 에 달려 있어서다(`docs/PIN.md` §F).
      */
     args: ["-y", ...CODEX_PIN, "codex-acp"],
-    install: "Node 20+ 만 있으면 됩니다. CLI 를 안 깔았으면 터미널에서 `npx @openai/codex login` 으로 로그인하세요 (설치 불필요).",
     /*
      * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/INSTALL.md`.
      *

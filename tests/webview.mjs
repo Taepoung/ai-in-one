@@ -479,7 +479,14 @@ function main() {
       messages: [{ id: "u1", role: "user", text: "하던 얘기", deliveredTo: [], createdAt: 1 }],
     }});
     const labels = t.$$(".banner.warn button").map((b) => b.textContent);
-    ok(labels.join(",") === "대화 넘겨서 시작,기록만 두고 시작", `못 할 일은 권하지 않는다 (${labels.join(",")})`);
+    /*
+     * ★ **갈래가 셋이 됐다** (2026-10-02) — 사용자가 갈아타기와 통일을
+     * 요청했다. 세션이 끕긴 것도 **무엇을 실어 다시 시작할지**를 정하는
+     * 일이라 같은 셋이어야 한다. «다시 시도» 는 이어붙일 세션이 있을
+     * 때만 뜨므로 여기엔 없다 — 그게 이 칸이 재는 것이다.
+     */
+    ok(labels.join(",") === "대화 넘겨서 시작,요약만 넘겨서 시작,기록만 두고 시작",
+       `못 할 일은 권하지 않는다 — «다시 시도» 가 없다 (${labels.join(",")})`);
   }
 
   console.log("\n[방 정보에 세션 id가 보인다 (B12)]");
@@ -695,7 +702,8 @@ function main() {
     ok(banner.textContent.includes("9자"), `글자 수도 (${banner.textContent.slice(0, 60)})`);
 
     const buttons = [...banner.querySelectorAll("button")].map((b) => b.textContent);
-    ok(buttons.join(",") === "대화 넘겨서 시작,기록만 두고 시작", `고르게 한다 (${buttons.join(",")})`);
+    ok(buttons.join(",") === "대화 넘겨서 시작,요약만 넘겨서 시작,기록만 두고 시작",
+       `고르게 한다 — 갈아타기와 같은 셋 (${buttons.join(",")})`);
 
     banner.querySelectorAll("button")[0].click();
     const sent = t.sent.find((m) => m.t === "refeed");

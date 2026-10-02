@@ -3966,7 +3966,7 @@ export class RoomManager extends EventEmitter<Events> {
    *
    * `false`면 그냥 새 대화처럼 간다. **다시 묻지 않는다.**
    */
-  async decideRefeed(roomId: string, accept: boolean): Promise<void> {
+  async decideRefeed(roomId: string, accept: boolean, kind?: "log" | "summary"): Promise<void> {
     const room = await this.openRoom(roomId);
     /*
      * ★ **맥락을 잃은 봇들에게만** 건다 (B1).
@@ -3980,8 +3980,15 @@ export class RoomManager extends EventEmitter<Events> {
       delete b.contextLost;
       // 사용자가 정했으니 이제 옛 세션을 놓는다
       delete b.lostSessionId;
-      if (accept) b.refeedPending = true;
-      else delete b.refeedPending;
+      if (accept) {
+        b.refeedPending = true;
+        /* 무엇을 넘길지도 같이 정한다 — 안 주면 원문이 기본이다 */
+        if (kind) b.refeedKind = kind;
+        else delete b.refeedKind;
+      } else {
+        delete b.refeedPending;
+        delete b.refeedKind;
+      }
     }
     this.rollUpLost(room);
     await this.saveProps(room, {
