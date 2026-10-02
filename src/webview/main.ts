@@ -1386,7 +1386,6 @@ function agentSelect(b: DraftBot, n: number): HTMLElement {
   return el(
     "div",
     { class: "agent-row" },
-    el("span", { class: "dot", style: { background: who?.color ?? "#888" } }),
     pick,
     who?.description ? el("span", { class: "dim agent-desc", text: who.description }) : null,
   );
@@ -1613,7 +1612,6 @@ function renderAgents(): void {
 
     const head = el("div", { class: "agent-head" },
       el("span", { class: "agent-name", text: a.label }),
-      el("span", { class: "dot", style: { background: a.color } }),
     );
 
     /* 오른쪽 끝에 판과 자리 — 받은 뒤에만 보여줄 것이 있다 */
@@ -1752,7 +1750,7 @@ function renderFix(r: Room): void {
 
     const card = el("div", { class: "fix-bot" },
       el("div", { class: "fix-name" },
-        el("span", { class: "dot", style: { background: botColor(bot, who) } }),
+        el("span", { class: "dot", style: { background: botColor(bot) } }),
         el("strong", { text: bot.name }),
         el("span", { class: "dim", text: who?.label ?? bot.agentId }),
       ),
@@ -3632,7 +3630,7 @@ function messageNode(
       el(
         "div",
         { class: "who" },
-        el("span", { class: "dot", style: { background: botColor(who, agent) } }),
+        el("span", { class: "dot", style: { background: botColor(who) } }),
         /*
          * 🔴 **봇 이름이지 에이전트 이름이 아니다.**
          *
@@ -5079,7 +5077,6 @@ function paintPermissionSheet(r: Room): void {
 
 /** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
 function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
-  const agent = agentById.get(bot.agentId);
   const options = optionsFor(bot.agentId, r.id, bot.id) ?? [];
   const mode = options.find((o) => o.category === "mode");
 
@@ -5226,7 +5223,7 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
        * 색을 쓰면 같은 에이전트로 봇을 둘 두었을 때 점이 똑같아진다 — 정작
        * 봇을 가려야 하는 화면에서 구별을 못 해준다.
        */
-      el("span", { class: "dot", style: { background: botColor(bot, agent) } }),
+      el("span", { class: "dot", style: { background: botColor(bot) } }),
     ),
     /*
      * ★ **세 칸을 가로로 누인다** (v2.0).
@@ -6101,7 +6098,6 @@ function askInvite(r: Room): void {
                     paint();
                   },
                 },
-                el("span", { class: "dot", style: { background: a.color } }),
                 el(
                   "span",
                   { class: "agent-main" },

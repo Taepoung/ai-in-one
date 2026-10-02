@@ -12,7 +12,6 @@ export interface AgentDef {
   command: string;
   args: string[];
   /** 목록/아바타에 쓰는 색. VSCode 테마 변수 또는 hex */
-  color: string;
   /**
    * 실패했을 때 보여줄 안내 (A8).
    *
@@ -1410,11 +1409,8 @@ export const BOT_COLORS: ReadonlyArray<{ id: string; label: string; css: string 
  * 에이전트 색으로 떨어지는 것이 기본값이라, 색을 한 번도 안 고른 방은
  * **오늘과 똑같이** 보인다.
  */
-export function botColor(
-  bot: { color?: string } | undefined,
-  agent: { color: string } | undefined,
-): string {
-  return bot?.color ?? agent?.color ?? "#888888";
+export function botColor(bot: { color?: string } | undefined): string {
+  return bot?.color ?? "#888888";
 }
 
 export function createBotInstance(

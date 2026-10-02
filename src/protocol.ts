@@ -20,7 +20,6 @@ export interface AgentBrief {
   id: string;
   label: string;
   description?: string;
-  color: string;
   /**
    * ★ **받아두었나** (2026-10-01) — `docs/INSTALL.md`.
    *
@@ -95,7 +94,6 @@ export type ToWebview =
       list: {
         id: string;
         label: string;
-        color: string;
         /** 없으면 우리가 받는 에이전트가 아니다 (사용자 설정) */
         managed: boolean;
         /** 방 만들기 목록에 뜨나 — 안 받았으면 안 뜨고, 쓰던 방은 막힌다 */
