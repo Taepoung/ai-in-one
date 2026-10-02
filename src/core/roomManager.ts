@@ -3851,6 +3851,32 @@ export class RoomManager extends EventEmitter<Events> {
 
     const conn = this.connection(bot.agentId);
 
+    /*
+     * 🔴 **말을 안 건 세션은 이어받으려 하지 않는다** (2026-10-02).
+     *
+     * 에이전트는 **첫 프롬프트를 받아야** 세션을 디스크에 남긴다
+     * (§13.1 실측). 그래서 만들기만 하고 말은 안 건 세션은 **없어진 게
+     * 아니라 처음부터 없고**, 이어받기는 반드시 실패한다.
+     *
+     * ⏪ 아래에 이미 같은 생각으로 막은 줄이 있었는데 **눈금이 한 칸
+     * 어긋났다** — «방에 말이 있나» 로 보고 있었다. 그런데 말을 건
+     * 것은 **봇마다** 다르다. Claude 가 떠든 방에 Codex 를 불러놓고
+     * 안 시켰으면, 방엔 말이 있지만 **그 봇의 세션은 비어 있다.**
+     * 그때 사용자가 본 것이 이것이다:
+     *
+     * ```
+     * 아직 이어받을 수 없습니다 — Internal error —
+     * no rollout found for thread id 01a0fb40-…
+     * ```
+     *
+     * 우리가 지운 게 아니다. **쓴 적이 없어 써지지 않은 것**을 달라고
+     * 한 것이다. 지우는 쪽(`deleteSession`)은 이미 봇 단위로 보고 있었다
+     * (`sessionPrompted`) — 이어받는 쪽만 안 보고 있었다.
+     */
+    if (bot.sessionId && !bot.sessionPrompted) {
+      bot.sessionId = null;
+    }
+
     if (bot.sessionId) {
       const resumed = await conn.resumeSession(bot.sessionId, room.cwd);
       if (resumed.ok) {

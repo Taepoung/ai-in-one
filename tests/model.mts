@@ -215,6 +215,16 @@ async function main() {
     room2.messages.push({
       id: "u1", role: "user", text: "고쳐줘", deliveredTo: [], createdAt: Date.now(),
     });
+    /*
+     * ★ **말을 건 봇으로 만든다** (2026-10-02).
+     *
+     * 예전엔 방에 글만 넣고 끝났는데, 제품은 이제 **봇이 말을 건 적이
+     * 있는지**를 본다(`sessionPrompted`). 에이전트는 첫 프롬프트를 받아야
+     * 세션을 디스크에 남기므로, 말을 안 건 봇은 **이어받을 것이 애초에
+     * 없어서** 알릴 일도 없다. 여기서 재려는 것은 «말을 건 봇의 세션을
+     * 못 이어받은 경우» 이므로 그 상태로 만들어야 맞다.
+     */
+    room2.participants[0]!.sessionPrompted = true;
     unbind(inner, room2);
     await m2.roomConfigOptions(used.id);
     ok(room2.messages.some((x) => x.role === "system" && x.text.includes("새 세션입니다")),
@@ -271,6 +281,8 @@ async function main() {
       { id: "u1", role: "user", text: "A를 고쳐줘", deliveredTo: [], createdAt: 1 },
       { id: "a1", role: "agent", text: "고쳤습니다", deliveredTo: [], createdAt: 2 },
     );
+    /* 말을 건 봇이어야 이어받을 것이 있다 — 바로 위 칸의 주석 참고 */
+    room.participants[0]!.sessionPrompted = true;
 
     unbind(inner, room);
     await m4.roomConfigOptions(room.id);
