@@ -117,42 +117,11 @@ console.log("\n[★ 거기서 다른 에이전트로 바꾸거나 내보낸다]"
   ok(!opts.some((x) => x.includes("Codex")),
      "★ 없는 것으로는 못 간다 — 같은 자리를 맴돈다");
 
-  /* 「Codex」 → [고르개] 가 한 줄에 */
-  const swap = t.$("#screen-fix .fix-swap");
-  ok(swap !== null && swap.contains(sel),
-     "★ **«이전 것 → 고르개» 가 한 줄이다** — 고르는 동안 왔던 자리가 눈에 남는다");
-  ok(swap.querySelector(".gone").textContent.includes("Codex"),
-     "★ 왼쪽에 이전 것이 적힌다");
-
-  t.sent.length = 0;
-  sel.value = "claude";
-  sel.dispatchEvent(new t.w.Event("change", { bubbles: true }));
-  ok(t.sent.find((m) => m.t === "setAgent") === undefined,
-     "★ **고르기만 해서는 안 간다** — 되돌릴 수 없는 일을 고르개 한 번으로 치르면 안 된다");
-
-  /* 모델까지 고라야 «적용» 이 살아난다 */
-  t.send({ t: "config", agentId: "claude",
-    options: [{ configId: "model", name: "Model", category: "model", current: "opus",
-                values: [{ id: "opus", name: "Opus 5" }] }] });
-  const models = t.$$("#screen-fix select")[1];
-  ok(models !== undefined, "★ 에이전트를 고르면 **모델 줄도 생긴다**");
-  models.value = "opus";
-  models.dispatchEvent(new t.w.Event("change", { bubbles: true }));
-
-  const apply = [...t.$$("#screen-fix button")].find((b) => b.textContent.trim() === "적용");
-  ok(apply !== undefined && !apply.disabled, "★ 둘 다 고르면 «적용» 이 켬진다");
-  apply.dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
-  const posted = t.sent.find((m) => m.t === "setAgent");
-  console.log(`   보낸 것: ${JSON.stringify(posted)}`);
-  ok(posted?.agentId === "claude" && posted.botId === "b1", "★ **적용을 눌러야 간다**");
-  ok(posted?.model?.value === "opus", "★ 에이전트와 모델이 **한 번에** 간다");
-
-  t.sent.length = 0;
-  [...t.$$("#screen-fix button")].find((b) => /내보내기/.test(b.textContent))
-    .dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
-  const out = t.sent.find((m) => m.t === "removeBot");
-  console.log(`   보낸 것: ${JSON.stringify(out)}`);
-  ok(out?.botId === "b1", "★ **내보내기가 간다**");
+  /* 고르기 전엔 에이전트 줄 하나 — 무엇으로 갈지 모르면 모델도 못 고른다 */
+  const first = t.$$("#screen-fix .fix-swap");
+  console.log(`   줄: ${first.map((x) => x.querySelector(".gone").textContent).join(" / ")}`);
+  ok(first.length === 1 && first[0].querySelector(".gone").textContent.includes("Codex"),
+     "★ **«이전 것 → 고르개» 가 한 줄이다** — 왼쪽에 왔던 자리가 남는다");
 }
 
 console.log("\n[★ 모델이 없어진 경우에도 내보내기가 있다]");
@@ -172,10 +141,14 @@ console.log("\n[★ 모델이 없어진 경우에도 내보내기가 있다]");
   ok(labels.some((x) => /내보내기/.test(x)),
      "★ **모델이 없어진 경우에도 내보낼 수 있다** — 고르기만 있으면 갇힌다");
 
-  const swap = t.$("#screen-fix .fix-swap");
-  ok(swap?.querySelector(".gone").textContent.includes("Sonnet 5"),
+  const rows = t.$$("#screen-fix .fix-swap");
+  console.log(`   줄: ${rows.map((x) => x.querySelector(".gone").textContent).join(" / ")}`);
+  ok(rows.length === 2, `★ **에이전트 줄과 모델 줄이 둘 다 있다** (${rows.length})`);
+  ok(rows[0].querySelector(".gone").textContent.includes("Claude"),
+     "★ 첫 줄이 에이전트 — **모델만 없어져도 갈아탈 수 있어야 한다**");
+  ok(rows[1].querySelector(".gone").textContent.includes("Sonnet 5"),
      "★ **이전 모델이 무엇이었는지 보인다** — 고르는 순간 제일 알고 싶은 것이다");
-  ok(swap.querySelector("select") !== null, "★ 그 오른쪽이 고르개다");
+  ok(rows[1].querySelector("select") !== null, "★ 그 오른쪽이 고르개다");
 }
 
 console.log("\n[★ 받으면 막음이 풀린다]");

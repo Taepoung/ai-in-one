@@ -135,11 +135,12 @@ console.log("\n[★ 고르개는 늦게 온 설정을 기다린다]");
    */
   const t = mount();
   open(t);
-  ok(t.$("#screen-fix select.regone") === null, "★ 설정 전엔 고르개가 없다");
+  ok(t.$$("#screen-fix select.regone").length === 1,
+     "★ 설정 전에는 에이전트 고르개만 있다 — 모델 고르개는 아직 없다");
   ok(/불러오는 중/.test(t.$("#screen-fix").textContent), "★ 대신 기다린다고 적는다");
 
   feedConfig(t, "b1");
-  const pick = t.$("#screen-fix select.regone");
+  const pick = t.$$("#screen-fix select.regone")[1];
   ok(pick !== null, "★ **늦게 온 설정으로 채워진다** — 안 그리면 방이 잠긴다");
   console.log(`   고를 수 있는 것: ${[...pick.options].map((o) => o.textContent).join(" / ")}`);
 
@@ -177,20 +178,27 @@ console.log("\n[★ 다 고르면 채팅으로 넘어간다]");
   ok(t.$("#screen-fix").children.length === 0, "★ 고르기 화면은 비워둔다");
 }
 
-console.log("\n[★ «지금 것 그대로» 도 답이다]");
+console.log("\n[★ «지금 것 그대로» 는 고르개 안에 있다]");
 {
   /*
-   * 이 길이 없으면 대체된 것이 마음에 드는 사람은 **빠져나갈 수가 없다** —
-   * 고르개에서 같은 값을 고르는 셈이라 손이 안 간다.
+   * ⏪ **따로 있던 단추를 뺐다** (2026-10-02).
+   *
+   * 사용자가 단추를 «적용 · 내보내기» 둘로 정했다. 길이 막힌 것은 아니다 —
+   * 고르개가 **지금 들어가 있는 값도 담고 있으므로** 그걸 고르고 적용하면
+   * 된다.
    */
   const t = mount();
   open(t);
   feedConfig(t, "b1");
-  const keep = [...t.$$("#screen-fix button")].find((b) => /그대로 쓰기/.test(b.textContent));
-  ok(keep !== undefined, "★ «그대로 쓰기» 가 있다");
-  console.log(`   단추: ${keep.textContent}`);
-  ok(/Opus 5/.test(keep.textContent), "★ **무엇을** 그대로 쓰는지 이름이 적혀 있다");
-  keep.click();
+  const pick = t.$$("#screen-fix select.regone")[1];
+  const values = [...pick.options].map((o) => o.value);
+  console.log(`   고를 수 있는 값: ${JSON.stringify(values)}`);
+  ok(values.includes("opus"), "★ **지금 들어간 것이 고르개 안에 있다** — 그대로 쓰는 길이 남아 있다");
+
+  pick.value = "opus";
+  pick.dispatchEvent(new t.w.Event("change", { bubbles: true }));
+  [...t.$$("#screen-fix button")].find((b) => b.textContent.trim() === "적용")
+    .dispatchEvent(new t.w.MouseEvent("click", { bubbles: true }));
   const sent = t.sent.find((m) => m.t === "setConfig");
   ok(sent?.value === "opus", `★ 지금 값 그대로 올린다 (${sent?.value})`);
 }
