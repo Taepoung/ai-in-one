@@ -90,11 +90,34 @@ export type AgentState =
  * `npx -y <꺼리>` 로 띄우던 것을 **우리 자리에 미리 받아두고** 거기서
  * 띄우기 위한 적음이다.
  */
+/**
+ * ★ **npm 이 아니라 zip 을 내려받는 꼴** (2026-10-06).
+ *
+ * ACP 레지스트리의 `distribution.binary` 가 이 모양이다 — 41개 중 19개가
+ * 여기 속한다(Antigravity·Cursor·Devin·Junie·goose…). 플랫폼별로 주소가
+ * 다르고, 푸는 자리 안의 실행파일 이름도 다르다.
+ *
+ * ⚠️ **레지스트리가 해시를 안 준다.** 받은 것이 온전한지를 맞춰볼 기준이
+ * 없다는 뜻이다. HTTPS 로 받고 **푸는 중에 크기가 안 맞으면 멈추는** 것이
+ * 지금 우리가 할 수 있는 전부다(`unzip.ts`).
+ */
+export interface AgentBinary {
+  /** `win32-x64` 처럼 우리 말로 적은 열쇠 — `process.platform`-`process.arch` */
+  [key: string]: { archive: string; cmd: string; args?: string[] } | undefined;
+}
+
 export interface AgentPackage {
+  /**
+   * zip 을 내려받는 꼴이면 여기. 이게 있으면 `spec`·`bin` 은 안 쓴다.
+   *
+   * 플랫폼이 여기 없으면 **그 기계에선 못 쓰는 에이전트**다 — 설치를
+   * 시도하고 실패하는 것보다 아예 안 보여주는 쪽이 낫다.
+   */
+  binary?: AgentBinary;
   /** 판까지 박힌 npm 꺼리 — `"@agentclientprotocol/codex-acp@2.1.0"` */
-  spec: string;
+  spec?: string;
   /** `node_modules/.bin` 에 생기는 이름 — `"codex-acp"` */
-  bin: string;
+  bin?: string;
   /**
    * 엔진 판을 눌러 박는다 (npm `overrides`).
    *

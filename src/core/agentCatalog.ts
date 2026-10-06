@@ -275,6 +275,59 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      */
     purgeSession: { command: npx(), args: ["-y", ...CODEX_PIN, "codex", "delete", "--force", "{id}"] },
   },
+  {
+    id: "antigravity",
+    label: "Antigravity",
+    description: "Google Antigravity",
+    /*
+     * ★ **npm 이 아니라 zip 을 받는다** (2026-10-06).
+     *
+     * ACP 레지스트리의 `distribution.binary` 꼴이다 — 41개 중 19개가 이쪽이고
+     * Antigravity 가 그 첫 사례다. `command`·`args` 는 받은 뒤에 우리가
+     * 채워 넣는다(`withInstalled`) — 받기 전엔 띄울 것이 없으므로 빈 값이다.
+     *
+     * ⚠️ 푸는 실행파일 이름이 플랫폼마다 다르다 — 윈도우는 `.exe`, 나머지는
+     * `.par`(파이썬 묶음). 리눅스는 `--uid=` 를 더 받는다.
+     *
+     * 🔴 레지스트리가 **해시를 안 준다.** 받은 것이 온전한지 맞춰볼 기준이
+     * 없어서, HTTPS 와 **푸는 중 크기 확인**이 지금 가진 전부다(`unzip.ts`).
+     *
+     * ⚠️ 로그인·뒷정리 명령을 **안 적었다.** 어떤 길인지 안 재봤고,
+     * 지어내면 엉뚱한 걸 부르게 된다(`codex-code-mode-host` 전적).
+     */
+    command: "",
+    args: [],
+    pkg: {
+      binary: {
+        "win32-x64": {
+          archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip",
+          cmd: "agy_acp_server.exe",
+        },
+        "win32-arm64": {
+          archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-arm64.zip",
+          cmd: "agy_acp_server.exe",
+        },
+        "darwin-arm64": {
+          archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-arm64.zip",
+          cmd: "agy_acp_server.par",
+        },
+        "darwin-x64": {
+          archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-x86_64.zip",
+          cmd: "agy_acp_server.par",
+        },
+        "linux-x64": {
+          archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-x86_64.zip",
+          cmd: "agy_acp_server.par",
+          args: ["--uid="],
+        },
+        "linux-arm64": {
+          archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-arm64.zip",
+          cmd: "agy_acp_server.par",
+          args: ["--uid="],
+        },
+      },
+    },
+  },
 ];
 
 /**

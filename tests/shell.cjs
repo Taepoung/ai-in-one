@@ -177,7 +177,8 @@ async function main() {
   ok(Array.isArray(boot.rooms) && boot.rooms.length === 0, "방 목록이 비어 있다");
   // 🔴 Gemini 는 **기본 목록에서 뺐다** — 구독으로 쓰는 길이 막혀 §0 P3 를
   //    이 에이전트에서만 못 지킨다. 사용자 설정으로는 여전히 넣을 수 있다.
-  ok(boot.agents.length === 2, `기본 에이전트 둘 (${boot.agents.map((a) => a.id).join()})`);
+  // ★ Antigravity 를 더했다 (2026-10-06) — npm 이 아니라 **zip 을 받는** 첫 꼴이다.
+  ok(boot.agents.length === 3, `기본 에이전트 셋 (${boot.agents.map((a) => a.id).join()})`);
   ok(boot.agents.every((a) => !("command" in a)), "실행 명령은 웹뷰로 보내지 않는다");
 
   console.log("\n[채팅 칸을 잠그다 — 파일이 채팅 위로 들어오면 둘 다 못 쓴다]");

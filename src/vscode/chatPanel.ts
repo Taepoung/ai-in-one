@@ -740,7 +740,23 @@ export class ChatPanel implements AskTarget {
     }
 
     if (what === "remove") {
-      await remove(dir);
+      /*
+       * 🔴 **돌던 CLI 를 먼저 내린다** (2026-10-06).
+       *
+       * 윈도우에선 떠 있는 실행파일을 못 지운다 — Antigravity 를
+       * 받아 띄우고 바로 지우려 했더니 `EPERM: operation not permitted,
+       * unlink …agy_acp_server.exe` 가 났다(probe 에서 드러났다).
+       *
+       * 로그아웃과 같은 이유다 — 지우는 것과 도는 것은 같이 못 있는다.
+       */
+      this.rooms.dropConnection(agent.id);
+      try {
+        await remove(dir);
+      } catch (err) {
+        /* 반만 지운 걸 «지웠다» 고 하면 다음에 잎어 읽는다 — 말해준다 */
+        void vscode.window.showErrorMessage(
+          `${agent.label}을(를) ${err instanceof Error ? err.message : String(err)}`);
+      }
       this.refreshAgents();
       this.sendAgents();
       return;

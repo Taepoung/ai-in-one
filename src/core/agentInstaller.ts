@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
+import { unzip } from "./unzip.js";
 import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
 /**
@@ -45,7 +46,7 @@ export function splitSpec(spec: string): { name: string; version: string } {
  * 둘 주는 꼼수를 썼는데, 우리 `package.json` 이 생기면 **정식 길**이 열린다.
  */
 export function manifestFor(pkg: AgentPackage): string {
-  const { name, version } = splitSpec(pkg.spec);
+  const { name, version } = splitSpec(pkg.spec ?? "");
   const body: Record<string, unknown> = {
     name: "aio-agent-host",
     version: "1.0.0",
@@ -56,6 +57,75 @@ export function manifestFor(pkg: AgentPackage): string {
     body["overrides"] = pkg.overrides;
   }
   return JSON.stringify(body, null, 2) + "\n";
+}
+
+/**
+ * ★ **이 기계의 열쇠** (2026-10-06) — `win32-x64` 꼴.
+ *
+ * 레지스트리는 `windows-x86_64` 처럼 적지만 우리는 `process.platform` ·
+ * `process.arch` 를 그대로 쓴다. 옮겨 적는 표를 하나 더 두면 **둘이 갈릴
+ * 자리**가 생긴다 — 카탈로그에 우리 말로 적는 편이 낫다.
+ */
+export function hostKey(): string {
+  return `${process.platform}-${process.arch}`;
+}
+
+/** 이 기계에서 받을 수 있는 꾸러미. 없으면 **그 기계에선 못 쓰는 에이전트**다 */
+export function pickBinary(
+  pkg: AgentPackage,
+): { archive: string; cmd: string; args?: string[] } | undefined {
+  return pkg.binary?.[hostKey()];
+}
+
+/** 받아둔 뒤 남기는 표 — 무엇을 받았는지 적어두고 다음에 맞춰본다 */
+const MARK = "aio-installed.json";
+
+function markOf(dir: string): { archive?: string } {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, MARK), "utf8")) as { archive?: string }; }
+  catch { return {}; }
+}
+
+/**
+ * zip 을 받아 푼다.
+ *
+ * 🔴 **받는 중에 죽으면 반만 푼 자리가 남는다.** 그러면 다음에 «받아져
+ * 있다» 고 잘못 읽는다. 그래서 **다 풀고 맨 마지막에** 표를 쓴다 — 표가
+ * 있으면 끝까지 간 것이다.
+ */
+export async function fetchBinary(
+  dir: string,
+  at: { archive: string; cmd: string },
+  onLine?: (line: string) => void,
+): Promise<{ ok: boolean; say: string }> {
+  await fsp.mkdir(dir, { recursive: true });
+  const zipAt = path.join(dir, "_download.zip");
+  try {
+    onLine?.("받는 중…");
+    const res = await fetch(at.archive);
+    if (!res.ok) return { ok: false, say: `받지 못했습니다 — HTTP ${res.status}` };
+    const buf = Buffer.from(await res.arrayBuffer());
+    await fsp.writeFile(zipAt, buf);
+    onLine?.(`${(buf.length / 1048576).toFixed(0)}MB 받았습니다 — 푸는 중…`);
+
+    const n = unzip(zipAt, dir);
+    await fsp.rm(zipAt, { force: true });
+
+    const exe = path.join(dir, at.cmd);
+    if (!fs.existsSync(exe)) return { ok: false, say: `풀었는데 ${at.cmd} 가 없습니다 (${n}개)` };
+    /*
+     * ⚠️ **끼리(mode)는 zip 이 안 들고 온다.** 우리 풀개는 내용만 쓰므로
+     * macOS·리눅스에선 실행 권한이 없다 — 그대로 두면 «권한 없음» 으로
+     * 안 뜬다. 윈도우에선 뜻이 없어 건너뛴다.
+     */
+    if (process.platform !== "win32") await fsp.chmod(exe, 0o755);
+
+    await fsp.writeFile(path.join(dir, MARK),
+      JSON.stringify({ archive: at.archive }, null, 2), "utf8");
+    return { ok: true, say: `${n}개를 풀었습니다` };
+  } catch (err) {
+    await fsp.rm(zipAt, { force: true }).catch(() => undefined);
+    return { ok: false, say: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Windows 의 `.bin` 은 `.cmd` 다 */
@@ -76,7 +146,27 @@ export function statusOf(dir: string, pkg: AgentPackage): {
   wanted: string;
   stale: boolean;
 } {
-  const { name, version } = splitSpec(pkg.spec);
+  /*
+   * ★ **zip 꼴은 표를 본다** (2026-10-06).
+   *
+   * npm 꼴은 `node_modules/…/package.json` 이 판을 들고 있지만, 풀어놓은
+   * zip 에는 그런 게 없다. 다 풀고 **맨 마지막에** 우리가 적은 표를
+   * 보고, 그 표가 **지금 받으려는 주소와 같은가** 로 낡음을 가른다.
+   * 주소에 판이 들어 있으므로(`…-1.3.0-windows-x86_64.zip`) 그걸로 충분하다.
+   */
+  const at = pickBinary(pkg);
+  if (at) {
+    const got = markOf(dir).archive;
+    const ready = got !== undefined && fs.existsSync(path.join(dir, at.cmd));
+    return {
+      installed: ready,
+      ...(got ? { version: got } : {}),
+      wanted: at.archive,
+      stale: ready && got !== at.archive,
+    };
+  }
+
+  const { name, version } = splitSpec(pkg.spec ?? "");
   let have: string | undefined;
   try {
     const raw = fs.readFileSync(
@@ -84,7 +174,7 @@ export function statusOf(dir: string, pkg: AgentPackage): {
     have = (JSON.parse(raw) as { version?: string }).version;
   } catch { /* 없으면 안 받아진 것 */ }
 
-  const ready = have !== undefined && fs.existsSync(binPath(dir, pkg.bin));
+  const ready = have !== undefined && fs.existsSync(binPath(dir, pkg.bin ?? ""));
   return {
     installed: ready,
     ...(have ? { version: have } : {}),
@@ -115,9 +205,14 @@ export function spawnSpecFor(
   dir: string,
   pkg: AgentPackage,
 ): { command: string; args: string[]; env: Record<string, string> } {
+  const at = pickBinary(pkg);
+  if (at) {
+    /* 푸는 자리 기준 경로다 — `./agy_acp_server.exe` 같은 꼴이라 그대로 붙인다 */
+    return { command: path.join(dir, at.cmd), args: at.args ?? [], env: {} };
+  }
   const env: Record<string, string> = {};
   if (pkg.exeEnv) env[pkg.exeEnv.name] = binPath(dir, pkg.exeEnv.bin);
-  return { command: binPath(dir, pkg.bin), args: [], env };
+  return { command: binPath(dir, pkg.bin ?? ""), args: [], env };
 }
 
 /**
@@ -211,6 +306,13 @@ export async function install(
   const was = statusOf(dir, pkg);
   if (was.installed && !was.stale) return { ok: true, say: "이미 받아져 있습니다" };
 
+  /* zip 꼴은 npm 을 안 부른다 — 받아서 푸는 것이 전부다 */
+  const at = pickBinary(pkg);
+  if (at) {
+    if (was.stale) await fsp.rm(dir, { recursive: true, force: true });
+    return fetchBinary(dir, at, onLine);
+  }
+
   await fsp.mkdir(dir, { recursive: true });
   await fsp.writeFile(path.join(dir, "package.json"), manifestFor(pkg), "utf8");
 
@@ -239,7 +341,30 @@ export async function install(
 
 /** 지운다 — **우리 자리라서** 마음대로 지울 수 있다 */
 export async function remove(dir: string): Promise<void> {
-  await fsp.rm(dir, { recursive: true, force: true });
+  /*
+   * 🔴 **떠 있는 실행파일은 윈도우에서 못 지운다** (2026-10-06).
+   *
+   * Antigravity 를 받아 띄우고 바로 지우려 했더니 `EPERM: operation not
+   * permitted, unlink …agy_acp_server.exe` 가 났다. 연결을 먼저 내려도
+   * **자식 프로세스가 잠시 더 물고 있는다.**
+   *
+   * 바로 다시 해보면 대개 된다. 세 번까지 기다렸다가 그래도 안 되면
+   * **조용히 넘어가지 않는다** — 반만 지워진 자리를 «지웠다» 고 하면
+   * 다음에 «받아져 있다» 고 잎어 읽는다.
+   */
+  let last: unknown;
+  for (let i = 0; i < 4; i++) {
+    try {
+      await fsp.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      last = err;
+      await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+  throw new Error(
+    `지우지 못했습니다 — 아직 돌고 있는 것이 있을 수 있습니다. ` +
+    `잠시 뒤에 다시 해보세요. (${last instanceof Error ? last.message : String(last)})`);
 }
 
 /** 그 자리가 얼마나 먹고 있나 */
