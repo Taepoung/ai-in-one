@@ -159,7 +159,19 @@ console.log("\n[★ 받는 중에는 단추를 안 보여준다]");
   ok(card.textContent.includes("added 19 packages"), "★ 저쪽이 하는 말을 그대로 보여준다");
   ok(card.querySelectorAll("button").length === 0,
      "★ **단추가 없다** — 받는 중에 또 누르면 두 번 돈다");
-}
+
+  /*
+   * ★ **지우는 중에도 같다** (2026-10-06).
+   *
+   * 사용자: *"에이전트 제거중에 뭔가 표시가 있으면 좋겠어 지워지고 있는건지
+   * 모르겠네"*. 그리는 길은 하나다 — `busy` 가 차 있으면 그 말을 띄우고
+   * 단추를 감춘다. 받기든 지우기든 **화면은 같은 규칙**을 따른다.
+   */
+  a.send({ t: "agents", list: [row({ state: "ready", size: 1, loggedIn: true, busy: "지우는 중…" })] });
+  const gone = a.cards()[0];
+  ok(gone.textContent.includes("지우는 중"), "★ 지우는 중이라고 말한다");
+  ok(gone.querySelectorAll("button").length === 0,
+     "★ **그때도 단추가 없다** — 398MB 를 지우는 사이 또 누르면 안 된다");}
 
 console.log("\n[★ 사용자가 직접 적은 에이전트는 안 건드린다]");
 {

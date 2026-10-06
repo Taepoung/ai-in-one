@@ -749,6 +749,19 @@ export class ChatPanel implements AskTarget {
        *
        * 로그아웃과 같은 이유다 — 지우는 것과 도는 것은 같이 못 있는다.
        */
+      if (this.busy.has(agent.id)) return;
+      /*
+       * ★ **지우는 동안에도 보여준다** (2026-10-06).
+       *
+       * 사용자: *"에이전트 제거중에 뭔가 표시가 있으면 좋겠어
+       * 지워지고 있는건지 모르겠네"*.
+       *
+       * Antigravity 는 398MB 라 지우는 데도 시간이 걸리고, 떠 있으면
+       * 몇 번 기다렸다 다시 해본다. 그 사이 화면이 아무 말도 안 하면
+       * **누른 것이 먹혔나** 싶어 또 누르게 된다 — 들어오자마자 막는다.
+       */
+      this.busy.set(agent.id, "지우는 중…");
+      this.sendAgents();
       this.rooms.dropConnection(agent.id);
       try {
         await remove(dir);
@@ -757,6 +770,7 @@ export class ChatPanel implements AskTarget {
         void vscode.window.showErrorMessage(
           `${agent.label}을(를) ${err instanceof Error ? err.message : String(err)}`);
       }
+      this.busy.delete(agent.id);
       this.refreshAgents();
       this.sendAgents();
       return;
