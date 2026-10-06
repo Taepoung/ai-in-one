@@ -78,6 +78,12 @@ export function pickBinary(
   return pkg.binary?.[hostKey()];
 }
 
+/** 주소 안의 판을 뽑는다 — 못 찾으면 파일 이름으로 */
+function versionIn(url: string): string {
+  const m = /\d+\.\d+\.\d+/.exec(url);
+  return m ? m[0] : (url.split("/").pop() ?? url);
+}
+
 /** 받아둔 뒤 남기는 표 — 무엇을 받았는지 적어두고 다음에 맞춰본다 */
 const MARK = "aio-installed.json";
 
@@ -240,8 +246,15 @@ export function statusOf(dir: string, pkg: AgentPackage): {
     const ready = got !== undefined && fs.existsSync(path.join(dir, at.cmd));
     return {
       installed: ready,
-      ...(got ? { version: got } : {}),
-      wanted: at.archive,
+      /*
+       * 🔴 **주소를 그대로 내보이면 화면에 주소가 뜨다** (2026-10-06).
+       *
+       * F5 로 보니 에이전트 칸에 `https://dl.google.com/…-1.3.0-windows-x86_64.zip`
+       * 이 통째로 떠 있었다. 가리고 싶은 것은 **판**이지 주소가 아니다.
+       * 주소 안에 판이 박혀 있으므로 거기서 뽑는다.
+       */
+      ...(got ? { version: versionIn(got) } : {}),
+      wanted: versionIn(at.archive),
       stale: ready && got !== at.archive,
     };
   }

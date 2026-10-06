@@ -387,9 +387,17 @@ export class AcpConnection {
       return { sessionId: res.sessionId, configOptions: res.configOptions ?? [] };
     } catch (err) {
       if (describe(err).toLowerCase().includes("auth")) {
+        /*
+         * ⏪ **«터미널에서 해당 CLI 로» 를 무른다** (2026-10-06).
+         *
+         * 그렇게 적어두었는데 사용자가 F5 로 밟고 말했다 — Antigravity 는
+         * 터미널에서 칠 CLI 가 사용자 기계에 **없다.** 그리고 이젠 그럴
+         * 까닭도 없다 — 우리가 받아둔 것을 **로봇 화면의 «로그인» 이
+         * 띄워준다.** 할 수 없는 것을 시키면 시키는 말이 아니라 **막힌 방**이 된다.
+         */
         throw new Error(
           `${this.agent.label}에 로그인이 필요합니다. ` +
-            `터미널에서 해당 CLI로 먼저 로그인한 뒤 다시 시도하세요.`,
+            `목록 화면 위의 로봇 아이콘에서 «로그인» 을 누르세요.`,
         );
       }
       throw err;
