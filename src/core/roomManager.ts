@@ -4129,9 +4129,28 @@ export class RoomManager extends EventEmitter<Events> {
       if (value === undefined) continue;
 
       const live = now.find((o) => o.id === opt.id);
-      if (!live || live.currentValue === value) continue;
+      if (!live) continue;
 
-      // 에이전트가 더 이상 안 주는 값이면 **우기지 않는다** — 그쪽이 진실이다
+      /*
+       * 🔴 **«지금 값과 같다» 고 넘어가면 사라진 걸 못 본다** (2026-10-06).
+       *
+       * 예전엔 `live.currentValue === value` 이면 바로 `continue` 했다. 고쳐줄
+       * 게 없으니 맞는 말 같은데, **사라지는 것과 바뀜는 것은 다르다.**
+       * 세션은 여전히 그 모델로 돌고 있으므로 둘은 같은데, 그 모델이
+       * **고를 수 있는 목록에서는 빠졌을** 수 있다.
+       *
+       * 실제로 그렇게 됐다. Codex 의 `~/.codex/models_cache.json` 은 모델마다
+       * `visibility` 를 들고 있고 **서버가 내려준다** — `gpt-5.5` 가 닷사이에
+       * `list` 에서 `hide` 로 바뀜었다. 우리 핀은 그대로였는데도.
+       * 그런데 여기서 넘어가는 바람에 **막음 화면이 안 떠고** 그대로
+       * 보내서, 사용자는 채팅창에서 404 를 받았다:
+       *
+       * ```
+       * The model gpt-5.5 does not exist or you do not have access to it.
+       * ```
+       *
+       * 그래서 **아직 고를 수 있나를 먼저 본다.** 같은지는 그 다음이다.
+       */
       if (live.type === "select") {
         const offered = live.options.some((e) =>
           "group" in e ? e.options.some((v) => v.value === value) : e.value === value,
@@ -4151,6 +4170,9 @@ export class RoomManager extends EventEmitter<Events> {
           continue;
         }
       }
+
+      /* 여전히 고를 수 있고 이미 그 값이면 건드릴 것이 없다 */
+      if (live.currentValue === value) continue;
 
       try {
         now = await this.connection(bot.agentId).setConfigOption(sessionId, opt.id, value);

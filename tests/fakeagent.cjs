@@ -142,7 +142,14 @@ function handle(msg) {
       if (process.env.AIO_FAKE_AUTH) throw new Error("auth_required: please log in");
 
       const sessionId = `s-${RUN}-${++seq}`;
-      const s = { model: "opus", mode: "default", effort: "medium", attached: true, prompted: false, said: [] };
+      /*
+       * `AIO_FAKE_MODEL` — **세션이 이미 그 모델로 도는** 상태를 만든다.
+       *
+       * `AIO_FAKE_DROP_MODEL` 과 같이 쓰면 **지금 값과 같은데 목록에서는
+       * 빠진** 꼴이 된다 — Codex 가 `visibility` 를 `hide` 로 바꿔놓았을 때
+       * 사용자가 실제로 밟은 자리다(2026-10-06).
+       */
+      const s = { model: process.env.AIO_FAKE_MODEL || "opus", mode: "default", effort: "medium", attached: true, prompted: false, said: [] };
       sessions.set(sessionId, s);
       note({ t: "new", sessionId, cwd: params.cwd });
       // 설치는 됐는데 로그인이 안 돼 응답 없이 멈춰 있는 CLI를 평낸다.

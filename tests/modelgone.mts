@@ -76,6 +76,52 @@ async function main(): Promise<void> {
     mgr.dispose();
   }
 
+  console.log("\n[★ 세션은 그대로 소넷인데 목록에서만 빠졌다]");
+  {
+    /*
+     * 🔴 **여기가 실제로 샜던 자리다** (2026-10-06).
+     *
+     * `restoreChoices` 가 «지금 값이 우리 값과 같으면» 바로 넘어갔다. 고쳐줄
+     * 게 없으니 맞는 말 같은데, **사라지는 것과 바뀌는 것은 다르다.** 세션은
+     * 여전히 그 모델로 돌고 있어 둘은 같은데, 그 모델이 **고를 수 있는
+     * 목록에서는 빠졌을** 수 있다.
+     *
+     * Codex 가 그랬다 — `~/.codex/models_cache.json` 은 모델마다 `visibility`
+     * 를 들고 **서버가 내려주는데**, `gpt-5.5` 가 닷새 사이에 `list` 에서
+     * `hide` 로 바뀌었다. 우리 핀은 그대로였는데도. 그런데 여기서 넘어가는
+     * 바람에 **막음 화면이 안 뜨고** 그대로 보내서, 사용자는 채팅창에서
+     * 404 를 받았다:
+     *
+     * ```
+     * The model gpt-5.5 does not exist or you do not have access to it.
+     * ```
+     */
+    const { agent, host } = make(dir, state, {
+      AIO_FAKE_MODEL: "sonnet",        // 세션도 소넷으로 돈다
+      AIO_FAKE_DROP_MODEL: "sonnet",   // 그런데 목록엔 없다
+    });
+    const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
+    mgr.on("roomError", () => {});
+
+    const room = await mgr.openRoom(roomId);
+    await mgr.send(room.id, "안녕");
+    for (let i = 0; i < 400 && mgr.statusOf(room.id) !== "idle"; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    const bot = room.participants[0]!;
+    const opts = await mgr.roomConfigOptions(room.id);
+    const offered = (opts.find((o) => o.category === "model") as { options?: Array<{ value?: string }> })?.options ?? [];
+    console.log(`   고를 수 있는 것: ${offered.map((o) => o.value).join(", ")}`);
+    console.log(`   modelGone: ${JSON.stringify(bot.modelGone)}`);
+
+    ok(!offered.some((o) => o.value === "sonnet"), "★ 목록엔 없다");
+    ok(bot.modelGone?.value === "sonnet",
+       `★ **같은 값이어도 사라진 걸 알아챈다** (${JSON.stringify(bot.modelGone)}) — ` +
+       "여기서 넘어가면 그대로 보내서 404 를 받는다");
+    mgr.dispose();
+  }
+
   console.log("\n[★ CLI 가 올라가면서 소넷이 목록에서 빠졌다]");
   {
     const { agent, host } = make(dir, state, { AIO_FAKE_DROP_MODEL: "sonnet" });
