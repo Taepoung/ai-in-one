@@ -111,6 +111,9 @@ npm run watch      # esbuild watch
 | **`docs/ROADMAP.md`** | 버전별 기능 계획 · 설계 결정 · 리스크 |
 | **`docs/USAGE.md`** | 사용법. 버전을 낼 때마다 갱신한다 |
 | **`docs/RELEASE.md`** | 배포와 설치 — `.vsix` · 마켓플레이스 · Open VSX |
+| **`docs/BUMP.md`** | 에이전트를 올릴 때 — 점검표와 밟는 순서 |
+| **`docs/PIN.md`** | 핀이 움직이면 무엇이 바뀔나 — 모델·모양·세션 뒷정리 |
+| **`docs/INSTALL.md`** | 에이전트를 우리 자리에 받아두는 설계 |
 
 ---
 

@@ -420,14 +420,25 @@ npm 이 둘을 호이스팅해 한 본만 두고, 어댑터의 범위는 그 한
 범위가 글이 아니라는 증거는 이 기계에 실물로 있었다 — **같은 2.1.0 을
 받아둔 자리 둘의 엔진이 각각 0.159.2 와 0.159.3** 이었다.
 
-핀 아래의 모델 (2026-10-01 실측, `codexmodels.cjs`):
+⏪ **「핀 아래의 모델」이라고 적었던 것을 무른다** (2026-10-06).
+
+여기에 네 개를 적어뒀었다. 닷새 뒤 **같은 핀·같은 엔진**으로 다시 재니
+세 개였다:
 
 ```
-gpt-6-luna      「6 Luna」
-gpt-5.6-terra   「5.6 Terra」   ← 기본값
-gpt-5.6-luna    「5.6 Luna」
-gpt-5.5         「5.5」
+2026-10-01   6 Luna · 5.6 Terra · 5.6 Luna · 5.5
+2026-10-06   6 Luna · 5.6 Terra · 5.6 Luna
 ```
+
+🔴 **Codex 는 모델 표를 바이너리에 안 박는다 — 서버에서 받아온다.**
+`~/.codex/models_cache.json` 이 그것이고 `fetched_at`·`etag`·`identity` 를
+달고 있다. 모델마다 `visibility` 가 있는데 `gpt-5.5` 가 `list` 에서
+`hide` 로 바뀌었다. 새 판(2.1.1 · 0.160.1)으로도 목록은 같았다.
+
+그러니 **Codex 에는 «핀이 곧 모델 판» 이 성립하지 않는다.** 그건 Claude
+이야기다(§A — 모델 표가 `claude.exe` 안에 박힌다). 여기에 목록을 적어두면
+**그날 그 계정이 본 것**을 영구 사실처럼 남기게 되므로, 적지 않는다.
+알고 싶으면 그때 `codexmodels.cjs` 를 돌린다.
 
 ⚠️ **두 지명은 반드시 같은 줄에서 나와야 한다.** npx 는 «지명한 글자열»로
 받아둔 자리를 가른다. 한 글자라도 다르면 **다른 자리를 새로 만들고**, 그건
@@ -553,53 +564,13 @@ JetBrains** 셋을 나란히 적는다. 셋이 같이 보는 물건이다.
 
 ---
 
-## 밟는 순서
+## H. 에이전트를 올릴 때
 
-```bash
-# 0. **공식 목록이 무엇을 권하나** — 손으로 재기 전에 (§G1)
-curl -s https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json |
-  python -c "import json,sys;[print(a['id'],a['version'],(a.get('distribution') or {}).get('npx',{}).get('package','')) for a in json.load(sys.stdin)['agents']]"
+→ **`docs/BUMP.md`**
 
-# 1. 지금 무엇이 나와 있나
-npm view @agentclientprotocol/claude-agent-acp version
-
-# 2. **기준선 먼저** — 안 그러면 새 판의 NO 가 원래 그런 건지 알 수 없다
-node tests/probes/sweep.mjs 0.84.0
-
-# 3. 올리려는 판
-node tests/probes/sweep.mjs <새판>
-
-# 4. 맞춰본다 — OK/NO 줄만 보면 절반을 놓친다 (§B)
-#    .probe-out/<판>/ 아래에 probe 별 본문이 통째로 남는다
-
-# 5. 세션·되돌리기
-node tests/probes/bumpsafe.cjs <새판>
-node tests/probes/bumpsonnet.cjs <새판>
-
-# 6. 모델이 어떻게 갈리는지 눈으로
-node tests/probes/opusbump.cjs
-
-# 7. 올리고
-#    src/core/agentCatalog.ts 의 args 한 줄
-npm test
-
-# 8. **우리 코드로** 진짜 어댑터를 한 번
-npx tsx tests/probes/smokereal.mts
-
-# 9. 세션 뒷정리 — **핀 밖에서 바뀌는 칸**이라 따로 본다 (§F)
-npx tsx tests/probes/codexdelete.mts
-
-# ── Codex 어댑터를 올릴 때는 이 둘을 더 (§F4·F5)
-npm view @agentclientprotocol/codex-acp version
-node tests/probes/codexmodels.cjs   # 모델 목록 + 세 판이 벌어진 폭
-```
-
-probe 는 판을 손으로 안 적는다. `tests/probes/pinned.cjs` 가 **`agentCatalog.ts`
-에서 읽어온다** — 알아서 제품과 같은 판을 본다. 이게 없으면 핀을 박는
-순간 probe 만 `latest` 를 재서 **아무도 안 쓰는 판**을 검사하게 된다.
-
-8번이 중요하다. probe 는 ACP 를 손으로 말하고 `npm test` 는 가짜 에이전트를 쓴다 —
-**«우리 코드 + 진짜 어댑터»** 는 그 사이에 있어서 아무도 안 밟는 칸이었다.
+위는 «무엇이 바뀔나» 를 설명한다. 실제로 올릴 때 **밟는 순서와 점검표**
+는 거기 있다 — 핀·엔진·bin 이름·품은 exe·로그인·상태 명령·env 문·뒷정리·
+오가는 모양 아홉을 어디서 재는지.
 
 ---
 
