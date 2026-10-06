@@ -154,8 +154,8 @@ export function cmdPath(
  */
 export function authStatus(
   dir: string,
-  cmd: AgentCmd & { yes: string; who?: string },
-): { loggedIn: boolean; who?: string } | undefined {
+  cmd: AgentCmd & { yes: string },
+): { loggedIn: boolean } | undefined {
   const found = cmdPath(dir, cmd);
   if (!found) return undefined;
   const r = spawnSync(found.exe, found.args, {
@@ -165,13 +165,7 @@ export function authStatus(
   });
   const said = `${r.stdout ?? ""}${NEWLINE}${r.stderr ?? ""}`;
   if (!said.trim()) return undefined;
-  const loggedIn = said.includes(cmd.yes);
-  let who: string | undefined;
-  if (loggedIn && cmd.who) {
-    const m = new RegExp(cmd.who).exec(said);
-    if (m?.[1]) who = m[1].trim();
-  }
-  return { loggedIn, ...(who ? { who } : {}) };
+  return { loggedIn: said.includes(cmd.yes) };
 }
 
 const NEWLINE = String.fromCharCode(10);

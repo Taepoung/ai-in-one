@@ -642,10 +642,10 @@ export class ChatPanel implements AskTarget {
    * 그래서 **알던 값을 먼저 주고 뒤에서 갱신한다.** 갱신이 끝나면 목록을
    * 한 번 더 보낸다 — 화면은 잠깐 사이에 저절로 바뀜다.
    */
-  private readonly authAt = new Map<string, { at: number; loggedIn: boolean; who?: string }>();
+  private readonly authAt = new Map<string, { at: number; loggedIn: boolean }>();
   private authBusy = new Set<string>();
 
-  private authOf(a: AgentDef): { loggedIn: boolean; who?: string } | undefined {
+  private authOf(a: AgentDef): { loggedIn: boolean } | undefined {
     const cmd = a.pkg?.auth?.status;
     if (!cmd) return undefined;
     const got = this.authAt.get(a.id);
@@ -659,10 +659,10 @@ export class ChatPanel implements AskTarget {
         if (!r) return;
         const was = this.authAt.get(a.id);
         this.authAt.set(a.id, { at: Date.now(), ...r });
-        if (!was || was.loggedIn !== r.loggedIn || was.who !== r.who) this.sendAgents();
+        if (!was || was.loggedIn !== r.loggedIn) this.sendAgents();
       }, 0);
     }
-    return got ? { loggedIn: got.loggedIn, ...(got.who ? { who: got.who } : {}) } : undefined;
+    return got ? { loggedIn: got.loggedIn } : undefined;
   }
 
   /** 받기가 도는 중인 에이전트와 그 마지막 줄 */
@@ -697,7 +697,6 @@ export class ChatPanel implements AskTarget {
           ...(st.wanted ? { wanted: st.wanted } : {}),
           size: st.size,
           loggedIn,
-          ...(auth?.who ? { who: auth.who } : {}),
           ...(busy ? { busy } : {}),
         };
       }),

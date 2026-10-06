@@ -160,7 +160,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
          * 한 번 그렇게 써놓고 «계정 이름이 안 잡힌다» 로 헤맸다.
          * `auth status` 가 뜨우는 JSON 은 모양이 고정이라 그냥 글자로 찾는다.
          */
-        status: { find: CLAUDE_EXE, args: ["auth", "status"], yes: '"loggedIn": true', who: '"email": "([^"]+)"' },
+        status: { find: CLAUDE_EXE, args: ["auth", "status"], yes: '"loggedIn": true' },
       },
     },
   },
