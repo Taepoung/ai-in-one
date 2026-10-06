@@ -27,7 +27,7 @@ import * as os from "node:os"; import * as path from "node:path"; import * as fs
 import * as fsp from "node:fs/promises";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
-  install, remove, findOne, withInstalled, type Run,
+  install, remove, findOne, withInstalled, pickBinary, hostKey, type Run,
 } from "../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
 import type { AgentDef } from "../src/core/types.js";
@@ -169,6 +169,72 @@ async function main(): Promise<void> {
        "★ **`*` 로 찾는다** — `-win32-x64` 와 `-darwin-arm64` 가 같은 자리를 쓴다");
     ok(findOne(dir, "node_modules/@anthropic-ai/nope-*/x") === undefined,
        "★ 없으면 없다고 한다");
+  }
+
+  console.log("\n[★ zip 꼴 — OS 따라 고르고, 핀이 올라가면 낡았다고 한다]");
+  {
+    /*
+     * ★ **여기는 망을 안 탄다** (2026-10-06).
+     *
+     * 진짜로 받아보는 것은 `probes/antigravity.mts`(398MB)가 한다. 여기서
+     * 재는 것은 **고르고 · 가리고 · 띄우는** 규칙이다 — 그쪽은 이 기계
+     * 하나만 밟지만 이쪽은 **여섯 플랫폼을 다 밟을 수 있다.**
+     */
+    const agy = DEFAULT_AGENTS.find((x) => x.id === "antigravity")!;
+    const pkg = agy.pkg!;
+
+    const keys = Object.keys(pkg.binary ?? {});
+    console.log(`   플랫폼 ${keys.length}개: ${keys.join(", ")}`);
+    ok(keys.length === 6, "★ 여섯 플랫폼이 적혀 있다");
+    ok(keys.includes(hostKey()), `★ 이 기계(${hostKey()}) 몫이 있다`);
+    ok(pickBinary(pkg) !== undefined, "★ **OS 따라 알아서 고른다**");
+
+    /* 모르는 플랫폼이면 «여기선 못 쓰는 에이전트» 다 — 받아놓고 실패하는 것보다 낫다 */
+    ok(pickBinary({ binary: { "solaris-sparc": { archive: "x", cmd: "y" } } }) === undefined,
+       "★ **이 기계 몫이 없으면 안 고른다**");
+
+    /* 핀이 주소에 들어 있다 — 그래서 주소가 곧 판이다 */
+    for (const k of keys) {
+      const at = pkg.binary![k]!;
+      ok(at.archive.includes("1.3.0"), `★ ${k} 주소에 판이 박혀 있다`);
+    }
+    for (const [k, one] of Object.entries(pkg.extras![0]!.at)) {
+      ok(one!.url.includes("1.3.0"), `★ ${k} 의 agy 도 판이 박혀 있다`);
+      ok((one!.sha512 ?? "").length === 128, `★ ${k} 의 agy 는 **해시까지 있다**`);
+    }
+
+    /* ── 받기 전 · 받은 뒤 · 핀이 올라간 뒤 */
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-zip-"));
+    const dir = dirFor(root, agy.id);
+    ok(stateOf(agy, root, home).state === "none", "★ 받기 전엔 `none`");
+
+    const at = pickBinary(pkg)!;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, at.cmd), "", "utf8");
+    fs.writeFileSync(path.join(dir, "aio-installed.json"),
+      JSON.stringify({ archive: at.archive }), "utf8");
+    const now = statusOf(dir, pkg);
+    ok(now.installed && !now.stale, "★ 표를 쓰면 받아진 것으로 본다");
+
+    /*
+     * ★ **핀을 올린 꼴** — 주소가 달라지면 낡았다고 해야 한다. 그래야 화면에
+     * «업데이트» 가 뜨고, 누르면 옛 자리를 지우고 새로 받는다.
+     */
+    const bumped = {
+      ...pkg,
+      binary: { ...pkg.binary, [hostKey()]: { ...at, archive: at.archive.replace("1.3.0", "1.4.0") } },
+    };
+    const next = statusOf(dir, bumped);
+    console.log(`   핀 올린 뒤: ${next.stale ? "낡았다" : "그대로"}`);
+    ok(next.stale, "★ **핀이 올라가면 낡았다고 한다** — 안 그러면 옛 판에 묶인다");
+    ok(stateOf({ ...agy, pkg: bumped }, root, home).state === "stale", "★ 화면도 `stale` 로 본다");
+
+    /* 띄울 것은 푼 자리의 실행파일이다 */
+    const sp = spawnSpecFor(dir, pkg);
+    ok(sp.command === path.join(dir, at.cmd), "★ 푼 자리의 실행파일을 띄운다");
+    ok(sp.args.length === (at.args?.length ?? 0), "★ 플랫폼이 요구하는 인자도 그대로 (리눅스는 --uid=)");
+
+    await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
   }
 
   await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);

@@ -126,9 +126,18 @@ export interface AgentPackage {
    * `binary` 는 해시를 안 주는데 이쪽은 준다.
    */
   extras?: Array<{
-    /** 플랫폼별 매니페스트 주소 — `{ version, url, sha512 }` 를 돌려준다 */
-    manifest: Record<string, string | undefined>;
-    /** 받아서 이 이름으로 둔다 (끜리는 뺀다 — 플랫폼마다 달라서) */
+    /**
+     * 플랫폼별 주소와 해시. **둘 다 박는다.**
+     *
+     * ⏪ 처음엔 매니페스트 주소를 가리켰는데, 그 주소엔 **판이 없어**
+     * 늘 최신을 돌려줬다. 그러면 ACP 서버는 1.3.0 에 박혀 있는데 CLI 만
+     * 혼자 올라간다 — **한 제품의 두 조각이 어긋나는** 꼴이다.
+     *
+     * 풀어놓은 주소엔 판이 들어 있고(`…/1.3.0-…/…`) 해시도 같이 적으므로
+     * **받은 것이 온전한지까지** 맞춰본다. 올릴 때는 두 줄을 같이 고친다.
+     */
+    at: Record<string, { url: string; sha512?: string } | undefined>;
+    /** 받아서 이 이름으로 둔다 (끜리는 주소를 따라간다) */
     saveAs: string;
   }>;
   /** 판까지 박힌 npm 꾸러미 — `"@agentclientprotocol/codex-acp@2.1.0"` */

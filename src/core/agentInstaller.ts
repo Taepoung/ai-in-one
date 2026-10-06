@@ -128,10 +128,9 @@ export async function fetchBinary(
      * 없는 상태를 «받아졌다» 고 하면, 사용자는 막다른 길을 걷게 된다.
      */
     for (const x of extras) {
-      const key = hostKey();
-      const url = x.manifest[key];
-      if (!url) continue;
-      const got = await fetchExtra(dir, url, x.saveAs, onLine);
+      const one = x.at[hostKey()];
+      if (!one) continue;
+      const got = await fetchExtra(dir, one, x.saveAs, onLine);
       if (!got.ok) return got;
     }
 
@@ -164,16 +163,12 @@ export async function fetchBinary(
  */
 export async function fetchExtra(
   dir: string,
-  manifestUrl: string,
+  m: { url: string; sha512?: string },
   saveAs: string,
   onLine?: (line: string) => void,
 ): Promise<{ ok: boolean; say: string }> {
   try {
     onLine?.(`${saveAs} 를 받는 중…`);
-    const m = (await (await fetch(manifestUrl)).json()) as
-      { version?: string; url?: string; sha512?: string };
-    if (!m.url) return { ok: false, say: `매니페스트에 주소가 없습니다 (${manifestUrl})` };
-
     const res = await fetch(m.url);
     if (!res.ok) return { ok: false, say: `${saveAs} 를 받지 못했습니다 — HTTP ${res.status}` };
     const buf = Buffer.from(await res.arrayBuffer());
@@ -204,10 +199,10 @@ export async function fetchExtra(
       await fsp.writeFile(path.join(dir, saveAs + ext), buf);
     }
 
-    const at = findOne(dir, saveAs);
-    if (!at) return { ok: false, say: `받았는데 ${saveAs} 가 없습니다` };
-    if (process.platform !== "win32") await fsp.chmod(at, 0o755);
-    return { ok: true, say: `${saveAs} ${m.version ?? ""}` };
+    const got = findOne(dir, saveAs);
+    if (!got) return { ok: false, say: `받았는데 ${saveAs} 가 없습니다` };
+    if (process.platform !== "win32") await fsp.chmod(got, 0o755);
+    return { ok: true, say: saveAs };
   } catch (err) {
     return { ok: false, say: err instanceof Error ? err.message : String(err) };
   }
