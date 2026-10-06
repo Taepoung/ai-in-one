@@ -298,6 +298,35 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     command: "",
     args: [],
     pkg: {
+      /*
+       * ★ **둘을 받는다** (2026-10-06).
+       *
+       * 사용자: *"antigravity가 cli 버전이 있는데 acp로 받아오는건 그게
+       * 없다는 건가?"* — 맞다. ACP zip 에는 서버뿐이고 **CLI 는 따로
+       * 나온다**(`agy`). Claude·Codex 는 어댑터 하나가 둘을 다 품고 있었을 뿐,
+       * 구조는 같다 — 방을 돌리는 것과 로그인하는 것.
+       *
+       * ```
+       * agy_acp_server   124MB   방을 돌린다
+       * agy              181MB   로그인한다
+       * ```
+       *
+       * ★ **이쪽은 해시를 준다.** ACP 레지스트리의 `binary` 는 안 주는데
+       * `agy` 매니페스트엔 `sha512` 가 있다 — 받은 것이 온전한지 맞춰본다.
+       */
+      extras: [
+        {
+          manifest: {
+            "win32-x64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/windows_amd64.json",
+            "win32-arm64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/windows_arm64.json",
+            "darwin-arm64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json",
+            "darwin-x64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_amd64.json",
+            "linux-x64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json",
+            "linux-arm64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json",
+          },
+          saveAs: "agy",
+        },
+      ],
       binary: {
         "win32-x64": {
           archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip",
@@ -325,6 +354,19 @@ export const DEFAULT_AGENTS: AgentDef[] = [
           cmd: "agy_acp_server.par",
           args: ["--uid="],
         },
+      },
+      auth: {
+        /* `agy` 로 로그인하면 여기가 생긴다 — 어림짐작이다 */
+        file: path.join(".gemini", "antigravity-cli", "settings.json"),
+        /*
+         * ⚠️ **`login` 하위 명령이 없다.** `agy` 는 처음 띄우면 대화식으로
+         * 묻는다 — 메뉴에서 Google OAuth 를 고르면 브라우저가 열리고 코드를
+         * 붙여넣는다. 그래서 인자 없이 그냥 띄운다.
+         *
+         * 🔴 **로그아웃은 안 적었다.** 어떤 길인지 안 재봤고, 지어내면
+         * 엉뙡한 걸 부르게 된다(`codex-code-mode-host` 전적).
+         */
+        login: { find: "agy", args: [] },
       },
     },
   },

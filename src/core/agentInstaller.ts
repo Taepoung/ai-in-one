@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { unzip } from "./unzip.js";
 import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
@@ -95,6 +96,7 @@ function markOf(dir: string): { archive?: string } {
 export async function fetchBinary(
   dir: string,
   at: { archive: string; cmd: string },
+  extras: NonNullable<AgentPackage["extras"]> = [],
   onLine?: (line: string) => void,
 ): Promise<{ ok: boolean; say: string }> {
   await fsp.mkdir(dir, { recursive: true });
@@ -119,11 +121,94 @@ export async function fetchBinary(
      */
     if (process.platform !== "win32") await fsp.chmod(exe, 0o755);
 
+    /*
+     * ★ **같이 받아야 하는 것들** — Antigravity 는 로그인용 `agy` 가 따로 나온다.
+     *
+     * 하나라도 못 받으면 **표를 안 쓴다** — 방은 돌아가는데 로그인할 길이
+     * 없는 상태를 «받아졌다» 고 하면, 사용자는 막다른 길을 걷게 된다.
+     */
+    for (const x of extras) {
+      const key = hostKey();
+      const url = x.manifest[key];
+      if (!url) continue;
+      const got = await fetchExtra(dir, url, x.saveAs, onLine);
+      if (!got.ok) return got;
+    }
+
     await fsp.writeFile(path.join(dir, MARK),
       JSON.stringify({ archive: at.archive }, null, 2), "utf8");
     return { ok: true, say: `${n}개를 풀었습니다` };
   } catch (err) {
     await fsp.rm(zipAt, { force: true }).catch(() => undefined);
+    return { ok: false, say: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * ★ **매니페스트가 주소와 해시를 주는 꼴** (2026-10-06).
+ *
+ * Antigravity 의 `agy` CLI 가 그렇다. ACP 레지스트리의 `binary` 는 해시를
+ * 안 주는데 **이쪽은 준다** — 받은 것이 온전한지 맞춰볼 수 있다.
+ *
+ * ```
+ * GET …/manifests/windows_amd64.json
+ * { version: "1.3.0", url: "…/cli_windows_x64.exe", sha512: "00ddc373…" }
+ * ```
+ *
+ * 🔴 **해시가 안 맞으면 멈춘다.** 받다 만 것을 실행파일로 두면 그 다음에
+ * 나는 오류가 엉뚱한 곳을 가리킨다.
+ *
+ * ⚠️ `.tar.gz` 는 `tar` 에 맡긴다. zip 과 달리 **`tar` 는 어디서나 gz 를
+ * 푼다**(GNU·bsd 둘 다) — 우리가 직접 읽을 까닭이 없다. zip 을 직접 읽은
+ * 것은 GNU tar 가 zip 을 못 풀어서였다.
+ */
+export async function fetchExtra(
+  dir: string,
+  manifestUrl: string,
+  saveAs: string,
+  onLine?: (line: string) => void,
+): Promise<{ ok: boolean; say: string }> {
+  try {
+    onLine?.(`${saveAs} 를 받는 중…`);
+    const m = (await (await fetch(manifestUrl)).json()) as
+      { version?: string; url?: string; sha512?: string };
+    if (!m.url) return { ok: false, say: `매니페스트에 주소가 없습니다 (${manifestUrl})` };
+
+    const res = await fetch(m.url);
+    if (!res.ok) return { ok: false, say: `${saveAs} 를 받지 못했습니다 — HTTP ${res.status}` };
+    const buf = Buffer.from(await res.arrayBuffer());
+
+    if (m.sha512) {
+      const got = createHash("sha512").update(buf).digest("hex");
+      if (got !== m.sha512) {
+        return { ok: false, say: `${saveAs} 가 온전하지 않습니다 — 해시가 다릅니다` };
+      }
+    }
+
+    if (m.url.endsWith(".tar.gz") || m.url.endsWith(".tgz")) {
+      const tmp = path.join(dir, "_extra.tar.gz");
+      await fsp.writeFile(tmp, buf);
+      const r = spawnSync("tar", ["-xzf", tmp, "-C", dir], { encoding: "utf8" });
+      await fsp.rm(tmp, { force: true });
+      if (r.status !== 0) return { ok: false, say: `푸는 데 실패했습니다 — ${r.stderr ?? ""}` };
+    } else {
+      /*
+       * 🔴 **끝의 끜리를 따라간다** (2026-10-06).
+       *
+       * 처음엔 `saveAs` 그대로 썼다가 윈도우에서 **돌리지를 못했다** —
+       * `agy` 는 실행파일이 아니고 `agy.exe` 가 실행파일이다. 받은 주소가
+       * `cli_windows_x64.exe` 라고 말해주므로 그 끜리를 붙인다.
+       */
+      let ext = "";
+      try { ext = path.extname(new URL(m.url).pathname); } catch { /* 주소가 이상하면 없는 대로 */ }
+      await fsp.writeFile(path.join(dir, saveAs + ext), buf);
+    }
+
+    const at = findOne(dir, saveAs);
+    if (!at) return { ok: false, say: `받았는데 ${saveAs} 가 없습니다` };
+    if (process.platform !== "win32") await fsp.chmod(at, 0o755);
+    return { ok: true, say: `${saveAs} ${m.version ?? ""}` };
+  } catch (err) {
     return { ok: false, say: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -310,7 +395,7 @@ export async function install(
   const at = pickBinary(pkg);
   if (at) {
     if (was.stale) await fsp.rm(dir, { recursive: true, force: true });
-    return fetchBinary(dir, at, onLine);
+    return fetchBinary(dir, at, pkg.extras ?? [], onLine);
   }
 
   await fsp.mkdir(dir, { recursive: true });

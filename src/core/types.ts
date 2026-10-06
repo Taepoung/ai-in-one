@@ -114,6 +114,23 @@ export interface AgentPackage {
    * 시도하고 실패하는 것보다 아예 안 보여주는 쪽이 낫다.
    */
   binary?: AgentBinary;
+  /**
+   * ★ **같이 받아야 하는 것들** (2026-10-06).
+   *
+   * Antigravity 가 첫 사례다. 방을 돌리는 것(`agy_acp_server`)과 **로그인하는
+   * 것**(`agy`)이 따로 나온다 — Claude·Codex 는 어댑터 하나가 둘을 다 품고
+   * 있었는데 여긴 갈라 있다.
+   *
+   * 각 항목은 **매니페스트 주소**를 가리킨다. 거기 `url` 과 `sha512` 가
+   * 있어서 받은 것이 온전한지 **맞춰볼 수 있다** — ACP 레지스트리의
+   * `binary` 는 해시를 안 주는데 이쪽은 준다.
+   */
+  extras?: Array<{
+    /** 플랫폼별 매니페스트 주소 — `{ version, url, sha512 }` 를 돌려준다 */
+    manifest: Record<string, string | undefined>;
+    /** 받아서 이 이름으로 둔다 (끜리는 뺀다 — 플랫폼마다 달라서) */
+    saveAs: string;
+  }>;
   /** 판까지 박힌 npm 꾸러미 — `"@agentclientprotocol/codex-acp@2.1.0"` */
   spec?: string;
   /** `node_modules/.bin` 에 생기는 이름 — `"codex-acp"` */

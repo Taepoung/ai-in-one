@@ -19,8 +19,9 @@
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
-  dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, pickBinary, hostKey, realNpm, withInstalled,
+  cmdPath, dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, pickBinary, hostKey, realNpm, withInstalled,
 } from "../../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
 
@@ -99,6 +100,24 @@ async function main(): Promise<void> {
   const st = statusOf(dir, a.pkg!);
   out.push(mark(st.installed && !st.stale, "★ 받아졌다고 본다 — 표를 맨 마지막에 쓴다"));
   out.push(mark(fs.existsSync(path.join(dir, at.cmd)), `★ ${at.cmd} 가 있다`));
+
+  /*
+   * ★ **로그인할 것도 같이 받허나** (2026-10-06).
+   *
+   * ACP zip 에는 서버뿐이라 `agy` 를 따로 받는다. 이게 없으면 방은
+   * 돌아가는데 **로그인할 길이 없는** 막다른 길이 된다.
+   */
+  const login = a.pkg!.auth?.login;
+  const agy = login ? cmdPath(dir, login) : undefined;
+  console.log(`   로그인용: ${agy ? "…" + agy.exe.slice(-22) : "(없다)"}`);
+  out.push(mark(agy !== undefined, "★ **로그인용 `agy` 도 같이 받아졌다**"));
+  if (agy) {
+    let v = "";
+    try { v = execFileSync(agy.exe, ["--version"], { encoding: "utf8", timeout: 120000 }).trim(); }
+    catch (e) { v = String((e as { message?: string }).message).slice(0, 80); }
+    console.log(`   agy --version: ${v}`);
+    out.push(mark(/^\d/.test(v), `★ 그게 진짜 CLI 다 (${v})`));
+  }
 
   console.log("\n[★ 띄우면 ACP 를 말하나]");
   const sp = spawnSpecFor(dir, a.pkg!);
