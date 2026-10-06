@@ -22,6 +22,19 @@ const EOCD = 0x06054b50;
 const CEN = 0x02014b50;
 const LOC = 0x04034b50;
 
+/**
+ * 중앙 목록 한 칸에 실린 **유닉스 권한** 을 꺼낸다. 없으면 `null`.
+ *
+ * `madeOn` 은 «어디서 만든 zip 인가» — 3 이 유닉스다. 윈도우에서 만든
+ * zip 은 0 이고 바깥 속성이 통째로 비어 있어, 그걸 권한으로 읽으면
+ * **0 으로 chmod 해버려 아무도 못 읽는 파일이 된다.**
+ */
+export function modeIn(madeOn: number, outer: number): number | null {
+  if (madeOn !== 3) return null;
+  const mode = (outer >>> 16) & 0o7777;
+  return mode === 0 ? null : mode;
+}
+
 /** 끝에서부터 «중앙 목록이 어디서 시작하나» 를 적어둔 자리를 찾는다 */
 function findEnd(buf: Buffer): { count: number; at: number } {
   /*
@@ -49,6 +62,17 @@ export function unzip(zip: string, into: string): number {
 
   for (let n = 0; n < end.count; n++) {
     if (buf.readUInt32LE(at) !== CEN) throw new Error(`zip 목록이 깨졌습니다 (${n}번째)`);
+    /*
+     * 🔴 **유닉스 권한을 같이 꺼낸다** (2026-10-06).
+     *
+     * zip 은 권한을 중앙 목록의 «바깥 속성» 위 16비트에 싣는다. 이걸
+     * 버리면 푸는 쪽의 umask 대로 **0644 로 떨어져 실행이 안 된다** —
+     * mac·리눅스에서 `agy_acp_server.par` 를 못 띄운다는 뜻이다.
+     * 윈도우용 zip 은 «만든 곳» 이 0 이라 실릴 권한이 없고, 윈도우는
+     * 그 비트를 안 보므로 그대로 놓아두면 된다.
+     */
+    const madeOn = buf.readUInt16LE(at + 4) >> 8;
+    const outer = buf.readUInt32LE(at + 38);
     const method = buf.readUInt16LE(at + 10);
     const sizeC = buf.readUInt32LE(at + 20);
     const sizeU = buf.readUInt32LE(at + 24);
@@ -86,6 +110,9 @@ export function unzip(zip: string, into: string): number {
     }
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, body);
+    /* 3 = 유닉스에서 만든 zip 일 때만 권한이 들어 있다 */
+    const mode = modeIn(madeOn, outer);
+    if (process.platform !== "win32" && mode !== null) fs.chmodSync(out, mode);
     made += 1;
   }
   return made;

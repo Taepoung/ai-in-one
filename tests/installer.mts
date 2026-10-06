@@ -25,9 +25,11 @@
 import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
+import * as http from "node:http";
+import { spawnSync } from "node:child_process";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
-  install, remove, findOne, withInstalled, pickBinary, hostKey, type Run,
+  install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, type Run,
 } from "../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
 import type { AgentDef } from "../src/core/types.js";
@@ -238,6 +240,46 @@ async function main(): Promise<void> {
   }
 
   await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
+  /*
+   * ① **묶음 속 이름이 달라도 우리 이름으로 내려놓는다** (2026-10-06).
+   *
+   * 윈도우에서는 맨 exe 를 받아 **우리가 이름을 정한다.** 그래서 안 들키었다.
+   * mac·리눅스는 `.tar.gz` 안에 **`antigravity`** 라는 딱 하나가 들어 있어,
+   * 그대로 풀면 `find: agy` 가 **아무것도 못 찾는다** — 로그인이 죽는다.
+   * 사람 눈에는 «받아졌다» 고 나오고, 누르면 아무 일도 안 일어난다.
+   *
+   * 망은 안 탄다 — 제자리에 서버를 띄우고 진짜 `.tar.gz` 를 만들어 먹인다.
+   */
+  {
+    const work = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-tar-"));
+    const src = path.join(work, "src");
+    await fsp.mkdir(src, { recursive: true });
+    /* 구글이 하는 대로 — 묶음 속 이름은 `antigravity` 다 */
+    await fsp.writeFile(path.join(src, "antigravity"), "#!/bin/sh");
+    const tgz = path.join(src, "agy.tar.gz");
+    /* 절대경로를 넘기면 GNU tar 가 `C:` 를 원격 호스트로 읽는다 */
+    const made = spawnSync("tar", ["-czf", "agy.tar.gz", "antigravity"], { cwd: src, encoding: "utf8" });
+    ok(made.status === 0, "묶음을 만들었다 (tar)");
+
+    const body = await fsp.readFile(tgz);
+    const server = http.createServer((_q, res) => { res.writeHead(200); res.end(body); });
+    await new Promise<void>((done) => { server.listen(0, "127.0.0.1", () => { done(); }); });
+    const port = (server.address() as { port: number }).port;
+
+    const into = path.join(work, "into");
+    await fsp.mkdir(into, { recursive: true });
+    const got = await fetchExtra(into, { url: `http://127.0.0.1:${port}/agy.tar.gz` }, "agy");
+    await new Promise<void>((done) => { server.close(() => { done(); }); });
+
+    ok(got.ok, "받아서 푸는 데까지 된다");
+    ok(fs.existsSync(path.join(into, "agy")), "★ **속 이름이 `antigravity` 여도 `agy` 로 내려간다**");
+    ok(!fs.existsSync(path.join(into, "antigravity")), "★ 예전 이름은 안 남는다");
+    ok(!fs.existsSync(path.join(into, "_x")), "푸는 데 쓴 임시 자리도 치운다");
+    ok(findOne(into, "agy") !== null, "★ **로그인이 찾는 그 이름으로 있다** — 어느 판에서든 똑같다");
+
+    await fsp.rm(work, { recursive: true, force: true }).catch(() => undefined);
+  }
+
   await fsp.rm(home, { recursive: true, force: true }).catch(() => undefined);
   console.log("\n전부 통과");
 }

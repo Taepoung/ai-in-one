@@ -67,6 +67,8 @@ node tests/probes/opusbump.cjs
 # 5. 진짜로 받아지고 **끝까지 도나**  ← ②③⑦ 과 왕복
 npx tsx tests/probes/realinstall.mts     # npm 꼴
 npx tsx tests/probes/antigravity.mts     # zip 꼴
+#   zip·tar 꼴이면 **여섯 판 속을 다 본다** — 이름과 권한이 판마다 다르다 (§G5).
+#   윈도우에서 돌려본 것만으로는 mac·리눅스가 산다고 말할 수 없다.
 
 # 6. 로그인 문이 열리나  ← ④⑤⑥
 npx tsx tests/probes/logindoor.mts

@@ -105,6 +105,14 @@ export async function fetchBinary(
   extras: NonNullable<AgentPackage["extras"]> = [],
   onLine?: (line: string) => void,
 ): Promise<{ ok: boolean; say: string }> {
+  /*
+   * ★ **빈 자리에서 시작한다** (2026-10-06).
+   *
+   * 반만 지워진 자리 위에 풀면 **떠 있는 파일을 덮어쓰려다 EBUSY** 로
+   * 죽는다 — 사용자가 밟은 그것이다. `remove` 가 안 되면 옆으로
+   * 치워서라도 자리를 비운다.
+   */
+  await remove(dir).catch(() => undefined);
   await fsp.mkdir(dir, { recursive: true });
   const zipAt = path.join(dir, "_download.zip");
   try {
@@ -187,11 +195,44 @@ export async function fetchExtra(
     }
 
     if (m.url.endsWith(".tar.gz") || m.url.endsWith(".tgz")) {
-      const tmp = path.join(dir, "_extra.tar.gz");
+      /*
+       * 🔴 **묶음 속 이름이 우리가 부르는 이름과 다를 수 있다** (2026-10-06).
+       *
+       * 사용자가 짚었다 — *"exe를 지정해서 cli에 접근하면 os가 달라지면
+       * 실행이 안될 수도 있는거 아니야?"*. 맞았다. 윈도우는 맨 exe 라 우리가
+       * 이름을 정하지만, mac·리눅스는 `.tar.gz` 안에 **`antigravity`** 라는
+       * 이름으로 들어 있다 — `agy` 로 찾으면 **없다.**
+       *
+       * 그래서 따로 풀고 **우리 이름으로 바꾼다.** 그러면 카탈로그는
+       * 플랫폼을 몰라도 된다 — `find: "agy"` 하나로 어디서든 찾는다.
+       */
+      const into = path.join(dir, "_x");
+      await fsp.mkdir(into, { recursive: true });
+      const tmp = path.join(into, "_extra.tar.gz");
       await fsp.writeFile(tmp, buf);
-      const r = spawnSync("tar", ["-xzf", tmp, "-C", dir], { encoding: "utf8" });
+      /*
+       * 🔴 **tar 에게 절대경로를 넘기지 않는다.**
+       *
+       * Git for Windows 가 길에 깔아두는 GNU tar 는 `C:\...` 의 콜론을
+       * **원격 호스트로 읽는다** — `Cannot connect to C: resolve failed`.
+       * 그래서 풀 자리를 cwd 로 주고 이름만 넘긴다. 콜론이 없으면
+       * GNU 든 bsdtar 든 똑같이 도는다.
+       */
+      const r = spawnSync("tar", ["-xzf", "_extra.tar.gz"], { cwd: into, encoding: "utf8" });
       await fsp.rm(tmp, { force: true });
-      if (r.status !== 0) return { ok: false, say: `푸는 데 실패했습니다 — ${r.stderr ?? ""}` };
+      if (r.status !== 0) {
+        await fsp.rm(into, { recursive: true, force: true }).catch(() => undefined);
+        return { ok: false, say: `푸는 데 실패했습니다 — ${r.stderr ?? ""}` };
+      }
+      const inside = await fsp.readdir(into, { withFileTypes: true });
+      const files = inside.filter((e) => e.isFile());
+      if (files.length === 1) {
+        await fsp.rename(path.join(into, files[0]!.name), path.join(dir, saveAs));
+      } else {
+        /* 여럿이면 모양을 안다고 못 하므로 그대로 옮긴다 */
+        for (const e of inside) await fsp.rename(path.join(into, e.name), path.join(dir, e.name));
+      }
+      await fsp.rm(into, { recursive: true, force: true }).catch(() => undefined);
     } else {
       /*
        * 🔴 **끝의 끜리를 따라간다** (2026-10-06).
@@ -402,7 +443,6 @@ export async function install(
   /* zip 꼴은 npm 을 안 부른다 — 받아서 푸는 것이 전부다 */
   const at = pickBinary(pkg);
   if (at) {
-    if (was.stale) await fsp.rm(dir, { recursive: true, force: true });
     return fetchBinary(dir, at, pkg.extras ?? [], onLine);
   }
 
@@ -437,14 +477,22 @@ export async function remove(dir: string): Promise<void> {
   /*
    * 🔴 **떠 있는 실행파일은 윈도우에서 못 지운다** (2026-10-06).
    *
-   * Antigravity 를 받아 띄우고 바로 지우려 했더니 `EPERM: operation not
-   * permitted, unlink …agy_acp_server.exe` 가 났다. 연결을 먼저 내려도
-   * **자식 프로세스가 잠시 더 물고 있는다.**
+   * 사용자가 밟았다 — Antigravity 를 지웠다가 다시 깔려는데:
    *
-   * 바로 다시 해보면 대개 된다. 세 번까지 기다렸다가 그래도 안 되면
-   * **조용히 넘어가지 않는다** — 반만 지워진 자리를 «지웠다» 고 하면
-   * 다음에 «받아져 있다» 고 잎어 읽는다.
+   * ```
+   * EBUSY: resource busy or locked, open '…gy_acp_server.exe'
+   * ```
+   *
+   * 지우기가 `agy.exe` 는 지우고 서버에서 막혔고, **반만 지워진 자리** 위에
+   * 다시 풀려다 터진 것이다. 붙잡고 있던 것은 우리가 안 띄운 프로세스였다
+   * (그 CLI 가 제 손으로 띄운 것). 남이 띄운 것을 우리가 죽일 수는 없다.
+   *
+   * ★ **그런데 못 지우는 것과 못 비우는 것은 다르다.** 윈도우는 떠 있는
+   * 파일도 **이름은 바꾸게 해준다.** 그러니 치울 수 없으면 **옆으로 치운다** —
+   * 자리가 비므로 다시 깔 수 있고, 치우다 만 것은 다음에 쓸어 담는다.
    */
+  await sweepOld(path.dirname(dir));
+
   let last: unknown;
   for (let i = 0; i < 4; i++) {
     try {
@@ -452,13 +500,38 @@ export async function remove(dir: string): Promise<void> {
       return;
     } catch (err) {
       last = err;
-      await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
     }
   }
-  throw new Error(
-    `지우지 못했습니다 — 아직 돌고 있는 것이 있을 수 있습니다. ` +
-    `잠시 뒤에 다시 해보세요. (${last instanceof Error ? last.message : String(last)})`);
+
+  /* 못 지우면 옆으로 — 이름만 바꿔도 **자리는 비워진다** */
+  const aside = `${dir}.old-${Date.now()}`;
+  try {
+    await fsp.rename(dir, aside);
+  } catch {
+    throw new Error(
+      `지우지 못했습니다 — 아직 돌고 있는 것이 있습니다. ` +
+      `그 CLI 를 끄고 다시 해보세요. (${last instanceof Error ? last.message : String(last)})`);
+  }
+  /* 옆으로 치운 것도 지워보되, 안 되면 그냥 둔다 — 자리는 이미 비었다 */
+  await fsp.rm(aside, { recursive: true, force: true }).catch(() => undefined);
 }
+
+/**
+ * 옆으로 치워뒀던 것들을 쓸어 담는다.
+ *
+ * 붙잡고 있던 프로세스가 그 사이 끝났으면 이제 지워진다. 안 지워져도
+ * 그냥 넘어간다 — **치우기가 설치를 막으면 안 된다.**
+ */
+async function sweepOld(parent: string): Promise<void> {
+  let names: string[];
+  try { names = await fsp.readdir(parent); } catch { return; }
+  for (const n of names) {
+    if (!n.includes(".old-")) continue;
+    await fsp.rm(path.join(parent, n), { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 
 /** 그 자리가 얼마나 먹고 있나 */
 export function sizeOf(dir: string): number {

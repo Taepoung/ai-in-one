@@ -605,6 +605,56 @@ binary 꼴 19개 대부분이 같은 모양일 가능성이 크다.
 
 ---
 
+### G5. **판마다 이름도 권한도 다르다**
+
+> 2026-10-06. 사용자가 물었다 — *"우리 근데 exe를 지정해서 cli에
+> 접근하면 os가 달라지면 실행이 안 될 수도 있는거 아니야?"*
+> **맞았다.** 세 개가 나왔고 셋 다 윈도우에선 안 보였다.
+
+윈도우만 보면 전부 멀정하다 — 맨 `.exe` 를 받아 **우리가 이름을
+정하고**, 권한이란 게 없고, `tar` 를 쓸 일도 없다. mac·리눅스는
+셋 다 다르다.
+
+```
+① 묶음 속 이름이 다르다
+   윈도우  agy.exe 를 받는다            ← 이름을 우리가 정한다
+   mac·리눅스  .tar.gz 속은 `antigravity`  ← `find: "agy"` 가 **못 찾는다**
+   → 풀 뒤 우리 이름으로 내려놓는다 (fetchExtra)
+
+② zip 속 실행 권한을 살려야 한다
+   mac 755 · 리눅스 775 로 실려 있다. 버리면 umask 대로 644 → **못 띄운다**
+   윈도우 zip 은 «만든 곳» 이 0 이라 비어 있다 → **그걸 0 으로 chmod 하면 죽는다**
+   → `modeIn()` 이 갈라 준다 (unzip.ts)
+
+③ `tar` 에 절대경로를 넘기면 안 된다
+   Git for Windows 의 GNU tar 는 `C:\...` 의 콜론을 **원격 호스트로 읽는다**
+   → `Cannot connect to C: resolve failed`. 풀 자리를 cwd 로 주고 이름만 넘긴다
+```
+
+여섯 판의 zip 속을 **중앙 목록을 읽어 확인했다**(받지 않고 끝만
+긁어서). 레지스트리가 말한 이름 그대로였다:
+
+```
+win32-x64    agy_acp_server.exe  ·  localharness_external.exe   권한 없음
+win32-arm64  agy_acp_server.exe  ·  localharness_external.exe   권한 없음
+darwin-arm64 agy_acp_server.par  755 · localharness_external 555
+darwin-x64   agy_acp_server.par  755 · localharness_external 555
+linux-x64    agy_acp_server.par  775 · localharness_external 575
+linux-arm64  agy_acp_server.par  775 · localharness_external 575
+```
+
+⚠️ **끝 표를 찾을 때 HEAD 의 길이를 믿으면 안 된다.** `dl.google.com` 은
+HEAD 에 111,404,059 를 주는데 진짜는 111,456,962 였다 — 52,903 바이트
+모자라 꼬리를 읽어도 끝 표가 안 나왔다. 범위 응답의 `content-range`
+뒤에 붙는 총량을 써야 한다.
+
+①② 는 둘 다 **검사로 막아두었다** — `tests/installer.mts` 가 속 이름이
+다른 묶음을 직접 만들어 먹이고, `tests/unzip.mts` 가 진짜 zip 에서 긁어온
+값으로 권한 판단을 재다. chmod 는 윈도우에선 안 먹어 판단하는 부분만
+따로 떼냈다.
+
+---
+
 ## H. 에이전트를 올릴 때
 
 → **`docs/BUMP.md`**

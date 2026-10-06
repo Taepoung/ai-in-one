@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path";
 import * as fs from "node:fs"; import * as fsp from "node:fs/promises";
 import * as zlib from "node:zlib";
-import { unzip } from "../src/core/unzip.js";
+import { unzip, modeIn } from "../src/core/unzip.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 
@@ -125,6 +125,25 @@ async function main(): Promise<void> {
   }
 
   await fsp.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  /*
+   * **실행 권한을 살린다** (2026-10-06).
+   *
+   * 구글의 mac·리눅스 zip 은 `agy_acp_server.par` 를 **755·775** 로 싣고
+   * 있다. 이걸 버리면 푸는 쪽 umask 대로 644 가 돼 **띄우지를 못 한다.**
+   * 윈도우 zip 은 반대로 «만든 곳» 이 0 이라 실린 권한이 없다 —
+   * 그걸 권한으로 읽으면 0 으로 chmod 해 **아무도 못 읽는 파일이 된다.**
+   *
+   * chmod 는 윈도우에선 안 먹어 판단하는 데만 따로 재다 — 값은 진짜 zip 의
+   * 중앙 목록에서 긁어온 그대로다.
+   */
+  {
+    ok(modeIn(3, 0x81ed0000) === 0o755, "★ **mac 의 .par 는 755 로 나온다**");
+    ok(modeIn(3, 0x81fd0000) === 0o775, "★ 리눅스의 .par 는 775");
+    ok(modeIn(3, 0x816d0001) === 0o555, "읽기·실행만 있는 것도 그대로 (555)");
+    ok(modeIn(0, 0x0) === null, "★ **윈도우 zip 은 건드리지 않는다** — 0 으로 chmod 하면 죽는다");
+    ok(modeIn(3, 0x0) === null, "유닉스에서 만들었어도 비어 있으면 그대로 둔다");
+  }
+
   console.log("\n전부 통과");
 }
 
