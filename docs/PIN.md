@@ -520,12 +520,17 @@ https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
 
 ```
 npx     22개   우리가 지금 쓰는 길
-binary  19개   zip 을 받아 풀어야 한다  ← 우리 AgentDef 로는 아직 못 쓴다
+binary  19개   zip 을 받아 풀어야 한다  ← 2026-10-06 부터 된다
 uvx      2개   파이썬 쪽
 ```
 
-`AgentDef` 는 `command` + `args` 뿐이라 **binary 꼴 19개는 지금 구조로
-못 받는다.** 받아서 풀고 캐시하는 일이 따로 필요하다.
+⏪ **«못 받는다» 를 무른다** (2026-10-06). Antigravity 를 들이면서
+`AgentPackage.binary` 와 `unzip.ts` 를 만들었다 — 플랫폼별 주소를 받아
+우리 자리에 푸는 길이다. 실측은 `probes/antigravity.mts`(6/6).
+
+⚠️ 다만 **받는 것과 쓰는 것은 다르다.** binary 꼴은 꾸러미 안에 **CLI 가
+없고 ACP 서버만** 들어 있기도 하다 — 그런 에이전트는 로그인이
+`authenticate` 로만 된다(§G4).
 
 ### G2. 물어본 것들 — 실제 항목
 
@@ -535,7 +540,7 @@ uvx      2개   파이썬 쪽
 | **Codex** | OpenAI · JetBrains · Zed | `npx @agentclientprotocol/codex-acp@2.1.0` | Apache-2.0 |
 | **Gemini CLI** | Google | `npx @google/gemini-cli@0.62.0 --acp` | Apache-2.0 |
 | **Grok Build** | **xAI** | `npx @xai-official/grok@1.0.46 agent stdio` | proprietary |
-| **Google Antigravity** | **Google LLC** | binary — `dl.google.com/…/agy-acp-server-1.2.1-windows-x86_64.zip` → `agy_acp_server.exe` | proprietary |
+| **Google Antigravity** | **Google LLC** | binary — `dl.google.com/…/agy-acp-server-1.3.0-windows-x86_64.zip` → `agy_acp_server.exe` | proprietary |
 
 ⏪ **«Gemini 는 핀을 못 박는다» 도 틀렸다.** CLI 자체가 ACP 를 하는 건
 맞지만 **그 CLI 를 npx 로 판 찍어 받으면 된다** — 레지스트리가 바로 그렇게
@@ -550,10 +555,10 @@ JetBrains** 셋을 나란히 적는다. 셋이 같이 보는 물건이다.
 
 ```
 1. 레지스트리에 있나                      ← **여기부터.** npm 검색이 아니다
-2. 받는 방식이 npx 인가                   binary·uvx 면 받는 구조가 따로 필요하다
+2. 받는 방식은 무엇인가                npx·binary 는 된다. uvx 는 아직 없다
 3. 어댑터가 엔진을 품나, 범위로 무나       범위면 엔진도 지명한다 (§F4)
 4. 구독으로 로그인되나                    키만 되면 §0 P3 위반 (Gemini)
-5. 나갈 때 ACP delete 로 다 지워지나       아니면 `purgeSession` (§F)
+6. 나갈 때 ACP delete 로 다 지워지나       아니면 `purgeSession` (§F)
 ```
 
 레지스트리에 **없는** 것을 기본에 넣는 일은 그 자체로 다른 결정이다.
@@ -561,6 +566,42 @@ JetBrains** 셋을 나란히 적는다. 셋이 같이 보는 물건이다.
 추려주지 않은 것을 우리가 골라 끼워주면 그 사람 자격증명이 **우리가 안
 읽어본 코드**를 지나간다. 쓰고 싶은 사람은 `aiInOne.agents` 로 직접 넣을
 수 있다 — **기본에 넣는 것과 넣을 수 있게 두는 것은 다르다.**
+
+### G4. 받는 것과 **그 안에 든 것**은 다르다
+
+> 2026-10-06. Antigravity 를 들이면서 드러났다. 사용자가 짚었다 —
+> *"다른 애들은 cli를 깔아서 그거랑 연동하잖아, antigravity는 아니라고?"*
+
+**셋 다 우리가 받는다.** 사용자가 깐 CLI 는 어느 쪽도 안 쓴다(§F5). 다른
+것은 **받은 꾸러미 안에 무엇이 들었나** 다:
+
+```
+우리가 받는 것           그 안에 든 것                     로그인하는 길
+Claude   어댑터(npm)  →  claude.exe  — 진짜 CLI           claude auth login
+Codex    어댑터(npm)  →  codex.exe   — 진짜 CLI           codex login  (또는 ACP chat-gpt)
+Antigravity  zip      →  agy_acp_server.exe — ACP 서버뿐   ACP authenticate 만
+```
+
+Antigravity 꾸러미에는 파일이 **둘뿐**이다(`agy_acp_server.exe` ·
+`localharness_external.exe`). 그 exe 는 `--debug`·`--notices` 밖에 없고
+`login` 을 줘도 같은 도움말이 나온다 — 이름 그대로 *"Entry point for the
+AGY ACP Server"*, **CLI 가 아니다.** npm 에도 따로 나온 CLI 가 없다.
+
+🔴 **이건 Antigravity 가 모자란 게 아니다.** ACP 가 그렇게 하라고 둘로
+나눠놨다:
+
+```
+type: "terminal"   클라이언트가 그 CLI 를 따로 띄워라
+type 없음 = agent  **에이전트가 제 손으로 한다 — authenticate 를 불러라**
+```
+
+Antigravity 의 넷은 전부 뒤쪽이다. 즉 **«클라이언트가 `authenticate` 를
+부를 것»** 이 저쪽의 전제다. 여태 안 걸린 것은 Claude·Codex 가 **CLI
+로그인도 같이 들고 있어서** 터미널로 때울 수 있었기 때문이다.
+
+그러니 **빠진 것은 우리 쪽이다** — `authenticate` 를 한 번도 안 부른다.
+받고 띄우는 것까지는 되는데 로그인이 안 된다(`probes/antigravity.mts`).
+binary 꼴 19개 대부분이 같은 모양일 가능성이 크다.
 
 ---
 

@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { AgentDef } from "./types.js";
 
-/** 품은 `claude.exe` — `.bin` 에 안 나오므로 꺼리 안을 찾는다. 플랫폼마다 이름이 다르다 */
+/** 품은 `claude.exe` — `.bin` 에 안 나오므로 꾸러미 안을 찾는다. 플랫폼마다 이름이 다르다 */
 const CLAUDE_EXE = "node_modules/@anthropic-ai/claude-agent-sdk-*/claude";
 
 /**
@@ -145,7 +145,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      *
      * 로그인은 `find` 로 찾아 터미널에 띄운다. 🔴 `.bin` 에 `claude` 가
      * **안 나온다** — `claude-agent-acp`·`anthropic-ai-sdk`·`node-which` 뿐이라
-     * 꺼리 안에 놓인 exe 를 직접 찾는 수밖에 없다. 플랫폼별로 꺼리 이름이
+     * 꾸러미 안에 놓인 exe 를 직접 찾는 수밖에 없다. 플랫폼별로 꾸러미 이름이
      * 갈리므로(`-win32-x64` · `-darwin-arm64` …) `*` 로 두고 받은 것을 찾는다.
      */
     pkg: {

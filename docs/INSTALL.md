@@ -32,6 +32,43 @@
 `globalStorageUri` 는 이미 방 저장에 쓰는 자리다(`extension.ts`). **우리
 것이므로 마음대로 지운다** — 이게 전환의 핵심이다.
 
+## 받는 길이 둘이다
+
+2026-10-06 에 Antigravity 를 들이면서 갈렸다. **어디에 두느냐는 같고**
+받아오는 방식만 다르다.
+
+```
+npm 꼴 (Claude · Codex)          zip 꼴 (Antigravity)
+<자리>/package.json              <자리>/agy_acp_server.exe
+<자리>/node_modules/.bin/<이름>   <자리>/aio-installed.json   ← 무엇을 받았나
+```
+
+| | npm 꼴 | zip 꼴 |
+|---|---|---|
+| 적는 곳 | `pkg.spec` · `pkg.bin` | `pkg.binary[플랫폼]` |
+| 받는 법 | `npm install --prefix` | `fetch` → `unzip.ts` |
+| 판을 가리는 법 | `node_modules/…/package.json` | 받아둔 주소를 적어둔 표 |
+| 엔진 박기 | `overrides` | 주소에 판이 들어 있다 |
+
+🔴 **푸는 것은 바깥 도구에 안 기댄다.** `tar` 는 윈도우(bsdtar)에선 zip 을
+풀지만 **GNU tar 는 못 풀고**, `unzip` 도 리눅스에 늘 있지 않다. 기계마다
+있는 것이 달라서, 없으면 **설치가 통째로 막힌다.** `zlib` 으로 직접 읽는다.
+
+⚠️ **zip-slip 을 막는다.** 압축파일 속 이름은 남이 정한 것이라 `../../` 가
+들어 있을 수 있다 — 나온 경로가 목적지 안인지 매번 확인한다
+(`tests/unzip.mts` 가 그 자리를 직접 때린다).
+
+⚠️ **받는 것과 그 안에 든 것은 다르다.** 셋 다 우리가 받지만, npm 꼴은
+안에 **진짜 CLI**(`claude.exe`·`codex.exe`)가 들어 있어 `auth login` 을
+부를 수 있고, Antigravity 의 zip 에는 **ACP 서버뿐**이라 로그인이
+`authenticate` 로만 된다. 자세한 건 `PIN.md` §G4.
+
+⚠️ **지우기는 떠 있으면 막힌다.** 윈도우는 돌고 있는 실행파일을 못
+지운다 — 지우기 전에 연결을 내리고(`dropConnection` → `killTree`),
+그래도 안 되면 몇 번 기다렸다 **못 지웠다고 말한다.** 반만 지운 자리를
+«지웠다» 고 하면 다음에 «받아져 있다» 고 잘못 읽는다.
+
+
 ## 무엇을 적어두나 — `AgentDef.pkg`
 
 ```ts

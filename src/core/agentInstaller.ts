@@ -218,7 +218,7 @@ export function spawnSpecFor(
 /**
  * `AgentCmd` 를 실제 경로로.
  *
- * `bin` 은 `.bin` 에서, `find` 는 꺼리 안에서 찾는다. 둘 다 없거나 못
+ * `bin` 은 `.bin` 에서, `find` 는 꾸러미 안에서 찾는다. 둘 다 없거나 못
  * 찾으면 **`undefined` 를 돌려준다** — 없는 걸 불렀다가 «명령을 찾을 수
  * 없습니다» 를 보여주는 것보다 단추를 안 보여주는 편이 낫다.
  */
@@ -386,7 +386,7 @@ export function sizeOf(dir: string): number {
 /**
  * `*` 한 칸이 들어간 경로를 하나 찾는다.
  *
- * 플랫폼별 꺼리 이름이 달라서 필요하다 — `claude-agent-sdk-win32-x64` 와
+ * 플랫폼별 꾸러미 이름이 달라서 필요하다 — `claude-agent-sdk-win32-x64` 와
  * `-darwin-arm64` 가 같은 자리를 차지한다. npm 이 `os`/`cpu` 로 골라 하나만
  * 받으므로 **거기 있는 하나**를 찾으면 된다.
  */
@@ -404,7 +404,7 @@ export function findOne(dir: string, pattern: string): string | undefined {
          * 엉뙡한 프로그램에 시키고 *"unexpected argument 'logout'"* 을 받았다.
          *
          * 플랫폼마다 끼리만 다를 뿐이므로 이름은 박고 끼리만 더한다 —
-         * 별표는 **이름이 진짜로 모를 때**만 쓴다(꺼리 이름의 플랫폼 꼬리).
+         * 별표는 **이름이 진짜로 모를 때**만 쓴다(꾸러미 이름의 플랫폼 꼬리).
          */
         for (const cand of [seg, seg + ".exe"]) {
           const full = path.join(base, cand);

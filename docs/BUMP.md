@@ -11,20 +11,31 @@
 | 기대는 것 | 깨지면 이렇게 보인다 | 재는 법 |
 |---|---|---|
 | **① 꾸러미 판** | 앱이 아예 안 뜬다 (§D1 — 게시 직후 tarball 404) | `npm view <꾸러미> version` · 레지스트리(§G1) |
+| **①′ zip 주소** | 받기가 404 로 죽는다 | 레지스트리의 `distribution.binary` — 판이 주소에 들어 있다 |
 | **② 엔진 판** | 조용히 딴 모델이 돈다 | `realinstall.mts` — overrides 가 눌렀나 |
-| **③ 어댑터 bin 이름** | *"명령을 찾지 못했습니다"* | `realinstall.mts` — `.bin/<이름>` 이 생기나 |
+| **③ 띄울 이름** | *"명령을 찾지 못했습니다"* | npm 꼴은 `.bin/<이름>`, zip 꼴은 푸는 자리의 `cmd` |
 | **④ 품은 exe 경로** | 로그인 단추가 아무것도 안 한다 | `logindoor.mts` |
-| **⑤ 로그인 명령** | 터미널이 열리고 오류만 뜬다 | `logindoor.mts` — `--help` 가 뜨나 |
+| **⑤ 로그인 길** | 터미널에 오류만 뜨거나, **들어갈 문이 없다** | `logindoor.mts` · `initialize` 의 `authMethods` |
 | **⑥ 상태 명령** | **로그인했는데 «로그인하세요»** | `logindoor.mts` — 말을 돌려주나 |
 | **⑦ env 문** | 사용자 기계의 판이 돈다 (§F5) | `realinstall.mts` — `CODEX_PATH` 가 박히나 |
 | **⑧ 세션 뒷정리** | 목록에 «열 수 없는 세션» 이 쌓인다 (§F) | `codexdelete.mts` |
 | **⑨ 오가는 모양** | 말풍선·활동 줄이 깨진다 (§B) | `sweep.mjs` 로 전후 비교 |
 
+⚠️ **⑤는 «이름이 바뀌나» 만이 아니다.** 꾸러미 안에 **CLI 가 아예 없을 수도**
+있다 — Antigravity 가 그렇다(파일 둘뿐이고 둘 다 ACP 서버다). 그러면 로그인이
+ACP `authenticate` 로만 되고 **터미널로 때우는 길이 없다**(`PIN.md` §G4).
+들이기 전에 `initialize` 의 `authMethods` 를 보고 **어느 길인지** 가른다:
+
+```
+type: "terminal"   그 CLI 를 터미널로 띄운다        ← 지금 우리가 하는 것
+type 없음 = agent  authenticate 를 불러야 한다      ← 아직 안 만들었다
+```
+
 ⚠️ **①만 보고 올리면 ③~⑦ 이 조용히 깨진다.** 셋 다 «이름» 에 기대는 것인데
 이름은 판이 올라가며 바뀌는 것 중 제일 흔하다. 실제로 우리가 밟은 것:
 
 ```
-.bin 에 claude 가 없다          → 꺼리 안의 exe 를 찾아야 했다
+.bin 에 claude 가 없다          → 꾸러미 안의 exe 를 찾아야 했다
 codex* 가 다른 exe 를 먼저 집었다  → codex-code-mode-host.exe
 codex login status 가 stderr    → 로그인한 사람을 아니라고 봤다
 CODEX_PATH 기본값이 "codex"      → 사용자 기계의 0.155.0 이 돌 뻔했다
@@ -39,6 +50,7 @@ curl -s https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json |
 
 # 1. 지금 나와 있는 판 · 엔진을 무는 방식
 npm view <어댑터> version dependencies
+#    zip 꼴이면 레지스트리의 distribution.binary 주소를 그대로 옮겨 적는다
 
 # 2. **기준선 먼저** — 안 그러면 새 판의 NO 가 원래 그런 건지 알 수 없다
 node tests/probes/sweep.mjs <옛판>
@@ -53,7 +65,8 @@ node tests/probes/opusbump.cjs
 # 4. 핀을 고친다 — src/core/agentCatalog.ts 한 자리 (CODEX_PIN / args)
 
 # 5. 진짜로 받아지고 **끝까지 도나**  ← ②③⑦ 과 왕복
-npx tsx tests/probes/realinstall.mts
+npx tsx tests/probes/realinstall.mts     # npm 꼴
+npx tsx tests/probes/antigravity.mts     # zip 꼴
 
 # 6. 로그인 문이 열리나  ← ④⑤⑥
 npx tsx tests/probes/logindoor.mts

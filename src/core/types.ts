@@ -85,9 +85,9 @@ export type AgentState =
   | "ready";
 
 /**
- * 받아둘 꺼리 하나.
+ * 받아둘 꾸러미 하나.
  *
- * `npx -y <꺼리>` 로 띄우던 것을 **우리 자리에 미리 받아두고** 거기서
+ * `npx -y <꾸러미>` 로 띄우던 것을 **우리 자리에 미리 받아두고** 거기서
  * 띄우기 위한 적음이다.
  */
 /**
@@ -114,7 +114,7 @@ export interface AgentPackage {
    * 시도하고 실패하는 것보다 아예 안 보여주는 쪽이 낫다.
    */
   binary?: AgentBinary;
-  /** 판까지 박힌 npm 꺼리 — `"@agentclientprotocol/codex-acp@2.1.0"` */
+  /** 판까지 박힌 npm 꾸러미 — `"@agentclientprotocol/codex-acp@2.1.0"` */
   spec?: string;
   /** `node_modules/.bin` 에 생기는 이름 — `"codex-acp"` */
   bin?: string;
@@ -158,9 +158,9 @@ export interface AgentPackage {
      * ACP 로 로그인이 안 되는 에이전트는 **터미널로** 띄운다.
      *
      * `find` 는 설치 자리 기준 경로이고 `*` 한 칸을 허용한다 — 플랫폼별
-     * 꺼리 이름이 달라서다(`claude-agent-sdk-win32-x64` · `-darwin-arm64` …).
+     * 꾸러미 이름이 달라서다(`claude-agent-sdk-win32-x64` · `-darwin-arm64` …).
      *
-     * 🔴 Claude 는 `.bin` 에 `claude` 가 **안 나온다.** 품은 exe 가 꺼리 안에
+     * 🔴 Claude 는 `.bin` 에 `claude` 가 **안 나온다.** 품은 exe 가 꾸러미 안에
      * 그냥 놓여 있어서, 그걸 찾아 부르는 수밖에 없다.
      */
     /** 로그인 — 터미널로 띄운다 (브라우저가 열리고 코드를 붙여넣는다) */
