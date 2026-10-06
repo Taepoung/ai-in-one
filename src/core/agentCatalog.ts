@@ -2,7 +2,22 @@ import * as path from "node:path";
 import type { AgentDef } from "./types.js";
 
 /** 품은 `claude.exe` — `.bin` 에 안 나오므로 꺼리 안을 찾는다. 플랫폼마다 이름이 다르다 */
-const CLAUDE_EXE = "node_modules/@anthropic-ai/claude-agent-sdk-*/claude*";
+const CLAUDE_EXE = "node_modules/@anthropic-ai/claude-agent-sdk-*/claude";
+
+/**
+ * 🔴 **`.bin/codex.cmd` 가 아니라 진짜 exe 를 가리킨다** (2026-10-06).
+ *
+ * 터미널에 띄울 때 `.cmd` 는 셌을 거쳐야 하고, 그러면 **셌마다 문법이 다르다.**
+ * PowerShell 은 `"경로" 인자` 를 명령으로 안 읽고 터졌다 — 사용자가 받은 글:
+ *
+ * ```
+ * 식 또는 문에서 예기치 않은 'logout' 토큰입니다.
+ * ```
+ *
+ * 진짜 실행파일을 가리키면 **셌 없이 그대로 띄울 수 있어** 문법 문제가
+ * 통째로 사라진다. 공백 든 경로도 따옴표를 안 붙여도 된다.
+ */
+const CODEX_EXE = "node_modules/@openai/codex-*/vendor/*/bin/codex";
 
 /**
  * 기본 에이전트 목록.
@@ -207,15 +222,15 @@ export const DEFAULT_AGENTS: AgentDef[] = [
       auth: {
         file: path.join(".codex", "auth.json"),
         /* ACP 가 `chat-gpt` 를 광고하므로 나중엔 앱 안에서. 지금은 그 CLI 로 */
-        login: { bin: "codex", args: ["login"] },
-        logout: { bin: "codex", args: ["logout"] },
+        login: { find: CODEX_EXE, args: ["login"] },
+        logout: { find: CODEX_EXE, args: ["logout"] },
         /* 🔴 이건 stderr 로 나온다 — 읽는 쪽이 두 흘림을 다 받아야 한다 */
         /*
          * ⚠️ **`who` 를 안 적는다.** `codex login status` 는 *"Logged in using
          * ChatGPT"* 까지만 말한다 — 그건 **방법**이지 계정이 아니다.
          * 가져다 붙이면 계정을 바꿔도 같은 글자가 떠 있어 **바뀜 줄 모르게** 한다.
          */
-        status: { bin: "codex", args: ["login", "status"], yes: "Logged in" },
+        status: { find: CODEX_EXE, args: ["login", "status"], yes: "Logged in" },
       },
     },
     /*

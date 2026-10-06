@@ -756,22 +756,31 @@ export class ChatPanel implements AskTarget {
       return;
     }
     /*
-     * 🔴 **공백 든 경로는 묶어야 한다.** 저장소가 이걸로 한 번 데였다
-     * (`acpConnection.start` 의 주석) — `globalStorageUri` 에는 사용자 이름이
-     * 들어가므로 공백이 흔하다.
-     */
-    /*
-     * ★ **로그아웃은 돌던 CLI 를 내린다** (2026-10-02).
+     * 🔴 **셌에 글을 불러주지 않는다 — 그 명령 자체를 터미널로 띄운다**
+     * (2026-10-06).
      *
-     * 안 내리면 그 프로세스가 **옇 계정으로 계속 돌아간다.**
-     * 세션 id 는 그대로 둔다 — 다음에 이어받아 보고, 안 되면 끕김
-     * 흐름이 받는다.
+     * 예전엔 터미널을 열고 `"경로" 인자` 를 글로 보냈다. 그러면
+     * **어느 셌이냐에 따라 문법이 달라진다.** 사용자가 PowerShell 에서 받은 글:
+     *
+     * ```
+     * 식 또는 문에서 예기치 않은 'logout' 토큰입니다.
+     * ```
+     *
+     * PowerShell 은 따옴표로 시작하는 줄을 **글자열로** 읽어서, 부르려면
+     * `&` 가 앞에 붙어야 한다. 그런데 cmd.exe 에선 `&` 가 명령 구분자라
+     * 거꾸로 깨진다 — **어느 쪽을 골라도 나머지가 깨진다.**
+     *
+     * `shellPath` 로 주면 VSCode 가 **그 프로세스를 터미널로 직접 띄운다.**
+     * 셌이 없으니 문법도 없고, 공백 든 경로도 따옴표 없이 그대로 간다.
+     * 더거다 로그인은 **진짜 pty** 가 필요한 일인데 이쪽이 더 가깝다.
      */
-    if (what === "logout") this.rooms.dropConnection(agent.id);
-
-    const term = vscode.window.createTerminal({ name: `${agent.label} ${what}`, cwd: dir });
+    const term = vscode.window.createTerminal({
+      name: `${agent.label} ${what}`,
+      cwd: dir,
+      shellPath: found.exe,
+      shellArgs: found.args,
+    });
     term.show();
-    term.sendText([`"${found.exe}"`, ...found.args].join(" "));
     /*
      * ★ **터미널이 닫히면 바로 다시 본다** (2026-10-02).
      *

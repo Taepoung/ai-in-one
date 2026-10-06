@@ -277,8 +277,20 @@ export function findOne(dir: string, pattern: string): string | undefined {
     const next: string[] = [];
     for (const base of at) {
       if (!seg.includes("*")) {
-        const full = path.join(base, seg);
-        if (fs.existsSync(full)) next.push(full);
+        /*
+         * 🔴 **별표 대신 이름을 적고 `.exe` 를 알아서 붙인다** (2026-10-06).
+         *
+         * 예전엔 `codex*` 로 적었는데 같은 폴더에 `codex-code-mode-host.exe`
+         * 가 있어서 **그쪽이 먼저 잡혔다**(`-` 가 `.` 보다 앞서서). 로그인을
+         * 엉뙡한 프로그램에 시키고 *"unexpected argument 'logout'"* 을 받았다.
+         *
+         * 플랫폼마다 끼리만 다를 뿐이므로 이름은 박고 끼리만 더한다 —
+         * 별표는 **이름이 진짜로 모를 때**만 쓴다(꺼리 이름의 플랫폼 꼬리).
+         */
+        for (const cand of [seg, seg + ".exe"]) {
+          const full = path.join(base, cand);
+          if (fs.existsSync(full)) { next.push(full); break; }
+        }
         continue;
       }
       const re = new RegExp("^" + seg.split("*").map(esc).join(".*") + "$");
