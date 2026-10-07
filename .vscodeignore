@@ -10,6 +10,15 @@ docs/**
 .vscode/**
 .github/**
 
+# 🔴 **재본 기록과 내부 메모** (2026-10-07).
+#
+# `vsce package` 를 돌려보니 이 둘이 그대로 실려 가고 있었다 —
+# `.probe-out/` 은 핸 올리면서 재둔 본문이고(41개, 95KB),
+# `NEXT.md` 는 첫 줄에 *"git 에 안 올렸어"* 라고 적혀 있는 쌍여다.
+# 둘 다 남에게 줄 것이 아니다.
+.probe-out/**
+NEXT.md
+
 # 빌드·검사 설정
 esbuild.mjs
 eslint.config.mjs
