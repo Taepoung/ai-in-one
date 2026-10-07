@@ -458,14 +458,29 @@ export class AcpConnection {
       }
       tail = tail.slice(tail.lastIndexOf("\n") + 1);
     };
+    /*
+     * 🔴 **이기고 나서 타이머를 치운다** (2026-10-07).
+     *
+     * 처음엔 `Promise.race` 에 `setTimeout` 을 그냥 넘겼다. 경주는 끝나는데
+     * **타이머는 살아서** 5분간 이벤트 루프를 붙잡는다. 검사가 잡았다 —
+     * «전부 통과» 를 찍고도 프로세스가 안 끝나 실패로 세졌다.
+     *
+     * 제품에선 확장 호스트가 안 죽으니 눈에 안 띄었을 것이다 —
+     * 로그인할 때마다 하나씩 쌓인다.
+     */
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         this.conn!.agent.request(acp.methods.agent.authenticate, { methodId }),
-        new Promise((_ok, bad) =>
-          setTimeout(() => { bad(new Error("로그인을 기다리다 시간이 다 됐습니다")); }, timeoutMs),
-        ),
+        new Promise((_ok, bad) => {
+          timer = setTimeout(
+            () => { bad(new Error("로그인을 기다리다 시간이 다 됐습니다")); },
+            timeoutMs,
+          );
+        }),
       ]);
     } finally {
+      if (timer) clearTimeout(timer);
       this.onStderr = undefined;
     }
   }

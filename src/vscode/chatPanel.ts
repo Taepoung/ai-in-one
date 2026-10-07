@@ -698,6 +698,7 @@ export class ChatPanel implements AskTarget {
           size: st.size,
           loggedIn,
           canLogout: a.pkg?.auth?.logout !== undefined || a.pkg?.auth?.acp === true,
+          viaAcp: a.pkg?.auth?.acp === true,
           ...(busy ? { busy } : {}),
         };
       }),
@@ -864,6 +865,16 @@ export class ChatPanel implements AskTarget {
         return;
       }
 
+      /*
+       * 🔴 **누르자마자 말해준다** (2026-10-07).
+       *
+       * 예전엔 길을 고른 뒤에야 `busy` 를 세웠다. 그런데 그 앞에
+       * **ACP 서버를 띄우는 몇 초**가 있다(Antigravity 는 파이썬이라
+       * 더 걸린다). 그 사이 화면은 아무 말도 안 했다 — 사용자:
+       * *"창이 뜨기까지 시간이 걸리는데 되고있는건지 잘 모르겠네"*.
+       */
+      this.busy.set(agent.id, "로그인 길을 물어보는 중…");
+      this.sendAgents();
       const ways = await this.rooms.authOptionsOf(agent.id);
       if (ways.length === 0) {
         void vscode.window.showErrorMessage(

@@ -69,7 +69,7 @@ function mount() {
 
 const row = (over) => ({
   id: "codex", label: "Codex", color: "#10a37f", managed: true,
-  state: "none", size: 0, loggedIn: false, canLogout: true, ...over,
+  state: "none", size: 0, loggedIn: false, canLogout: true, viaAcp: false, ...over,
 });
 
 console.log("\n[★ 로봇 단추가 화면을 열고 목록을 조른다]");
@@ -196,6 +196,29 @@ console.log("\n[★ 사용자가 직접 적은 에이전트는 안 건드린다]
   a.$("#btn-agents").dispatchEvent(new a.w.MouseEvent("click", { bubbles: true }));
   a.send({ t: "agents", list: [row({ managed: false, state: "ready", loggedIn: true })] });
   const card = a.cards()[0];
+  /*
+   * **터미널이 안 뜨는 쪽에게 터미널 얘기를 하면 안 된다** (2026-10-07).
+   *
+   * ACP 로 로그인하는 에이전트는 **브라우저가 뜨다.** 그런데 화면은
+   * «터미널이 열립니다» 를 무조건 적고 있었다 — 사용자가 짚었다.
+   * 안 열릴 창을 기다리게 만드는 말이다.
+   */
+  {
+    const a = mount();
+    a.$("#btn-agents").dispatchEvent(new a.w.MouseEvent("click", { bubbles: true }));
+
+    a.send({ t: "agents", list: [row({ state: "needLogin", version: "1", size: 1 })] });
+    const term = a.cards()[0].textContent;
+    ok(term.includes("터미널이 열립니다"), "터미널 길은 그대로 터미널이라고 한다");
+
+    a.send({ t: "agents", list: [row({ state: "needLogin", version: "1", size: 1, viaAcp: true })] });
+    const web = a.cards()[0].textContent;
+    console.log(`   ACP 쪽 → ${web.includes("브라우저") ? "브라우저" : "???"}`);
+    ok(web.includes("브라우저가 열립니다"), "★ **ACP 쪽은 브라우저라고 한다**");
+    ok(!web.includes("터미널이 열립니다"),
+       "★ **안 뜨는 터미널을 기다리게 하지 않는다**");
+  }
+
   console.log(`   ${JSON.stringify(card.textContent.trim().slice(0, 40))}`);
   ok(card.querySelectorAll("button").length === 0,
      "★ **단추를 안 띄운다** — 우리가 받은 것이 아니라 지울 수도 없다");

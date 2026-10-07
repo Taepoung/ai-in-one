@@ -1665,7 +1665,9 @@ function renderAgents(): void {
     /* 로그인 안 됐으면 왜 필요한지 한 줄 — 안 적으면 그냥 막힌 것처럼 보인다 */
     if (a.state === "needLogin") {
       row.append(el("p", { class: "dim",
-        text: "터미널이 열립니다. 로그인을 마치면 이 화면이 알아서 바뀝니다.",
+        text: a.viaAcp
+          ? "브라우저가 열립니다. 로그인을 마치면 이 화면이 알아서 바뀝니다."
+          : "터미널이 열립니다. 로그인을 마치면 이 화면이 알아서 바뀝니다.",
       }));
     }
     host.append(row);
