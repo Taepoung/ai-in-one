@@ -1331,6 +1331,9 @@ export class RoomManager extends EventEmitter<Events> {
 
     const bt = this.botRuntime(roomId, botId);
     const old = bt.sessionId ?? bot.sessionId ?? undefined;
+    /* 아래에서 `agentId` 와 `sessionPrompted` 를 갈아끼우므로 **먼저** 적어둔다 */
+    const fromAgent = bot.agentId;
+    const hadTalk = bot.sessionPrompted === true;
 
     // 붙어 있던 세션에서 손을 뗀다. **지우지는 않는다** — 그 CLI에 그대로 두고
     // 우리만 놓는다. 사용자가 되돌리고 싶어질 수도 있고, 남의 기록을 우리가
@@ -1358,7 +1361,11 @@ export class RoomManager extends EventEmitter<Events> {
 
     // **화면과 에이전트가 어긋난 상태**다 (F7과 같은 자리) — **이 봇만**
     bot.contextLost = true;
-    if (old) bot.lostSessionId = old;
+    if (old) {
+      bot.lostSessionId = old;
+      bot.lostAgentId = fromAgent;
+      bot.lostPrompted = hadTalk;
+    }
     this.rollUpLost(room);
 
     this.noteRoom(
@@ -4026,8 +4033,32 @@ export class RoomManager extends EventEmitter<Events> {
     const lost = room.participants.filter((b) => b.contextLost);
     for (const b of (lost.length > 0 ? lost : room.participants)) {
       delete b.contextLost;
-      // 사용자가 정했으니 이제 옛 세션을 놓는다
+      /*
+       * 🔴 **놓는 것과 두고 오는 것은 다르다** (2026-10-07).
+       *
+       * 사용자가 물었다 — *"대화 도중에 에이전트 바꾸면 이전
+       * 에이전트에 물려있던 세션은 자동으로 삭제되나?"*. 안 됐었다.
+       *
+       * 갈아탈 때는 `cancel` 만 하고 **되돌릴 수 있게** 남겨두었는데,
+       * 바로 여기서 `lostSessionId` 를 버린다 — 그 순간부터 **우리는
+       * 돌아갈 길이 없는데 세션만 남는** 꼴이 된다. 그래서 버리는
+       * 자리에서 같이 지운다 — 방을 나갈 때와 같은 기준이다.
+       *
+       * ⚠️ **없는 연결을 새로 띄우지는 않는다.** 세션 하나 지우려고
+       * 파이썬 서버를 20초 띄우는 것은 바꿔치기다. 갈아탄 직후라면
+       * 그 연결은 보통 살아 있다.
+       */
+      const lostId = b.lostSessionId;
+      const lostAgent = b.lostAgentId ?? b.agentId;
+      const lostTalk = b.lostPrompted ?? true;
       delete b.lostSessionId;
+      delete b.lostAgentId;
+      delete b.lostPrompted;
+      if (lostId) {
+        await this.connections.get(lostAgent)
+          ?.deleteSession(lostId, lostTalk)
+          .catch(() => undefined);
+      }
       if (accept) {
         b.refeedPending = true;
         /* 무엇을 넘길지도 같이 정한다 — 안 주면 원문이 기본이다 */
@@ -4076,7 +4107,10 @@ export class RoomManager extends EventEmitter<Events> {
     // 되살아난 것은 **이 봇**이다 — 다른 봇이 잃은 것까지 걷으면 안 된다
     delete bot.contextLost;
     delete bot.refeedPending;
+    /* 이쪽은 **되살린** 것이다 — 지우면 안 된다. 자국만 같이 치운다 */
     delete bot.lostSessionId;
+    delete bot.lostAgentId;
+    delete bot.lostPrompted;
     this.rollUpLost(room);
 
     if (resumed.options.length > 0) await this.restoreChoices(room, bot, lost, resumed.options);

@@ -1362,7 +1362,7 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
       "div",
       { class: "field" },
       el("label", { text: "에이전트" }),
-      agentSelect(b, n),
+      agentSelect(b, () => { draftAt = n; renderNew(); }),
     ),
     /*
      * 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15).
@@ -1409,7 +1409,10 @@ function syncDraftNames(): void {
  * 설명(`a.description`)은 고른 것 아래 한 줄로 남긴다 — 드롭다운 안에서는
  * 안 보이고, 그렇다고 버리면 «Codex 가 뭐지» 에 답할 데가 없어진다.
  */
-function agentSelect(b: DraftBot, n: number): HTMLElement {
+function agentSelect(
+  b: { agentId: string; picks: Map<string, string | boolean> },
+  after: () => void,
+): HTMLElement {
   const pick = el("select", { class: "agent-pick" }) as HTMLSelectElement;
   /* 받지 않은 것은 안 띄운다 — 고르게 해두고 나중에 막으면 더 나쁘다 */
   for (const a of boot.agents.filter((x) => agentAvail.has(x.id))) {
@@ -1420,9 +1423,8 @@ function agentSelect(b: DraftBot, n: number): HTMLElement {
     b.agentId = pick.value;
     // 모델은 에이전트마다 다르다 — 골랐던 것을 그대로 두면 없는 id 를 보낸다
     b.picks.clear();
-    draftAt = n;
-    renderNew();
-    if (!configs.has(pick.value)) post({ t: "needConfig", agentId: pick.value });
+    askConfig(pick.value);
+    after();
   });
 
   const who = boot.agents.find((a) => a.id === b.agentId);
@@ -6152,33 +6154,18 @@ function askInvite(r: Room): void {
           "div",
           { class: "field" },
           el("label", { text: "에이전트" }),
-          el(
-            "div",
-            { class: "agents" },
-            ...boot.agents.map((a) =>
-              el(
-                "button",
-                {
-                  class: "agent",
-                  "aria-pressed": a.id === draft.agentId,
-                  onclick: () => {
-                    if (a.id === draft.agentId) return;
-                    draft.agentId = a.id;
-                    // 모델은 에이전트마다 다르다 — 압은 것을 두면 없는 id를 보낸다
-                    draft.picks.clear();
-                    askConfig(a.id);
-                    paint();
-                  },
-                },
-                el(
-                  "span",
-                  { class: "agent-main" },
-                  el("span", { class: "agent-name", text: a.label }),
-                  a.description ? el("span", { class: "agent-desc", text: a.description }) : null,
-                ),
-              ),
-            ),
-          ),
+          /*
+           * ⏪ **여기만 단추 줄이었다** (2026-10-07).
+           *
+           * 바로 위 `agentSelect` 에 *"에이전트는 드롭다운으로"* 라고
+           * 적어두고도 **부르기 화면은 빠뜨렸다.** 색 고르기를 빠뜨렸던
+           * 것과 같은 자리다(바로 아래 주석).
+           *
+           * 🔴 **가리는 것도 틀렸다.** `boot.agents` 를 그대로 줄 세워
+           * **안 받은 에이전트까지 고를 수 있었다** — 고르게 해두고
+           * 부른 뒤에 막는 꼴이다. 드롭다운은 `agentAvail` 로 거른다.
+           */
+          agentSelect(draft, paint),
         ),
         /*
          * ★ **부를 때도 색을 정한다** (2026-09-29).

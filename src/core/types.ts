@@ -380,6 +380,19 @@ export interface BotInstance {
    */
   contextLost?: boolean;
   /** 그때 놓친 세션 id — 그 CLI에서 `--resume` 으로 열어볼 수 있다 */
+  /**
+   * ★ **그 세션이 붙어 있던 에이전트와, 말을 걸었었나** (2026-10-07).
+   *
+   * 에이전트를 갈아타면 `agentId` 는 이미 새것이라, 옛 세션을 지우려 해도
+   * **어디에 대고 지워야 하는지 모른다.** 끊김으로 잃은 경우는 같은
+   * 에이전트지만 갈아탄 경우는 다르다.
+   *
+   * `lostPrompted` 는 «지울 것이 있나» 다 — 에이전트는 **첫 프롬프트를 받아야**
+   * 세션 파일을 쓴다. 없는 것에 `delete` 를 부르면 실패하고, 실패한 `delete` 가
+   * 뒤이은 `close` 까지 깨뜨린다(`acpConnection.deleteSession`).
+   */
+  lostAgentId?: string;
+  lostPrompted?: boolean;
   lostSessionId?: string;
   /**
    * ★ **이 봇에게** 지난 대화를 다음 프롬프트에 실어 보낸다 (F7).

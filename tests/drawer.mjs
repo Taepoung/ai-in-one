@@ -325,13 +325,21 @@ console.log(NL + "[★ 봇 부르기 — 방 만들 때와 같은 모양]");
   ok(card !== null, "★ 드롭다운이 아니라 **제 화면이 뜬다** (2026-09-30)");
   ok(t.$$(".screen.active").map((x) => x.id).includes("screen-invite"),
      "★ **참여자 위에 얹힌다** — 부르고 나면 뒤로가기 하나로 참여자로 돌아온다");
-  ok(card.querySelectorAll(".agent").length === 2, "에이전트를 고른다");
+  /*
+   * ⏪ **여기만 단추 줄이었다** (2026-10-07). 사용자가 짚었다 —
+   * 방 만들기는 드롭다운인데 부르기만 줄지어 놓은 단추였다.
+   * `agentSelect` 에 *"에이전트는 드롭다운으로"* 라고 적어두고 빠뜨렸다.
+   */
+  const pick = card.querySelector("select.agent-pick");
+  ok(pick !== null, "★ **드롭다운으로 고른다** — 방 만들 때와 같은 모양");
+  ok(pick.options.length === 2, "받아둔 것만 들어 있다");
   ok(card.querySelector("textarea.role") !== null,
      "★ 역할도 여기서 — 모델·역할은 봇에 붙는 값이다");
 
   card.querySelector("textarea.role").value = "너는 리뷰어";
   card.querySelector("textarea.role").dispatchEvent(new t.w.Event("input"));
-  [...card.querySelectorAll(".agent")][1].click();
+  pick.value = "codex";
+  pick.dispatchEvent(new t.w.Event("change"));
   const after = t.$("#screen-invite .card");
   [...after.querySelectorAll("button")].find((b) => b.textContent === "부르기").click();
 
