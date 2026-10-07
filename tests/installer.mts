@@ -200,10 +200,17 @@ async function main(): Promise<void> {
       const at = pkg.binary![k]!;
       ok(at.archive.includes("1.3.0"), `★ ${k} 주소에 판이 박혀 있다`);
     }
-    for (const [k, one] of Object.entries(pkg.extras![0]!.at)) {
-      ok(one!.url.includes("1.3.0"), `★ ${k} 의 agy 도 판이 박혀 있다`);
-      ok((one!.sha512 ?? "").length === 128, `★ ${k} 의 agy 는 **해시까지 있다**`);
-    }
+    /*
+     * ★ **더 이상 `agy` 를 같이 받지 않는다** (2026-10-07).
+     *
+     * 로그인은 CLI 가 한다고 보고 190MB 를 같이 받았는데, 재보니 `agy` 와
+     * ACP 서버가 **서로 다른 집을 본다.** 치워놓고 돌려도 세션이 붙고
+     * 모델도 그대로 온다 — 써보고 뻐었다.
+     *
+     * ⚠️ `extras` 배선 자체는 남겨둔다. 다음에 묶음 밖에 무언가를 더 주는
+     * 에이전트가 오면 그대로 쓴다 — 아래에서 따로 재는 이유다.
+     */
+    ok(pkg.extras === undefined, "★ **받는 것은 zip 하나다** — `agy` 190MB 는 안 받는다");
 
     /* ── 받기 전 · 받은 뒤 · 핀이 올라간 뒤 */
     const root = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-zip-"));

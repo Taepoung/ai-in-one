@@ -726,9 +726,45 @@ ACP 서버 1.3.1   **없다** (404) — 우리 핀은 최신이 맞다
 `agy` 를 띄우는 자리가 없어서 안 걸리지만, 다시 띄우게 되면 **반드시 같이
 준다.** 안 그러면 sha512 를 박아둔 것이 무의미해진다.
 
-⚠️ **`agy` 를 계속 받을 이유가 남았는지 다시 봐야 한다.** 로그인은 이제 ACP 가
-한다. `agy models` 가 모델 목록을 내주긴 하나 그것도 ACP 세션이 붙으면
-`session/new` 의 `configOptions` 에서 나올 수 있다 — **붙는 걸 본 뒤에** 정한다.
+✅ **그래서 `agy` 를 뺀다** (2026-10-07). 붙는 걸 본 뒤에 정하기로 했고,
+봤고, 정했다. 재본 근거는 셋이다:
+
+```
+① 로그인·로그아웃을 ACP 가 한다            ← §G4-2
+② 모델도 ACP 가 준다 (session/new 의 configOptions, 11개)
+③ `agy.exe` 를 **치워놓고 돌려도** 세션이 붙고 모델이 그대로 온다
+```
+
+③가 결정적이다 — 집작이 아니라 직접 써봤다. §0 P3 도 그대로 지켜진다:
+**구독을 쓰는 공식 바이너리는 `agy_acp_server` 자신**이고 그걸 사용자
+기계에서 돌린다. 구글 계정으로 붙어 구독 등급까지 본다 — 로그에 찍힌다:
+
+```
+User is already onboarded with project ID: 'aicode-consumers'
+paidTier: 'Google AI Plus' … upgradeSubscriptionUri …
+```
+
+⚠️ **Claude·Codex 는 구조가 다르다.** 그쪽은 어댑터가 **품은 CLI 를 제 손으로
+띄운다**(`CODEX_PATH`·`CLAUDE_CODE_EXECUTABLE`) — CLI 가 실행 경로 위에 있어
+빠지면 안 돌린다. Antigravity 의 `agy` 는 **옆에 있는 형제**였을 뿐이다.
+
+받는 자리는 이렇게 줄었다:
+
+```
+전  agy.exe 190MB · agy_acp_server.exe 81MB · localharness_external.exe 145MB   398MB
+후                 agy_acp_server.exe 81MB · localharness_external.exe 145MB   217MB
+```
+
+`localharness_external` 은 **같은 zip 에 들어 있는 것**이라 그대로 둔다(§G4).
+플랫폼별 `agy` 주소 6개와 sha512 6개도 같이 빠졌다 — 판 올릴 때 맞출
+자리가 하나로 줄었다.
+
+⚠️ **이미 받아둔 기계엔 `agy.exe` 가 남는다.** 낡음 판단은 zip 주소만
+보므로 «업데이트» 가 안 뜨는다. 다음 핀에서 자리를 비우고 받으므로
+(`fetchBinary`) 저절로 사라진다. 당장 비우려면 **제거 → 설치하기**다.
+
+자동 갱신 문제도 같이 없어졌다 — 안 받으니 안 띄우고, 안 띄우니 안 올라간다.
+다시 받게 되면 `AGY_CLI_DISABLE_AUTO_UPDATE` 를 **반드시 같이 준다.**
 
 ---
 

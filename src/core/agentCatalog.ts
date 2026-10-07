@@ -299,52 +299,38 @@ export const DEFAULT_AGENTS: AgentDef[] = [
     args: [],
     pkg: {
       /*
-       * ★ **둘을 받는다** (2026-10-06).
+       * ★ **받는 것은 zip 하나다** (2026-10-07).
        *
-       * 사용자: *"antigravity가 cli 버전이 있는데 acp로 받아오는건 그게
-       * 없다는 건가?"* — 맞다. ACP zip 에는 서버뿐이고 **CLI 는 따로
-       * 나온다**(`agy`). Claude·Codex 는 어댑터 하나가 둘을 다 품고 있었을 뿐,
-       * 구조는 같다 — 방을 돌리는 것과 로그인하는 것.
+       * ⏪ 한때는 둘이었다. ACP zip 에는 서버뿐이고 CLI 는 따로
+       * 나오므로(`agy`, 190MB), Claude·Codex 처럼 **로그인은 CLI 가
+       * 한다** 고 보고 같이 받았다.
+       *
+       * 🔴 **그 전제가 틀렸다.** `agy` 와 ACP 서버는 **서로 다른 집을
+       * 본다** — `antigravity-cli/` 와 `antigravity-acp/`. 그래서 `agy` 로
+       * 로그인해도 세션은 계속 막혔다(§G4-2). 로그인도 로그아웃도
+       * 모델 목록도 전부 **ACP 가 한다.**
+       *
+       * 직접 재봤다 — `agy.exe` 를 치워놓고도 `session/new` 가 붙고
+       * 모델 11개가 그대로 온다. §0 P3 도 지켜진다 — **구독을 쓰는
+       * 공식 바이너리는 `agy_acp_server` 자신**이고, 그걸 사용자 기계에서
+       * 그대로 돌린다. Claude·Codex 는 어댑터가 **품은 CLI 를 제 손으로
+       * 띄우므로** 그쪽은 CLI 가 실행 경로 위에 있다 — 구조가 다르다.
        *
        * ```
-       * agy_acp_server   124MB   방을 돌린다
-       * agy              181MB   로그인한다
+       * 뺀 것   agy.exe                   190MB
+       * 남는 것 agy_acp_server.exe         81MB   ← 띄우는 것
+       *          localharness_external.exe 145MB   ← 같은 zip 에 들어 있다
        * ```
        *
-       * ★ **이쪽은 해시를 준다.** ACP 레지스트리의 `binary` 는 안 주는데
-       * `agy` 매니페스트엔 `sha512` 가 있다 — 받은 것이 온전한지 맞춰본다.
+       * ⚠️ `localharness_external` 은 **구글이 같은 묶음에 넣어 보내는 것**이라
+       * 그대로 둔다. 무엇을 하는지 우리는 모르고, 묶음을 통째로 받는 것이
+       * 원칙이다(§G4) — **받는 것과 그 안에 든 것은 우리가 고르지 않는다.**
+       *
+       * ⚠️ **이미 받아둔 기계에는 `agy.exe` 가 남는다.** 낡음 판단은 zip
+       * 주소만 보므로 «업데이트» 가 뜨지 않는다. 다음에 핀을 올리면
+       * 받기 전에 자리를 비우므로(`fetchBinary`) 저절로 사라진다. 당장
+       * 비우려면 제거 → 설치하기다.
        */
-      extras: [
-        {
-          at: {
-          "win32-x64": {
-            url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.0-6233328509124608/windows-x64/cli_windows_x64.exe",
-            sha512: "00ddc37369441524aa9bd92176e31513e47a2a85fe5d09ec71e3bbe2fd4955551c6b9989f1eb82599dd9329b321e470644106ee3b07c1e3e82bff67124a67461",
-          },
-          "win32-arm64": {
-            url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.0-6233328509124608/windows-arm/cli_windows_arm64.exe",
-            sha512: "8dd1b647d153911cc6f696b8bdcfa676c0b1460119e2493001aa127389d914377952189a33e8fbb6d92dbd4bc9d6ca61fc4998f9cd613ddef7cfe3d5cf892361",
-          },
-          "darwin-arm64": {
-            url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.0-6233328509124608/darwin-arm/cli_mac_arm64.tar.gz",
-            sha512: "fdcad6863b07ab28ab523451b17b670f1c820af40ab2b1bfead68ed927900da03fbb905cf362faec715679fbc8775331508d203373258255101d85afda9a1cb6",
-          },
-          "darwin-x64": {
-            url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.0-6233328509124608/darwin-x64/cli_mac_x64.tar.gz",
-            sha512: "7c714396e26b91e83ea709982bc3c9ddac2c4c05324c5b9954da80a88303230862e0b5239b79799909fcf8e0a18865da205f7ddc5c5c8c33b53c052f7f07861d",
-          },
-          "linux-x64": {
-            url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.0-6233328509124608/linux-x64/cli_linux_x64.tar.gz",
-            sha512: "f6f5e16f356ae8a345fd6ab265ad2a4e4dc8d0b7f4ac345249d0e250a06edd496677b8ac0193b258971feb7ccfbba2fccc2f482db1d62cc650498e352ef85280",
-          },
-          "linux-arm64": {
-            url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.3.0-6233328509124608/linux-arm/cli_linux_arm64.tar.gz",
-            sha512: "8a880575accf28b03de00e748209dc735c11e59847de8b137cba07aaaab166c892836574cacd9a0d6fa1e24d6e19197d25f36b7e0a49fd84d64ea84ee26ab21d",
-          },
-          },
-          saveAs: "agy",
-        },
-      ],
       binary: {
         "win32-x64": {
           archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip",

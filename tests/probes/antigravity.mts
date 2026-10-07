@@ -19,9 +19,8 @@
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { execFileSync } from "node:child_process";
 import {
-  cmdPath, dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, pickBinary, hostKey, realNpm, withInstalled,
+  dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, pickBinary, hostKey, realNpm, withInstalled,
 } from "../../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
 
@@ -102,22 +101,22 @@ async function main(): Promise<void> {
   out.push(mark(fs.existsSync(path.join(dir, at.cmd)), `★ ${at.cmd} 가 있다`));
 
   /*
-   * ★ **로그인할 것도 같이 받허나** (2026-10-06).
+   * ⏪ **여기서 `agy` 를 찾았었다** (2026-10-07 뒤무름).
    *
-   * ACP zip 에는 서버뿐이라 `agy` 를 따로 받는다. 이게 없으면 방은
-   * 돌아가는데 **로그인할 길이 없는** 막다른 길이 된다.
+   * ACP zip 에는 서버뿐이라 로그인은 CLI 가 한다고 보고 `agy` 를 따로
+   * 받았다. **그 전제가 틀렸다** — 둘은 서로 다른 집을 봐서 `agy` 로
+   * 로그인해도 세션은 계속 막혔다(§G4-2). 로그인도 모델도 ACP 가 한다.
+   *
+   * 그래서 재는 것이 바뀜었다 — «같이 받았나» 가 아니라
+   * **«묶음 속 둘만 있나»** 다.
    */
-  const login = a.pkg!.auth?.login;
-  const agy = login ? cmdPath(dir, login) : undefined;
-  console.log(`   로그인용: ${agy ? "…" + agy.exe.slice(-22) : "(없다)"}`);
-  out.push(mark(agy !== undefined, "★ **로그인용 `agy` 도 같이 받아졌다**"));
-  if (agy) {
-    let v = "";
-    try { v = execFileSync(agy.exe, ["--version"], { encoding: "utf8", timeout: 120000 }).trim(); }
-    catch (e) { v = String((e as { message?: string }).message).slice(0, 80); }
-    console.log(`   agy --version: ${v}`);
-    out.push(mark(/^\d/.test(v), `★ 그게 진짜 CLI 다 (${v})`));
-  }
+  const inside = fs.readdirSync(dir).filter((n) => n !== "aio-installed.json").sort();
+  console.log(`   푸는 자리에 남은 것: ${inside.join(" · ")}`);
+  out.push(mark(!inside.some((n) => n === "agy" || n === "agy.exe"),
+    "★ **`agy` 190MB 는 안 받는다** — 로그인도 모델도 ACP 가 한다"));
+  out.push(mark(inside.some((n) => n.startsWith("localharness_external")),
+    "★ 같은 zip 에 든 것은 그대로 둔다 (localharness_external)"));
+  console.log(`   자리: ${MB(sizeOf(dir))}`);
 
   console.log("\n[★ 띄우면 ACP 를 말하나]");
   const sp = spawnSpecFor(dir, a.pkg!);
@@ -132,6 +131,14 @@ async function main(): Promise<void> {
     console.log(`   authMethods: ${JSON.stringify(said["authMethods"])}`);
     console.log(`   capabilities: ${JSON.stringify(said["agentCapabilities"]).slice(0, 300)}`);
     out.push(mark(true, `★ **ACP 를 말한다** (${info?.name ?? "?"})`));
+
+    /* 로그인은 이제 여기서 나온다 — 비어 있으면 들어갈 문이 없다 */
+    const ways = (said["authMethods"] ?? []) as { id?: string }[];
+    out.push(mark(ways.length > 0,
+      `★ **로그인 길을 내놓는다** (${ways.map((m) => m.id).join(", ") || "없다"})`));
+    const caps = said["agentCapabilities"] as { auth?: { logout?: unknown } } | undefined;
+    out.push(mark(caps?.auth?.logout !== undefined,
+      "★ 로그아웃도 광고한다 — 화면이 이걸 보고 단추를 정한다"));
 
     const w = withInstalled(a, root);
     out.push(mark(w.unavailable === undefined && w.command.length > 0,
