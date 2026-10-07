@@ -219,6 +219,8 @@ export const DEFAULT_AGENTS: AgentDef[] = [
       bin: "codex-acp",
       overrides: { "@openai/codex": "0.159.3" },
       exeEnv: { name: "CODEX_PATH", bin: "codex" },
+      /* 나갈 때 세션을 지우는 명령 — **품은 그 exe** 로 부른다 */
+      purge: { find: CODEX_EXE, args: ["delete", "--force", "{id}"] },
       auth: {
         file: path.join(".codex", "auth.json"),
         /* ACP 가 `chat-gpt` 를 광고하므로 나중엔 앱 안에서. 지금은 그 CLI 로 */
@@ -273,7 +275,6 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * ⚠️ 지명하는 글자열이 위 `args` 와 **토씨 같아야** 캐시가 같다. 그래서
      * 둘 다 `CODEX_PIN` 에서 나온다 — 손으로 적으면 언젠가 갈라진다.
      */
-    purgeSession: { command: npx(), args: ["-y", ...CODEX_PIN, "codex", "delete", "--force", "{id}"] },
   },
   {
     id: "antigravity",

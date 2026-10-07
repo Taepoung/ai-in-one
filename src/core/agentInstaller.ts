@@ -804,5 +804,20 @@ export function withInstalled(agent: AgentDef, root: string): AgentDef {
     };
   }
   const s = spawnSpecFor(dir, agent.pkg);
-  return { ...agent, command: s.command, args: s.args, env: { ...agent.env, ...s.env } };
+  /*
+   * 🔴 **지우는 명령도 같이 갈아끼운다** (2026-10-07).
+   *
+   * 여기서 `command`·`args` 만 바꿔었다. 그래서 `purgeSession` 은 카탈로그에
+   * 적힌 `npx -y …` 그대로 남아, 방을 나갈 때마다 **받아둔 codex.exe 를 두고
+   * npx 가 따로 받은 판**을 돌렸다. 사용자가 지우는 로직을 다시 보자고
+   * 해서 나왔다.
+   */
+  const purge = agent.pkg.purge ? cmdPath(dir, agent.pkg.purge) : undefined;
+  return {
+    ...agent,
+    command: s.command,
+    args: s.args,
+    env: { ...agent.env, ...s.env },
+    ...(purge ? { purgeSession: { command: purge.exe, args: purge.args } } : {}),
+  };
 }

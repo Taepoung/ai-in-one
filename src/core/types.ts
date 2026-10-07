@@ -175,6 +175,19 @@ export interface AgentPackage {
    */
   exeEnv?: { name: string; bin: string };
   /**
+   * 🔴 **세션을 지울 때 부를 명령** (2026-10-07).
+   *
+   * 예전엔 `AgentDef.purgeSession` 에 `npx -y …` 을 통째로 적어두었다.
+   * 그런데 **우리는 이미 그 CLI 를 받아두고 있다** — `withInstalled` 가
+   * `command`·`args` 는 갈아끼우면서 `purgeSession` 은 안 건드렸다. 그래서
+   * 세션 하나 지우자고 **npx 가 따로 받은 판**이 돌았다 — 망이 없으면
+   * 그냥 실패하고, 있으면 445MB 를 받는다. §F5 가 경고하던 그 모양이다.
+   *
+   * 여기 적어두면 **받은 자리의 실행파일**로 바꿔 달아준다.
+   * `{id}` 는 세션 id 로 치환된다.
+   */
+  purge?: AgentCmd;
+  /**
    * 로그인이 됐나를 어떻게 보나.
    *
    * ⚠️ `file` 은 **어림짐작이다.** 홈 아래 그 파일이 있으면 로그인된

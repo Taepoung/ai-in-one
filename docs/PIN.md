@@ -481,6 +481,67 @@ npx -y -p …codex-acp@2.1.0 -p @openai/codex@0.159.3 codex delete --force <id>
 
 ---
 
+
+### F6. ✅ 그런데 **`npx` 길이 남아 있었다** (2026-10-07)
+
+> 사용자: *"세션 지우는거 로직 다시 확인 한번 해보고"*. 보니 §F5 의 결론이
+> 반만 반영돼 있었다.
+
+우리 자리에 직접 받기로 하면서(`docs/INSTALL.md`) `withInstalled` 가
+`command`·`args`·`env` 를 갈아끼운다. 그런데 **`purgeSession` 은 안 건드렸다.**
+그래서 방을 나갈 때마다
+
+```
+받아둔 codex.exe 를 두고   npx 가 따로 받은 판을 돌렸다
+```
+
+§F5 가 고쳤다고 적어둔 바로 그 모양이 **다른 문으로 돌아와 있었다.** 망이
+없으면 그냥 실패하고, 있으면 445MB 를 또 받는다.
+
+이제 `AgentPackage.purge` 에 적고 `withInstalled` 가 **받은 자리의 실행파일로**
+바꿔 단다:
+
+```
+purge: { find: CODEX_EXE, args: ["delete", "--force", "{id}"] }
+→ …/agents/codex/node_modules/@openai/codex-win32-x64/vendor/…/codex.exe delete --force {id}
+```
+
+⚠️ **`AgentDef` 에 적힌 것은 `withInstalled` 를 안 거친다.** 받아두는 것과
+띄우는 것을 나눠놓은 구조라, 그런 칸을 더할 때마다 **둘 다 손대야 한다.**
+
+### F7. 🔴 **`app-server` 가 떠 있으면 못 지운다** (2026-10-07)
+
+남은 세션을 정리하다 걸렸다. `codex delete --force <id>` 가 계속 이랬다:
+
+```
+Error: failed to delete session      (종료코드 1)
+```
+
+잠금인가 싶어 셋 다 열어봤는데 **안 잠겨 있었다** — sqlite 둘 다 `BEGIN
+IMMEDIATE` 가 통과했고 롤아웃 파일도 `r+b` 로 열렸다. 범인은 따로 있었다:
+
+```
+codex.exe -c features.code_mode_host=true app-server --analytics-default-enabled
+  ← …/.vscode/extensions/openai.chatgpt-…/bin/…/codex.exe
+```
+
+사용자의 **ChatGPT VS Code 확장**이 띄운 데몬이고 우리 것이 아니다. 그걸
+내리자마자 `Deleted session …` 이 떴다.
+
+⚠️ **확장을 끄는 것만으로는 안 내려간다.** «shared local app-server» 라
+확장을 disable 해도 프로세스가 남는다. 직접 내려야 한다.
+
+그래서 **우리 뒷정리는 사용자가 Codex 쪽 확장을 쓰고 있으면 실패할 수 있다.**
+막을 길은 없다 — 남의 프로세스를 우리가 내릴 일은 아니다. 다만 §F1 의 로그가
+여전히 값을 한다는 것이 여기서 확인됐다:
+
+```
+실패하면 종료코드 1 → 출력 패널에 명령과 까닭이 그대로 찍힌다
+```
+
+⏪ 중간에 «파일이 잠긴 것 같다» 고 적을 뻔했다. 재보니 아니었다 —
+**짐작을 적기 전에 열어보는 것**이 여기서 값을 했다.
+
 ## G. 에이전트마다 모양이 다르다 — 그리고 **공식 목록이 따로 있다**
 
 > ⏪ **이 절을 한 번 틀리게 적었다** (2026-10-01).
