@@ -4450,6 +4450,23 @@ export class RoomManager extends EventEmitter<Events> {
    * 이어진다. 안 되면 **이미 있는 끕김 흐름**이 받아준다(대화 넘겨서 /
    * 요약만 / 기록만 두고). 여기서 지워버리면 고를 거리를 없애는 셌이다.
    */
+  /** 그 에이전트가 광고하는 로그인 길들 (ACP) */
+  async authOptionsOf(agentId: string): Promise<{ id: string; name: string; description?: string }[]> {
+    return this.connection(agentId).authOptions();
+  }
+
+  /** ACP 로 로그인한다. 사람이 브라우저에서 마칠 때까지 안 돌아온다 */
+  async authenticateAs(
+    agentId: string, methodId: string, onNote?: (line: string) => void,
+  ): Promise<void> {
+    await this.connection(agentId).authenticate(methodId, onNote);
+  }
+
+  /** ACP 로 로그아웃. 광고 안 했으면 `false` */
+  async logOutOf(agentId: string): Promise<boolean> {
+    return this.connection(agentId).logOut();
+  }
+
   dropConnection(agentId: string): void {
     const conn = this.connections.get(agentId);
     if (!conn) return;

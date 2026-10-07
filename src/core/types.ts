@@ -198,6 +198,18 @@ export interface AgentPackage {
      * 그냥 놓여 있어서, 그걸 찾아 부르는 수밖에 없다.
      */
     /** 로그인 — 터미널로 띄운다 (브라우저가 열리고 코드를 붙여넣는다) */
+    /**
+     * 🔴 **로그인을 ACP 로 한다** (2026-10-07).
+     *
+     * 터미널로 CLI 를 띄우는 길이 **아예 없거나 엉뚱한 집을 보는**
+     * 에이전트가 있다. Antigravity 가 그렇다 — `agy` 는 `antigravity-cli/`,
+     * ACP 서버는 `antigravity-acp/` 를 본다. 그래서 `agy` 로 로그인해도
+     * **세션은 계속 막혔다.**
+     *
+     * 이게 켜 있으면 `login`·`logout` 대신 ACP 의 `authenticate`·`logout`
+     * 을 부른다. 저쪽이 브라우저를 열고, 주소는 stderr 로 나온다.
+     */
+    acp?: boolean;
     login?: AgentCmd;
     /** 로그아웃 — 마찬가지로 터미널로 */
     logout?: AgentCmd;

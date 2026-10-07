@@ -147,6 +147,14 @@ export class AcpConnection {
   private conn?: acp.ClientConnection;
   private starting?: Promise<void>;
   private stderr = "";
+  /**
+   * ★ **로그인하는 동안만 stderr 를 엿듣는다** (2026-10-07).
+   *
+   * Antigravity 는 `authenticate` 를 받으면 **브라우저를 제 손으로 열고**,
+   * 그 주소를 답이 아니라 **stderr 로 뿜는다.** 브라우저가 안 떠는
+   * 기계도 있으므로 그 줄을 잡아 사람에게 보여줘야 한다.
+   */
+  private onStderr?: (chunk: string) => void;
   /** initialize 응답. 에이전트가 무엇을 지원하는지 판단하는 근거 */
   private init?: acp.InitializeResponse;
   /**
@@ -292,6 +300,7 @@ export class AcpConnection {
     proc.stderr.on("data", (chunk: string) => {
       // 기동 실패 진단용으로 마지막 부분만 들고 있는다
       this.stderr = (this.stderr + chunk).slice(-4000);
+      this.onStderr?.(chunk);
       this.host.log(`[${this.agent.id}] ${chunk.trimEnd()}`);
     });
 
@@ -388,6 +397,85 @@ export class AcpConnection {
     this.proc = undefined;
     this.init = undefined;
     if (proc) killTree(proc);
+  }
+
+  // ── 로그인 ─────────────────────────────────────
+
+  /**
+   * ★ **저쪽이 광고하는 로그인 길들** (2026-10-07).
+   *
+   * `initialize` 응답에 들어 있다. Antigravity 는 넷을 내놓는다 —
+   * Google · Gemini Enterprise · API 키 · Agent Platform.
+   */
+  async authOptions(): Promise<{ id: string; name: string; description?: string }[]> {
+    await this.ensureStarted();
+    const list = this.init?.authMethods ?? [];
+    return list.map((m) => ({
+      id: m.id,
+      name: m.name,
+      ...(m.description ? { description: m.description } : {}),
+    }));
+  }
+
+  /** 저쪽이 제 손으로 로그아웃할 수 있나 */
+  canLogOut(): boolean {
+    return this.init?.agentCapabilities?.auth?.logout !== undefined;
+  }
+
+  /**
+   * 🔴 **앞으로 로그인은 여기로 도는 것이 맞다** (2026-10-07).
+   *
+   * 사용자가 봉착했다 — *"antigravity에 로그인해도 세션이 안붙고
+   * 모델도 파악 불가임"*. 재보니 **CLI 와 ACP 서버가 서로 다른 집을
+   * 본다:**
+   *
+   * ```
+   * agy (CLI)       ~/.gemini/antigravity-cli/
+   * agy_acp_server  ~/.gemini/antigravity-acp/settings.json   status=missing
+   * ```
+   *
+   * 그래서 `agy` 로 아무리 로그인해도 세션은 *"Authentication required"*
+   * 로 막혔다. 저쪽이 직접 시킨 길이 이것이다 — *"Either call the
+   * `authenticate` method, or set `auth.type` in settings.json"*. 뒤엔 것은
+   * 남의 설정 파일을 고치는 일이라 안 한다(§0 P3).
+   *
+   * ⚠️ **오래 걸린다.** 브라우저에서 구글 로그인을 마칠 때까지
+   * 돌아오지 않는다. 기도만큼 짧게 잡으면 **사람이 로그인하는
+   * 도중에 끊는다.**
+   */
+  async authenticate(
+    methodId: string,
+    onNote?: (line: string) => void,
+    timeoutMs = 5 * 60 * 1000,
+  ): Promise<void> {
+    await this.ensureStarted();
+    /* 주소를 뿜는 것은 stderr 다 — 로그인 동안만 엿듣는다 */
+    let tail = "";
+    this.onStderr = (chunk) => {
+      tail += chunk;
+      for (const line of tail.split("\n").slice(0, -1)) {
+        if (line.includes("http://") || line.includes("https://")) onNote?.(line.trim());
+      }
+      tail = tail.slice(tail.lastIndexOf("\n") + 1);
+    };
+    try {
+      await Promise.race([
+        this.conn!.agent.request(acp.methods.agent.authenticate, { methodId }),
+        new Promise((_ok, bad) =>
+          setTimeout(() => { bad(new Error("로그인을 기다리다 시간이 다 됐습니다")); }, timeoutMs),
+        ),
+      ]);
+    } finally {
+      this.onStderr = undefined;
+    }
+  }
+
+  /** 저쪽에게 로그아웃을 시킨다. 광고 안 했으면 아무것도 안 한다 */
+  async logOut(): Promise<boolean> {
+    await this.ensureStarted();
+    if (!this.canLogOut()) return false;
+    await this.conn!.agent.request(acp.methods.agent.logout, {});
+    return true;
   }
 
   // ── 세션 ──────────────────────────────────────────────────────────────

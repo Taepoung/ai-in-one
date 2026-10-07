@@ -697,7 +697,7 @@ export class ChatPanel implements AskTarget {
           ...(st.wanted ? { wanted: st.wanted } : {}),
           size: st.size,
           loggedIn,
-          canLogout: a.pkg?.auth?.logout !== undefined,
+          canLogout: a.pkg?.auth?.logout !== undefined || a.pkg?.auth?.acp === true,
           ...(busy ? { busy } : {}),
         };
       }),
@@ -777,6 +777,9 @@ export class ChatPanel implements AskTarget {
       return;
     }
 
+    /* 터미널로 띄울 게 아니라 **저쪽에게 시키는** 에이전트가 있다 */
+    if (agent.pkg.auth?.acp) { await this.authViaAcp(agent, what); return; }
+
     const cmd = what === "login" ? agent.pkg.auth?.login : agent.pkg.auth?.logout;
     if (!cmd) return;
     const found = cmdPath(dir, cmd);
@@ -831,6 +834,78 @@ export class ChatPanel implements AskTarget {
      */
     /* 닫지 않고 내버려두는 사람도 있다 — 한 번은 스스로 다시 본다 */
     setTimeout(() => { this.authAt.delete(agent.id); this.sendAgents(); }, 20000);
+  }
+
+  /**
+   * ★ **ACP 로 들어가고 나온다** (2026-10-07).
+   *
+   * 터미널 길과 다른 점은 **끄는 순간을 우리가 안다**는 것이다 —
+   * `authenticate` 가 돌아오면 된 것이다. 그래서 끝나자마자 단추를
+   * 다시 그린다.
+   *
+   * ⚠️ **주소도 같이 보여준다.** 저쪽이 브라우저를 열긴 하는데
+   * 원격·컨테이너처럼 **안 열리는 자리가 있다.** 그때 주소가
+   * stderr 에만 있으면 사람은 «멈켔4다» 고만 본다.
+   */
+  private async authViaAcp(agent: AgentDef, what: "login" | "logout"): Promise<void> {
+    if (this.busy.has(agent.id)) return;
+    try {
+      if (what === "logout") {
+        this.busy.set(agent.id, "로그아웃하는 중…");
+        this.sendAgents();
+        const did = await this.rooms.logOutOf(agent.id);
+        if (!did) {
+          void vscode.window.showWarningMessage(
+            `${agent.label}은(는) 로그아웃을 지원하지 않습니다.`);
+          return;
+        }
+        /* 돌던 것을 내린다 — 그대로 두면 옆 계정으로 계속 돌아간다 */
+        this.rooms.dropConnection(agent.id);
+        return;
+      }
+
+      const ways = await this.rooms.authOptionsOf(agent.id);
+      if (ways.length === 0) {
+        void vscode.window.showErrorMessage(
+          `${agent.label}이(가) 로그인 길을 알려주지 않습니다.`);
+        return;
+      }
+      let way = ways[0]!;
+      if (ways.length > 1) {
+        /* 넷을 내놓는 에이전트도 있다 — 골라야 한다 */
+        const chosen = await vscode.window.showQuickPick(
+          ways.map((m) => ({ label: m.name, detail: m.description, id: m.id })),
+          { title: `${agent.label} 로그인`, placeHolder: "어느 길로 들어갈까요" },
+        );
+        if (!chosen) return;
+        way = ways.find((m) => m.id === chosen.id)!;
+      }
+
+      this.busy.set(agent.id, `${way.name} — 브라우저를 기다리는 중…`);
+      this.sendAgents();
+      await this.rooms.authenticateAs(agent.id, way.id, (line) => {
+        const at = /https?:\/\/\S+/.exec(line);
+        if (!at) return;
+        const url = at[0];
+        void (async () => {
+          const p = await vscode.window.showInformationMessage(
+            `${agent.label}: 브라우저가 안 열렸다면 이 주소로 들어가세요.`,
+            "열기", "복사",
+          );
+          if (p === "열기") await vscode.env.openExternal(vscode.Uri.parse(url));
+          else if (p === "복사") await vscode.env.clipboard.writeText(url);
+        })();
+      });
+      void vscode.window.showInformationMessage(`${agent.label} 로그인을 마쳤습니다.`);
+    } catch (err) {
+      void vscode.window.showErrorMessage(
+        `${agent.label} ${what === "login" ? "로그인" : "로그아웃"}에 실패했습니다 — ` +
+          `${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.busy.delete(agent.id);
+      this.authAt.delete(agent.id);
+      this.sendAgents();
+    }
   }
 
   private async sendConfig(agentId: string, roomId?: string, botId?: string): Promise<void> {

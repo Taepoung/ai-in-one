@@ -374,35 +374,34 @@ export const DEFAULT_AGENTS: AgentDef[] = [
         },
       },
       auth: {
-        /* `agy` 로 로그인하면 여기가 생긴다 — 어림짐작이다 */
-        file: path.join(".gemini", "antigravity-cli", "settings.json"),
-        login: { find: "agy", args: [] },
         /*
-         * ★ **로그아웃도 같은 문이다 — 다만 문까지다** (2026-10-07).
+         * 🔴 **`agy` 로 로그인해도 세션은 안 붙는다** (2026-10-07).
          *
-         * ⏪ 두 번 틀렸다.
+         * 사용자가 봉착했다 — *"antigravity에 로그인해도 세션이
+         * 안붙고 모델도 파악 불가임"*. 재보니 **둘이 서로 다른 집을
+         * 본다:**
          *
-         * 처음엔 하위 명령에 `logout` 이 없는 걸 보고 **길이 없다고 비워두었다.**
-         * 사용자가 짚었다 — *"login같은 거는 cli열어서 하지 않았어?"*.
-         * 맞다. 로그인도 명령이 있어서 한 게 아니라 그냥 띄운 것이다.
+         * ```
+         * agy (CLI)       ~/.gemini/antigravity-cli/
+         * agy_acp_server  ~/.gemini/antigravity-acp/settings.json   status=missing
+         * ```
          *
-         * 그래서 `-i "/logout"` 으로 고쳤다. **그것도 틀렸다.**
-         * `--prompt-interactive` 는 슬래시로 안 푸고 **모델에게 말로 넘긴다** —
-         * 그 에이전트가 «/logout 이 무슨 뜻이지» 를 알아보겠다고 **우리
-         * 폴더를 뒤지기 시작했다.** 사용자가 그 화면을 보냈다.
+         * 그래서 `agy` 로 아무리 로그인해도 `session/new` 는
+         * *"Authentication required"* 로 막혔다. 저쪽이 직접 시킨 길은
+         * **ACP 의 `authenticate`** 다 — 부르면 브라우저를 열고 주소도 뿜는다.
          *
-         * 슬래시는 **TUI 에 사람이 칠 때만** 풀린다. 그러니 우리가 할 수 있는
-         * 것은 로그인과 똑같이 **창을 열어주는 것까지**다. 그 다음은 `say` 가
-         * 말해준다 — 지어내서 자동으로 만들어 붙이는 것보다 낫다.
-         *
-         * ⚠️ 자격 파일을 지우는 길은 여전히 안 택한다(§0 P3).
+         * ⚠️ **이제 `agy` 는 로그인과 상관없다.** 190MB 를 그것 때문에
+         * 받고 있었는데 그 것이 아니었다. `agy models` 가 모델 목록을
+         * 내주긴 하나, 그것도 ACP 세션이 붙으면 거기서 나온다 —
+         * 붙는 걸 본 뒤에 뺌지 말지 정한다.
          */
-        logout: {
-          find: "agy",
-          args: [],
-          say: "열린 창에 `/logout` 을 치면 로그아웃됩니다. "
-            + "Antigravity 는 바깥에서 부를 로그아웃 명령이 없습니다.",
-        },
+        acp: true,
+        /*
+         * 로그인하면 **ACP 서버의 집**이 생긴다. 예전엔 CLI 쪽
+         * `antigravity-cli/settings.json` 을 봤는데 그건 로그아웃해도
+         * 그대로 있어서 **단추가 안 바뀜다**(사용자가 짚었다).
+         */
+        file: path.join(".gemini", "antigravity-acp"),
       },
     },
   },

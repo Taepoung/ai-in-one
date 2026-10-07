@@ -674,6 +674,64 @@ Gemini·Claude·GPT-OSS 섞여 있다). 전에 «고를 수 있는 모델이 안
 
 ---
 
+### G4-2. **CLI 와 ACP 서버가 서로 다른 집을 본다**
+
+> 2026-10-07. 사용자: *"antigravity에 로그인해도 세션이 안붙고 모델도 파악
+> 불가임"*. 재보니 이것이 §G4 에서 열어둔 물음의 답이었다 — **안 닿는다.**
+
+ACP 서버를 직접 띄워 `session/new` 를 쳐봤다:
+
+```
+agy (CLI)       ~/.gemini/antigravity-cli/
+agy_acp_server  ~/.gemini/antigravity-acp/settings.json   status=missing
+                → session/new: "Authentication required"
+```
+
+🔴 **그래서 `agy` 로 하는 로그인은 세션과 아무 상관이 없었다.** 190MB 를 그
+용도로 받고 있었는데 그게 아니었다. 저쪽이 직접 시킨 길은 이것이다:
+
+> *"Either call the `authenticate` method (supports oauth-personal,
+> gemini-api-key, agent-platform), or set `auth.type` in settings.json"*
+
+뒤엣것은 **남의 설정 파일을 고치는 일**이라 안 한다(§0 P3). 앞엣것을 붙였다.
+불러보니 제대로 돈다:
+
+```
+Authenticate called with method_id='oauth-personal'
+Credentials missing or invalid. Launching browser login flow...
+Open the following link to authenticate the ACP server: https://accounts.google.com/...
+```
+
+⚠️ **주소는 답이 아니라 stderr 로 나온다.** 브라우저는 저쪽이 직접 열지만
+원격·컨테이너처럼 안 열리는 자리가 있으므로 그 줄을 잡아 사람에게 보여준다.
+그리고 **사람이 브라우저에서 마칠 때까지 안 돌아온다** — 기본 5분을 준다.
+
+`initialize` 가 `agentCapabilities.auth.logout` 도 광고하므로 **로그아웃도 ACP
+로 한다.** 이걸로 §G4 의 *"빠진 것은 우리 쪽이다"* 가 메워졌다 — binary 꼴
+19개 대부분이 같은 모양일 테니 다음 에이전트는 이 길이 먼저다.
+
+### G4-3. `agy` 는 **제 손으로 판을 올린다**
+
+핀을 박았는데 안 지켜졌다. 받은 지 3분 뒤 — 우리가 한 번 띄우자마자 —
+`agy.exe` 의 해시가 바뀌고 `--version` 이 **1.3.1** 이 됐다. 사용자가 본
+*"cli에서는 1.3.1이라고 나오는데 우리가 받은건 1.3.0"* 이 이것이다.
+
+```
+우리가 받은 것   agy-cli 1.3.0 (sha512 로 박음)
+한 번 띄운 뒤    1.3.1        ← ~/.gemini/antigravity-cli/updater/
+ACP 서버 1.3.1   **없다** (404) — 우리 핀은 최신이 맞다
+```
+
+끄는 길은 있다 — 환경 변수 **`AGY_CLI_DISABLE_AUTO_UPDATE`**. 지금은 우리가
+`agy` 를 띄우는 자리가 없어서 안 걸리지만, 다시 띄우게 되면 **반드시 같이
+준다.** 안 그러면 sha512 를 박아둔 것이 무의미해진다.
+
+⚠️ **`agy` 를 계속 받을 이유가 남았는지 다시 봐야 한다.** 로그인은 이제 ACP 가
+한다. `agy models` 가 모델 목록을 내주긴 하나 그것도 ACP 세션이 붙으면
+`session/new` 의 `configOptions` 에서 나올 수 있다 — **붙는 걸 본 뒤에** 정한다.
+
+---
+
 ### G5. **판마다 이름도 권한도 다르다**
 
 > 2026-10-06. 사용자가 물었다 — *"우리 근데 exe를 지정해서 cli에
