@@ -71,6 +71,14 @@ export interface AgentCmd {
   bin?: string;
   find?: string;
   args: string[];
+  /**
+   * 🔴 **띄우는 것만으로 안 끝나면 여기 적는다** (2026-10-07).
+   *
+   * Antigravity 는 로그아웃이 **CLI 안에서 치는 `/logout`** 이라,
+   * 띄우기만 해서는 채팅창만 열린다. 그걸 안 적어주면 사람은
+   * «눌렀는데 아무 일도 안 나네» 가 된다.
+   */
+  say?: string;
 }
 
 /** 그 에이전트가 지금 어느 칸에 있나 — 화면이 보여줄 단추가 여기서 나온다 */

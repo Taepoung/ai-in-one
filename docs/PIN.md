@@ -631,15 +631,35 @@ models  plugin  plugins  remote-control  update
 "Command:Sign Out"
 ```
 
-그래서 로그아웃도 **같은 문**이다:
+⚠️ **그렇다고 `-i "/logout"` 으로 넘기면 안 된다.** 두 번째 틀림이
+여기였다. `--prompt-interactive` 는 **슬래시로 안 풀고 모델에게 말로
+넘긴다** — 사용자가 직접 본 장면이다:
 
 ```
-로그인    agy            ← 대화식 메뉴가 뜨고 거기서 고른다
-로그아웃  agy -i /logout  ← 첫 줄로 슬래시를 넣고 대화식으로 남는다
+> /logout
+○ Thought for 4.7s (The request `/logout` requires understanding its function…)
+● Explored 4 files (SKILL.md, cli.md, ide.md, +1)
+● Ran (Get-ChildItem -Path "…globalStorage	aein-yoon.ai-in-one")
 ```
 
-`-i` 가 `--prompt-interactive` 다. 대화식으로 남아야 **확인 물음에 사람이
-답할 수 있다** — `-p` 로 넘기면 물음에 답할 사람이 없다.
+로그아웃을 눌렀는데 **그 에이전트가 우리 폴더를 뒤지기 시작했다.**
+`--disable-slash-commands` 가 *"in print mode"* 라고 적혀 있는 것도 그 뜻이다 —
+슬래시는 **TUI 에 사람이 칠 때** 풀린다.
+
+그래서 우리가 할 수 있는 것은 **창을 열어주는 것까지**다:
+
+```
+로그인    agy   → 대화식 메뉴가 뜨고 거기서 고른다
+로그아웃  agy   → 창이 뜨고, **사람이 `/logout` 을 친다**
+```
+
+둘이 같은 명령이라 말해주지 않으면 «눌렀는데 아무 일도 안 나네» 가 된다.
+그래서 `AgentCmd.say` 를 두었다 — 띄우면서 무엇을 더 해야 하는지 한 줄 띄운다.
+
+🔴 **지어내서 자동으로 만들지 않는다.** 예를 들어 터미널에 글자를
+대신 치는 길도 있지만, TUI 가 준비되기 전에 보내면 사라지고 **언제
+준비되는지는 알 방법이 없다.** 된 줄 알고 넣은 글자가 엉뚱한 데 들어가는
+것보다, 사람에게 한 줄 알려주는 편이 낫다.
 
 🔴 **자격 파일을 지우는 길은 안 택했다** (§0 P3). 구독 토큰은 안 건드린다 —
 CLI 가 제 손으로 하게 두고 우리는 문만 열어준다.

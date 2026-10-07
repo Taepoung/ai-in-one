@@ -811,6 +811,8 @@ export class ChatPanel implements AskTarget {
       shellArgs: found.args,
     });
     term.show();
+    /* 띄우는 것만으로 안 끝나는 CLI 가 있다 — 무엇을 더 해야 하는지 말해준다 */
+    if (cmd.say) void vscode.window.showInformationMessage(`${agent.label}: ${cmd.say}`);
     /*
      * ★ **터미널이 닫히면 바로 다시 본다** (2026-10-02).
      *
