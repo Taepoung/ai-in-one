@@ -104,6 +104,14 @@ export type ToWebview =
         /** 바이트. 0 이면 안 받은 것 */
         size: number;
         loggedIn: boolean;
+        /**
+         * 🔴 **로그아웃할 길이 있나** (2026-10-07).
+         *
+         * 없는 CLI 가 있다 — `agy` 에는 `login`·`logout` 자체가 없다.
+         * 그런데도 단추를 띄우고 있어서 **눌러도 아무 일도 안 생겼다.**
+         * 사용자가 봉착했다 — *"로그아웃도 안먹네"*.
+         */
+        canLogout: boolean;
         /** 지금 받는 중이면 마지막 줄 */
         busy?: string;
       }[];

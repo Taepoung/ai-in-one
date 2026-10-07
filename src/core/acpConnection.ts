@@ -160,8 +160,17 @@ export class AcpConnection {
   /** 받을 사람이 붙기 전에 온 이벤트들 (A11) */
   private readonly pending = new Map<string, AgentEvent[]>();
 
+  /**
+   * 🔴 **`readonly` 이었다 — 받아도 못 알아보는 지름이였다** (2026-10-07).
+   *
+   * 연결은 에이전트당 하나를 만들어 쌓아둔다. 그런데 정의를 **처음
+   * 만들 때 값으로 쥐고 안 놓았다.** 방을 먼저 열어 «아직 받지
+   * 않았습니다» 를 본 뒤에 받으면, 목록은 갈아끼워도(`setAgents`)
+   * **이 객체는 그때 그 말을 그대로 들고 있어** 영영 같은 소리를 한다.
+   * 사용자가 봉착한 것도 바로 그것이다.
+   */
   constructor(
-    readonly agent: AgentDef,
+    public agent: AgentDef,
     private readonly host: WorkspaceHost,
     /** 질문 정책도 방 단위다 (D5). 권한과 같은 이유로 sessionId를 넘겨 되묻는다 */
     /**
@@ -210,6 +219,19 @@ export class AcpConnection {
    * `onSlowStart`는 기동이 오래 끌 때 한 번 불린다 — `npx`로 CLI를 처음 받으면
    * **수십 초**가 걸릴 수 있는데, 그동안 `연결 중…`만 떠 있으면 멈춘 줄 안다.
    */
+  /**
+   * ★ **안 떠 있으면 새 정의로 갈아끼운다.** 바꿨으면 `true`.
+   *
+   * ⚠️ **떠 있으면 손대지 않는다.** 대화 중에 CLI 를 갈아끼우면
+   * 세션이 끊긴다 — 그건 받고 지우는 쪽이 `dropConnection` 으로
+   * 명시적으로 할 일이지, 목록이 바뀜다고 조용히 할 일은 아니다.
+   */
+  retarget(next: AgentDef): boolean {
+    if (this.proc || this.starting) return false;
+    this.agent = next;
+    return true;
+  }
+
   async ensureStarted(onSlowStart?: () => void): Promise<void> {
     if (this.isRunning) return;
     /*

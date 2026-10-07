@@ -815,6 +815,28 @@ export class RoomManager extends EventEmitter<Events> {
    */
   setAgents(list: AgentDef[]): void {
     this.opts.agents = list;
+    /*
+     * 🔴 **쌓아둔 연결도 같이 갈아끼운다** (2026-10-07).
+     *
+     * 여기서 목록만 바꾸고 말았다. 그런데 `connection()` 은 에이전트당
+     * 객체를 한 번만 만들어 쌓아두고, 그 객체는 **만들 때의 정의를
+     * 그대로 쥐고 있다.** 그래서 이렇게 됐다:
+     *
+     * ```
+     * 방을 열었다   → 안 받은 상태라 «아직 받지 않았습니다» 를 쥐고 생긴다
+     * 로봇에서 받았다 → 목록은 고쳐졌는데 그 객체는 그대로다
+     * 다시 방으로   → **받아놓고도 «아직 받지 않았습니다»**
+     * ```
+     *
+     * 사용자가 그대로 봉착했다. VSCode 를 다시 띄우기 전엔 풀리지 않았다.
+     *
+     * ⚠️ **떠 있는 것은 그대로 둔다** — `retarget` 이 거절한다. 대화 중에
+     * 갈아끼우면 세션이 끊긴다.
+     */
+    for (const [id, conn] of this.connections) {
+      const next = list.find((a) => a.id === id);
+      if (next) conn.retarget(next);
+    }
   }
 
   constructor(private readonly opts: RoomManagerOptions) {

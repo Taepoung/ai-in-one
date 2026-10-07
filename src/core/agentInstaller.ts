@@ -437,6 +437,15 @@ export async function install(
   run: Run = realNpm,
   onLine?: (line: string) => void,
 ): Promise<{ ok: boolean; say: string }> {
+  /*
+   * ★ **받을 때도 옆에 치워둔 것을 쓸어담는다** (2026-10-07).
+   *
+   * 지울 때 떠 있으면 이름만 바꿔 치워둔다(`remove`). 그걸 쓸어담는
+   * 자리가 지우기 안에만 있었다 — 다시 안 지우면 **81MB 가 그대로
+   * 남는다.** 진짜로 하나 남아 있는 걸 보고 옮긴다. 받기 전이면
+   * 뵙잡고 있던 프로세스도 끌나 있을 때라 지워질 확률도 높다.
+   */
+  await sweepOld(path.dirname(dir));
   const was = statusOf(dir, pkg);
   if (was.installed && !was.stale) return { ok: true, say: "이미 받아져 있습니다" };
 

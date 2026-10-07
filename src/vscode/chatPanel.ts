@@ -697,6 +697,7 @@ export class ChatPanel implements AskTarget {
           ...(st.wanted ? { wanted: st.wanted } : {}),
           size: st.size,
           loggedIn,
+          canLogout: a.pkg?.auth?.logout !== undefined,
           ...(busy ? { busy } : {}),
         };
       }),

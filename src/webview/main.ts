@@ -1637,7 +1637,10 @@ function renderAgents(): void {
         bar.append(el("button", { class: "agent-go", text: "업데이트", onclick: () => act("install") }));
       }
       if (a.loggedIn) {
-        bar.append(el("button", { class: "agent-btn", text: "로그아웃", onclick: () => act("logout") }));
+        /* 길이 없으면 단추도 안 달고, 아래에 왜인지 한 줄 적는다 */
+        if (a.canLogout) {
+          bar.append(el("button", { class: "agent-btn", text: "로그아웃", onclick: () => act("logout") }));
+        }
       } else {
         bar.append(el("button", { class: "agent-go", text: "로그인", onclick: () => act("login") }));
       }
@@ -1647,6 +1650,17 @@ function renderAgents(): void {
       }));
     }
     row.append(bar);
+
+    /*
+     * 로그아웃할 길이 없으면 **그 사실을 말해준다.** 단추만 지우고 아무
+     * 말도 안 하면 «왜 없지» 가 된다 — 안 먹는 단추와 같은 자리다.
+     */
+    if (a.state === "ready" && !a.canLogout) {
+      row.append(el("p", { class: "dim",
+        text: `「${a.label}」 의 CLI 에는 로그아웃 명령이 없습니다. `
+          + `계정을 바꾸려면 그 CLI 에서 직접 해주세요.`,
+      }));
+    }
 
     /* 로그인 안 됐으면 왜 필요한지 한 줄 — 안 적으면 그냥 막힌 것처럼 보인다 */
     if (a.state === "needLogin") {

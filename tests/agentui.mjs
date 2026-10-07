@@ -69,7 +69,7 @@ function mount() {
 
 const row = (over) => ({
   id: "codex", label: "Codex", color: "#10a37f", managed: true,
-  state: "none", size: 0, loggedIn: false, ...over,
+  state: "none", size: 0, loggedIn: false, canLogout: true, ...over,
 });
 
 console.log("\n[★ 로봇 단추가 화면을 열고 목록을 조른다]");
@@ -114,6 +114,23 @@ console.log("\n[★ 상태마다 단추가 표대로]");
   console.log(`   ready     → ${JSON.stringify(b)}`);
   ok(b.includes("로그아웃"), "★ `ready` → 로그아웃");
   ok(b.includes("제거"), "★ **제거와 로그아웃이 따로 있다** — 묶으면 로그인까지 날아간 줄 안다");
+
+  /*
+   * 🔴 **로그아웃할 길이 없는 CLI 가 있다** (2026-10-07).
+   *
+   * `agy --help` 를 보면 하위 명령에 `login` 도 `logout` 도 없다 —
+   * 그냥 띄우면 대화식으로 묻는 게 전부다. 그런데 화면은 `loggedIn`
+   * 하나만 보고 단추를 달았고, 누르면 `if (!cmd) return` 으로 **조용히
+   * 끝났다.** 사용자: *"로그아웃도 안먹네"*.
+   *
+   * 안 먹는 단추는 고장보다 나쁘다 — 몇 번을 더 누르게 만든다.
+   */
+  b = only("ready", { version: "1.3.0", size: 1, loggedIn: true, canLogout: false });
+  console.log(`   ready(길 없음) → ${JSON.stringify(b)}`);
+  ok(!b.includes("로그아웃"), "★ **길이 없으면 단추를 안 단다** — 눌러도 아무 일도 안 생긴다");
+  ok(b.includes("제거"), "★ 그래도 제거는 남아 있다");
+  ok(a.cards()[0].textContent.includes("로그아웃 명령이 없습니다"),
+     "★ **왜 없는지 적어준다** — 그냥 지우면 «왜 없지» 가 된다");
 }
 
 console.log("\n[★ 제거는 빨간 단추다]");
