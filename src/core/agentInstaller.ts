@@ -481,6 +481,114 @@ export async function install(
   };
 }
 
+/** 프로세스 표 한 줄. 플랫폼마다 긁는 법이 달라 모양만 맞춘다 */
+export interface ProcRow { pid: number; ppid: number; path: string }
+
+/**
+ * ★ **버려진 것을 가려낸다** (2026-10-07).
+ *
+ * 🔴 사용자가 짚었다 — *"다른 애들도 이전게 남아있는지 확인해야될듯? 이거
+ * 쌓이면 안되지"*. 세어보니 **Antigravity 27개 · 581MB** 였다.
+ *
+ * ```
+ * agy_acp_server.exe         20개
+ * localharness_external.exe   6개
+ * agy.exe                     1개
+ * ```
+ *
+ * 까닭은 **F5** 다. 확장 호스트가 죽을 때 `dispose` 가 못 돌고, 우리가 띄운
+ * 서버는 그대로 산다. Claude·Codex 는 stdin 이 닫히면 알아서 끝나는데
+ * Antigravity 의 파이썬 서버는 **안 끝난다.** 그래서 한쪽만 쌓였다.
+ *
+ * ⚠️ **창이 여럿일 수 있다.** globalStorage 는 창끼리 나눠 쓰므로 «우리 자리에서
+ * 나온 것» 을 전부 죽이면 **옆 창이 쓰고 있는 것까지 죽인다.** 그래서 기준은
+ * «우리 것이냐» 가 아니라 **«부모가 살아 있느냐»** 다 — 옆 창의 것은 그 창의
+ * 확장 호스트가 부모로 살아 있다.
+ *
+ * 돌려주는 것은 **나무의 뿌리들**이다. 자식은 부모가 살아 있으니 안 걸리는데,
+ * 뿌리를 나무째 죽이면 같이 간다.
+ */
+export function straysIn(rows: ProcRow[], root: string): number[] {
+  const live = new Set(rows.map((r) => r.pid));
+  const at = root.toLowerCase();
+  return rows
+    .filter((r) => r.path.toLowerCase().startsWith(at) && !live.has(r.ppid))
+    .map((r) => r.pid);
+}
+
+/** 지금 도는 것들을 긁는다. 못 긁으면 빈 배열 — 치우기가 일을 막으면 안 된다 */
+function procRows(): ProcRow[] {
+  try {
+    if (process.platform === "win32") {
+      const ps =
+        "Get-CimInstance Win32_Process | " +
+        "Where-Object { $_.ExecutablePath } | " +
+        "ForEach-Object { $_.ProcessId.ToString() + '|' + $_.ParentProcessId.ToString() + '|' + $_.ExecutablePath }";
+      const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
+        encoding: "utf8", timeout: 30000, windowsHide: true,
+      });
+      return parseRows(r.stdout ?? "", "|");
+    }
+    const r = spawnSync("ps", ["-eo", "pid=,ppid=,args="], { encoding: "utf8", timeout: 30000 });
+    return (r.stdout ?? "").split(NEWLINE).flatMap((line) => {
+      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+      return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), path: m[3]! }] : [];
+    });
+  } catch { return []; }
+}
+
+function parseRows(out: string, sep: string): ProcRow[] {
+  return out.split(NEWLINE).flatMap((line) => {
+    const bits = line.trim().split(sep);
+    if (bits.length < 3) return [];
+    const pid = Number(bits[0]); const ppid = Number(bits[1]);
+    if (!pid) return [];
+    return [{ pid, ppid, path: bits.slice(2).join(sep) }];
+  });
+}
+
+/** 그 나무를 통째로 내린다 */
+function killPid(pid: number): void {
+  try {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { timeout: 15000, windowsHide: true });
+    } else {
+      process.kill(pid, "SIGKILL");
+    }
+  } catch { /* 이미 죽었으면 말고 */ }
+}
+
+/**
+ * 🔴 **지우기 전에 먼저 내린다** (2026-10-07).
+ *
+ * 사용자: *"제거할때 무시하고 제거는 안되나? kill 때리고 하는 느낌"*. 맞다.
+ * 도는 것을 지울 수는 없는데, **지우겠다고 누른 사람에게 «그 CLI 를 끄고
+ * 다시 해보세요» 라고 하는 것**은 할 일을 떠넘기는 것이다. 어차피 지울
+ * 것이니 우리가 내린다.
+ *
+ * 여기서는 **부모가 살아 있든 말든** 그 자리에서 나온 것을 전부 내린다 —
+ * 지우려는 자리라 살려둘 까닭이 없다.
+ */
+export function killUnder(dir: string): number {
+  const at = path.resolve(dir).toLowerCase();
+  const hit = procRows().filter((r) => r.path.toLowerCase().startsWith(at));
+  for (const r of hit) killPid(r.pid);
+  return hit.length;
+}
+
+/**
+ * 버려진 것만 내린다. 돌려주는 것은 내린 수.
+ *
+ * 받는 것은 **globalStorage 자리**다 — 그 안의 `agents/` 는 여기서 찾는다.
+ * 자리 모양을 아는 것은 `dirFor` 와 같은 한 집이어야 한다.
+ */
+export function sweepStrays(root: string): number {
+  const at = path.join(path.resolve(root), "agents");
+  const pids = straysIn(procRows(), at);
+  for (const pid of pids) killPid(pid);
+  return pids.length;
+}
+
 /** 지운다 — **우리 자리라서** 마음대로 지울 수 있다 */
 export async function remove(dir: string): Promise<void> {
   /*
@@ -501,6 +609,14 @@ export async function remove(dir: string): Promise<void> {
    * 자리가 비므로 다시 깔 수 있고, 치우다 만 것은 다음에 쓸어 담는다.
    */
   await sweepOld(path.dirname(dir));
+
+  /*
+   * 🔴 **먼저 내린다.** 사용자: *"제거할때 무시하고 제거는
+   * 안되나? kill 때리고 하는 느낌"*. 맞다 — 지우겠다고 누른 사람에게
+   * «그 CLI 를 끄고 다시 해보세요» 는 할 일을 떠넘기는 것이다.
+   */
+  const downed = killUnder(dir);
+  if (downed > 0) await new Promise((r) => setTimeout(r, 300));
 
   let last: unknown;
   for (let i = 0; i < 4; i++) {

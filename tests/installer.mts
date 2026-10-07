@@ -29,7 +29,7 @@ import * as http from "node:http";
 import { spawnSync } from "node:child_process";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
-  install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, type Run,
+  install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn, type Run,
 } from "../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
 import type { AgentDef } from "../src/core/types.js";
@@ -288,6 +288,46 @@ async function main(): Promise<void> {
   }
 
   await fsp.rm(home, { recursive: true, force: true }).catch(() => undefined);
+  /*
+   * 🔴 **버려진 것과 쓰고 있는 것을 가른다** (2026-10-07).
+   *
+   * 사용자가 짚었다 — *"이거 쌓이면 안되지"*. 세어보니 Antigravity 가
+   * **27개·581MB** 였다. F5 로 확장 호스트가 죽을 때마다 그 밑에 있던
+   * 서버가 살아남았다. Claude·Codex 는 stdin 이 닫히면 끝나는데
+   * 파이썬 서버는 안 끝난다.
+   *
+   * ⚠️ **전부 죽이면 안 된다.** globalStorage 는 창끼리 나눠 쓰므로 옆 창이
+   * 쓰는 것까지 죽인다. 그래서 기준은 **«부모가 살아 있느냐»** 다.
+   */
+  {
+    const WIN_ROOT = "c:" + path.sep + "x" + path.sep + "agents";
+    const rows = [
+      /* 옆 창의 확장 호스트 — 살아 있다 */
+      { pid: 100, ppid: 1, path: path.join("c:" + path.sep, "Code.exe") },
+      /* 그 창이 띄운 에이전트 — 써야 하므로 안 된다 */
+      { pid: 101, ppid: 100, path: path.join(WIN_ROOT, "antigravity", "agy_acp_server.exe") },
+      /* 버려진 나무의 뿌리 — 부모 999 가 표에 없다 */
+      { pid: 200, ppid: 999, path: path.join(WIN_ROOT, "antigravity", "agy_acp_server.exe") },
+      /* 그 자식 — 부모가 살아 있으니 따로 안 골라낸다 (나무째 죽는다) */
+      { pid: 201, ppid: 200, path: path.join(WIN_ROOT, "antigravity", "localharness_external.exe") },
+      /* 남의 집 — 우리 자리가 아니다 */
+      { pid: 300, ppid: 999, path: path.join("c:" + path.sep, "Program Files", "git", "bash.exe") },
+    ];
+    const got = straysIn(rows, WIN_ROOT);
+    console.log(`   버려진 것: ${JSON.stringify(got)}`);
+    ok(got.includes(200), "★ **부모가 죽은 것은 버려진 것이다**");
+    ok(!got.includes(101), "★ **옆 창이 쓰는 것은 안 건드린다** — 부모가 살아 있다");
+    ok(!got.includes(201), "자식은 따로 안 골라낸다 — 뿌리를 나무째 죽인다");
+    ok(!got.includes(300), "★ **남의 프로세스는 안 건드린다** — 우리 자리 밖이다");
+
+    /* 대소문자가 달라도 같은 자리다 — 윈도우는 `c:` 와 `C:` 가 섮여 나온다 */
+    const upper = straysIn(
+      [{ pid: 400, ppid: 999, path: path.join(WIN_ROOT.toUpperCase(), "codex", "codex.exe") }],
+      WIN_ROOT,
+    );
+    ok(upper.includes(400), "★ 대소문자가 달라도 우리 자리로 본다");
+  }
+
   console.log("\n전부 통과");
 }
 

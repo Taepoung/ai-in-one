@@ -1,6 +1,6 @@
 ﻿import * as vscode from "vscode";
 import { resolveAgents } from "../core/agentCatalog.js";
-import { withInstalled } from "../core/agentInstaller.js";
+import { withInstalled, sweepStrays } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
 import { RoomStore } from "../core/store.js";
 import type { AgentDef } from "../core/types.js";
@@ -49,6 +49,24 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   };
   paint();
   rooms.on("metas", paint);
+
+  /*
+   * 🔴 **버려진 것을 쓸어담는다** (2026-10-07).
+   *
+   * F5 나 창 닫기로 확장 호스트가 죽으면 `dispose` 가 못 돈다. Claude·Codex
+   * 는 stdin 이 닫히면 알아서 끝나는데 **Antigravity 의 파이썬 서버는
+   * 안 끝난다.** 그래서 그쪽만 27개·581MB 가 쌓였다(실측).
+   *
+   * ⚠️ 기준은 «우리 자리에서 나왔나» 가 아니라 **«부모가 죽었나»** 다 —
+   * globalStorage 는 창끼리 나눠 쓰므로 전부 죽이면 **옆 창이 쓰는 것까지
+   * 죽인다.** 옆 창의 것은 그 창의 호스트가 부모로 살아 있다.
+   *
+   * 막지는 않는다 — 못 쓸어담아도 나머지는 돌아가야 한다.
+   */
+  try {
+    const swept = sweepStrays(agentRoot);
+    if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
+  } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
 
   const show = (screen?: "new") =>
     ChatPanel.show(
