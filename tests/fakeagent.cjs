@@ -134,9 +134,39 @@ function handle(msg) {
             ...(process.env.AIO_FAKE_NO_FORK ? {} : { fork: {} }),
           },
           promptCapabilities: { image: true, audio: true, embeddedContext: true },
+          /* 로그아웃을 광고하는 에이전트가 있다 — Antigravity 가 그렇다 */
+          ...(process.env.AIO_FAKE_ACP_AUTH ? { auth: { logout: {} } } : {}),
         },
-        authMethods: [],
+        /*
+         * 터미널로 띄울 CLI 가 없어 **저쪽이 제 손으로 로그인시키는**
+         * 꼴. 여럿이면 골라 물어야 한다.
+         */
+        authMethods: process.env.AIO_FAKE_ACP_AUTH
+          ? [
+              { id: "oauth-personal", name: "구글로 들어가기", description: "개인 계정" },
+              { id: "api-key", name: "API 키" },
+            ]
+          : [],
       };
+    /*
+     * 🔴 **브라우저로 보내는 주소는 답이 아니라 stderr 로 나온다.**
+     *
+     * 진짜 Antigravity 가 그렇게 한다 — *"Open the following link to
+     * authenticate the ACP server: https://…"*. 답만 기다리는 쌍으로
+     * 만들면 **브라우저가 안 뜨는 기계에서 주소를 잃는다.**
+     */
+    case "authenticate": {
+      note({ t: "authenticate", methodId: params.methodId });
+      process.stderr.write(
+        `Open the following link to authenticate: https://example.invalid/go?m=${params.methodId}\n`,
+      );
+      if (process.env.AIO_FAKE_AUTH_FAIL) throw new Error("들여보내주지 않았습니다");
+      return {};
+    }
+    case "logout": {
+      note({ t: "logout" });
+      return {};
+    }
     case "session/new": {
       // 로그인 안 된 CLI 흉내 — 실제로 여기서 auth_required가 떨어진다
       if (process.env.AIO_FAKE_AUTH) throw new Error("auth_required: please log in");

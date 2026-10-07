@@ -397,11 +397,30 @@ export const DEFAULT_AGENTS: AgentDef[] = [
          */
         acp: true,
         /*
-         * 로그인하면 **ACP 서버의 집**이 생긴다. 예전엔 CLI 쪽
-         * `antigravity-cli/settings.json` 을 봤는데 그건 로그아웃해도
-         * 그대로 있어서 **단추가 안 바뀜다**(사용자가 짚었다).
+         * 🔴 **집이 있는 것과 들어가 있는 것은 다르다** (2026-10-07).
+         *
+         * 처음엔 `antigravity-cli/settings.json` 을 봤다 — 로그아웃해도
+         * 그대로 있어서 단추가 안 바뀜다. 그래서 ACP 서버의 집으로
+         * 옮겼는데 **그것도 틀렸다** — 사용자가 다시 짚었다
+         * (*"안티그래비티 로그아웃이 안됨"*).
+         *
+         * 그 집은 **서버를 띄우기만 해도 생긴다.** 시작하면서
+         * `settings.json` 을 써버리므로, 로그인을 한 적이 없어도
+         * «들어가 있다» 가 된다 — 그 상태로 로그아웃을 눌러봤자
+         * 지울 것도 없으니 **아무 일도 안 일어난다.**
+         *
+         * 진짜 자격은 여기다. 로그아웃이 지우는 것도 바로 이것이다:
+         *
+         * ```
+         * credential_store.py: Cleared credential file at
+         *   C:/Users/.../.gemini/antigravity-acp/acp_token.json
+         * ```
+         *
+         * ⚠️ 기업 계정(`oauth-business`)은 `acp_business_token.json` 으로
+         * 따로 간다. 지금은 개인 계정만 본다 — 둔 걸 본 적이 없어
+         * 지어내지 않는다.
          */
-        file: path.join(".gemini", "antigravity-acp"),
+        file: path.join(".gemini", "antigravity-acp", "acp_token.json"),
       },
     },
   },
