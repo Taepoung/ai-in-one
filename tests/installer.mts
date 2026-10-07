@@ -29,9 +29,10 @@ import * as http from "node:http";
 import { spawnSync } from "node:child_process";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
-  install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn, type Run,
+  install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn,
+  haveNode, nodeBinDir, nodeEnv, nodeHome, type Run,
 } from "../src/core/agentInstaller.js";
-import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS, NODE_PIN } from "../src/core/agentCatalog.js";
 import type { AgentDef } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
@@ -326,6 +327,60 @@ async function main(): Promise<void> {
       WIN_ROOT,
     );
     ok(upper.includes(400), "★ 대소문자가 달라도 우리 자리로 본다");
+  }
+
+  /*
+   * ★ **Node 도 우리가 받아둔다** (2026-10-07).
+   *
+   * 사용자: *"노드 20은 이거 깔릴때 같이 깔리게는 못해?"*. CLI 를 안 깔아도
+   * 된다고 해놓고 Node 는 깔라고 하는 것은 앞뒤가 안 맞는다.
+   *
+   * 망은 안 탄다 — 받은 척한 나무를 두고 **가리는 쪽만** 잰다. 진짜로
+   * 받아지는지는 사람이 한 번 보면 된다 (34MB · 7.6초).
+   */
+  {
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-nd-"));
+    const base = path.join(root, "node");
+
+    ok(!haveNode(root), "받기 전엔 없다고 한다");
+    ok(Object.keys(nodeEnv(root)).length === 0,
+       "★ **없으면 환경을 안 건드린다** — 그때는 사용자 것이 쓰여야 한다");
+
+    /* 받은 척 — 판과 실행파일 둘 다 있어야 된다 */
+    const exe = process.platform === "win32" ? "node.exe" : "node";
+    fs.mkdirSync(nodeBinDir(root), { recursive: true });
+    fs.writeFileSync(path.join(nodeBinDir(root), exe), "", "utf8");
+    fs.writeFileSync(path.join(base, "aio-node.json"),
+      JSON.stringify({ version: NODE_PIN.version }), "utf8");
+    ok(haveNode(root), "★ 판과 실행파일이 다 있으면 받은 것으로 본다");
+
+    /*
+     * 🔴 **판이 다르면 안 받은 것으로 본다.** 안 그러면 핀을 올려도 옛 Node 가
+     * 그대로 돌고, 어댑터가 요구하는 판과 어긋나면 «받았는데 안 돈다» 가 된다.
+     */
+    fs.writeFileSync(path.join(base, "aio-node.json"),
+      JSON.stringify({ version: "0.0.0" }), "utf8");
+    ok(!haveNode(root), "★ **판이 다르면 다시 받는다**");
+
+    fs.writeFileSync(path.join(base, "aio-node.json"),
+      JSON.stringify({ version: NODE_PIN.version }), "utf8");
+    const env = nodeEnv(root);
+    const key = Object.keys(env)[0]!;
+    console.log(`   앞세운 칸: ${key} → …${(env[key] ?? "").split(path.delimiter)[0]!.slice(-28)}`);
+    ok(/^path$/i.test(key), "★ PATH 를 건드린다 (윈도우는 `Path` 로 들어 있기도 하다)");
+    ok((env[key] ?? "").startsWith(nodeBinDir(root) + path.delimiter),
+       "★ **맨 앞에 세운다** — 뒤에 붙이면 사용자 Node 가 먼저 걸린다");
+
+    /* 윈도우는 푸는 자리 바로 밑, 그 밖은 bin/ — 한쪽만 보고 짜면 반대쪽이 죽는다 */
+    ok(nodeBinDir(root) === (process.platform === "win32"
+        ? nodeHome(root) : path.join(nodeHome(root), "bin")),
+       "★ **판마다 bin 자리가 다르다**");
+
+    /* 에이전트 옆이 아니라 따로 있어야 한다 — 버려진 것 쓸어담기가 agents/ 만 본다 */
+    ok(!nodeHome(root).includes(`${path.sep}agents${path.sep}`),
+       "★ **`agents/` 안에 안 둔다** — 에이전트가 아니고 여럿이 같이 쓴다");
+
+    await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
   }
 
   console.log("\n전부 통과");

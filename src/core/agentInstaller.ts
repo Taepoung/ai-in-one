@@ -4,6 +4,7 @@ import * as fsp from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { unzip } from "./unzip.js";
+import { NODE_PIN } from "./agentCatalog.js";
 import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
 /**
@@ -400,17 +401,144 @@ export function authStatus(
 const NEWLINE = String.fromCharCode(10);
 
 /** `npm` 한 번 — 밖에서 갈아끼울 수 있게 빼둔다 */
+// ── Node ─────────────────────────────────────────────────────────────────
+
+/*
+ * ★ **Node 도 우리가 받아둔다** (2026-10-07) — 까닭은 `agentCatalog.NODE_PIN`.
+ *
+ * 자리는 에이전트 옆이 아니라 **따로**다. 에이전트가 아니고 **여럿이 같이
+ * 쓰므로** `agents/` 안에 두면 «어느 에이전트의 것» 처럼 보인다. 버려진
+ * 프로세스를 쓸어담는 `sweepStrays` 도 `agents/` 만 본다.
+ *
+ * ```
+ * <globalStorage>/node/current/        ← 푼 것. 판이 바뀌면 통째로 갈아끼운다
+ * <globalStorage>/node/aio-node.json   ← 무슨 판을 받았나
+ * ```
+ */
+const NODE_MARK = "aio-node.json";
+
+/** 받아둔 Node 가 사는 자리 */
+export function nodeHome(root: string): string {
+  return path.join(root, "node", "current");
+}
+
+/**
+ * `node`·`npm` 이 들어 있는 칸.
+ *
+ * ⚠️ **판마다 다르다.** 윈도우는 푼 자리 바로 밑에 `node.exe`·`npm.cmd` 가
+ * 있고, 그 밖은 `bin/` 아래다. 한쪽만 보고 짜면 **반대쪽에서 조용히 못 찾는다.**
+ */
+export function nodeBinDir(root: string): string {
+  const home = nodeHome(root);
+  return process.platform === "win32" ? home : path.join(home, "bin");
+}
+
+/** 받아둔 Node 가 쓸 만한가 — 판이 맞고 실행파일이 있나 */
+export function haveNode(root: string): boolean {
+  try {
+    const mark = JSON.parse(
+      fs.readFileSync(path.join(root, "node", NODE_MARK), "utf8")) as { version?: string };
+    if (mark.version !== NODE_PIN.version) return false;
+  } catch { return false; }
+  const exe = process.platform === "win32" ? "node.exe" : "node";
+  return fs.existsSync(path.join(nodeBinDir(root), exe));
+}
+
+/**
+ * ★ **받아둔 Node 를 길 맨 앞에 세운 환경**을 만든다.
+ *
+ * npm 이 만드는 `.bin/<이름>.cmd` 껍데기는 제 옆에 `node.exe` 가 없으면
+ * **PATH 의 `node` 로 떨어진다**(껍데기 안을 열어보면 그렇게 적혀 있다).
+ * 그래서 경로를 앞에 세우기만 하면 **껍데기를 손대지 않고도** 우리 Node 가
+ * 걸린다.
+ *
+ * 안 받아뒀으면 아무것도 안 한다 — 그때는 사용자 것이 쓰인다.
+ */
+export function nodeEnv(root: string): Record<string, string> {
+  if (!haveNode(root)) return {};
+  const key = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  return { [key]: nodeBinDir(root) + path.delimiter + (process.env[key] ?? "") };
+}
+
+/**
+ * 없거나 낡았으면 받는다. 돌려주는 것은 **쓸 수 있게 됐나**.
+ *
+ * 🔴 **막지 않는다.** 못 받아도 사용자 기계에 Node 가 있으면 그걸로 돌아간다 —
+ * 여기서 던지면 **원래 되던 사람까지 막는 셈**이다.
+ */
+export async function ensureNode(
+  root: string,
+  onLine?: (line: string) => void,
+): Promise<boolean> {
+  if (haveNode(root)) return true;
+  const at = NODE_PIN.at[hostKey()];
+  if (!at) return false;
+
+  const base = path.join(root, "node");
+  try {
+    onLine?.(`Node ${NODE_PIN.version} 를 받는 중…`);
+    const res = await fetch(at.url);
+    if (!res.ok) { onLine?.(`Node 를 받지 못했습니다 — HTTP ${res.status}`); return false; }
+    const buf = Buffer.from(await res.arrayBuffer());
+
+    /* 🔴 nodejs.org 는 sha256 을 준다 — 에이전트 쪽(sha512)과 다르다 */
+    const got = createHash("sha256").update(buf).digest("hex");
+    if (got !== at.sha256) { onLine?.("Node 가 온전하지 않습니다 — 해시가 다릅니다"); return false; }
+
+    await remove(base).catch(() => undefined);
+    await fsp.mkdir(base, { recursive: true });
+    onLine?.("Node 를 푸는 중…");
+
+    const isZip = at.url.endsWith(".zip");
+    const tmp = path.join(base, isZip ? "_node.zip" : "_node.tar.gz");
+    await fsp.writeFile(tmp, buf);
+    if (isZip) {
+      unzip(tmp, base);
+    } else {
+      /* 절대경로를 넘기면 GNU tar 가 콜론을 원격 호스트로 읽는다 (§G5) */
+      const r = spawnSync("tar", ["-xzf", path.basename(tmp)], { cwd: base, encoding: "utf8" });
+      if (r.status !== 0) { onLine?.(`Node 를 풀지 못했습니다 — ${r.stderr ?? ""}`); return false; }
+    }
+    await fsp.rm(tmp, { force: true });
+
+    /*
+     * 푼 것은 `node-v24.21.0-win-x64/` 처럼 **판과 플랫폼이 박힌 이름**이다.
+     * 그대로 두면 판을 올릴 때마다 경로가 바뀐다 — `current` 로 바꿔 단다.
+     */
+    const inside = (await fsp.readdir(base, { withFileTypes: true }))
+      .filter((e) => e.isDirectory() && e.name.startsWith("node-v"));
+    if (inside.length !== 1) { onLine?.(`푼 모양이 뜻밖입니다 (${inside.length}개)`); return false; }
+    await fsp.rename(path.join(base, inside[0]!.name), nodeHome(root));
+
+    await fsp.writeFile(
+      path.join(base, NODE_MARK), JSON.stringify({ version: NODE_PIN.version }), "utf8");
+    return haveNode(root);
+  } catch (err) {
+    onLine?.(`Node 를 받지 못했습니다 — ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
+}
+
 export type Run = (
   args: string[],
   cwd: string,
   onLine?: (line: string) => void,
+  /** 받아둔 Node 를 길 앞에 세우려고 넘긴다 (`nodeEnv`) */
+  env?: Record<string, string>,
 ) => Promise<{ code: number; say: string }>;
 
-export const realNpm: Run = (args, cwd, onLine) =>
+export const realNpm: Run = (args, cwd, onLine, env) =>
   new Promise((done) => {
     const cmd = process.platform === "win32" ? "npm.cmd" : "npm";
     const p = spawn(cmd, args, {
       cwd, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"],
+      /*
+       * ★ **받아둔 Node 가 있으면 그걸 먼저 본다** (2026-10-07).
+       *
+       * `npm.cmd` 를 이름으로 부르므로 **PATH 가 정한다.** 앞에 우리
+       * 칸을 세우면 사용자 기계에 Node 가 없어도 받을 수 있다.
+       */
+      ...(env ? { env: { ...process.env, ...env } } : {}),
     });
     let say = "";
     const eat = (c: Buffer | string): void => {
@@ -455,6 +583,19 @@ export async function install(
     return fetchBinary(dir, at, pkg.extras ?? [], onLine);
   }
 
+  /*
+   * 🔴 **npm 꼴은 Node 가 있어야 받는다** (2026-10-07).
+   *
+   * 사용자가 짚었다 — *"노드 20은 이거 깔릴때 같이 깔리게는 못해?"*.
+   * CLI 를 안 깔아도 된다고 해놓고 Node 는 깔라고 하는 것은 앞뒤가 안
+   * 맞는다. 받는 자리는 에이전트 옆이 아니라 따로다(`node/`).
+   *
+   * ⚠️ 못 받아도 **멈추지 않는다.** 사용자 기계에 Node 가 있으면
+   * 그걸로 돌아간다 — 여기서 던지면 원래 되던 사람까지 막는 셔이다.
+   */
+  const root = path.dirname(path.dirname(dir));
+  await ensureNode(root, onLine);
+
   await fsp.mkdir(dir, { recursive: true });
   await fsp.writeFile(path.join(dir, "package.json"), manifestFor(pkg), "utf8");
 
@@ -465,7 +606,7 @@ export async function install(
    */
   const r = await run(
     ["install", "--no-audit", "--no-fund", "--install-strategy=hoisted"],
-    dir, onLine);
+    dir, onLine, nodeEnv(root));
 
   const now = statusOf(dir, pkg);
   if (r.code === 0 && now.installed && !now.stale) return { ok: true, say: r.say };
@@ -817,7 +958,14 @@ export function withInstalled(agent: AgentDef, root: string): AgentDef {
     ...agent,
     command: s.command,
     args: s.args,
-    env: { ...agent.env, ...s.env },
+    /*
+     * ★ **받아둔 Node 를 길 앞에 세운다** (2026-10-07).
+     *
+     * npm 꼴은 `.bin/<이름>.cmd` 껍데기로 뜨는데, 그 안은 제 옆에
+     * `node.exe` 가 없으면 **PATH 의 `node` 로 떨어진다.** 그래서 경로만
+     * 앞에 세우면 **껍데기를 손대지 않고** 우리 것이 걸린다.
+     */
+    env: { ...nodeEnv(root), ...agent.env, ...s.env },
     ...(purge ? { purgeSession: { command: purge.exe, args: purge.args } } : {}),
   };
 }
