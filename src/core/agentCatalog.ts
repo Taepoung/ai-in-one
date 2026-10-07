@@ -376,15 +376,27 @@ export const DEFAULT_AGENTS: AgentDef[] = [
       auth: {
         /* `agy` 로 로그인하면 여기가 생긴다 — 어림짐작이다 */
         file: path.join(".gemini", "antigravity-cli", "settings.json"),
-        /*
-         * ⚠️ **`login` 하위 명령이 없다.** `agy` 는 처음 띄우면 대화식으로
-         * 묻는다 — 메뉴에서 Google OAuth 를 고르면 브라우저가 열리고 코드를
-         * 붙여넣는다. 그래서 인자 없이 그냥 띄운다.
-         *
-         * 🔴 **로그아웃은 안 적었다.** 어떤 길인지 안 재봤고, 지어내면
-         * 엉뙡한 걸 부르게 된다(`codex-code-mode-host` 전적).
-         */
         login: { find: "agy", args: [] },
+        /*
+         * ★ **로그아웃도 같은 문이다** (2026-10-07).
+         *
+         * ⏪ 한 번 «길이 없다» 고 비워둔 자리였다. 하위 명령에 `logout` 이
+         * 없는 걸 보고 그렇게 적었는데, 사용자가 짚었다 — *"login같은 거는
+         * cli열어서 하지 않았어? logout도 말이야"*. 맞다. **로그인도 `login`
+         * 명령이 있어서 한 게 아니라 그냥 띄운 것**이다. 바로 위에 그렇게
+         * 적어두고도 하위 명령만 보고 «없다» 라고 했다.
+         *
+         * 받아둔 `agy.exe` 안을 긁어 확인했다 — `/logout` 은 **슬래시 명령으로
+         * 있다.** `/plugin`·`/skills`·`/config`·`/rename` 과 같은 표에 들어 있고,
+         * 누르면 *"Are you sure you want to sign out?"* 를 묻는다.
+         *
+         * `-i` 는 `--prompt-interactive` — 첫 줄로 `/logout` 을 넣고 그대로
+         * 대화식으로 남는다. 그래야 확인 물음에 사람이 답할 수 있다.
+         *
+         * ⚠️ **자격 파일을 지우는 길은 여전히 안 택한다**(§0 P3). CLI 가 제
+         * 손으로 하게 둔다 — 우리는 문만 열어준다.
+         */
+        logout: { find: "agy", args: ["-i", "/logout"] },
       },
     },
   },
