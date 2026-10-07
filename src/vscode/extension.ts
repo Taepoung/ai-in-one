@@ -1,4 +1,5 @@
 ﻿import * as vscode from "vscode";
+import * as path from "node:path";
 import { resolveAgents } from "../core/agentCatalog.js";
 import { withInstalled, sweepStrays } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
@@ -67,6 +68,32 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     const swept = sweepStrays(agentRoot);
     if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
   } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
+
+  /*
+   * ★ **창이 여럿이어도 같이 움직인다** (2026-10-07).
+   *
+   * 사용자: *"저장소는 공유하고 영향도 공유하게 하자 어짜피 개인이 쓸거니까"*.
+   * `globalStorage` 는 OS 사용자 프로필 아래라 **한 사람 몫**이고, 그 사람의
+   * 창들은 같은 자리를 본다.
+   *
+   * 전엔 에이전트 목록을 **켜질 때 한 번** 읽고 말았다. 그래서 A 창에서 받으면
+   * B 창의 방은 **«아직 받지 않았습니다»** 를 계속 말했다 — 오늘 고친 연결 객체
+   * 문제와 같은 종류인데 층만 한 칸 위다.
+   *
+   * ⚠️ **깊이 보지 않는다.** `node_modules` 까지 뒤지면 445MB 를 감시하게 된다.
+   * 받고 지우면 **자리(폴더) 자체가 생기고 없어지므로** 한 칸이면 된다.
+   */
+  const watch = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(path.join(agentRoot, "agents")), "*"),
+  );
+  const reread = (): void => {
+    agents = readAgents(agentRoot);
+    rooms.setAgents(agents);
+    ChatPanel.repaintAgents();
+  };
+  watch.onDidCreate(reread);
+  watch.onDidDelete(reread);
+  ctx.subscriptions.push(watch);
 
   const show = (screen?: "new") =>
     ChatPanel.show(

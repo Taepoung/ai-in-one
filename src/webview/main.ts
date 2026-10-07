@@ -141,6 +141,30 @@ const configErrors = new Map<string, string>();
 function configKey(agentId: string, roomId?: string, botId?: string): string {
   return roomId && botId ? `bot:${roomId}:${botId}` : agentId;
 }
+
+/**
+ * 🔴 **한 번 실패하면 영영 안 물었다** (2026-10-07).
+ *
+ * 사용자: *"안티그래비티 아직도 방 만들때, 모델 목록 안나옴"*. 재보니 제품
+ * 코드로는 11개가 멀쩡히 온다 — **19.5초 걸려서** 그렇지.
+ *
+ * 범인은 조르는 조건이었다. 설정은 패널을 만들 때 **한 번** 밀어주는 게
+ * 전부고(`warmConfigs`), 화면은 `configs.has()` 가 거짓일 때만 다시 졸랐다.
+ * 그런데 **실패도 빈 배열로 들어간다** — 그러면 `has()` 가 참이라 다시는 안
+ * 묻는다. 로그인 전에 그 한 번이 지나가면 **패널을 닫았다 열기 전까지** 비어
+ * 있고, 화면은 *"이 에이전트는 고를 수 있는 모델을 알려주지 않습니다"* 라는
+ * **틀린 말**을 한다 — 못 물어본 것이지 저쪽이 안 알려준 게 아니다.
+ *
+ * 그래서 «없으면» 이 아니라 **«없거나 틀어졌으면»** 조른다. 조르면서 들고 있던
+ * 것을 지워 «불러오는 중…» 으로 되돌린다.
+ */
+function askConfig(agentId: string): void {
+  const key = configKey(agentId);
+  if (configs.has(key) && !configErrors.has(key)) return;
+  configs.delete(key);
+  configErrors.delete(key);
+  post({ t: "needConfig", agentId });
+}
 function optionsFor(
   agentId: string,
   roomId?: string,
@@ -1085,7 +1109,16 @@ function openNewRoom(): void {
   draftAt = 0;
   renderNew();
   go("new");
-  for (const b of draftBots) if (b.agentId) post({ t: "needConfig", agentId: b.agentId });
+  /*
+   * ⏪ **여기서 무조건 졸랐다** (2026-10-07).
+   *
+   * 써놓고 보면 괜찮아 보인다 — 코어가 캤시를 들고 있으니 답은 바로
+   * 온다. 그런데 답을 주면서 **뒤로 새로 재기도 한다**(`refreshConfigOptions`).
+   * 그게 Antigravity 에선 **세션을 하나 더 만드는 일**이고 19.5초가 걸린다 —
+   * 방 만들기를 여루 번 열면 그만큼 쌓인다.
+   *
+   * `renderNew` 가 이미 `askConfig` 로 «없거나 틀어졌으면» 조른다.
+   */
   setTimeout(() => screens.new.querySelector<HTMLInputElement>("#new-title")?.focus(), 240);
 }
 
@@ -1120,6 +1153,9 @@ function renderNew(error?: string): void {
     );
     return;
   }
+
+  /* 화면에 들어올 때도 한 번 확인한다 — 미리 밀어준 것이 틀어졌을 수 있다 */
+  for (const b of draftBots) askConfig(b.agentId);
 
   const title = el("input", { type: "text", id: "new-title", placeholder: "비우면 «새 대화»" });
   const cwdInput = el("input", {
@@ -1328,8 +1364,15 @@ function botFieldset(b: DraftBot, n: number): HTMLElement {
       el("label", { text: "에이전트" }),
       agentSelect(b, n),
     ),
-    // 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15)
-    ...configFields(configs.get(b.agentId), b.picks),
+    /*
+     * 에이전트를 고른 뒤에 채워진다. 미리 받아두어 기다림이 없다 (B15).
+     *
+     * ⚠️ **못 물어본 것과 저쪽이 안 알려준 것은 다르다.** 틀어졌으면
+     * 까닭을 보여주고, 빈 목록으로 둔갑시키지 않는다.
+     */
+    ...(configErrors.has(configKey(b.agentId))
+      ? [el("p", { class: "error", text: configErrors.get(configKey(b.agentId))! })]
+      : configFields(configs.get(b.agentId), b.picks)),
     el("div", { class: "field" }, el("label", { text: "역할 (선택)" }), role),
   );
 }
@@ -6123,7 +6166,7 @@ function askInvite(r: Room): void {
                     draft.agentId = a.id;
                     // 모델은 에이전트마다 다르다 — 압은 것을 두면 없는 id를 보낸다
                     draft.picks.clear();
-                    if (!configs.has(a.id)) post({ t: "needConfig", agentId: a.id });
+                    askConfig(a.id);
                     paint();
                   },
                 },

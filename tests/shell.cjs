@@ -34,6 +34,17 @@ const emitter = () => {
 };
 
 const fakeVscode = {
+  /*
+   * ★ **받는 자리를 감시한다** (2026-10-07).
+   *
+   * 창이 여럿이어도 같이 움직이게 하려고 `createFileSystemWatcher` 를 건다.
+   * 가짜에 없으면 `activate` 가 통째로 터진다 — 실제로 그렇게 깨졌다
+   * (`RelativePattern is not a constructor`).
+   *
+   * 진짜로 감시하지는 않는다. 여기서 재는 것은 **켜지는가** 이고,
+   * 감시가 무엇을 하는지는 사람이 F5 로 본다.
+   */
+  RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } },
   Uri: {
     file: (p) => ({ fsPath: p, scheme: "file", toString: () => `file://${p}` }),
     from: (parts) => ({ ...parts, toString: () => `${parts.scheme}:${parts.path}` }),
@@ -98,6 +109,12 @@ const fakeVscode = {
   },
   workspace: {
     workspaceFolders: [{ uri: { fsPath: ROOT } }],
+    createFileSystemWatcher: () => ({
+      onDidCreate: () => noopDisposable,
+      onDidChange: () => noopDisposable,
+      onDidDelete: () => noopDisposable,
+      dispose: () => {},
+    }),
     textDocuments: [],
     getConfiguration: () => ({ get: (_k, d) => d }),
     onDidChangeConfiguration: () => noopDisposable,

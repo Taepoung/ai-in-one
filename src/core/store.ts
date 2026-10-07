@@ -191,8 +191,7 @@ export class RoomStore {
     return this.serialize(async () => {
       await fs.rm(this.roomPath(id), { force: true });
       this.lineCounts.delete(id);
-      this.index = this.index.filter((m) => m.id !== id);
-      await writeJsonAtomic(this.indexPath, this.index);
+      await this.writeIndex((list) => list.filter((m) => m.id !== id));
       await this.sweepBlobs();
     });
   }
@@ -382,12 +381,35 @@ export class RoomStore {
     return room;
   }
 
+  /**
+   * 🔴 **지표는 디스크와 합쳤다 쓴다** (2026-10-07).
+   *
+   * 사용자: *"저장소는 공유하고 영향도 공유하게 하자"*. 그러려면
+   * 먼저 **지워지는 것부터** 막아야 한다.
+   *
+   * `rooms.json` 은 열 때 한 번 읽어 메모리에 들고 있다가 **통째로 덮어
+   * 썼다.** 창이 둘이면 나중에 쓴 쪽이 **옆 창에서 만든 방을 목록에서
+   * 지운다.** 대화 파일(`rooms/<id>.jsonl`)은 붙이기만 하므로 살아있지만,
+   * 목록에서 사라지면 **찾을 길이 없다.**
+   *
+   * 그래서 쓰기 전에 디스크를 다시 읽고 거기에 **우리 변경만 얹는다.**
+   * 마지막에 쓴 것이 이기는 것은 같은데, **이기는 범위가 한 칸으로**
+   * 줄어든다 — 전엔 목록 전체였다.
+   */
+  private async writeIndex(apply: (list: RoomMeta[]) => RoomMeta[]): Promise<void> {
+    const merged = apply(await this.readIndex());
+    this.index = merged;
+    await writeJsonAtomic(this.indexPath, merged);
+  }
+
   private async reindex(room: Room): Promise<void> {
     const meta = toMeta(room);
-    const at = this.index.findIndex((m) => m.id === room.id);
-    if (at >= 0) this.index[at] = meta;
-    else this.index.push(meta);
-    await writeJsonAtomic(this.indexPath, this.index);
+    await this.writeIndex((list) => {
+      const at = list.findIndex((m) => m.id === room.id);
+      if (at >= 0) list[at] = meta;
+      else list.push(meta);
+      return list;
+    });
   }
 
   private roomPath(id: string): string {

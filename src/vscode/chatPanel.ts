@@ -37,6 +37,16 @@ import { roomListHtml } from "../protocol.js";
 export class ChatPanel implements AskTarget {
   private static current: ChatPanel | undefined;
 
+  /**
+   * 떠 있으면 에이전트 목록을 다시 보낸다. 안 떠 있으면 할 일이 없다 —
+   * 다음에 열 때 어차피 보낸다.
+   *
+   * 밖에서 `current` 를 들여다보게 하지 않으려고 둔 자리다.
+   */
+  static repaintAgents(): void {
+    ChatPanel.current?.sendAgents();
+  }
+
   private readonly disposables: vscode.Disposable[] = [];
   /** 답을 기다리는 카드들 (D1·D4). 패널이 닫히면 전부 취소로 정리한다 */
   private readonly pending = new Map<string, (answer: AskAnswer) => void>();
