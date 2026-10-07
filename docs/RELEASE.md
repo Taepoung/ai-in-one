@@ -53,13 +53,13 @@ code --install-extension ai-in-one-0.1.0.vsix
 
 또는 VS Code에서 `Extensions` 패널 → `⋯` → **Install from VSIX…**
 
-**들어가는 것은 이것뿐이다** (264KB · 10개 파일):
+**들어가는 것은 이것뿐이다** (272KB · 12개 파일):
 
 ```
 extension/
 ├─ dist/extension.js · webview.js · webview.css   ← 번들 결과
-├─ media/codicon.css · codicon.ttf                 ← 아이콘 폰트
-├─ package.json · readme.md · LICENSE.txt
+├─ media/codicon.css · codicon.ttf · icon.png     ← 아이콘 폰트와 확장 아이콘
+├─ package.json · readme.md · changelog.md · LICENSE.txt
 ```
 
 `node_modules`(102MB)와 `src`는 `.vscodeignore`가 막는다. **그게 없으면 100MB짜리
@@ -147,14 +147,17 @@ README가 `docs/`를 상대 경로로 가리키는데 저장소 주소가 없으
 임시로 넘기려면 `--allow-missing-repository --baseContentUrl <주소>` 를 줄 수도
 있지만, **README의 링크가 깨진 채로 나간다.**
 
-### 있으면 좋은 것
+### ✅ 나머지는 넣었다 (2026-10-07)
 
-| | 왜 |
+| | |
 |---|---|
-| **아이콘** 128×128 PNG | 없으면 기본 아이콘이라 목록에서 안 띈다. `"icon": "media/icon.png"` |
-| `keywords` | 검색에 걸리려면 — `acp` · `claude-code` · `codex` · `ai-agent` |
+| **아이콘** | `media/icon.png` — 128×128. 말풍선 하나에 점 셋(여럿이 한 방에) |
+| `keywords` | `acp` · `agent-client-protocol` · `claude-code` · `codex` · `antigravity` · `ai-agent` · `chat` |
 | `CHANGELOG.md` | 상세 페이지에 탭으로 뜬다 |
-| `galleryBanner` | 상세 페이지 배경색 |
+| `galleryBanner` | `#202228` · dark — 아이콘 바탕과 같은 색 |
+
+아이콘은 **8배로 그려 줄였다** — 128로 바로 그리면 둥근 모서리가 계단이 된다.
+작게 보일 때가 많으므로 모양은 하나만 두고(말풍선) 색은 점 셋으로만 준다.
 
 ---
 
