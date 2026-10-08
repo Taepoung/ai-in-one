@@ -1293,12 +1293,6 @@ button.ghost:hover {
   border-color: var(--focus);
 }
 
-/* 자율 모드는 ⋮ 안에 숨기지 않는다 — 켜둔 걸 잊으면 안 되는 설정이다 (D6) */
-.composer .auto[aria-pressed="true"] {
-  color: var(--focus);
-  background: var(--list-hover);
-}
-
 .composer .send {
   border-radius: 50%;
   background: var(--vscode-button-background);

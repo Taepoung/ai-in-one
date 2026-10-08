@@ -36,7 +36,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const agentRoot = ctx.globalStorageUri.fsPath;
   let agents = readAgents(agentRoot);
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
-  // 방을 만들 때 봇마다 정하고, 그 뒤엔 자율 모드 버튼이나 참여자 서랍에서 바꾼다.
+  // 방을 만들 때 봇마다 정하고, 그 뒤엔 권한 설정 시트나 참여자 서랍에서 바꾼다.
   const rooms = new RoomManager({ host, store, agents });
 
   // ── 상태 표시줄 — 앱 아이콘이자 배지 (F1·F8) ─────────────────────────
