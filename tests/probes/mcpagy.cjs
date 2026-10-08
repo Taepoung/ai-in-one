@@ -19,12 +19,29 @@ const http = require("node:http");
 const { spawn } = require("node:child_process");
 const os = require("node:os"), path = require("node:path"), fs = require("node:fs");
 
-const ROOT = path.join(
-  process.env.APPDATA || "", "Code", "User", "globalStorage",
-  "taein-yoon.ai-in-one", "agents", "antigravity",
-);
-const EXE = path.join(ROOT, "agy_acp_server.exe");
-if (!fs.existsSync(EXE)) { console.log("설치된 Antigravity 가 없다:", EXE); process.exit(1); }
+const WHICH = (process.argv[2] || "antigravity").toLowerCase();
+
+/** 띄울 것 — 설치된 것을 그대로 쓴다 (다시 받지 않는다) */
+function launcher() {
+  if (WHICH === "antigravity") {
+    const exe = path.join(
+      process.env.APPDATA || "", "Code", "User", "globalStorage",
+      "taein-yoon.ai-in-one", "agents", "antigravity", "agy_acp_server.exe",
+    );
+    if (!fs.existsSync(exe)) { console.log("설치된 Antigravity 가 없다:", exe); process.exit(1); }
+    return { cmd: exe, args: [], shell: false };
+  }
+  if (WHICH === "codex") {
+    const { argsOf } = require("./pinned.cjs");
+    return {
+      cmd: process.platform === "win32" ? "npx.cmd" : "npx",
+      args: argsOf("codex"),
+      shell: true,
+    };
+  }
+  console.log("antigravity 또는 codex"); process.exit(1);
+}
+const LAUNCH = launcher();
 
 const SECRET = "aio-" + Math.random().toString(36).slice(2);
 const seen = { list: 0, calls: [], perms: [], updates: [], usage: [] };
@@ -89,7 +106,7 @@ server.listen(0, "127.0.0.1", async () => {
   const url = `http://127.0.0.1:${port}/mcp`;
   console.log(`우리 MCP 서버: ${url}\n`);
 
-  const proc = spawn(EXE, [], { cwd, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(LAUNCH.cmd, LAUNCH.args, { cwd, shell: LAUNCH.shell, stdio: ["pipe", "pipe", "pipe"] });
   let seq = 0, buf = "", err = "";
   const waiting = new Map();
   const said = [];
