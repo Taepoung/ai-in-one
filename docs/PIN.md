@@ -227,6 +227,11 @@ loadSession · promptCapabilities · mcpCapabilities · auth.logout
   `delete` 가 없어지면 방 나가기가 세션을 못 지운다.
 - **확인법**: `probes/modelids.cjs` 가 `initialize` 응답을 통째로 찍는다. 두 판을 맞춰본다.
 
+> ★ **`mcpCapabilities` 가 v3.0 에서 기능에 걸렸다** (2026-10-08). 여태는 적어만
+> 두는 칸이었는데, 봇끼리 말 걸기가 그 위에 선다. `http` 가 빠지면 **그 방은
+> 릴레이가 안 되고 오류는 안 난다.** 실측: Claude `{http,sse}` ·
+> Codex `{acp:false,http:true,sse:false}` · Antigravity `{http:true,sse:true}`.
+
 ### C2. 세션 이어받기
 
 > ★ **모델은 세션 신원의 일부가 아니다.** 이게 «모델이 갈려도 대화가 사는»
@@ -619,8 +624,24 @@ JetBrains** 셋을 나란히 적는다. 셋이 같이 보는 물건이다.
 2. 받는 방식은 무엇인가                npx·binary 는 된다. uvx 는 아직 없다
 3. 어댑터가 엔진을 품나, 범위로 무나       범위면 엔진도 지명한다 (§F4)
 4. 구독으로 로그인되나                    키만 되면 §0 P3 위반 (Gemini)
+5. **MCP http 를 광고하고 진짜 부르나**    없으면 그 방은 봇끼리 말을 못 건다 (v3.0)
 6. 나갈 때 ACP delete 로 다 지워지나       아니면 `purgeSession` (§F)
 ```
+
+★ **5번이 v3.0 에서 생겼다** (2026-10-08). 봇이 봇을 부르는 길이 MCP 위에 서
+있어서다. `probes/mcpagy.cjs` 가 한 번에 찍는다 — 광고(`mcpCapabilities.http`)와
+**실제로 `tools/call` 을 부르는가**는 다른 질문이라 둘 다 본다.
+
+그리고 **우리 도구의 신원을 어디에 넣는지**까지 같이 본다. 셋이 세 자리다:
+
+```
+Claude Code   name     = "mcp__ai-in-one__…"
+Antigravity   _meta.mcp= { server, tool }
+Codex         rawInput = { server, tool, … }
+```
+
+**공통 칸이 없다.** 넷째 자리에 넣는 에이전트가 오면 자동 승인이 조용히
+«사용자에게»로 떨어진다 — 점검표는 `BUMP.md` ⑩~⑬.
 
 레지스트리에 **없는** 것을 기본에 넣는 일은 그 자체로 다른 결정이다.
 어댑터는 사용자의 로그인 자리와 작업 폴더를 그대로 받으므로, 아무도

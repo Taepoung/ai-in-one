@@ -147,7 +147,13 @@ server.listen(0, "127.0.0.1", async () => {
         const tc = m.params?.toolCall ?? {};
         seen.perms.push({ name: tc.name ?? null, title: tc.title, kind: tc.kind, rawInput: tc.rawInput });
         console.log("  ★ request_permission toolCall 통째: " + JSON.stringify(tc).slice(0, 600));
-        const opt = (m.params?.options ?? []).find((o) => /allow/i.test(o.kind ?? "")) ?? m.params?.options?.[0];
+        // ⑬ 무엇을 고르게 해주나 — allow_once 가 없으면 봇 심사가 통째로 사람에게 간다
+        const kinds = (m.params?.options ?? []).map((o) => o.kind);
+        console.log(`     options: ${JSON.stringify(kinds)}`
+          + (kinds.includes("allow_once") ? "" : "   🔴 allow_once 가 없다"));
+        const opt = (m.params?.options ?? []).find((o) => o.kind === "allow_once")
+          ?? (m.params?.options ?? []).find((o) => /allow/i.test(o.kind ?? ""))
+          ?? m.params?.options?.[0];
         send({ jsonrpc: "2.0", id: m.id, result: { outcome: { outcome: "selected", optionId: opt?.optionId } } });
       } else if (m.id !== undefined) {
         send({ jsonrpc: "2.0", id: m.id, result: {} });
