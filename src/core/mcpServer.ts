@@ -42,17 +42,16 @@ export interface McpResult {
 }
 
 export interface McpServerOptions {
-  /** 봇에게 보여줄 도구들 */
-  tools: McpTool[];
-  /**
-   * 도구를 부른다.
-   *
-   * `owner` 는 **헤더 비밀이 가리키는 봇**이다 — 이게 있어야 «남의 큐를
-   * 들여다보는 것»을 거절할 수 있다(2-H 의 소유자 검사).
-   */
-  call(owner: string, tool: string, args: unknown): Promise<McpResult>;
   log(message: string): void;
 }
+
+/**
+ * 도구를 부른다.
+ *
+ * `owner` 는 **헤더 비밀이 가리키는 봇**이다 — 이게 있어야 «남의 큐를
+ * 들여다보는 것»을 거절할 수 있다(2-H 의 소유자 검사).
+ */
+export type McpCall = (owner: string, tool: string, args: unknown) => Promise<McpResult>;
 
 /** 서버가 어느 칸에 있나 — 화면이 이 값으로 «봇끼리 부르기»를 켜고 끈다 */
 export type McpState =
@@ -76,7 +75,22 @@ export class McpServer {
    */
   private readonly owners = new Map<string, string>();
 
+  private tools: McpTool[] = [];
+  private call: McpCall = async () => ({ text: "아직 아무 도구도 없습니다.", isError: true });
+
   constructor(private readonly opts: McpServerOptions) {}
+
+  /**
+   * **도구를 건다** — 서버가 선 뒤에 늦게 묶어도 된다.
+   *
+   * 🔴 서버는 **통로일 뿐**이다. 도구가 무엇인지도, 부르면 무엇을 하는지도
+   * 방 매니저가 안다 — 큐도 방도 저쪽에 있다. 서로를 생성자에서 알게 하면
+   * **둘이 서로를 먼저 필요로 하는 고리**가 생긴다.
+   */
+  setHandlers(tools: McpTool[], call: McpCall): void {
+    this.tools = tools;
+    this.call = call;
+  }
 
   current(): McpState {
     return this.state;
@@ -232,13 +246,13 @@ export class McpServer {
         return;
 
       case "tools/list":
-        reply({ tools: this.opts.tools });
+        reply({ tools: this.tools });
         return;
 
       case "tools/call": {
         const name = String(msg.params?.name ?? "");
         try {
-          const out = await this.opts.call(owner, name, msg.params?.arguments);
+          const out = await this.call(owner, name, msg.params?.arguments);
           reply({
             content: [{ type: "text", text: out.text }],
             ...(out.isError ? { isError: true } : {}),

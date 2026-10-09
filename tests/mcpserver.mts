@@ -28,13 +28,14 @@ const TOOLS = [
 
 function make(call?: (owner: string, tool: string, args: unknown) => Promise<McpResult>) {
   const seen: Array<{ owner: string; tool: string; args: unknown }> = [];
-  const server = new McpServer({
-    tools: TOOLS,
-    call: async (owner, tool, args) => {
-      seen.push({ owner, tool, args });
-      return call ? await call(owner, tool, args) : { text: `${owner} 가 ${tool} 를 불렀다` };
-    },
-    log: () => {},
+  const server = new McpServer({ log: () => {} });
+  /*
+   * 도구는 **늦게 묶는다** — 서버는 통로일 뿐이고, 무엇을 하는지는
+   * 방 매니저가 안다. 생성자에서 서로를 알게 하면 고리가 생긴다.
+   */
+  server.setHandlers(TOOLS, async (owner, tool, args) => {
+    seen.push({ owner, tool, args });
+    return call ? await call(owner, tool, args) : { text: `${owner} 가 ${tool} 를 불렀다` };
   });
   return { server, seen };
 }

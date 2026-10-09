@@ -52,12 +52,11 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
    * 확인(자기 주소 쳐보기)이 늘어질 수 있다 — 그 때문에 확장이 늦게 뜨면
    * 안 된다. 서면 그때부터 세션에 실린다.
    */
-  const mcp = new McpServer({
-    // 도구는 §2-H 에서 붙는다 — 그때까지는 **아무것도 광고하지 않는다**
-    tools: [],
-    call: async () => ({ text: "아직 아무 도구도 없습니다.", isError: true }),
-    log: (m) => host.log(m),
-  });
+  /*
+   * ⚠️ **도구와 부르는 길은 방 매니저가 안다.** 서버는 통로일 뿐이다 —
+   * 큐도 방도 저쪽에 있다. 그래서 늦게 묶는다(아래 `setHandlers`).
+   */
+  const mcp = new McpServer({ log: (m) => host.log(m) });
 
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
   // 방을 만들 때 봇마다 정하고, 그 뒤엔 권한 설정 시트나 참여자 서랍에서 바꾼다.
@@ -77,6 +76,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   );
 
   const rooms = new RoomManager({ host, store, agents, mcp, locks });
+  // 도구를 건다 — 서버가 만들어진 **뒤**라야 방 매니저가 있다
+  mcp.setHandlers(rooms.mcpTools(), (owner, tool, args) => rooms.mcpCall(owner, tool, args));
   // 세우는 것은 방 매니저를 거친다 — 그래야 결과가 화면까지 같은 길로 간다
   void rooms.startMcp();
 
