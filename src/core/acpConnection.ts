@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { Readable, Writable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 
 import type {
@@ -147,6 +147,25 @@ export class AcpConnection {
   private conn?: acp.ClientConnection;
   private starting?: Promise<void>;
   private stderr = "";
+  /**
+   * ★ **우리 MCP 서버 주소** — 세션이 생기거나 다시 붙는 **네 길 모두**에 얹는다.
+   *
+   * 🔴 예전에는 `new`·`fork` 에만 `[]` 를 넘기고 `resume`·`load` 에는 **아예 안
+   * 실었다**. 그 상태로 도구를 달면 **모든 방이 껐다 켜는 순간 도구를 잃는다** —
+   * 옛 방 문제가 아니라 다음 실행마다 일어나는 일이다.
+   *
+   * 그리고 **포트는 실행마다 바뀐다.** 그래서 «한 번 실어두면 되는» 값이 아니라
+   * **매번 지금 주소로 다시 얹어야 하는** 값이다 — 안 그러면 되살아난 세션이
+   * 지난번 포트를 들고 허공에 말을 건다.
+   *
+   * 부르는 쪽마다 챙기게 두면 **또 한 군데를 빠뜨린다**(방금 그랬다). 연결이
+   * 들고 있다가 **무조건** 얹는다.
+   */
+  private mcp: acp.McpServer[] = [];
+  /** stdout 엿보기용 남은 조각 (`sniff`) */
+  private peek = "";
+  /** 이미 적어둔 «모르는 종류» — 같은 걸 또 적지 않는다 */
+  private readonly sawUnknown = new Set<string>();
   /**
    * ★ **로그인하는 동안만 stderr 를 엿듣는다** (2026-10-07).
    *
@@ -323,9 +342,33 @@ export class AcpConnection {
       this.onCrash?.(tail ? `${how} — ${tail}` : how);
     });
 
+    /*
+     * 🔴 **SDK 가 모르는 종류는 우리에게 닿지도 않는다** (2026-10-09 실측).
+     *
+     * `translate()` 의 `default:` 가 §0 P5 의 울타리인 줄 알았는데, 재보니
+     * **그 앞에 울타리가 하나 더** 있었다 — SDK 는 `session/update` 를 zod 로
+     * 검사해서 **모르는 `sessionUpdate` 는 통째로 버리고** `console.error` 만
+     * 찍는다(`jsonrpc.js`). 확장 호스트에서 그건 **우리 출력 채널이 아니다.**
+     *
+     * 그래서 **ACP 판이 올라가 종류가 늘면 우리는 눈이 먼다** — 열다섯 중
+     * 일곱을 조용히 버리던 그 모양 그대로, 이번엔 고칠 자리조차 안 보인다.
+     *
+     * 유일하게 볼 수 있는 자리가 여기, **SDK 에 넘기기 전의 stdout** 이다.
+     * 엿보기만 하고 흐름은 그대로 흘려보낸다.
+     *
+     * ⚠️ `Readable.toWeb` 은 스트림을 **잠근다** — 같은 `stdout` 에 `data` 를
+     * 덧붙이면 둘이 다툰다. 갈래를 둘로 쳐서 한쪽만 SDK 에 준다.
+     */
+    const toSdk = new PassThrough();
+    const toPeek = new PassThrough();
+    proc.stdout.pipe(toSdk);
+    proc.stdout.pipe(toPeek);
+    toPeek.setEncoding("utf8");
+    toPeek.on("data", (chunk: string) => this.sniff(chunk));
+
     const stream = acp.ndJsonStream(
       Writable.toWeb(proc.stdin) as WritableStream<Uint8Array>,
-      Readable.toWeb(proc.stdout) as ReadableStream<Uint8Array>,
+      Readable.toWeb(toSdk) as ReadableStream<Uint8Array>,
     );
 
     this.conn = acp
@@ -387,9 +430,42 @@ export class AcpConnection {
     }
   }
 
+  /**
+   * **SDK 에 넘기기 전에 한 번 엿본다** — 우리가 번역 못 하는 종류를 찾으려고.
+   *
+   * SDK 는 자기가 모르는 `sessionUpdate` 를 **버리고 끝낸다**(위 주석).
+   * `translate()` 의 `default:` 는 그 뒤라서 **영영 안 돈다.** 여기가 유일하게
+   * 보이는 자리다.
+   *
+   * **종류마다 한 번만** 적는다 — 매 조각마다 적으면 로그가 그걸로 찬다.
+   */
+  private sniff(chunk: string): void {
+    this.peek += chunk;
+    // 줄이 다 안 왔으면 다음 조각에 이어 붙인다
+    let at: number;
+    while ((at = this.peek.indexOf("\n")) >= 0) {
+      const line = this.peek.slice(0, at).trim();
+      this.peek = this.peek.slice(at + 1);
+      if (!line.startsWith("{")) continue;
+      let msg: { method?: string; params?: { update?: { sessionUpdate?: string } } };
+      try { msg = JSON.parse(line); } catch { continue; }
+      if (msg.method !== "session/update") continue;
+      const kind = msg.params?.update?.sessionUpdate;
+      if (!kind || KNOWN_UPDATES.has(kind) || this.sawUnknown.has(kind)) continue;
+      this.sawUnknown.add(kind);
+      this.host.log(
+        `[${this.agent.id}] 🔴 우리가 모르는 session/update 종류: ${kind} — ` +
+          `ACP 판이 올라갔을 수 있습니다 (translate() 에 자리를 만들어야 합니다)`,
+      );
+    }
+    // 아주 긴 한 줄(큰 diff)이 와도 끝없이 쌓이지는 않게 한다
+    if (this.peek.length > 1_000_000) this.peek = "";
+  }
+
   dispose(): void {
     this.listeners.clear();
     this.pending.clear();
+    this.peek = "";
     this.conn?.close();
     this.conn = undefined;
     // 먼저 떼어낸다 — 우리가 내린 종료를 크래시로 알리면 안 된다 (A5)
@@ -496,6 +572,16 @@ export class AcpConnection {
   // ── 세션 ──────────────────────────────────────────────────────────────
 
   /**
+   * 지금 쓸 MCP 서버 목록을 갈아 끼운다.
+   *
+   * **이미 도는 세션에는 안 닿는다** — ACP 에는 «산 세션에 도구를 더하는»
+   * 메서드가 없다(V3 2.1 실측). 다음에 세션이 생기거나 다시 붙을 때부터 먹는다.
+   */
+  setMcpServers(list: acp.McpServer[]): void {
+    this.mcp = list;
+  }
+
+  /**
    * 새 세션. 방 하나가 세션 하나를 소유한다.
    *
    * 로그인이 안 되어 있으면 여기서 `auth_required`가 떨어진다 — 사용자가 해당 CLI로
@@ -506,8 +592,7 @@ export class AcpConnection {
     try {
       const res = await this.conn!.agent.request(acp.methods.agent.session.new, {
         cwd,
-        // 필수 필드다. MCP 서버 설정은 백로그이므로 지금은 빈 목록.
-        mcpServers: [],
+        mcpServers: this.mcp,
       });
       return { sessionId: res.sessionId, configOptions: res.configOptions ?? [] };
     } catch (err) {
@@ -591,7 +676,9 @@ export class AcpConnection {
     const ctx = this.conn!.agent;
     try {
       if (caps?.sessionCapabilities?.resume) {
-        const res = await ctx.request(acp.methods.agent.session.resume, { sessionId, cwd });
+        const res = await ctx.request(acp.methods.agent.session.resume, {
+          sessionId, cwd, mcpServers: this.mcp,
+        });
         return { ok: true, options: res?.configOptions ?? [] };
       }
       if (caps?.loadSession) {
@@ -614,7 +701,9 @@ export class AcpConnection {
         try {
           // `session/load`는 응답을 안 줘도 되는 메서드라(`| void`) 타입이 `{}`다.
           // 주면 `configOptions`가 들어 있다.
-          const res = (await ctx.request(acp.methods.agent.session.load, { sessionId, cwd })) as
+          const res = (await ctx.request(acp.methods.agent.session.load, {
+            sessionId, cwd, mcpServers: this.mcp,
+          })) as
             | acp.LoadSessionResponse
             | undefined;
           return { ok: true, options: res?.configOptions ?? [] };
@@ -702,7 +791,7 @@ export class AcpConnection {
       const res = (await this.conn!.agent.request(acp.methods.agent.session.fork, {
         sessionId,
         cwd,
-        mcpServers: [],
+        mcpServers: this.mcp,
       })) as { sessionId?: string } | undefined;
 
       // 세션 id가 없으면 갈라진 게 아니다. **받은 것처럼 굴지 않는다** —
@@ -1128,9 +1217,39 @@ function outputOf(content: readonly acp.ToolCallContent[]): string | undefined {
   return `${text.slice(0, TOOL_OUTPUT_MAX)}\n…[${cut.toLocaleString()}자 더]`;
 }
 
+/**
+ * **`translate()` 가 이름을 아는 종류 전부.**
+ *
+ * 🔴 아래 `switch` 와 **짝을 맞춰야 한다** — 여기 없는 종류가 오면
+ * `sniff()` 가 «ACP 판이 올라갔다»고 로그에 적는다. `case` 를 늘리면서
+ * 이 줄을 안 늘리면 **멀쩡한 종류를 두고 경보가 운다.**
+ *
+ * 그래도 목록을 손으로 두는 쪽을 골랐다: SDK 가 모르는 종류는 우리에게
+ * **닿지도 않으므로**(`sniff` 주석) 스키마에서 끌어와 봐야 같은 것만 나온다.
+ * 우리가 아는 것과 SDK 가 아는 것은 **다른 집합**이고, 벌어지는 쪽이 여기다.
+ */
+const KNOWN_UPDATES = new Set([
+  "user_message_chunk", "agent_message_chunk", "agent_thought_chunk",
+  "tool_call", "tool_call_update",
+  "plan", "plan_update", "plan_removed",
+  "available_commands_update", "current_mode_update", "config_option_update",
+  "session_info_update", "usage_update",
+  "compaction_update", "compaction_summary_chunk",
+]);
+
 /** ACP 업데이트 하나를 우리 이벤트 0~N개로 번역한다 */
 function translate(update: acp.SessionUpdate): AgentEvent[] {
   switch (update.sessionUpdate) {
+    /*
+     * `user_message_chunk` — **우리가 방금 보낸 말이 돌아오는 것**이다.
+     * 화면에는 이미 있다. 그래서 버리는 게 맞는데, **일부러 버리는 것**이라고
+     * 적어둬야 아래 `default:` 의 «모르는 것» 과 섞이지 않는다.
+     *
+     * (`session/load` 재생 때 무더기로 온다 — 그쪽은 `replaying` 이 따로 막는다.)
+     */
+    case "user_message_chunk":
+      return [];
+
     case "agent_message_chunk":
       return update.content.type === "text"
         ? [{ type: "text", delta: update.content.text }]
@@ -1219,8 +1338,79 @@ function translate(update: acp.SessionUpdate): AgentEvent[] {
     case "available_commands_update":
       return [{ type: "commands", names: update.availableCommands.map((c) => c.name) }];
 
+    /*
+     * ★ **계획** — 안정판 `plan` 은 **planId 가 없다**. 한 세션에 하나뿐이라
+     * 이름을 붙일 일이 없었고, 그 자리를 UNSTABLE 판이 나중에 메운다. 우리
+     * 쪽 형식은 둘을 같이 담으므로 여기서 `"default"` 로 메운다.
+     */
+    case "plan":
+      return [{
+        type: "plan",
+        planId: "default",
+        entries: update.entries.map((e) => ({ text: e.content, status: e.status })),
+      }];
+
+    /*
+     * UNSTABLE `plan_update` — 세 꼴이다 (`items` · `markdown` · `file`).
+     *
+     * 🔴 `file` 은 **우리가 못 읽는다** — 번역기는 디스크를 안 만진다.
+     * 그렇다고 조용히 버리면 **계획이 안 나오는 이유를 영영 모른다** —
+     * 일곱을 놓친 것과 같은 모양이다. 자국을 남긴다.
+     */
+    case "plan_update": {
+      const plan = update.plan;
+      if (plan.type === "items") {
+        return [{
+          type: "plan",
+          planId: plan.planId,
+          entries: plan.entries.map((e) => ({ text: e.content, status: e.status })),
+        }];
+      }
+      if (plan.type === "markdown") {
+        return [{ type: "plan", planId: plan.planId, markdown: plan.content }];
+      }
+      return [{ type: "unknown", kind: `plan_update/${plan.type}` }];
+    }
+
+    case "plan_removed":
+      return [{ type: "planRemoved", planId: update.planId }];
+
+    /*
+     * ★ **«지금 상태»가 바뀌었다는 소식** — 우리가 안 시킨 변경도 온다.
+     * 받아서 안 반영하면 **화면이 틀어진 채로 남는다** — 사용자는 Plan
+     * 모드인 줄 아는데 에이전트는 아니다.
+     */
+    case "current_mode_update":
+      return [{ type: "mode", modeId: update.currentModeId }];
+
+    case "config_option_update":
+      return [{ type: "config", options: update.configOptions }];
+
+    /*
+     * `session_info_update` — **일부러 안 쓴다** (Codex 가 실제로 보낸다).
+     *
+     * 에이전트가 지은 제목은 **그 세션의 제목**이지 우리 방의 제목이 아니다.
+     * 방 제목은 사용자가 짓거나 우리가 짓는 것이고, **봇이 여럿이면 서로
+     * 덮어쓴다** — 마지막에 말한 봇이 방 이름을 가져가는 꼴이 된다.
+     *
+     * 그래도 **조용히는 안 버린다**(§0 P5). 나중에 1:1 방의 기본 제목을
+     * 채울 생각이 서면 여기가 그 자리다.
+     */
+    case "session_info_update":
+      return [{ type: "unknown", kind: "session_info_update" }];
+
+    /*
+     * 🔴 **모르는 것을 조용히 버리지 않는다** (§0 P5).
+     *
+     * 예전에는 그냥 `return []` 였다. 그래서 열다섯 중 일곱을 버리면서도
+     * **아무 자국이 안 남아** 문서에는 «고쳤다»로 적힌 채 달이 갔다.
+     * 이 한 줄이 있었으면 나머지가 저절로 드러났을 일이다.
+     */
     default:
-      return [];
+      return [{
+        type: "unknown",
+        kind: (update as { sessionUpdate?: string }).sessionUpdate ?? "(이름 없음)",
+      }];
   }
 }
 

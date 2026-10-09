@@ -8,6 +8,7 @@
  * 상태를 `AIO_FAKE_STATE` 파일에 남겨 테스트가 들여다본다.
  */
 const fs = require("node:fs");
+const NL = String.fromCharCode(10);
 
 const STATE = process.env.AIO_FAKE_STATE;
 const MODELS = [
@@ -82,6 +83,29 @@ let seq = 0;
 function note(event) {
   if (!STATE) return;
   fs.appendFileSync(STATE, JSON.stringify(event) + "\n");
+}
+
+/** `session/update` 알림 하나를 흘린다 */
+function emit(sessionId, update) {
+  process.stdout.write(JSON.stringify({
+    jsonrpc: "2.0", method: "session/update", params: { sessionId, update },
+  }) + "\n");
+}
+
+/**
+ * ★ **받은 `mcpServers` 를 되돌려 적는다** (2026-10-09).
+ *
+ * 🔴 우리는 `new`·`fork` 에만 싣고 `resume`·`load` 에는 **아예 안 싣는다** —
+ * 그래서 **모든 방이 껐다 켜는 순간 도구를 잃는다**(V3 2.4). 그런데 그걸
+ * **검사가 볼 자리가 없었다**: 가짜 에이전트가 받은 것을 아무 데도 안 적어서
+ * «실었나»를 물을 수가 없었다. 고쳐놓고도 조용히 통과했을 자리다.
+ *
+ * 이름과 주소만 적는다 — 헤더에는 비밀이 실린다.
+ */
+function mcpNote(params) {
+  const list = params?.mcpServers;
+  if (!Array.isArray(list)) return { mcp: null };   // null = **안 실렸다** (빈 배열과 다르다)
+  return { mcp: list.map((s) => ({ name: s?.name, url: s?.url, type: s?.type })) };
 }
 
 function optionsOf(s) {
@@ -181,7 +205,7 @@ function handle(msg) {
        */
       const s = { model: process.env.AIO_FAKE_MODEL || "opus", mode: "default", effort: "medium", attached: true, prompted: false, said: [] };
       sessions.set(sessionId, s);
-      note({ t: "new", sessionId, cwd: params.cwd });
+      note({ t: "new", sessionId, cwd: params.cwd, ...mcpNote(params) });
       // 설치는 됐는데 로그인이 안 돼 응답 없이 멈춰 있는 CLI를 평낸다.
       // «기다림에 끝을 둔다»는 약속을 재려면 **정말 안 답하는** 상대가 있어야 한다.
       if (process.env.AIO_FAKE_HANG_NEW) return NO_REPLY;
@@ -208,7 +232,7 @@ function handle(msg) {
     case "session/resume":
     case "session/load": {
       // **시도 자체를 먼저 남긴다** — 실패한 복구도 일어난 일이다
-      note({ t: "resume-try", sessionId: params.sessionId, method });
+      note({ t: "resume-try", sessionId: params.sessionId, method, ...mcpNote(params) });
       if (process.env.AIO_FAKE_NO_RESUME) throw new Error("no such session");
       /*
        * **한 번만** 복구를 실패시킨다 — 일시적인 실패를 흉내낸다.
@@ -232,7 +256,7 @@ function handle(msg) {
       if (process.env.AIO_FAKE_RESET_ON_RESUME) { s.model = "opus"; s.mode = "default"; }
       // ★ 분기된 세션은 **여기서야** 프로세스에 붙는다 (실제 어댑터가 그렇다)
       s.attached = true;
-      note({ t: "resume", sessionId: params.sessionId, method });
+      note({ t: "resume", sessionId: params.sessionId, method, ...mcpNote(params) });
       /*
        * ★ `session/load`는 **대화를 통째로 다시 흘려보낸다.**
        * 스펙: "streaming the entire conversation via session/update".
@@ -277,7 +301,7 @@ function handle(msg) {
        */
       sessions.set(sessionId, { ...parent, attached: false, said: [...parent.said] });
       saveDisk();   // 분기는 말 걸기 전에도 남는다 (§13.2 실측)
-      note({ t: "fork", from: params.sessionId, sessionId });
+      note({ t: "fork", from: params.sessionId, sessionId, ...mcpNote(params) });
       return { sessionId };
     }
     case "session/prompt": {
@@ -463,6 +487,87 @@ function handle(msg) {
           } },
         }) + "\n");
       }
+      /*
+       * ★ **계획을 보낸다** — `[[plan]]` · `[[planmd]]` · `[[planrm]]` (2026-10-09).
+       *
+       * 🔴 `translate()` 가 열다섯 종류 중 여덟만 다루고 나머지는
+       * `default: return []` 로 **조용히 버린다**. 계획은 선언·소비·렌더가 다
+       * 있는데 **중간만 비어** 있었다 — 그런데 **가짜 에이전트가 계획을 한 번도
+       * 안 보내서** 검사 64개 중 어느 것도 그 자리를 안 건드렸다.
+       *
+       *   [[plan]]    안정판 `plan` — planId 가 **없다**. entries 뿐이다
+       *   [[planmd]]  UNSTABLE `plan_update` — markdown 꼴
+       *   [[planrm]]  `plan_removed` — 계획이 턴을 넘겨 산다는 증거
+       */
+      if (text.includes("[[plan]]")) {
+        emit(params.sessionId, {
+          sessionUpdate: "plan",
+          entries: [
+            { content: "먼저 읽는다", priority: "high", status: "completed" },
+            { content: "고친다", priority: "medium", status: "in_progress" },
+            { content: "검사한다", priority: "low", status: "pending" },
+          ],
+        });
+      }
+      if (text.includes("[[planmd]]")) {
+        emit(params.sessionId, {
+          sessionUpdate: "plan_update",
+          plan: { type: "markdown", planId: "pl1", content: "## 할 일" + NL + NL + "- 하나" + NL + "- 둘" },
+        });
+      }
+      if (text.includes("[[planitems]]")) {
+        emit(params.sessionId, {
+          sessionUpdate: "plan_update",
+          plan: { type: "items", planId: "pl1", entries: [
+            { content: "항목형 갱신", priority: "high", status: "in_progress" },
+          ] },
+        });
+      }
+      /* 계획을 **파일로** 준다 — 우리가 못 읽는 꼴이다. 버리는지 알리는지 본다 */
+      if (text.includes("[[planfile]]")) {
+        emit(params.sessionId, {
+          sessionUpdate: "plan_update",
+          plan: { type: "file", planId: "pl1", uri: "file:///tmp/plan.md" },
+        });
+      }
+      if (text.includes("[[planrm]]")) {
+        emit(params.sessionId, { sessionUpdate: "plan_removed", planId: "pl1" });
+      }
+      /*
+       * ★ **우리가 모르는 종류** — `[[weird]]`.
+       *
+       * 🔴 §0 P5 는 *"조용히 `return []` 하지 않는다 — 로그에 남겨"* 인데
+       * 코드가 정확히 그걸 하고 있었다. **모르는 것이 와도 아무 자국이 없으면
+       * 새 종류가 늘어난 것을 영영 모른다** — 실제로 그래서 일곱을 놓쳤다.
+       */
+      if (text.includes("[[weird]]")) {
+        emit(params.sessionId, { sessionUpdate: "nonsense_update", whatever: 1 });
+      }
+      /*
+       * ★ **«지금 상태»가 바뀌었다는 소식** — `[[mode:…]]` · `[[cfg:…]]` · `[[info:…]]`.
+       *
+       * 셋 다 우리가 안 시킨 변경이 온다. 받아서 안 반영하면 **화면이 틀어진
+       * 채로 남는다** — 사용자는 Plan 모드인 줄 아는데 에이전트는 아니다.
+       * `session_info_update` 는 **Codex 가 실제로 보낸다**.
+       */
+      const wantMode = /\[\[mode:([^\]]+)\]\]/.exec(text);
+      if (wantMode) {
+        s.mode = wantMode[1];
+        emit(params.sessionId, { sessionUpdate: "current_mode_update", currentModeId: wantMode[1] });
+      }
+      const wantCfg = /\[\[cfg:([^\]]+)\]\]/.exec(text);
+      if (wantCfg) {
+        s.model = wantCfg[1];
+        emit(params.sessionId, { sessionUpdate: "config_option_update", configOptions: optionsOf(s) });
+      }
+      const wantInfo = /\[\[info:([^\]]+)\]\]/.exec(text);
+      if (wantInfo) {
+        emit(params.sessionId, {
+          sessionUpdate: "session_info_update",
+          title: wantInfo[1], updatedAt: new Date().toISOString(),
+        });
+      }
+
       /*
        * 느린 응답을 흉낸다.
        *

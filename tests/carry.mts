@@ -67,7 +67,14 @@ async function main(): Promise<void> {
     const add = (role: "user" | "agent", text: string, extra: Partial<Message> = {}) => {
       live.messages.push({
         id: "m" + live.messages.length, role, text, createdAt: Date.now(),
-        ...(role === "user" ? { deliveredTo: [live.participants[0]!.id] } : {}),
+        /*
+         * ★ **양쪽 다 받는 이를 적는다** (2026-10-09).
+         *
+         * 🔴 예전에는 `user` 에만 적었다. 되먹임이 «그 봇이 실제로 본 것»만
+         * 싣게 되면서(§4.1.1) 그 구멍이 드러났다 — 에이전트 줄에 `deliveredTo`
+         * 가 아예 없어서 걸러지는 쪽을 **우연히** 타고 있었다.
+         */
+        deliveredTo: [live.participants[0]!.id],
         ...extra,
       } as Message);
     };

@@ -1458,6 +1458,19 @@ export function inBotView(m: Message, botId: string): boolean {
     return m.aboutBotIds === undefined || m.aboutBotIds.includes(botId);
   }
   /*
+   * 🔴 **받는 이가 안 적힌 옛 메시지가 있다** (2026-10-09).
+   *
+   * `deliveredTo` 는 단체방(v2.0)과 함께 생긴 칸이다. 그 전에 저장된 줄에는
+   * **아예 없고**, 저장소는 JSONL 을 그대로 읽으므로 `undefined` 로 올라온다.
+   * 타입은 «있다»고 말하지만 **디스크는 아니다.**
+   *
+   * 그래서 «모두가 봤다»로 읽는다. 그때는 방에 봇이 하나뿐이었으니 사실이고,
+   * **없는 것을 «아무도 못 봤다»로 읽으면 옛 대화가 통째로 사라진다** —
+   * 되먹임이 이 함수를 쓰기 시작하면서 그게 진짜 손해가 됐다.
+   */
+  const to = m.deliveredTo as string[] | undefined;
+  if (to === undefined) return true;
+  /*
    * ★ 봇의 말은 **글쓴이에게도, 받은 봇에게도** 보인다 (v3.0 대비).
    *
    * 오늘은 `deliveredTo` 가 글쓴이 자신뿐이라 이 줄은 아무것도 안 바꾼다.
@@ -1467,9 +1480,9 @@ export function inBotView(m: Message, botId: string): boolean {
    * 본 전부»라는 약속(§5)이 그 순간 깨진다.
    */
   if (m.role === "agent") {
-    return m.authorBotId === botId || m.deliveredTo.includes(botId);
+    return m.authorBotId === botId || to.includes(botId);
   }
-  return m.deliveredTo.includes(botId) || (m.notSentTo?.includes(botId) ?? false);
+  return to.includes(botId) || (m.notSentTo?.includes(botId) ?? false);
 }
 
 /**

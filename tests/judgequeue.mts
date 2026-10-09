@@ -64,7 +64,28 @@ async function make(hold: number) {
       await new Promise((r) => setTimeout(r, 25));
     }
   };
-  return { dir, mgr, room, inner, seen, settle,
+  /**
+   * ★ **전제부터 확인한다** (2026-10-09).
+   *
+   * 🔴 아래 세 자리가 «300ms 면 심사 봇이 바빠졌겠지» 로 되어 있었다. 기계가
+   * 느린 날 — 스위트 예순 개 뒤라든가 — 그 사이에 프롬프트가 에이전트까지 못
+   * 가면 심사가 **줄을 안 서고 바로 사람에게** 떨어진다. 그러면 «가로챈다» 가
+   * 깨지는데, 깨진 자리는 가로채기가 아니라 **아직 안 바쁜 것**이다.
+   *
+   * 시간을 믿는 대신 **그 상태가 될 때까지** 기다린다.
+   */
+  const until = async (cond: () => boolean, what: string) => {
+    for (let i = 0; i < 400; i++) {
+      if (cond()) return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error("FAIL: 전제가 안 섰다 — " + what);
+  };
+  const busyJudge = () => until(
+    () => mgr.statusOf(room.id, room.participants[1]!.id) !== "idle",
+    "심사 봇이 바빠지지 않았다",
+  );
+  return { dir, mgr, room, inner, seen, settle, until, busyJudge,
            asker: room.participants[0]!, judge: room.participants[1]!,
            other: room.participants[2]!, userAsks: () => askedUser };
 }
@@ -80,7 +101,7 @@ async function main(): Promise<void> {
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
 
     const busy = t.mgr.send(t.room.id, "긴 일 좀 해줘", undefined, t.judge.id);
-    await new Promise((r) => setTimeout(r, 300));
+    await t.busyJudge();
     ok(t.mgr.statusOf(t.room.id, t.judge.id) !== "idle", "심사 봇은 자기 일 하는 중");
 
     const out = await t.inner.askApprover(t.asker.sessionId!, REQ());
@@ -108,9 +129,9 @@ async function main(): Promise<void> {
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
 
     const busy = t.mgr.send(t.room.id, "긴 일", undefined, t.judge.id);
-    await new Promise((r) => setTimeout(r, 300));
+    await t.busyJudge();
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ("보이나"));
-    await new Promise((r) => setTimeout(r, 200));
+    await t.until(() => t.mgr.reviewsIn(t.room.id).length === 1, "심사가 줄을 안 섬다");
 
     const now = t.mgr.reviewsIn(t.room.id);
     ok(now.length === 1, `★ 줄에 하나 (${now.length})`);
@@ -134,9 +155,9 @@ async function main(): Promise<void> {
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
 
     const busy = t.mgr.send(t.room.id, "긴 일", undefined, t.judge.id);
-    await new Promise((r) => setTimeout(r, 300));
+    await t.busyJudge();
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ("가로채기"));
-    await new Promise((r) => setTimeout(r, 200));
+    await t.until(() => t.mgr.reviewsIn(t.room.id).length === 1, "심사가 줄을 안 섬다");
 
     const id = t.mgr.reviewsIn(t.room.id)[0]!.id;
     ok(t.mgr.takeOverReview(id), "★ 가로챈다");

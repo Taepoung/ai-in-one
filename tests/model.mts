@@ -275,6 +275,21 @@ async function main() {
       buildPrompt(r: Room, b: unknown, rt: unknown, batch: Message[]): Promise<Array<{ text?: string }>>;
     };
 
+    /*
+     * ★ **받는 이를 적어둔다** (2026-10-09).
+     *
+     * 되먹임은 이제 **«그 봇이 실제로 본 것»만** 실는다(§4.1.1) —
+     * `deliveredTo` 가 빈 메시지는 **아무도 받은 적 없는 것**이라 안 들어간다.
+     *
+     * 진짜 경로는 보낼 때 반드시 받는 이를 적는다 — 손으로 밀어 넣는
+     * 여기서도 적어야 **실제와 같은 모양**이 된다.
+     */
+    const addressed = (r: Room): Room => {
+      const who = r.participants[0]!.id;
+      for (const m of r.messages) if (m.role !== "system") m.deliveredTo = [who];
+      return r;
+    };
+
     const r0 = await m4.createRoom({ agentId: "fake", title: "끊긴 방" });
     const room = await m4.openRoom(r0.id);
     room.messages.push(
@@ -313,7 +328,7 @@ async function main() {
       id: "u2", role: "user", text: "이번엔 B", deliveredTo: [], createdAt: 3,
     };
     room.messages.push(next);
-    const blocks = await inner.buildPrompt(room, room.participants[0], { roleInjected: true }, [next]);
+    const blocks = await inner.buildPrompt(addressed(room), room.participants[0], { roleInjected: true }, [next]);
     const text = blocks.map((b) => b.text ?? "").join("\n");
 
     ok(text.includes("A를 고쳐줘") && text.includes("고쳤습니다"), "**이전 대화가 들어간다**");
@@ -342,7 +357,7 @@ async function main() {
       id: "u3", role: "user", text: "그다음", deliveredTo: [], createdAt: 9,
     };
     room.messages.push(next2);
-    const b2 = await inner.buildPrompt(room, room.participants[0], { roleInjected: true }, [next2]);
+    const b2 = await inner.buildPrompt(addressed(room), room.participants[0], { roleInjected: true }, [next2]);
     const t2 = b2.map((b) => b.text ?? "").join("\n");
 
     ok(t2.includes("[이전 요약] A를 고쳤다"), "**요약이 앞머리로 들어간다**");
@@ -358,7 +373,7 @@ async function main() {
     await m4.decideRefeed(room.id, true);
     const next3: Message = { id: "u4", role: "user", text: "C", deliveredTo: [], createdAt: 10 };
     room.messages.push(next3);
-    const t3 = (await inner.buildPrompt(room, room.participants[0], { roleInjected: true }, [next3]))
+    const t3 = (await inner.buildPrompt(addressed(room), room.participants[0], { roleInjected: true }, [next3]))
       .map((b) => b.text ?? "").join(" ");
     ok(t3.includes("A를 고쳤다") && t3.includes("B도 손봤다"),
        "**둘 다 들어간다** — 겹침은 토큰 몇, 누락은 맥락이다");
@@ -403,7 +418,7 @@ async function main() {
       room7.messages.push(last);
 
       await m4.decideRefeed(room7.id, true);
-      const out = (await inner.buildPrompt(room7, room7.participants[0], { roleInjected: true }, []))
+      const out = (await inner.buildPrompt(addressed(room7), room7.participants[0], { roleInjected: true }, []))
         .map((b) => b.text ?? "").join(" ");
 
       ok(!out.includes("이건 못 보냈다"),

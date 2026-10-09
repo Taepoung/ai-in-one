@@ -45,6 +45,15 @@ export interface RoomManagerOptions {
   agents: AgentDef[];
   /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
   configProbeMs?: number;
+  /**
+   * ★ **지금 우리 MCP 서버 주소** (v3.0).
+   *
+   * 🔴 **값이 아니라 함수다.** 포트는 실행마다 바뀌고, 서버는 방보다 늦게
+   * 뜰 수도 있다. 값으로 받으면 **그때 몰랐던 주소**를 영영 못 고친다.
+   *
+   * 세션이 생기거나 다시 붙을 때마다 **다시 물어서** 싣는다.
+   */
+  mcpServers?: () => acp.McpServer[];
 }
 
 /**
@@ -507,12 +516,55 @@ function foldMiddle(text: string, max: number): string {
  * 그리고 이건 손해가 아니다 — **에이전트가 기억하던 것도 그 요약이었다.**
  * 압축 이전 원문을 다시 넣으면 오히려 압축 전보다 더 많은 걸 보내게 된다.
  */
-function transcriptText(room: Room, batch: Message[], kind?: "log" | "summary"): string {
+function transcriptText(
+  room: Room,
+  /**
+   * ★ **누구에게 되먹이나** (2026-10-09).
+   *
+   * 🔴 여태 이 칸이 없었다 — `room.messages` 를 **통째로** 훑어서 `system`·
+   * 지금 보낼 batch·`sendFailed` 만 거르고 나머지를 다 실었다. 단체방에서
+   * 알파를 되먹이면 **베타에게만 갔던 대화가 이름까지 붙어** 들어갔다.
+   *
+   * §4.1.1 — «봇은 자기가 받은 것만 안다» — 를 **v2.0 부터 깨고 있었다.**
+   * 되먹임은 세션이 끊겼을 때만 도는 길이라 눈에 잘 안 띄었을 뿐이다.
+   */
+  bot: BotInstance,
+  batch: Message[],
+  kind?: "log" | "summary",
+): string {
   const skip = new Set(batch.map((m) => m.id));
-  const name = (m: Message) =>
-    m.role === "user"
-      ? "사용자"
-      : (room.participants.find((b) => b.id === m.authorBotId)?.name ?? "에이전트");
+  const nameOf = (id: string | undefined) =>
+    room.participants.find((b) => b.id === id)?.name ?? "에이전트";
+
+  /**
+   * 한 줄 앞에 붙는 이름.
+   *
+   * ★ **받는 이는 «되먹는 봇이 당사자인 쪽»만 적는다.**
+   *
+   * ```
+   * 사용자 → 알파 (+베타)   «사용자:»          다른 수신자는 안 적는다
+   * 알파 → 베타             «알파 → 베타:»      알파가 되먹을 때 — 제가 한 말이다
+   * 알파 → 베타             «알파 → 베타:»      베타가 되먹을 때 — 제가 받은 말이다
+   * ```
+   *
+   * 🔴 수신자를 다 적으면 **«베타도 이걸 받았다»를 알파에게 알려주는 꼴**이
+   * 된다 — 칩을 `Message.text` 에 안 넣은 것과 **같은 자리**다. 되먹임이라고
+   * 예외일 수 없다.
+   */
+  const name = (m: Message): string => {
+    if (m.role === "user") return "사용자";
+    const who = nameOf(m.authorBotId);
+    // 받는 이가 안 적힌 옛 메시지가 있다 (`inBotView` 주석) — 그때는 안 적는다
+    const went = (m.deliveredTo as string[] | undefined) ?? [];
+    // 봇에게 간 데가 없으면 사용자에게 한 말이다 — 적을 받는 이가 없다
+    if (went.every((id) => id === m.authorBotId)) return who;
+    const to = m.authorBotId === bot.id
+      // 내가 보낸 말 — 누구에게 보냈는지는 **내가 이미 안다**
+      ? went.filter((id) => id !== bot.id)
+      // 내가 받은 말 — 받는 이는 나다. 같이 받은 남은 안 적는다
+      : [bot.id];
+    return to.length > 0 ? `${who} → ${to.map(nameOf).join(", ")}` : who;
+  };
 
   /*
    * 마지막 압축 지점 뒤부터가 원문 구간이고, 그 앞은 요약이 대신한다.
@@ -524,11 +576,18 @@ function transcriptText(room: Room, batch: Message[], kind?: "log" | "summary"):
    * 그래서 **전부 순서대로** 넣는다. 나중 요약이 앞을 품는 에이전트라면 조금
    * 겹치는 것뿐이지만, 아니라면 이게 유일하게 안 잃는 방법이다.
    * 겹침은 토큰 몇, 누락은 맥락이다.
+   *
+   * 🔴 **요약도 봇마다 다르다** (2026-10-09). 압축은 **세션 단위**라 자국에
+   * `aboutBotIds` 가 붙는다(B1) — 알파가 압축했다고 베타의 기억이 준 게 아니다.
+   *
+   * 여기가 그걸 안 보고 **방의 모든 요약을 긁어모았다.** 그러면 알파에게
+   * 되먹이는 글머리에 **베타가 압축하며 남긴 요약**이 «이전 요약» 으로
+   * 붙는다 — 알파가 한 적 없는 대화다. 아래 `kept` 와 **같은 병**이다.
    */
   let at = -1;
   const summaries: string[] = [];
   room.messages.forEach((m, k) => {
-    if (m.mark === "compaction" && m.summary) {
+    if (m.mark === "compaction" && m.summary && inBotView(m, bot.id)) {
       summaries.push(m.summary.trim());
       at = k;
     }
@@ -542,6 +601,9 @@ function transcriptText(room: Room, batch: Message[], kind?: "log" | "summary"):
     (m) =>
       m.role !== "system" &&
       !skip.has(m.id) &&
+      // 🔴 **그 봇이 실제로 본 것만** (§4.1.1). 이 줄이 없어서 단체방 되먹임이
+      // 남의 대화를 통째로 실어 날랐다 — v2.0 부터 열려 있던 길이다.
+      inBotView(m, bot.id) &&
       // 🔴 **전달 안 된 메시지는 넣지 않는다.** 보내다 실패한 것이라 **이전 세션도
       // 본 적이 없다.** 넣으면 «했던 얘기»가 하나 생겨서, 에이전트가 답한 적
       // 없는 것에 답한 척하게 된다. 빼는 게 작기도 하고 **맞기도 하다.**
@@ -3757,7 +3819,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
     // 끊긴 맥락을 되먹인다 (F7). **역할보다 뒤, 실제 요청보다 앞.**
     if (bot.refeedPending) {
-      const history = transcriptText(room, batch, bot.refeedKind);
+      const history = transcriptText(room, bot, batch, bot.refeedKind);
       if (history) {
         parts.push(
           // **줄여 보냈다는 걸 말해준다.** 모르면 «[중략]»을 만난 에이전트가
@@ -4469,6 +4531,17 @@ export class RoomManager extends EventEmitter<Events> {
       );
       this.connections.set(agentId, conn);
     }
+    /*
+     * ★ **부를 때마다 지금 주소로 다시 얹는다** (v3.0).
+     *
+     * 🔴 만들 때 한 번만 넣으면 안 된다 — **포트가 실행마다 바뀌고**, MCP
+     * 서버가 연결보다 늦게 뜰 수도 있다. 그러면 되살아난 세션이 지난번
+     * 포트를 들고 허공에 말을 건다.
+     *
+     * 이미 도는 세션에는 안 닿는다(ACP 에 그런 메서드가 없다). 다음에
+     * 세션이 생기거나 다시 붙을 때부터 먹는다.
+     */
+    conn.setMcpServers(this.opts.mcpServers?.() ?? []);
     return conn;
   }
 
