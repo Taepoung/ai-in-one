@@ -1286,6 +1286,20 @@ export interface PermissionRequest {
   command?: string;
   /** 바뀔 내용. 승인 전에 diff를 볼 수 있어야 한다 */
   diff?: { path: string; oldText: string | null; newText: string };
+  /**
+   * ★ **어느 MCP 서버의 어느 도구인가** (v3.0 2-F).
+   *
+   * 🔴 여기가 비어 있었다. `decidePermission` 이 `toolCall` 에서 제목·종류만
+   * 꺼내고 **신원이 든 칸 셋을 통째로 버렸다** — 그래서 «우리 도구인가»를
+   * 물을 수가 없었다.
+   *
+   * 우리 도구(`say`·`check_queue`·`verdict`)를 쓸 때마다 사용자를 깨우면
+   * **봇끼리 한 마디 할 때마다 승인 카드가 뜬다.** 그러라고 만든 기능이 아니다.
+   *
+   * ⚠️ **없으면 비워 둔다.** 못 알아본 것을 «우리 것»으로 넘겨짚으면,
+   * 남의 도구가 자동 승인으로 지나간다 — 틀리는 방향이 **위험한 쪽**이다.
+   */
+  mcp?: { server: string; tool: string };
   options: Array<{ optionId: string; name: string; kind: string }>;
 }
 

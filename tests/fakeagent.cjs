@@ -643,8 +643,32 @@ const pending = new Map();
 let outId = 90000;
 
 /** 클라이언트에게 승인을 묻고 답을 기다린다 */
+/**
+ * ★ **MCP 도구의 신원을 어디에 실는가** (2026-10-09).
+ *
+ * 🔴 자리가 **에이전트마다 다르다**. 하나만 흔내면 나머지 둘에서
+ * 우리 도구가 **사용자에게 물어진다** — 봇이 한 마디 할 때마다 승인 카드가
+ * 뜨는 꼴이다. 세 꼴을 다 흔낼 수 있어야 검사가 그걸 잡는다.
+ *
+ *   AIO_FAKE_MCP_WHERE = name | meta | raw | (없음 = 신원 없음)
+ */
+function mcpBits(server, tool) {
+  switch (process.env.AIO_FAKE_MCP_WHERE) {
+    case "name":   return { name: `mcp__${server}__${tool}` };          // Claude
+    case "meta":   return { _meta: { mcp: { server, tool } } };          // Antigravity
+    case "raw":    return { rawInput: { server, tool, arg: 1 } };        // Codex
+    default:       return {};                                            // 못 알아보는 꼴
+  }
+}
+
 function askPermission(sessionId, title) {
   const id = ++outId;
+  /*
+   * MCP 도구 호출인 척 한다 — `[[mcpask:서버/도구]]` 가 정한다.
+   * 진짜 에이전트도 MCP 도구를 쓰기 전에 **같은 길로** 묻는다.
+   */
+  const want = /^([^/]+)\/(.+)$/.exec(process.env.AIO_FAKE_MCP_CALL || "");
+  const bits = want ? mcpBits(want[1], want[2]) : {};
   /*
    * 🔴 **활동을 먼저 알린다.** 진짜 에이전트는 `tool_call` 을 보낸 뒤 그
    * `toolCallId` 로 승인을 요청한다 — 그래야 클라이언트가 «무엇에 대한
@@ -662,7 +686,7 @@ function askPermission(sessionId, title) {
     jsonrpc: "2.0", id, method: "session/request_permission",
     params: {
       sessionId,
-      toolCall: { toolCallId: "p" + id, title, kind: "edit" },
+      toolCall: { toolCallId: "p" + id, title, kind: "edit", ...bits },
       options: [
         { optionId: "y", name: "이번만 허용", kind: "allow_once" },
         { optionId: "n", name: "이번만 거절", kind: "reject_once" },

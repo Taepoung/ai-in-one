@@ -22,7 +22,7 @@
 | **⑨ 오가는 모양** | 말풍선·활동 줄이 깨진다 (§B) | `sweep.mjs` 로 전후 비교 |
 | **⑩ MCP `http`** | 그 방은 **봇끼리 말을 못 건다** — 조용히 | `initialize` 의 `mcpCapabilities.http` |
 | **⑪ 도구를 진짜 부르나** | 광고만 하고 안 부르면 **릴레이가 안 돈다** | `mcpagy.cjs` — `tools/call` 이 오나 |
-| **⑫ 우리 도구의 신원 자리** | **자동 승인이 조용히 사라진다** — 매번 사용자에게 묻는다 | `mcpagy.cjs` — `name` / `_meta.mcp` / `rawInput.server` 중 어디인가 |
+| **⑫ 우리 도구의 신원 자리** | **자동 승인이 조용히 사라진다** — 매번 사용자에게 묻는다 | `mcpagy.cjs` — `name` / `_meta.mcp` / `rawInput.server` 중 어디인가 · `mcpself.mts` 가 셋을 다 흉내낸다 |
 | **⑬ `allow_once` 를 주나** | **봇 심사가 통째로 사람에게 간다** — 조용히 | `request_permission` 의 `options` 종류 |
 
 ⚠️ **⑤는 «이름이 바뀌나» 만이 아니다.** 꾸러미 안에 **CLI 가 아예 없을 수도**

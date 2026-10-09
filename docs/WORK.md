@@ -256,15 +256,43 @@ RoomManager.connection        내린 뒤에는 **새로 안 만든다** — CLI 
           자동 재시도는 안 한다 — 「몇 초마다」 숫자가 생긴다
 말하는 것  initialize · tools/list · tools/call (프로브에서 80줄로 됐다)
 비밀      **세션마다** 다른 값을 헤더에. 세션이 생길 때 발급, 죽을 때 폐기
-자동 승인  우리 도구는 사용자에게 안 묻는다. 가리는 자리가 **에이전트마다 다르다**:
-            Claude  name = "mcp__ai-in-one__…"
-            Antigravity  _meta.mcp = { server, tool }
-            Codex   rawInput = { server, tool, … }   (Codex 는 애초에 안 묻는다)
-          셋 다 없으면 → **사용자에게**. 넘겨짚지 않는다
+자동 승인  ✅ 했다 (아래)
 ```
 
 ★ `ask_bot` 승인을 에이전트에 기대지 않는다 — **Codex 는 기본 모드에서 안 묻는다**
 (2026-10-08 실측). 승인은 **우리 서버에서** 건다.
+
+#### ✅ 신원 자리와 자동 승인 (2026-10-09)
+
+**고쳤다**: `PermissionRequest.mcp = { server, tool }` 를 내고,
+`decidePermission` 이 `toolCall` 에서 신원을 꺼내 싣는다(`mcpIdentity`).
+서버가 `OUR_MCP_NAME` 이면 **사용자를 안 깨우고** 우리가 답한다.
+
+🔴 **그 전에는 물을 자리 자체가 없었다.** `decidePermission` 이 제목·종류만
+꺼내고 **신원이 든 칸 셋을 통째로 버렸다** — 그 상태로 도구를 달면
+**봇이 한 마디 할 때마다 승인 카드가 뜬다.**
+
+```
+Claude        name = "mcp__ai-in-one__say"
+Antigravity   _meta.mcp = { server, tool }
+Codex         rawInput = { server, tool, … }     (Codex 는 애초에 안 묻는다)
+셋 다 없으면   → **사용자에게**. 넘겨짚지 않는다
+```
+
+**두 가지를 일부러 좁게 잡았다**:
+
+```
+«우리 것으로 보인다» 로는 부족하다   `allow_once` 가 **실제로 있어야** 고른다
+                                 없는 선택지를 지어내면 에이전트가 모르는 id 를 받는다
+«항상» 은 안 고른다                이 요청 하나를 넘어 **앞으로를 바꾼다**.
+                                 우리가 몰래 켜면 사용자가 켠 적 없는 권한이 생긴다
+```
+
+Claude 꼴은 이름 하나에 둘을 담으므로(`mcp__서버__도구`) **처음 둘만** 쪼갠다 —
+도구 이름에 `__` 가 있어도 안 잘린다.
+
+**검사**: `mcpself.mts` 열셋. 가짜 에이전트가 `AIO_FAKE_MCP_WHERE` 로 **세 꼴을
+다 흉내낸다** — 하나만 흉내내면 나머지 둘에서 조용히 깨진다.
 
 ### 2-G. 방 락 (4-12-1)
 

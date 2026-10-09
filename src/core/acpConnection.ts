@@ -112,6 +112,15 @@ export interface NewSessionResult {
   configOptions: acp.SessionConfigOption[];
 }
 
+/**
+ * ★ **우리 MCP 서버의 이름** (v3.0 2-F).
+ *
+ * 에이전트가 «어느 서버의 도구인가»를 이 이름으로 말해주고, 우리는 그걸 보고
+ * **우리 것만** 자동 승인한다. 세션을 열 때 싣는 이름(`McpServerHttp.name`)과
+ * **반드시 같아야 한다** — 다르면 우리 도구가 사용자에게 물어진다.
+ */
+export const OUR_MCP_NAME = "ai-in-one";
+
 /** 이보다 오래 걸리면 "처음이라 오래 걸린다"고 알려준다 */
 const SLOW_START_MS = 4000;
 
@@ -1094,6 +1103,11 @@ export class AcpConnection {
       title: params.toolCall.title ?? "도구 사용",
       readOnly: isReadOnly(params.toolCall.kind),
       ...describeToolCall(params.toolCall),
+      // **신원은 버리지 않는다** — «우리 도구인가»를 물을 자리가 여기뿐이다
+      ...(() => {
+        const who = mcpIdentity(params.toolCall);
+        return who ? { mcp: who } : {};
+      })(),
       options: params.options.map((o) => ({
         optionId: o.optionId,
         name: o.name,
@@ -1101,10 +1115,28 @@ export class AcpConnection {
       })),
     };
 
+    /*
+     * ★ **우리 도구는 안 묻는다** (v3.0 2-F).
+     *
+     * 🔴 `say`·`check_queue`·`verdict` 는 **봇이 한 마디 할 때마다** 불린다.
+     * 그때마다 승인 카드를 띄우면 그러라고 만든 기능이 아니게 된다 — 사람이
+     * 중계기가 된다.
+     *
+     * ⚠️ **«우리 것으로 보인다»로는 부족하다.** `allow_once` 가 실제로
+     * 있어야 고른다 — 없는 선택지를 지어내면 에이전트가 모르는 id 를 받는다.
+     * 그리고 **«항상»은 안 고른다**: 이 요청 하나를 넘어 앞으로를 바꾸는 값을
+     * 우리가 몰래 켜면, 사용자가 켠 적 없는 권한이 생긴다(§4.2.2).
+     */
+    const mine = req.mcp?.server === OUR_MCP_NAME
+      ? params.options.find((o) => o.kind === "allow_once")
+      : undefined;
+
     // 누구에게 물을지는 방을 아는 쪽이 정한다. 없으면 사용자에게.
-    const decision = this.askApprover
-      ? await this.askApprover(params.sessionId, req)
-      : await this.host.requestPermission(req);
+    const decision: PermissionDecision = mine
+      ? { outcome: "selected", optionId: mine.optionId }
+      : this.askApprover
+        ? await this.askApprover(params.sessionId, req)
+        : await this.host.requestPermission(req);
 
     /*
      * ★ **표시는 «답했나»가 아니라 «어느 쪽인가»다** (D3).
@@ -1139,6 +1171,64 @@ export class AcpConnection {
       ? { outcome: { outcome: "selected", optionId: decision.optionId } }
       : { outcome: { outcome: "cancelled" } };
   }
+}
+
+/**
+ * ★ **이 도구 호출이 어느 MCP 서버의 것인가** (v3.0 2-F).
+ *
+ * 🔴 **자리가 에이전트마다 다르다** (2026-10-08 실측). 하나만 보고 만들면
+ * 나머지 둘에서 우리 도구가 **사용자에게 물어진다** — 봇이 한 마디 할 때마다
+ * 승인 카드가 뜨는 꼴이다.
+ *
+ * ```
+ * Claude        name = "mcp__ai-in-one__say"
+ * Antigravity   _meta.mcp = { server, tool }
+ * Codex         rawInput = { server, tool, … }     (Codex 는 애초에 안 묻는다)
+ * ```
+ *
+ * ⚠️ **셋 다 없으면 `undefined` 다 — 넘겨짚지 않는다.** 못 알아본 것을
+ * «우리 것»으로 읽으면 남의 도구가 자동 승인으로 지나간다. 틀리는 방향이
+ * **위험한 쪽**이라, 모르면 사람에게 가는 편이 맞다.
+ */
+export function mcpIdentity(
+  tc: { name?: string | null; rawInput?: unknown; _meta?: { [k: string]: unknown } | null },
+): { server: string; tool: string } | undefined {
+  // ① Claude — 이름 하나에 둘을 담는다. 서버 이름에 `__` 가 들어가면 못 가르므로
+  //    **처음 둘만** 쪼갠다 (도구 이름에 `__` 가 있어도 안 잘린다)
+  const name = typeof tc.name === "string" ? tc.name : "";
+  if (name.startsWith("mcp__")) {
+    const rest = name.slice("mcp__".length);
+    const at = rest.indexOf("__");
+    if (at > 0 && at + 2 < rest.length) {
+      return { server: rest.slice(0, at), tool: rest.slice(at + 2) };
+    }
+  }
+
+  // ② Antigravity — `_meta` 에 따로 담는다
+  const meta = tc._meta?.["mcp"];
+  const fromMeta = pair(meta, "server", "tool");
+  if (fromMeta) return fromMeta;
+
+  // ③ Codex — 도구의 입력 자체에 들어 있다
+  const fromRaw = pair(tc.rawInput, "server", "tool");
+  if (fromRaw) return fromRaw;
+
+  return undefined;
+}
+
+/** 객체에서 문자열 두 칸을 꺼낸다. 하나라도 비면 **안 쓴다** */
+function pair(
+  v: unknown,
+  a: string,
+  b: string,
+): { server: string; tool: string } | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const o = v as Record<string, unknown>;
+  const server = o[a];
+  const tool = o[b];
+  if (typeof server !== "string" || typeof tool !== "string") return undefined;
+  if (!server || !tool) return undefined;
+  return { server, tool };
 }
 
 /**
