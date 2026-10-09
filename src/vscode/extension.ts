@@ -4,6 +4,7 @@ import { resolveAgents } from "../core/agentCatalog.js";
 import { withInstalled, sweepStrays } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
 import { McpServer } from "../core/mcpServer.js";
+import { RoomLocks } from "../core/roomLock.js";
 import { RoomStore } from "../core/store.js";
 import type { AgentDef } from "../core/types.js";
 import { BLOB_SCHEME, BlobDocuments } from "./blobDocuments.js";
@@ -60,7 +61,22 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
   // 방을 만들 때 봇마다 정하고, 그 뒤엔 권한 설정 시트나 참여자 서랍에서 바꾼다.
-  const rooms = new RoomManager({ host, store, agents, mcp });
+  /*
+   * ★ **같은 방은 한 창에서만** (v3.0 2-G).
+   *
+   * 🔴 두 창이 같은 방을 열면 **세션이 어긋난다** — `ensureSession` 이
+   * 「사라졌다」와 「남이 쓰는 중이다」를 안 가리고 새 세션으로 덮기 때문이다.
+   *
+   * 창 이름은 **사람에게 보여줄 글**이다. 폴더 이름이 제일 알아보기 쉽다 —
+   * 창 제목은 파일에 따라 계속 바뀐다.
+   */
+  const locks = new RoomLocks(
+    path.join(ctx.globalStorageUri.fsPath, "rooms"),
+    vscode.workspace.workspaceFolders?.[0]?.name ?? "다른 창",
+    (m) => host.log(m),
+  );
+
+  const rooms = new RoomManager({ host, store, agents, mcp, locks });
   // 세우는 것은 방 매니저를 거친다 — 그래야 결과가 화면까지 같은 길로 간다
   void rooms.startMcp();
 
@@ -140,6 +156,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     { dispose: () => rooms.dispose() },
     // 포트를 놓는다 — 창이 닫히면 이 창의 서버도 같이 내려간다
     { dispose: () => mcp.close() },
+    // 들고 있던 자리를 놓는다 — 안 놓으면 다음에 열 때 **내 죽은 pid** 가 막는다
+    { dispose: () => locks.releaseAll() },
     vscode.commands.registerCommand("aiInOne.open", () => show()),
     vscode.commands.registerCommand("aiInOne.newRoom", () => show("new")),
     // v2.0 선결 과제를 재는 시험판 — 답이 나오면 지운다

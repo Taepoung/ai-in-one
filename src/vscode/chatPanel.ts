@@ -261,10 +261,25 @@ export class ChatPanel implements AskTarget {
     try {
       switch (m.t) {
         case "open": {
+          /*
+           * ★ **자리를 먼저 잡는다** (v3.0 2-G).
+           *
+           * 🔴 남이 쓰는 중이면 **안 연다.** `ensureSession` 이 「세션이
+           * 사라졌다」와 「남이 쓰는 중이다」를 안 가려서, 열어버리면 먼저
+           * 쓰던 창의 세션이 고아가 된다 — 그쪽 화면은 멀쩡해 보이는데
+           * 다음 말이 엉뚱한 세션으로 간다.
+           *
+           * 빠져나갈 단추는 안 둔다. **껐다 켜면 저절로 풀린다.**
+           */
+          const got = await this.rooms.enterRoom(m.roomId);
+          if (!got.ok) {
+            this.post({ t: "notice", roomId: m.roomId, message: got.why });
+            this.post({ t: "nav", screen: "list" });
+            break;
+          }
           this.openRoomId = m.roomId;
-          const room = await this.rooms.openRoom(m.roomId);
           // **방을 여는 것과 읽는 것은 다르다.** 먼저 구분선 위치를 잡고 나서 읽음 처리한다.
-          this.postRoom(room);
+          this.postRoom(got.room);
           await this.rooms.setActiveRoom(m.roomId);
           break;
         }
@@ -272,6 +287,8 @@ export class ChatPanel implements AskTarget {
           const leaving = this.openRoomId;
           this.openRoomId = null;
           await this.rooms.setActiveRoom(null);
+          // 조용하면 자리를 놓는다 — 도는 중이면 끝날 때 저쪽에서 놓는다
+          if (leaving) this.rooms.releaseRoom(leaving);
           // 아무것도 안 쓰고 나왔으면 목록에 남기지 않는다
           if (leaving) await this.rooms.discardIfUntouched(leaving);
           break;

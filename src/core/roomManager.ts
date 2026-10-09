@@ -9,6 +9,7 @@ import {
   OUR_MCP_NAME,
 } from "./acpConnection.js";
 import type { McpServer, McpState } from "./mcpServer.js";
+import type { RoomLocks } from "./roomLock.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -53,6 +54,12 @@ export interface RoomManagerOptions {
   agents: AgentDef[];
   /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
   configProbeMs?: number;
+  /**
+   * ★ **방 자리 — 같은 방은 한 창에서만** (v3.0 2-G).
+   *
+   * 없으면 안 막는다. 검사처럼 창이 하나뿐인 자리에서는 둘 이유가 없다.
+   */
+  locks?: RoomLocks;
   /**
    * ★ **봇끼리 말을 걸게 해주는 MCP 서버** (v3.0 2-F).
    *
@@ -2048,6 +2055,9 @@ export class RoomManager extends EventEmitter<Events> {
       await conn?.deleteSession(sessionId, bot.sessionPrompted === true).catch(() => undefined);
     }
 
+    // 나간 방의 자리는 들고 있을 이유가 없다 — 파일도 같이 사라진다
+    this.opts.locks?.release(roomId);
+
     // 진행 중인 턴이 끝나면서 저장하려 들 수 있다. 되살아나지 않게 막는다.
     this.left.add(roomId);
     this.runtimes.delete(roomId);
@@ -2092,6 +2102,42 @@ export class RoomManager extends EventEmitter<Events> {
    *
    * 셸이 불러줘야 한다 — core는 어느 화면이 떠 있는지 모른다.
    */
+  /**
+   * ★ **방에 들어간다 — 자리를 잡고** (v3.0 2-G).
+   *
+   * 🔴 **남이 쓰는 중이면 막는다.** `ensureSession` 은 「세션이 사라졌다」와
+   * 「남이 쓰는 중이다」를 **안 가려서**, 둘 다 «못 붙었다»로 읽고 새 세션을
+   * 열어 `bot.sessionId` 를 덮는다 — **먼저 쓰던 창의 세션이 고아가 된다.**
+   *
+   * ★ **빠져나갈 단추를 안 둔다.** «그래도 열기» 를 주면 그 순간 그 고아
+   * 세션이 생기고, 사용자는 무엇이 잘못됐는지 모른 채 두 화면이 어긋나는
+   * 것만 본다. **껐다 켜면 저절로 풀리는 것**이 출구다.
+   */
+  async enterRoom(roomId: string): Promise<{ ok: true; room: Room } | { ok: false; why: string }> {
+    const got = this.opts.locks?.take(roomId) ?? { ok: true as const };
+    if (!got.ok) {
+      return {
+        ok: false,
+        why: `이 방은 «${got.held.window}» 에서 열려 있습니다. ` +
+          `같은 방을 두 곳에서 열면 세션이 어긋나므로 막습니다 — 그쪽 창을 닫고 다시 열어보세요.`,
+      };
+    }
+    return { ok: true, room: await this.openRoom(roomId) };
+  }
+
+  /**
+   * **자리를 놓는다** — 목록으로 나왔을 때.
+   *
+   * 🔴 **도는 중이면 안 놓는다.** 방을 나와도 봇은 계속 일하고(§4.3), 그
+   * 세션은 여전히 이 창 것이다 — 여기서 놓으면 옆 창이 들어와 같은 세션을
+   * 집는다. 조용해지면 `closeIdle` 쪽에서 놓는다.
+   */
+  releaseRoom(roomId: string): void {
+    if (!this.opts.locks?.holds(roomId)) return;
+    if (isBusy(this.statusOf(roomId)) === true) return;
+    this.opts.locks.release(roomId);
+  }
+
   async setActiveRoom(roomId: string | null): Promise<void> {
     if (this.activeRoomId === roomId) return;
 
@@ -2234,6 +2280,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     await this.runQueue(room, [sent], bot.id);
     this.maybeFireStaged(room);
+    this.maybeReleaseRoom(room.id);
   }
 
   /**
@@ -2361,6 +2408,7 @@ export class RoomManager extends EventEmitter<Events> {
       }),
     );
     this.maybeFireStaged(room);
+    this.maybeReleaseRoom(room.id);
     return parsed;
   }
 
@@ -3536,6 +3584,20 @@ export class RoomManager extends EventEmitter<Events> {
      * 사용자가 **다음 말을 보낼 때까지** 안 나간다. 여기가 그 자리다.
      */
     this.maybeFireStaged(room);
+    this.maybeReleaseRoom(room.id);
+  }
+
+  /**
+   * **나와 있는 사이 조용해졌으면 자리를 놓는다** (v3.0 2-G).
+   *
+   * 🔴 방을 나와도 봇은 계속 일한다(§4.3). 나오는 그 순간에 놓으면 **옆 창이
+   * 들어와 도는 세션을 집는다.** 그래서 나올 때 못 놓은 자리는 **조용해지는
+   * 그때** 놓는다 — 턴이 끝나는 자리가 그 전이를 잡아준다.
+   */
+  private maybeReleaseRoom(roomId: string): void {
+    // 보고 있는 방이면 안 놓는다 — 자리는 «보고 있다» 는 뜻이다
+    if (this.activeRoomId === roomId) return;
+    this.releaseRoom(roomId);
   }
 
   /**
@@ -5187,6 +5249,8 @@ export class RoomManager extends EventEmitter<Events> {
      * 검사에서 먼저 드러났다(`pending.mts` 가 «전부 통과»를 찍고도 안 끝났다).
      */
     this.down = true;
+    // 들고 있던 자리를 다 놓는다 — 안 놓으면 다음에 열 때 **내 죽은 pid** 가 막는다
+    this.opts.locks?.releaseAll();
     // **쓰다 만 글을 들고 죽지 않는다.** 창을 닫는 순간 디바운스가 돌고 있으면
     // 그대로 사라진다 — 최소한 쓰기를 시작은 해둔다.
     void this.flushDraft();
