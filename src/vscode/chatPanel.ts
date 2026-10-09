@@ -106,6 +106,8 @@ export class ChatPanel implements AskTarget {
      * **받았는데도 «아직 안 받았다»** 로 보였다.
      */
     ChatPanel.current.sendAgents();
+    // 🔴 **열자마자 지금 칸을 보낸다** — 이벤트는 바뀔 때만 온다
+    ChatPanel.current.post({ t: "mcp", state: rooms.mcpState() });
     return ChatPanel.current;
   }
 
@@ -168,6 +170,7 @@ export class ChatPanel implements AskTarget {
       this.post({ t: "status", roomId, status, bots })) as never);
     on("reviews", ((roomId: string, list: never) =>
       this.post({ t: "reviews", roomId, list })) as never);
+    on("mcp", ((state: never) => this.post({ t: "mcp", state })) as never);
     on("clashes", ((roomId: string, list: never) =>
       this.post({ t: "clashes", roomId, list })) as never);
     on("roomError", ((roomId: string, message: string) =>
@@ -394,6 +397,9 @@ export class ChatPanel implements AskTarget {
           break;
         case "takeOverReview":
           this.rooms.takeOverReview(m.reviewId);
+          break;
+        case "retryMcp":
+          await this.rooms.startMcp();
           break;
         case "rename":
           await this.rooms.renameRoom(m.roomId, m.title);

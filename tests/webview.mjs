@@ -649,10 +649,19 @@ function main() {
     const labels = t.$$("#screen-perm .field > label").map((l) => l.textContent);
     ok(labels.join(",") === "권한 모드,승인 주체,질문",
        `**봇 : 권한 모드 : 승인 주체** (${labels.join(",")})`);
-    ok(sheet.querySelector(".who").textContent.includes("Claude"), "봇 이름이 머리에");
+    /*
+     * ★ **맨 위는 «봇끼리 부르기»** (v3.0 2-F). 그것도 권한이고, 봇별
+     * 권한보다 **위에** 있는 결정이다 — 꺼져 있으면 아래 줄이 다 무의미하다.
+     * 그래서 봇 칸을 찾을 때는 그 줄을 빼고 본다.
+     */
+    const first = sheet.querySelector(".sheet-bot");
+    ok(first.classList.contains("relay"),
+       `★ **맨 위가 봇끼리 부르기** (${first.querySelector(".name")?.textContent})`);
+    const botBox = sheet.querySelector(".sheet-bot:not(.relay)");
+    ok(botBox.querySelector(".who").textContent.includes("Claude"), "봇 이름이 머리에");
 
     // 권한 모드는 에이전트 목록 그대로
-    const mode = sheet.querySelectorAll("select")[0];
+    const mode = botBox.querySelectorAll("select")[0];
     ok([...mode.options].map((o) => o.textContent).join(",") === "Manual,Accept edits",
        "에이전트가 준 이름 그대로");
     ok(mode.parentElement.querySelector(".dim").textContent === "Always ask before making changes",
@@ -798,6 +807,38 @@ function main() {
     ok(t.$("#screen-perm") !== null, "다시 그려도 시트는 열린 채로");
   }
 
+  console.log("\n[★ 봇끼리 부르기 — 왜 안 되는지 말하고, 다시 해볼 수 있다 (v3.0 2-F)]");
+  {
+    /*
+     * 🔴 그 길은 MCP 서버 위에 서 있는데 **루프백이 막힌 기계가 있다.**
+     * 조용히 안 되면 사용자는 «왜 안 부르지»를 영영 못 푼다.
+     *
+     * 그리고 **자동으로 다시 안 한다** — 「몇 초마다」라는 숫자가 하나 생기고,
+     * 그 숫자는 아무도 고를 수 없다: 짧으면 막힌 기계에서 계속 두드리고,
+     * 길면 고친 사람이 기다린다.
+     */
+    const t = enter(mount(boot([meta()])));
+    t.send({ t: "mcp", state: { at: "failed", why: "묶이긴 했는데 닿지 않습니다 (방화벽)" } });
+    t.$(".composer .perm").click();
+
+    const row = t.$("#screen-perm .sheet-bot.relay");
+    ok(row !== null, "★ 권한 설정 **맨 위에** 있다 — 그것도 권한이다");
+    ok(row.textContent.includes("방화벽"),
+       `★ **왜 안 되는지 말한다** (${row.querySelector(".bad")?.textContent})`);
+
+    const before = t.sent.filter((m) => m.t === "retryMcp").length;
+    row.querySelector("button.link").click();
+    ok(t.sent.filter((m) => m.t === "retryMcp").length > before,
+       "★ **다시 시도가 있다** — 자동으로 되풀이하지 않는 대신 사람이 누른다");
+
+    // 서면 그 자리에서 바뀐다 — 누른 사람에 대한 답이다
+    t.send({ t: "mcp", state: { at: "ready", url: "http://127.0.0.1:1/mcp" } });
+    const now = t.$("#screen-perm .sheet-bot.relay");
+    ok(now.querySelector(".bad") === null && now.textContent.includes("쓸 수 있습니다"),
+       `★ **서면 그 자리에서 바뀐다** (${now.textContent})`);
+    ok(now.querySelector("button.link") === null, "★ 그리고 [다시 시도] 가 걷힌다");
+  }
+
   console.log("\n[설정을 못 불러온 것과 모드가 없는 것은 다른 화면이다]");
   {
     const t = enter(mount(boot([meta()])));
@@ -807,7 +848,8 @@ function main() {
        "**고칠 수 있는 문제라고 말해 준다**");
 
     const before = t.sent.filter((m) => m.t === "needConfig").length;
-    t.$("#screen-perm button.link").click();
+    // ★ 맨 위의 «봇끼리 부르기» 에도 [다시 시도] 가 있다 — **봇 칸 안에서** 고른다
+    t.$("#screen-perm .sheet-bot:not(.relay) button.link").click();
     ok(t.sent.filter((m) => m.t === "needConfig").length > before,
        "**다시 시도가 있다** — 깔고 나서 방을 닫았다 열게 하지 않는다");
     ok(t.$("#screen-perm .dim").textContent.includes("불러오는 중"), "누르면 다시 불러온다");

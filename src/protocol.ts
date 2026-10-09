@@ -14,6 +14,7 @@ import type {
   RoomUsage,
 } from "./core/types.js";
 import type { ComposeToken } from "./core/mentions.js";
+import type { McpState } from "./core/mcpServer.js";
 
 /** 방 만들기 화면에 필요한 만큼만 추린 에이전트 정보. `command`·`env`는 보내지 않는다 */
 export interface AgentBrief {
@@ -176,6 +177,17 @@ export type ToWebview =
    * 얼어 있으므로**, 무엇이 누구를 기다리는지 보이고 **가로챌 수 있어야** 한다.
    */
   | { t: "reviews"; roomId: string; list: ReviewWait[] }
+  /**
+   * ★ **봇끼리 부르는 길이 서 있나** (v3.0 2-F).
+   *
+   * 그 길은 MCP 서버 위에 서 있는데, **루프백이 막힌 기계가 있다.** 그때
+   * 조용히 안 되면 사용자는 «왜 안 부르지»를 영영 못 푼다 — 그래서
+   * **왜 안 되는지를 같이** 보낸다.
+   *
+   * 자동으로 다시 시도하지 않는다 — 「몇 초마다」 라는 숫자가 하나 생기고,
+   * 그 숫자는 아무도 고를 수 없다. 사람이 누르면 그때 한다.
+   */
+  | { t: "mcp"; state: McpState }
   | { t: "clashes"; roomId: string; list: Clash[] }
   | { t: "roomError"; roomId: string; message: string }
   | { t: "notice"; roomId: string; message: string }
@@ -283,6 +295,8 @@ export type FromWebview =
   | { t: "retry"; roomId: string; messageId?: string }
   /** **이 심사는 내가 답한다** — 줄에서 빼고 승인 카드를 띄운다 (§4.2.2) */
   | { t: "takeOverReview"; roomId: string; reviewId: string }
+  /** **봇끼리 부르는 길을 다시 세워본다** (v3.0 2-F) */
+  | { t: "retryMcp" }
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string; botId?: string }
   /**

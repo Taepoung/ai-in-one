@@ -111,7 +111,8 @@ console.log("\n[권한 설정 — 봇이 나란히 보이는 자리에도]");
   ok(perm !== null, "입력창 옆에 권한 버튼이 있다");
   perm.click();
   const sheet = t.$("#screen-perm");
-  ok(sheet.querySelectorAll(".sheet-bot").length === 2, "봇 둘이 나란히 보인다");
+  // ★ 맨 위의 «봇끼리 부르기»(v3.0 2-F)도 같은 상자를 쓴다 — 봇 칸만 센다
+  ok(sheet.querySelectorAll(".sheet-bot:not(.relay)").length === 2, "봇 둘이 나란히 보인다");
   ok(sheet.textContent.includes(SAYS),
      "★ 봇마다 설정을 나누는 화면이라 «기억도 나뉘겠지»로 읽기 쉽다 — 여기서 짚는다");
   ok([...sheet.children].at(-1).classList.contains("warn-row"),
@@ -137,7 +138,8 @@ console.log(String.fromCharCode(10) + "[★ 권한 세 칸은 가로로 누운�
   t.send({ t: "room", room: room([bot("b1", "claude"), bot("b2", "codex")]), compactable: false });
   t.$("#screen-chat .perm").click();
 
-  const blocks = t.$$("#screen-perm .sheet-bot");
+  // 맨 위의 «봇끼리 부르기» 는 봇이 아니다 — 세 칸도 없다
+  const blocks = t.$$("#screen-perm .sheet-bot:not(.relay)");
   ok(blocks.length === 2, "봇 둘");
   for (const b of blocks) {
     const row = b.querySelector(".policy");
@@ -159,15 +161,15 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
   t.$(".room").click();
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
   t.$("#screen-chat .perm").click();
-  ok(t.$$("#screen-perm .sheet-bot").length === 1, "열 때는 하나");
+  ok(t.$$("#screen-perm .sheet-bot:not(.relay)").length === 1, "열 때는 하나");
 
   // 시트를 열어둔 채 봇을 부른다
   t.send({ t: "room", room: room([bot("b1", "claude"), bot("b2", "codex")]), compactable: false });
-  ok(t.$$("#screen-perm .sheet-bot").length === 2,
+  ok(t.$$("#screen-perm .sheet-bot:not(.relay)").length === 2,
      "★ **새 봇이 바로 들어온다** — 열던 순간으로 멈춰 있으면 그 봇 권한을 못 정한다");
 
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
-  ok(t.$$("#screen-perm .sheet-bot").length === 1,
+  ok(t.$$("#screen-perm .sheet-bot:not(.relay)").length === 1,
      "★ 내보낸 봇도 바로 빠진다");
 
   /*
@@ -183,7 +185,7 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
    * 있어서 좁은 폭에서 줄이 접히면 **어느 줄이 어느 봇 것인지** 알 수 없었다.
    * 참여자 화면과 같은 «한 덩어리» 상자로 맞췄다.
    */
-  const box = t.$("#screen-perm .sheet-bot");
+  const box = t.$("#screen-perm .sheet-bot:not(.relay)");
   ok(box.querySelector(".who .name") !== null,
      "★ 이름이 제 칸에 있다 — 크기를 참여자 화면과 맞추려면 붙잡을 데가 있어야 한다");
 
@@ -236,7 +238,7 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
      * 이 봇» 을 말하므로 색줄은 **같은 말을 두 번** 하는 것이 됐다.
      * 구분은 상자가, 누구인지는 점이 맡는다.
      */
-    ok(t2.$$("#screen-perm .sheet-bot").every((n) => !n.style.getPropertyValue("--bot")),
+    ok(t2.$$("#screen-perm .sheet-bot:not(.relay)").every((n) => !n.style.getPropertyValue("--bot")),
        "★ 칸에는 색을 안 싣는다 — 상자가 이미 갈라준다");
   }
 

@@ -156,21 +156,6 @@ export class AcpConnection {
   private conn?: acp.ClientConnection;
   private starting?: Promise<void>;
   private stderr = "";
-  /**
-   * ★ **우리 MCP 서버 주소** — 세션이 생기거나 다시 붙는 **네 길 모두**에 얹는다.
-   *
-   * 🔴 예전에는 `new`·`fork` 에만 `[]` 를 넘기고 `resume`·`load` 에는 **아예 안
-   * 실었다**. 그 상태로 도구를 달면 **모든 방이 껐다 켜는 순간 도구를 잃는다** —
-   * 옛 방 문제가 아니라 다음 실행마다 일어나는 일이다.
-   *
-   * 그리고 **포트는 실행마다 바뀐다.** 그래서 «한 번 실어두면 되는» 값이 아니라
-   * **매번 지금 주소로 다시 얹어야 하는** 값이다 — 안 그러면 되살아난 세션이
-   * 지난번 포트를 들고 허공에 말을 건다.
-   *
-   * 부르는 쪽마다 챙기게 두면 **또 한 군데를 빠뜨린다**(방금 그랬다). 연결이
-   * 들고 있다가 **무조건** 얹는다.
-   */
-  private mcp: acp.McpServer[] = [];
   /** 내려간 연결인가 — 내려간 뒤에는 다시 안 띄운다 */
   private closed = false;
   /** stdout 엿보기용 남은 조각 (`sniff`) */
@@ -596,15 +581,21 @@ export class AcpConnection {
 
   // ── 세션 ──────────────────────────────────────────────────────────────
 
-  /**
-   * 지금 쓸 MCP 서버 목록을 갈아 끼운다.
+  /*
+   * ★ **MCP 주소는 «세션마다» 다르다** (v3.0 2-F).
+   *
+   * ⏪ 한때 연결이 들고 있었다(0-A) — «부르는 쪽마다 챙기면 한 군데를
+   * 빠뜨린다»가 이유였고 그 자체는 맞았다. 그런데 **헤더 비밀이 봇마다
+   * 달라야** 한다 — 하나로 돌려쓰면 봇이 **자기 권한 요청을 스스로
+   * 승인**할 수 있다(V3 2.1). 연결 하나가 세션 여럿을 받으므로 연결에
+   * 들려 둘 수가 없다.
+   *
+   * 그래서 **네 길이 전부 인자로 받는다.** 빠뜨림은 부르는 쪽의 한 자리
+   * (`RoomManager.mcpFor`)와 `mcpcarry.mts` 가 막는다.
    *
    * **이미 도는 세션에는 안 닿는다** — ACP 에는 «산 세션에 도구를 더하는»
-   * 메서드가 없다(V3 2.1 실측). 다음에 세션이 생기거나 다시 붙을 때부터 먹는다.
+   * 메서드가 없다(V3 2.1 실측).
    */
-  setMcpServers(list: acp.McpServer[]): void {
-    this.mcp = list;
-  }
 
   /**
    * 새 세션. 방 하나가 세션 하나를 소유한다.
@@ -612,12 +603,16 @@ export class AcpConnection {
    * 로그인이 안 되어 있으면 여기서 `auth_required`가 떨어진다 — 사용자가 해당 CLI로
    * 직접 로그인해야 한다는 뜻이고, 그게 구독을 쓰는 방식이다(§0 P3).
    */
-  async newSession(cwd: string, onSlowStart?: () => void): Promise<NewSessionResult> {
+  async newSession(
+    cwd: string,
+    mcp: acp.McpServer[],
+    onSlowStart?: () => void,
+  ): Promise<NewSessionResult> {
     await this.ensureStarted(onSlowStart);
     try {
       const res = await this.conn!.agent.request(acp.methods.agent.session.new, {
         cwd,
-        mcpServers: this.mcp,
+        mcpServers: mcp,
       });
       return { sessionId: res.sessionId, configOptions: res.configOptions ?? [] };
     } catch (err) {
@@ -695,6 +690,7 @@ export class AcpConnection {
   async resumeSession(
     sessionId: string,
     cwd: string,
+    mcp: acp.McpServer[],
   ): Promise<ResumeResult> {
     await this.ensureStarted();
     const caps = this.init?.agentCapabilities;
@@ -702,7 +698,7 @@ export class AcpConnection {
     try {
       if (caps?.sessionCapabilities?.resume) {
         const res = await ctx.request(acp.methods.agent.session.resume, {
-          sessionId, cwd, mcpServers: this.mcp,
+          sessionId, cwd, mcpServers: mcp,
         });
         return { ok: true, options: res?.configOptions ?? [] };
       }
@@ -727,7 +723,7 @@ export class AcpConnection {
           // `session/load`는 응답을 안 줘도 되는 메서드라(`| void`) 타입이 `{}`다.
           // 주면 `configOptions`가 들어 있다.
           const res = (await ctx.request(acp.methods.agent.session.load, {
-            sessionId, cwd, mcpServers: this.mcp,
+            sessionId, cwd, mcpServers: mcp,
           })) as
             | acp.LoadSessionResponse
             | undefined;
@@ -805,7 +801,11 @@ export class AcpConnection {
    * 다시 재보고서야 원인이 **붙이지 않은 것**임이 드러났다. 그래서 여기서
    * **갈라내고 곧바로 붙여서** 돌려준다 — 부르는 쪽이 이 사정을 알 이유가 없다.
    */
-  async forkSession(sessionId: string, cwd: string): Promise<ForkResult> {
+  async forkSession(
+    sessionId: string,
+    cwd: string,
+    mcp: acp.McpServer[],
+  ): Promise<ForkResult> {
     await this.ensureStarted();
     if (!this.canFork()) {
       return { ok: false, reason: `${this.agent.label}이(가) 세션 분기를 지원하지 않습니다` };
@@ -816,7 +816,7 @@ export class AcpConnection {
       const res = (await this.conn!.agent.request(acp.methods.agent.session.fork, {
         sessionId,
         cwd,
-        mcpServers: this.mcp,
+        mcpServers: mcp,
       })) as { sessionId?: string } | undefined;
 
       // 세션 id가 없으면 갈라진 게 아니다. **받은 것처럼 굴지 않는다** —
@@ -833,7 +833,7 @@ export class AcpConnection {
 
     // **붙여야 쓸 수 있다.** 여기서 실패하면 분기는 디스크에 남지만 말을 걸 수
     // 없으므로 실패로 친다 — 폴백이 맡는 편이 낫다.
-    const attached = await this.resumeSession(forked, cwd);
+    const attached = await this.resumeSession(forked, cwd, mcp);
     if (!attached.ok) {
       return { ok: false, reason: `분기는 만들었지만 붙이지 못했습니다 — ${attached.reason}` };
     }
@@ -1059,7 +1059,8 @@ export class AcpConnection {
    * `session/new`는 프롬프트를 보내지 않으므로 **토큰 소모가 0**이다.
    */
   async probeConfigOptions(cwd: string): Promise<acp.SessionConfigOption[]> {
-    const { sessionId, configOptions } = await this.newSession(cwd);
+    // 조회용이라 도구를 안 실는다 — 말을 건 적이 없는 세션이다
+    const { sessionId, configOptions } = await this.newSession(cwd, []);
     // 프롬프트를 안 보냈으므로 **CLI 디스크에 아예 기록되지 않는다.**
     // 해제만 하면 된다 — 지울 것도 없다.
     await this.closeSession(sessionId);

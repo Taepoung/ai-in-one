@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { resolveAgents } from "../core/agentCatalog.js";
 import { withInstalled, sweepStrays } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
+import { McpServer } from "../core/mcpServer.js";
 import { RoomStore } from "../core/store.js";
 import type { AgentDef } from "../core/types.js";
 import { BLOB_SCHEME, BlobDocuments } from "./blobDocuments.js";
@@ -35,9 +36,33 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 
   const agentRoot = ctx.globalStorageUri.fsPath;
   let agents = readAgents(agentRoot);
+
+  /*
+   * ★ **봇끼리 말을 걸게 해주는 MCP 서버** (v3.0 2-F).
+   *
+   * 🔴 **창마다 하나다.** VSCode 는 창마다 확장 호스트가 따로 돌고, 창을
+   * 가로질러 하나만 띄우면 **큐가 프로세스 경계를 넘는다** — 그러면 경합
+   * 규칙(꺼내기를 먼저 · 세서 쓴다 · 락 없음)이 전부 무너진다.
+   *
+   * ★ **확장이 켜질 때 같이 켠다.** 방을 열 때 켜면 «언제 켜졌나»가 방마다
+   * 달라지고, 되살아난 세션이 **아직 안 선 주소**를 들고 있을 수 있다.
+   *
+   * ⚠️ **기다리지 않는다.** 포트 하나 여는 일이라 보통 즉시지만, 막히면
+   * 확인(자기 주소 쳐보기)이 늘어질 수 있다 — 그 때문에 확장이 늦게 뜨면
+   * 안 된다. 서면 그때부터 세션에 실린다.
+   */
+  const mcp = new McpServer({
+    // 도구는 §2-H 에서 붙는다 — 그때까지는 **아무것도 광고하지 않는다**
+    tools: [],
+    call: async () => ({ text: "아직 아무 도구도 없습니다.", isError: true }),
+    log: (m) => host.log(m),
+  });
+
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
   // 방을 만들 때 봇마다 정하고, 그 뒤엔 권한 설정 시트나 참여자 서랍에서 바꾼다.
-  const rooms = new RoomManager({ host, store, agents });
+  const rooms = new RoomManager({ host, store, agents, mcp });
+  // 세우는 것은 방 매니저를 거친다 — 그래야 결과가 화면까지 같은 길로 간다
+  void rooms.startMcp();
 
   // ── 상태 표시줄 — 앱 아이콘이자 배지 (F1·F8) ─────────────────────────
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -113,6 +138,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       new BlobDocuments(store),
     ),
     { dispose: () => rooms.dispose() },
+    // 포트를 놓는다 — 창이 닫히면 이 창의 서버도 같이 내려간다
+    { dispose: () => mcp.close() },
     vscode.commands.registerCommand("aiInOne.open", () => show()),
     vscode.commands.registerCommand("aiInOne.newRoom", () => show("new")),
     // v2.0 선결 과제를 재는 시험판 — 답이 나오면 지운다

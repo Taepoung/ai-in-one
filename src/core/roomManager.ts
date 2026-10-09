@@ -1,7 +1,14 @@
 import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
 
-import { AcpConnection, type DecisionNote, describe, type AgentEvent } from "./acpConnection.js";
+import {
+  AcpConnection,
+  type AgentEvent,
+  type DecisionNote,
+  describe,
+  OUR_MCP_NAME,
+} from "./acpConnection.js";
+import type { McpServer, McpState } from "./mcpServer.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -47,14 +54,14 @@ export interface RoomManagerOptions {
   /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
   configProbeMs?: number;
   /**
-   * ★ **지금 우리 MCP 서버 주소** (v3.0).
+   * ★ **봇끼리 말을 걸게 해주는 MCP 서버** (v3.0 2-F).
    *
-   * 🔴 **값이 아니라 함수다.** 포트는 실행마다 바뀌고, 서버는 방보다 늦게
-   * 뜰 수도 있다. 값으로 받으면 **그때 몰랐던 주소**를 영영 못 고친다.
+   * 🔴 **주소만 받지 않고 서버를 받는다.** 세션마다 **다른 비밀**을 발급해야
+   * 하는데(그래야 «누가 부르나»를 가른다), 그건 서버만 할 수 있는 일이다.
    *
-   * 세션이 생기거나 다시 붙을 때마다 **다시 물어서** 싣는다.
+   * 없으면 그냥 안 싣는다 — 그 창은 봇끼리 못 부르고, 나머지는 멀쩡하다.
    */
-  mcpServers?: () => acp.McpServer[];
+  mcp?: McpServer;
 }
 
 /**
@@ -744,6 +751,12 @@ type Events = {
    */
   status: [string, RoomStatus, Record<string, RoomStatus>];
   /**
+   * **봇끼리 부르는 길이 어느 칸인가** (v3.0 2-F).
+   *
+   * 방마다가 아니라 **창마다**다 — 서버가 창에 하나이기 때문이다.
+   */
+  mcp: [McpState];
+  /**
    * **줄 서 있는 심사들** (roomId, 목록) — §4.2.2.
    *
    * 심사 봇의 세션은 하나라 직렬이다(B1). 그래서 승인 요청이 여럿이면
@@ -1044,7 +1057,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bt = this.botRuntime(room.id, bot.id);
 
     this.setStatus(room.id, "connecting", bot.id);
-    const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
       this.emit(
         "notice",
         room.id,
@@ -1679,7 +1692,7 @@ export class RoomManager extends EventEmitter<Events> {
           "원본의 세션이 끊겨 지금은 빈 세션에 붙어 있습니다 — 복제해도 물려받을 것이 없습니다",
         );
       }
-      const res = await conn.forkSession(live, room.cwd);
+      const res = await conn.forkSession(live, room.cwd, this.mcpFor(room, bot));
       if (res.ok) return { sessionId: res.sessionId, native: true, options: res.options };
       return await this.freshFork(room, bot, res.reason);
     }
@@ -1699,7 +1712,7 @@ export class RoomManager extends EventEmitter<Events> {
     reason: string,
   ): Promise<ForkedSession> {
     const conn = this.connection(bot.agentId);
-    const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
       this.emit(
         "notice",
         room.id,
@@ -1764,7 +1777,7 @@ export class RoomManager extends EventEmitter<Events> {
         : undefined;
       if (!origin || !live) continue;
 
-      const got = await this.connection(origin.agentId).forkSession(live, room.cwd);
+      const got = await this.connection(origin.agentId).forkSession(live, room.cwd, this.mcpFor(room, origin));
       if (!got.ok) continue;
 
       // 폴백으로 열었던 세션은 **빈 것**이라 지울 것도 없다 — 놓기만 한다
@@ -4044,7 +4057,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     if (bot.sessionId) {
-      const resumed = await conn.resumeSession(bot.sessionId, room.cwd);
+      const resumed = await conn.resumeSession(bot.sessionId, room.cwd, this.mcpFor(room, bot));
       if (resumed.ok) {
         bt.sessionId = bot.sessionId;
         // 복구된 세션은 역할을 이미 알고 있다
@@ -4126,7 +4139,7 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
 
-    const { sessionId, configOptions } = await conn.newSession(room.cwd, () =>
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
       // `npx`로 CLI를 처음 받으면 수십 초가 걸린다. 멈춘 줄 알지 않게 알린다.
       this.emit(
         "notice",
@@ -4230,7 +4243,8 @@ export class RoomManager extends EventEmitter<Events> {
     const lost = bot?.lostSessionId ?? room.lostSessionId;
     if (!bot || !lost) return false;
 
-    const resumed = await this.connection(bot.agentId).resumeSession(lost, room.cwd);
+    const resumed = await this.connection(bot.agentId)
+      .resumeSession(lost, room.cwd, this.mcpFor(room, bot));
     if (!resumed.ok) {
       this.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
       return false;
@@ -4594,6 +4608,55 @@ export class RoomManager extends EventEmitter<Events> {
     }
   }
 
+  /**
+   * **봇끼리 부르는 길을 세운다** — 그리고 어느 칸인지 알린다 (v3.0 2-F).
+   *
+   * 확장이 켜질 때 한 번, 그 뒤로는 **사람이 [다시 시도] 를 누를 때만** 부른다.
+   *
+   * 🔴 **자동으로 되풀이하지 않는다.** 그러면 «몇 초마다» 라는 숫자가 하나
+   * 생기는데, 그 숫자는 아무도 고를 수 없다 — 짧으면 막힌 기계에서 계속
+   * 두드리고, 길면 고친 사람이 기다린다. 누르면 그때 한다.
+   */
+  async startMcp(): Promise<McpState> {
+    const at = (await this.opts.mcp?.start()) ?? { at: "off" as const };
+    this.emit("mcp", at);
+    return at;
+  }
+
+  /** 지금 어느 칸인가 — 화면을 열 때 한 번 실어 보낸다 */
+  mcpState(): McpState {
+    return this.opts.mcp?.current() ?? { at: "off" };
+  }
+
+  /**
+   * ★ **이 봇이 쓸 MCP 서버 목록** (v3.0 2-F).
+   *
+   * 🔴 **세션마다 다른 비밀**을 발급한다. 하나로 돌려쓰면 **봇이 자기 권한
+   * 요청을 스스로 승인할 수 있다** — 큐에서 남의 항목을 꺼내는 것을 막을
+   * 근거가 사라진다(2-H 의 소유자 검사).
+   *
+   * 🔴 **포트는 실행마다 바뀐다.** 그래서 «한 번 실어두면 되는» 값이 아니라
+   * 세션이 생기거나 다시 붙을 때마다 **지금 주소로** 다시 만드는 값이다.
+   *
+   * ⚠️ **부르는 자리가 넷이다** — `new`·`resume`·`load`·`fork`. 한 군데만
+   * 빠져도 그 길로 선 세션은 **조용히 도구를 잃는다.** 그래서 여기 한 자리에
+   * 모으고, `mcpcarry.mts` 가 넷을 다 지킨다.
+   */
+  private mcpFor(room: Room, bot: BotInstance): acp.McpServer[] {
+    const server = this.opts.mcp;
+    const at = server?.current();
+    if (!server || at?.at !== "ready") return [];
+    const owner = `${room.id}:${bot.id}`;
+    // 지난 세션의 열쇠는 거둔다 — 안 거두면 죽은 세션 것이 계속 먹는다
+    server.revoke(owner);
+    return [{
+      type: "http",
+      name: OUR_MCP_NAME,
+      url: at.url,
+      headers: [{ name: "x-aio-secret", value: server.issue(owner) }],
+    }];
+  }
+
   private connection(agentId: string): AcpConnection {
     /*
      * 🔴 **내린 뒤에는 새로 안 만든다** (v3.0 1-E).
@@ -4614,17 +4677,6 @@ export class RoomManager extends EventEmitter<Events> {
       );
       this.connections.set(agentId, conn);
     }
-    /*
-     * ★ **부를 때마다 지금 주소로 다시 얹는다** (v3.0).
-     *
-     * 🔴 만들 때 한 번만 넣으면 안 된다 — **포트가 실행마다 바뀌고**, MCP
-     * 서버가 연결보다 늦게 뜰 수도 있다. 그러면 되살아난 세션이 지난번
-     * 포트를 들고 허공에 말을 건다.
-     *
-     * 이미 도는 세션에는 안 닿는다(ACP 에 그런 메서드가 없다). 다음에
-     * 세션이 생기거나 다시 붙을 때부터 먹는다.
-     */
-    conn.setMcpServers(this.opts.mcpServers?.() ?? []);
     return conn;
   }
 

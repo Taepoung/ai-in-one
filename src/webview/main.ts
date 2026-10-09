@@ -13,6 +13,7 @@ import type {
   Clash,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
+import type { McpState } from "../core/mcpServer.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
 import {
@@ -106,6 +107,13 @@ function openBotView(botId: string | null): void {
   closeDrawer();
   renderChat();
 }
+
+/**
+ * ★ **봇끼리 부르는 길이 어느 칸인가** (v3.0 2-F).
+ *
+ * 방마다가 아니라 **창마다**다 — 서버가 창에 하나이기 때문이다.
+ */
+let mcpAt: McpState = { at: "off" };
 
 const configs = new Map<string, ConfigOptionBrief[]>();
 /**
@@ -5260,11 +5268,61 @@ function paintPermissionSheet(r: Room): void {
       el("button", { class: "icon", title: "돌아가기", onclick: () => closeSheet() }, icon("arrow-left")),
       el("h1", {}, icon("shield"), " 권한 설정"),
     ),
+    relayRow(),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
     // `replaceChildren` 는 `el()` 과 달리 `null` 을 안 걸러준다
     ...[sharedMemoryRow(r)].filter((n): n is HTMLElement => n !== null),
   );
   host.scrollTop = keep;
+}
+
+/**
+ * ★ **봇끼리 부르기 — 권한 설정 맨 위** (v3.0 2-F).
+ *
+ * 🔴 **그것도 권한이다.** 봇이 다른 봇을 부르는 것은 «누가 무엇을 할 수
+ * 있나»의 한 줄이고, 봇별 권한보다 **위에** 있는 결정이다 — 이게 꺼져
+ * 있으면 아래 줄들이 다 무의미하다.
+ *
+ * 지금은 **길이 서 있나**만 말한다. 켜고 끄는 것과 상한은 §4 에서 이 줄에
+ * 붙는다.
+ *
+ * 🔴 **왜 안 되는지를 같이 적는다.** 루프백이 막힌 기계가 있는데, 조용히
+ * 안 되면 «왜 안 부르지»를 영영 못 푼다. 그리고 **자동으로 다시 안 한다** —
+ * 「몇 초마다」라는 숫자가 하나 생기고 그 숫자는 아무도 고를 수 없다.
+ */
+function relayRow(): HTMLElement {
+  // 아래 봇 칸들과 **같은 상자**를 쓴다 — 같은 화면의 같은 종류의 결정이다
+  const box = el("div", { class: "sheet-bot relay" });
+  box.append(el("div", { class: "who" }, el("span", { class: "name", text: "봇끼리 부르기" })));
+
+  if (mcpAt.at === "ready") {
+    box.append(el("span", { class: "dim", text: "쓸 수 있습니다 — 봇이 서로를 부를 수 있습니다." }));
+    return box;
+  }
+
+  box.append(
+    el(
+      "div",
+      { class: "policy" },
+      el("span", {
+        class: "bad",
+        text: mcpAt.at === "failed"
+          ? `쓸 수 없습니다 — ${mcpAt.why}`
+          : "아직 서지 않았습니다.",
+      }),
+      el(
+        "button",
+        {
+          class: "link",
+          title: "봇끼리 부르는 길을 다시 세워봅니다.",
+          onclick: () => post({ t: "retryMcp" }),
+        },
+        icon("refresh"),
+        "다시 시도",
+      ),
+    ),
+  );
+  return box;
 }
 
 /** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
@@ -7053,6 +7111,12 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
         paintStaged(room);
         paintSendButton(room);
       }
+      break;
+
+    case "mcp":
+      mcpAt = m.state;
+      // 권한 화면을 보고 있는 중이면 그 자리에서 바뀐다 — [다시 시도] 의 답이다
+      if (room && stack[stack.length - 1] === "perm") paintPermissionSheet(room);
       break;
 
     case "reviews":
