@@ -1,21 +1,23 @@
 /**
- * **줄 서 있는 말의 화면 상태** (2026-10-07 — 다시 씀).
+ * **올려둔 한 칸의 화면 상태** (v3.0 1-E · 4-21).
  *
- * ⏪ 사라진 셋 중 마지막(`NEXT.md` ①). 이름과 «18개» 만 남아 있어 코드를 다시
- * 읽고 새로 설계했다. 원래 이름은 `.mts` 였는데, 재는 것이 **화면**이라
- * jsdom 을 쓰는 다른 검사들(`agentui` · `drawer` · `configretry`)과 맞춰
- * `.mjs` 로 둔다.
+ * ⏪ 이 파일은 원래 **줄 서 있는 말**을 쟀다. 바쁠 때 보내면 **저절로** 줄에
+ * 섰고, 말풍선 아래에 «⏳ 대기 중» 띠가 붙고 그 안에 «지금 보내기»·«빼기»가
+ * 있었다.
  *
- * 🔴 **줄에 선 말풍선은 보낸 것과 똑같이 생겼다.** 그래서 표시가 없으면
- * *"보냈는데 왜 조용하지"* 가 된다 — 이 띠가 유일한 단서다.
+ * 🔴 **그 큐가 엇갈림을 만들었다** — 10분짜리 일이 끝난 뒤에 «그거 말고 이거»가
+ * 나가서 **이미 끝난 일에 대한 정정**이 날아갔다. 끼어들기가 있던 이유가 그건데,
+ * 끼어들기를 없앴으므로(1-D) 남겨둔 큐만 혼자 그걸 계속 만든다.
+ *
+ * 그래서 **예약 한 칸**이다. 옛 큐와 결정적으로 다른 점은 **명시적 행동**이라는
+ * 것 — 옛 큐는 기본 동작이라 모르고 쌓였다(«내가 언제 이걸 줄 세웠지»).
  *
  * ```
- * 1:1      ⏳ 앞 대화가 끝나면 보냅니다
- * 단체방    ⏳ 베타 대기 중            ← 누구를 기다리는지
+ * 예약만 있을 때   ⏳ 끝나면 보냅니다 — "그거 말고 이거"   [수정] [내리기]
+ * 수정 누른 뒤     ↩ 치워둔 글 — "아까 쓰던 거"            [되돌리기]
  * ```
  *
- * 그리고 급할 때 쓰는 자리라 **두 길**이 같이 있다. 둘은 결과가 정반대인데
- * 글자 길이가 비슷해서, 아이콘이 다른지까지 잰다.
+ * **둘이 동시에 안 뜬다** — 「수정」을 누르는 순간 예약이 풀리므로 언제나 한 줄이다.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -67,98 +69,126 @@ const bot = (id, agentId, name) => ({
   id, agentId, name, sessionId: "s" + id, sessionPrompted: true,
   approver: { kind: "user" }, answerPolicy: "ask",
 });
-/*
- * 🔴 **`deliveredTo` 가 비어 있으면 띠가 안 붙는다.** 처음에 그렇게 써서 헤맸다.
- *
- * 띠는 «이 말이 **갈 곳** 중 아직 안 간 데» 를 적는 것이라, 받는 이가 없으면
- * 적을 것도 없다. 줄에 섰다는 것은 **보낼 상대는 정해졌는데 아직 못 갔다**는
- * 뜻이다.
- */
-const msg = (id, text, to) => ({ id, role: "user", text, deliveredTo: to, createdAt: 1 });
 
-/** 방을 열고, 줄 서 있는 것을 알려준다 */
-function open(bots, messages, queued) {
+/** 방을 열고, 올려둔 칸과 봇 상태를 알려준다 */
+function open(bots, staged, status) {
   const t = mount();
   t.$(".room").click();
   t.send({
     t: "room", compactable: false,
-    room: { id: "r1", title: "방", cwd: "/ws/proj", participants: bots,
-            messages, unread: 0, createdAt: 1, lastActivityAt: 2 },
+    room: {
+      id: "r1", title: "방", cwd: "/ws/proj", participants: bots,
+      messages: [], unread: 0, createdAt: 1, lastActivityAt: 2,
+      ...(staged ? { staged } : {}),
+    },
   });
-  if (queued) t.send({ t: "queued", roomId: "r1", bots: queued });
+  if (status) t.send({ t: "status", roomId: "r1", status: "streaming", bots: status });
   return t;
 }
 
-const bandOf = (t, at = 0) => t.$$("#screen-chat .msg")[at]?.querySelector(".meta.delivery");
-const btn = (band, text) => [...band.querySelectorAll("button")].find((b) => b.textContent.includes(text));
+const rowOf = (t) => t.$("#screen-chat .staged-row");
+const btn = (row, text) => [...row.querySelectorAll("button")].find((b) => b.textContent.includes(text));
 
-console.log("\n[★ 줄 서 있으면 말풍선이 말해준다]");
-{
-  const t = open([bot("b1", "claude", "클로드")], [msg("u1", "급한 것", ["b1"])], { b1: ["u1"] });
-  const band = bandOf(t);
-  ok(band !== null && band !== undefined, "★ **띠가 붙는다** — 없으면 보낸 것과 구별이 안 된다");
-  console.log(`   띠: ${band.querySelector(".held").textContent}`);
-  ok(band.querySelector(".held").textContent.includes("앞 대화가 끝나면 보냅니다"),
-     "★ 1:1 은 **무슨 일이 일어날지**로 적는다");
-  ok(!band.querySelector(".held").textContent.includes("클로드"),
-     "★ **1:1 에선 이름을 안 붙인다** — 상대가 하나뿐인데 적으면 읽을 것만 는다");
-  ok(band.querySelector(".held").getAttribute("title")?.includes("끝나면"),
-     "왜 기다리는지는 툴팁에");
-}
+const ONE = [bot("b1", "claude", "클로드")];
+const TWO = [bot("b1", "claude", "알파"), bot("b2", "codex", "베타")];
 
-console.log("\n[★ 단체방이면 누구를 기다리는지 적는다]");
-{
-  const t = open(
-    [bot("b1", "claude", "알파"), bot("b2", "codex", "베타")],
-    [msg("u1", "둘 다 봐줘", ["b1", "b2"])],
-    { b2: ["u1"] },
-  );
-  const held = bandOf(t).querySelector(".held").textContent;
-  console.log(`   띠: ${held}`);
-  ok(held.includes("베타"), "★ **기다리는 봇을 이름으로** 짚는다");
-  ok(!held.includes("알파"), "★ **안 기다리는 봇은 안 적는다** — 전부 막힌 걸로 읽히면 안 된다");
-  ok(held.includes("대기 중"), "무슨 상태인지도 같이");
-}
-
-console.log("\n[★ 띠는 말만 한다 — 단추는 없다]");
+console.log("\n[★ 올려두면 입력창 위에 보인다]");
 {
   /*
-   * ⏪ 여기 «지금 보내기»(끼어들기)와 «빼기»(줄에서 빼기)가 나란히 있었다.
-   * 둘 다 중지의 일종이었고, 중지가 넷이면 **각각이 MCP 큐·권한 대기·심사
-   * 줄과 어떤 관계인지 따로 정의해야 한다** — v3.0 에서 열여섯 조합이 된다.
-   * 그래서 전체 중지 하나로 모았다(1-D).
-   *
-   * 띠 자체도 곧 예약 한 칸으로 바뀐다(1-E). 그때까지 하는 일은 **무엇이
-   * 줄 서 있는지 말하는 것** 하나다.
+   * 🔴 **접거나 작게 하지 않는다.** 올려두고 잊으면 10분 뒤 뜬금없이 나가서
+   * «이게 왜 나가?»가 된다. 계속 보이는 것이 이 줄의 값이다.
    */
-  const t = open([bot("b1", "claude", "클로드")], [msg("u1", "급한 것", ["b1"])], { b1: ["u1"] });
-  const band = bandOf(t);
-  ok(band !== null, "띠는 그대로 뜬다");
-  const btns = [...band.querySelectorAll("button")];
-  ok(btns.length === 0, `★ **단추가 하나도 없다** (${btns.length}개)`);
-  // 1:1 에서는 «앞 대화가 끝나면 보냅니다», 단체방에서는 «… 대기 중»
-  ok((band.textContent ?? "").includes("⏳"), "★ 그래도 **줄 서 있다고는 말한다**");
+  const t = open(ONE, { tokens: [{ kind: "text", text: "그거 말고 이거 해줘" }],
+                        botIds: ["b1"], at: 1 });
+  const row = rowOf(t);
+  ok(row !== null && !row.hidden, "★ **줄이 뜬다** — 안 보이면 올려둔 걸 잊는다");
+  ok(row.textContent.includes("끝나면 보냅니다"), `★ 무엇을 할지 말한다 (${row.textContent})`);
+  ok(row.textContent.includes("그거 말고 이거"), "★ **무슨 글인지도** — 제목만으로는 못 알아본다");
 }
 
-console.log("\n[★ 줄에서 빠지면 표시도 사라진다]");
+console.log("\n[★ 올려둔 것이 없으면 줄도 없다]");
 {
-  const t = open([bot("b1", "claude", "클로드")], [msg("u1", "급한 것", ["b1"])], { b1: ["u1"] });
-  ok(bandOf(t) !== null, "줄에 서 있을 땐 있다");
-  t.send({ t: "queued", roomId: "r1", bots: {} });
-  console.log(`   빠진 뒤: ${bandOf(t) ? "남아 있다" : "없다"}`);
-  ok(!bandOf(t), "★ **빠지면 바로 사라진다** — 남아 있으면 영영 기다리는 줄 안다");
+  const t = open(ONE);
+  const row = rowOf(t);
+  ok(row === null || row.hidden, "★ 평소엔 자리를 안 먹는다");
 }
 
-console.log("\n[★ 안 선 말풍선엔 안 붙는다]");
+console.log("\n[★ 수정과 내리기 — 같은 동작이고 «글을 살리느냐»만 다르다]");
 {
-  const t = open(
-    [bot("b1", "claude", "클로드")],
-    [msg("u1", "먼저 한 말", ["b1"]), msg("u2", "줄 선 말", ["b1"])],
-    { b1: ["u2"] },
-  );
-  console.log(`   첫째: ${bandOf(t, 0) ? "붙었다" : "없다"} · 둘째: ${bandOf(t, 1) ? "붙었다" : "없다"}`);
-  ok(!bandOf(t, 0), "★ **이미 간 말엔 안 붙는다**");
-  ok(bandOf(t, 1) !== null && bandOf(t, 1) !== undefined, "★ 줄 선 말에만 붙는다");
+  const t = open(ONE, { tokens: [{ kind: "text", text: "고칠 글" }], botIds: ["b1"], at: 1 });
+  const row = rowOf(t);
+  const labels = [...row.querySelectorAll("button")].map((b) => b.textContent.trim());
+  ok(labels.join() === "수정,내리기", `★ **둘뿐이다** (${labels.join(" · ")})`);
+
+  btn(row, "내리기").click();
+  ok(t.sent.some((m) => m.t === "unstage" && m.roomId === "r1"), "★ 내리기는 내린다");
+
+  const t2 = open(ONE, { tokens: [{ kind: "text", text: "고칠 글" }], botIds: ["b1"], at: 1 });
+  btn(rowOf(t2), "수정").click();
+  ok(t2.sent.some((m) => m.t === "editStaged" && m.roomId === "r1"),
+     "★ 수정은 **돌려달라고** 한다 — 글은 코어가 들고 있다");
+}
+
+console.log("\n[★ 수정하면 쓰던 글이 치워진다 — 묻지도 않고 안 잃는다]");
+{
+  /*
+   * 🔴 「수정」을 누르면 예약 글이 입력창으로 내려오는데, 그때 **쓰던 글이
+   * 있으면** 덮어쓰게 된다. 깊이 1 스택으로 밀어두고 **보여준다** — 숨긴
+   * 스택이 문제지, 한 줄로 보이면 그냥 «잠깐 치워둔 것»이다.
+   */
+  const t = open(ONE, { tokens: [{ kind: "text", text: "올려둔 글" }], botIds: ["b1"], at: 1 });
+  const box = t.$("#screen-chat .composer textarea");
+  box.value = "아까 쓰던 거";
+
+  btn(rowOf(t), "수정").click();
+  // 코어가 글을 돌려준다
+  t.send({ t: "stagedBack", roomId: "r1", tokens: [{ kind: "text", text: "올려둔 글" }] });
+
+  ok(box.value === "올려둔 글", `★ 예약 글이 입력창으로 내려왔다 (${box.value})`);
+  const row = rowOf(t);
+  ok(row.textContent.includes("치워둔 글"), `★ **쓰던 글은 안 잃는다** (${row.textContent})`);
+  ok(row.textContent.includes("아까 쓰던 거"), "★ 무엇을 치웠는지도 보인다");
+  ok([...row.querySelectorAll("button")].length === 1,
+     "★ **되돌리기 하나뿐** — 치워둔 칸은 «예약»이 아니다. 안 나간다");
+
+  btn(row, "되돌리기").click();
+  ok(box.value === "아까 쓰던 거", `★ 되돌리면 그대로 (${box.value})`);
+  ok(rowOf(t) === null || rowOf(t).hidden, "★ 그리고 줄이 걷힌다");
+}
+
+console.log("\n[★ 바쁘면 보내기 단추가 «끝나면 보내기»라고 말한다]");
+{
+  /*
+   * 🔴 누르기 전에 **무슨 일이 일어날지**를 말해야 한다. 같은 모양이 어떤
+   * 때는 바로 보내고 어떤 때는 올려두면, 올려둔 글이 10분 뒤에 나갈 때
+   * «이게 왜 나가?»가 된다 — 올린 기억이 없으니까.
+   */
+  const idle = open(ONE);
+  ok(!idle.$("#screen-chat .composer button.send").classList.contains("later"),
+     "한가하면 그냥 보내기다");
+
+  const t = open(ONE, undefined, { b1: "streaming" });
+  const send = t.$("#screen-chat .composer button.send");
+  ok(send.classList.contains("later"), "★ **모양이 달라진다**");
+  ok((send.getAttribute("title") ?? "").includes("끝나면 보냅니다"),
+     `★ 말로도 알려준다 (${send.getAttribute("title")})`);
+}
+
+console.log("\n[★ 칸이 차 있으면 미리 말해준다]");
+{
+  const t = open(ONE, { tokens: [{ kind: "text", text: "이미 하나" }], botIds: ["b1"], at: 1 },
+                 { b1: "streaming" });
+  const send = t.$("#screen-chat .composer button.send");
+  ok((send.getAttribute("title") ?? "").includes("이미 하나 있습니다"),
+     `★ **눌러보기 전에** 안다 (${send.getAttribute("title")})`);
+}
+
+console.log("\n[★ 단체방 — 누구를 기다리는지 적는다]");
+{
+  const t = open(TWO, undefined, { b1: "idle", b2: "streaming" });
+  const send = t.$("#screen-chat .composer button.send");
+  ok((send.getAttribute("title") ?? "").includes("베타"),
+     `★ **누구 때문인지** (${send.getAttribute("title")}) — 모르면 기다릴지 말지를 못 정한다`);
 }
 
 console.log("\n전부 통과");

@@ -102,26 +102,30 @@ async function main(): Promise<void> {
     mgr.dispose();
   }
 
-  console.log(`${NL}[★ 큐에 있던 것은 «안 갔다»로 남는다 (C5)]`);
+  console.log(`${NL}[★ 올려둔 것도 같이 내린다 (v3.0 1-E)]`);
   {
+    /*
+     * ⏪ 여기서 «줄에 있던 것을 안 갔다로 적는다»를 쟀다. 줄을 없앴으니
+     * (1-E) 적을 것도 없다 — 대신 **예약 칸**이 그 자리를 잇는다.
+     *
+     * 🔴 남겨두면 **중지한 뒤에 뜬금없이 한 마디가 나간다.** 멈추라고
+     * 눌렀는데 10분 뒤에 말이 나가면 «이게 왜 나가?»가 된다.
+     */
     const { dir, mgr, settle, until } = await make(4000); dirs.push(dir);
-    const room = await mgr.createRoom({ agentId: "alpha", title: "큐" });
+    const room = await mgr.createRoom({ agentId: "alpha", title: "예약" });
     const bot = room.participants[0]!;
 
     void mgr.send(room.id, "첫 일");
     await until(() => busy(mgr.statusOf(room.id, bot.id)));
-    // 앞이 도는 중이라 **큐로 간다**
-    void mgr.send(room.id, "줄 서는 말");
-    await until(() => mgr.queuedIds(room.id)[bot.id]?.length === 1);
+    await mgr.stage(room.id, [{ kind: "text", text: "중지 뒤에 나가면 안 되는 글" }]);
+    ok(room.staged !== undefined, "올려뒀다");
 
     await mgr.stopAll(room.id);
     await settle(room.id);
 
-    const queued = room.messages.find((m) => m.text === "줄 서는 말");
-    ok(queued !== undefined, "말풍선은 그대로 있다 — 조용히 지우지 않는다 (§0)");
-    ok(queued!.notSentTo?.includes(bot.id) === true,
-       "★ **아직 안 보낸 것은 «안 갔다»로 적힌다** — 조용히 버리면 영영 답을 기다린다");
-    ok(mgr.queuedIds(room.id)[bot.id] === undefined, "★ 줄도 비워졌다");
+    ok(room.staged === undefined, "★ **올려둔 것도 내려간다**");
+    ok(!room.messages.some((m) => m.text.includes("나가면 안 되는")),
+       "★ **자국도 없다** — 아무도 못 본 글이다 (§0)");
     mgr.dispose();
   }
 

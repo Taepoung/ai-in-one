@@ -155,14 +155,20 @@ export type ToWebview =
    */
   | { t: "status"; roomId: string; status: RoomStatus; bots?: Record<string, RoomStatus> }
   /**
-   * **아직 안 보낸 것들** (§4.3) — `botId` → 줄 서 있는 메시지 id들.
+   * ★ **예약을 풀어 글을 돌려준다** — «수정» 을 눌렀을 때 (v3.0 1-E).
    *
-   * 큐에 쌓인 메시지는 화면에 **보낸 것과 똑같이** 떠 있다. 이게 없으면
-   * «보냈는데 왜 조용하지»가 되고, 그 자리에서 할 수 있는 일도 없다.
+   * ⏪ 여기 있던 `queued` 는 **줄 서 있는 메시지 id 들**이었다. 큐를 없앴으니
+   * 줄도 없다 — 올려둔 한 칸은 방 스냅샷(`Room.staged`)에 실려 가므로 따로
+   * 알릴 것이 없고, 대신 **돌려받는 길**만 필요하다.
    *
-   * 비어 있는 방도 보낸다 — «이제 다 나갔다»를 알려야 표시가 걷힌다.
+   * 화면이 이걸 받아 입력창에 꽂는다. 쓰던 글이 있으면 깊이 1 로 밀어둔다.
    */
-  | { t: "queued"; roomId: string; bots: Record<string, string[]> }
+  | {
+      t: "stagedBack";
+      roomId: string;
+      tokens: ComposeToken[];
+      attachments?: Attachment[];
+    }
   /**
    * **줄 서 있는 심사들** (§4.2.2).
    *
@@ -238,6 +244,18 @@ export type FromWebview =
    * 화면은 규칙을 모른다 — «줄 맨 앞인가»«연속인가»는 코어가 정한다(§4.1.2).
    */
   | { t: "sendCompose"; roomId: string; tokens: ComposeToken[]; attachments?: Attachment[] }
+  /**
+   * ★ **올려둔다** — 바쁜 봇이 끝나면 보낼 글 한 칸 (v3.0 1-E).
+   *
+   * ⏪ 예전에는 **저절로** 줄에 섰다. 그게 엇갈림을 만들었다 — 10분짜리 일이
+   * 끝난 뒤에 «그거 말고 이거»가 나가서 이미 끝난 일에 대한 정정이 날아갔다.
+   * 이제는 **사용자가 눌러서** 올린다. 그래야 엇갈려도 납득이 된다.
+   */
+  | { t: "stage"; roomId: string; tokens: ComposeToken[]; attachments?: Attachment[] }
+  /** **내린다** — 글까지 버린다. 아무도 못 봤으니 흔적이 없다 (§0) */
+  | { t: "unstage"; roomId: string }
+  /** **수정한다** — 예약을 풀고 글을 입력창으로 돌려받는다 (`stagedBack`) */
+  | { t: "editStaged"; roomId: string }
   /** 붙여넣기·드롭으로 들어온 바이트. 셀이 blob으로 저장해 `attached`로 돌려준다 */
   | { t: "attach"; roomId: string; items: Array<{ name: string; mimeType: string; base64: string }> }
   /** 파일 탐색기에서 끌어다 놓았거나 첨부 버튼을 눌렀다 */

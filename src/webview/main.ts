@@ -69,7 +69,7 @@ let botStatus: Record<string, RoomStatus> = {};
  * 상태와 같은 이유로 **지금 보는 방의 것만** 들고 있다. 큐에 쌓인 말풍선은
  * 보낸 것과 똑같이 생겨서, 이게 없으면 «보냈는데 왜 조용하지»가 된다.
  */
-let queued: Record<string, string[]> = {};
+
 /**
  * **줄 서 있는 심사들** (§4.2.2) — 지금 보는 방의 것만.
  *
@@ -107,10 +107,6 @@ function openBotView(botId: string | null): void {
   renderChat();
 }
 
-/** 이 메시지가 **어느 봇의 줄에** 서 있나 */
-function waitingFor(messageId: string): string[] {
-  return Object.keys(queued).filter((id) => queued[id]?.includes(messageId));
-}
 const configs = new Map<string, ConfigOptionBrief[]>();
 /**
  * 설정을 못 불러온 이유.
@@ -1984,6 +1980,13 @@ interface ChatEls {
   /** 단체방의 «누구에게 가나» 줄 (v2.0). 1:1에서는 숨어 있다 */
   compose: HTMLElement;
   /**
+   * ★ **올려둔 한 칸, 또는 치워둔 글** — 입력창 바로 위 (v3.0 1-E).
+   *
+   * 🔴 **접거나 작게 하지 않는다.** 올려두고 잊으면 10분 뒤 뜬금없이 나가서
+   * «이게 왜 나가?»가 된다. 계속 보이는 것이 이 줄의 값이다.
+   */
+  staged: HTMLElement;
+  /**
    * **승인 큐** — 헤더 바로 아래 (D1).
    *
    * 🔴 카드를 대화 맨 아래에 쌓았더니 **둘만 넘어가도 답할 것이 뭔지 흐려졌고**,
@@ -2027,6 +2030,8 @@ function renderChat(): void {
   }
   refreshMentionChips(r);
   paintChat(r);
+  paintStaged(r);
+  paintSendButton(r);
 }
 
 /**
@@ -2190,6 +2195,194 @@ function paintCompose(r: Room, box: HTMLElement): void {
  * 넷을 넘는 일은 드물고, 색을 무한히 늘리면 서로 구별이 안 되는 색이 나온다.
  */
 const GROUP_TINTS = 4;
+
+/**
+ * ★ **치워둔 글** — 깊이 1 스택 (v3.0 1-E).
+ *
+ * 「수정」을 누르면 예약 글이 입력창으로 내려오는데, 그때 **쓰던 글이 있으면**
+ * 덮어쓰게 된다. 묻지도 않고 안 잃으려면 어딘가 둬야 한다.
+ *
+ * 🔴 **이건 «예약»이 아니다.** 예약 칸은 턴이 끝나면 **나가고**, 치워둔 칸은
+ * **안 나간다** — 그냥 보관이다. 그래서 «예약은 명시적 행동»이 안 깨진다.
+ *
+ * 깊이는 **1 이면 충분하다** — 예약이 하나니 밀어둘 것도 하나뿐이다. 그리고
+ * **보여준다.** 숨긴 스택이 문제지, 한 줄로 보이면 그냥 «잠깐 치워둔 것»이다.
+ */
+let stash: { roomId: string; tokens: ComposeToken[] } | null = null;
+
+/** 이 글이 갈 봇들 중 **도는 중인** 이름들 */
+function busyAmong(r: Room, botIds: string[]): string[] {
+  return botIds
+    .filter((id) => {
+      const at = botStatus[id];
+      return at !== undefined && at !== "idle" && at !== "error";
+    })
+    .map((id) => r.participants.find((b) => b.id === id)?.name ?? id);
+}
+
+/** 토큰을 입력창에 되돌린다 — 칩은 칩으로, 글자는 글자로 */
+function putTokens(r: Room, tokens: ComposeToken[]): void {
+  // `chat.box` 는 1:1 이면 textarea, 단체방이면 contenteditable 이다
+  const box: HTMLElement | undefined = chat?.box;
+  if (!box) return;
+  if (box instanceof HTMLTextAreaElement) {
+    box.value = tokens.map((t) => (t.kind === "text" ? t.text : "")).join("").trim();
+    autoGrow(box);
+    box.focus();
+    return;
+  }
+  /*
+   * 🔴 **글자로 눌러 담지 않는다.** «@구현» 을 글자로 되돌리면 그게 지목인지
+   * 글자인지 우리가 다시 해석해야 하고, 사용자가 쓴 것과 달라질 수 있다.
+   * 칩은 칩 그대로 돌려놓는다.
+   */
+  box.replaceChildren(
+    ...tokens.map((t) =>
+      t.kind === "mention"
+        ? mentionChip(t.botId, r.participants.find((b) => b.id === t.botId)?.name ?? "?")
+        : box.ownerDocument.createTextNode(t.text),
+    ),
+  );
+  box.focus();
+  box.dispatchEvent(new Event("input"));
+}
+
+/** 지금 입력창에 든 것 — 둘 중 어느 모양이든 토큰으로 */
+function takeTokens(): ComposeToken[] {
+  const box: HTMLElement | undefined = chat?.box;
+  if (!box) return [];
+  if (box instanceof HTMLTextAreaElement) {
+    const text = box.value.trim();
+    box.value = "";
+    autoGrow(box);
+    return text ? [{ kind: "text", text }] : [];
+  }
+  const out = readTokens(box);
+  box.replaceChildren();
+  return out.some((t) => t.kind === "mention" || t.text.trim()) ? out : [];
+}
+
+/**
+ * ★ **입력창 위 한 줄** — 예약 칸, 또는 치워둔 칸 (v3.0 1-E).
+ *
+ * **둘이 동시에 안 뜬다.** 「수정」을 누르는 순간 예약이 풀리므로 언제나 한 줄이다.
+ *
+ * ```
+ * 예약만 있을 때   ⏳ 끝나면 보냅니다 — "그거 말고 이거"   [수정] [내리기]
+ * 수정 누른 뒤     ↩ 치워둔 글 — "아까 쓰던 거"           [되돌리기]
+ * ```
+ *
+ * 🔴 **접거나 작게 하지 않는다.** 올려두고 잊으면 10분 뒤 뜬금없이 나가서
+ * «이게 왜 나가?»가 된다. 입력창 위에 계속 보이는 것이 그 값이다.
+ */
+function paintStaged(r: Room): void {
+  const host = chat?.staged;
+  if (!host) return;
+  host.replaceChildren();
+
+  if (r.staged) {
+    const glance = quoteish(textOf(r, r.staged.tokens));
+    host.hidden = false;
+    host.append(
+      el("span", { class: "what", text: `⏳ 끝나면 보냅니다 — ${glance}` }),
+      el(
+        "button",
+        {
+          class: "link",
+          title: "예약을 풀고 글을 입력창으로 가져옵니다. 쓰던 글은 잠깐 치워둡니다.",
+          onclick: () => {
+            // **쓰던 글을 먼저 치운다** — 묻지도 않고 안 잃는다
+            const now = takeTokens();
+            stash = now.length > 0 ? { roomId: r.id, tokens: now } : null;
+            post({ t: "editStaged", roomId: r.id });
+          },
+        },
+        icon("edit"),
+        "수정",
+      ),
+      el(
+        "button",
+        {
+          class: "link",
+          // 아무도 못 봤으므로 지울 수 있고, 지우면 자국이 없다 (§0)
+          title: "올려둔 글을 버립니다.",
+          onclick: () => post({ t: "unstage", roomId: r.id }),
+        },
+        icon("close"),
+        "내리기",
+      ),
+    );
+    return;
+  }
+
+  if (stash?.roomId === r.id) {
+    const kept = stash.tokens;
+    host.hidden = false;
+    host.append(
+      el("span", { class: "what", text: `↩ 치워둔 글 — ${quoteish(textOf(r, kept))}` }),
+      el(
+        "button",
+        {
+          class: "link",
+          title: "치워둔 글을 입력창으로 되돌립니다.",
+          onclick: () => {
+            stash = null;
+            putTokens(r, kept);
+            paintStaged(r);
+          },
+        },
+        icon("discard"),
+        "되돌리기",
+      ),
+    );
+    return;
+  }
+
+  host.hidden = true;
+}
+
+/** 토큰을 사람이 읽을 한 줄로 */
+function textOf(r: Room, tokens: ComposeToken[]): string {
+  return tokens
+    .map((t) =>
+      t.kind === "mention"
+        ? `@${r.participants.find((b) => b.id === t.botId)?.name ?? "?"}`
+        : t.text,
+    )
+    .join("");
+}
+
+/** 한 줄에 들어갈 만큼만 — 전체는 입력창이나 예약 칸이 들고 있다 */
+function quoteish(text: string): string {
+  const one = text.replace(/\s+/g, " ").trim();
+  return `"${one.length > 40 ? `${one.slice(0, 40)}…` : one}"`;
+}
+
+/**
+ * ★ **바쁘면 단추가 «끝나면 보내기»라고 말한다** (v3.0 1-E).
+ *
+ * 🔴 누르기 전에 **무슨 일이 일어날지**를 말해야 한다. 같은 아이콘이 어떤
+ * 때는 바로 보내고 어떤 때는 올려두면, 올려둔 글이 10분 뒤에 나갈 때
+ * «이게 왜 나가?»가 된다 — 올린 기억이 없으니까.
+ *
+ * 예약이 이미 하나 있으면 **못 올린다**(칸이 하나다). 그것도 미리 말한다 —
+ * 눌러보고 나서 알려주면 이미 한 번 헛손질한 뒤다.
+ */
+function paintSendButton(r: Room): void {
+  const btn = chat?.box.parentElement?.querySelector<HTMLElement>("button.send");
+  if (!btn) return;
+  const targets = viewBotId ? [viewBotId] : r.participants.map((b) => b.id);
+  const held = busyAmong(r, targets);
+  const full = r.staged !== undefined;
+
+  btn.classList.toggle("later", held.length > 0);
+  btn.title = full
+    ? "올려둔 글이 이미 하나 있습니다 — 그것을 보내거나 내린 뒤에 해주세요."
+    : held.length > 0
+      ? `${held.join("·")}이(가) 답하는 중입니다 — 끝나면 보냅니다.`
+      : "보내기";
+  btn.replaceChildren(icon(held.length > 0 ? "history" : "send"));
+}
 
 /** 칩 하나. `botId`가 진짜 값이고 글자는 보여주기용이다 */
 function mentionChip(botId: string, name: string): HTMLElement {
@@ -2443,6 +2636,7 @@ function mountChat(r: Room): void {
   const perm = el("button", { class: "icon perm" }, icon("shield"));
   const chips = el("div", { class: "chips", hidden: true });
   const compose = el("div", { class: "compose-note", hidden: true });
+  const staged = el("div", { class: "staged-row", hidden: true });
 
   if (!group) {
     box.value = r.draft ?? "";
@@ -2464,8 +2658,20 @@ function mountChat(r: Room): void {
       box.replaceChildren();
       closePicker();
       paintCompose(live(), box);
+      /*
+       * ★ **바쁘면 보내는 대신 올려둔다** (v3.0 1-E).
+       *
+       * ⏪ 예전에는 그냥 보냈고 코어가 **저절로** 줄에 세웠다. 그게 엇갈림을
+       * 만들었다 — 10분짜리 일이 끝난 뒤에 «그거 말고 이거»가 나가서 이미
+       * 끝난 일에 대한 정정이 날아갔다.
+       *
+       * 🔴 **한 명이라도 바쁘면 통째로** 올려둔다. 반만 나가면 «반만 나간 것»을
+       * 사용자가 알아야 하고, 그걸 말해주려면 결국 «줄 서 있음» 표시가 다시
+       * 필요해진다.
+       */
+      const held = busyAmong(live(), parsed.blocks.flatMap((b) => b.botIds));
       post({
-        t: "sendCompose",
+        t: held.length > 0 ? "stage" : "sendCompose",
         roomId: r.id,
         tokens,
         ...(attachments.length ? { attachments } : {}),
@@ -2490,10 +2696,22 @@ function mountChat(r: Room): void {
      * 어긋날 자리**만 생긴다. 뷰는 «칩을 대신 꽂아 주는 것»일 뿐이다.
      */
     if (viewBotId) {
+      const held = busyAmong(live(), [viewBotId]);
       post({
-        t: "sendCompose",
+        t: held.length > 0 ? "stage" : "sendCompose",
         roomId: r.id,
         tokens: [{ kind: "mention", botId: viewBotId }, { kind: "text", text: ` ${text}` }],
+        ...(attachments.length ? { attachments } : {}),
+      });
+      return;
+    }
+
+    // 1:1 — 그 하나가 바쁘면 올려둔다
+    if (busyAmong(live(), live().participants.map((b) => b.id)).length > 0) {
+      post({
+        t: "stage",
+        roomId: r.id,
+        tokens: [{ kind: "text", text }],
         ...(attachments.length ? { attachments } : {}),
       });
       return;
@@ -2583,6 +2801,7 @@ function mountChat(r: Room): void {
     back,
     status,
     compose,
+    staged,
     chips,
     el(
       "div",
@@ -2598,7 +2817,7 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, queue, clash, list, back, status, chips, box, perm, compose };
+  chat = { roomId: r.id, head, queue, clash, list, back, status, chips, box, perm, compose, staged };
   // 방을 갈아타면 돌아갈 자리도 사라진다 — 남의 방 스크롤 값이다
   backTo = undefined;
   pending = [];
@@ -2614,6 +2833,7 @@ function mountChat(r: Room): void {
   }
   // 방에 **들어올 때 한 번만** 자리를 잡는다. 갱신마다 하면 화면이 계속 끌려간다.
   paintChat(r);
+  paintStaged(r);
   scrollIntoPlace(list);
 }
 
@@ -2697,7 +2917,8 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
   if (to.length === 0 && !alsoMe) return null;
 
   const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
-  const wait = new Set(waitingFor(m.id));
+  // ⏪ «줄 서 있음»은 없어졌다 (v3.0 1-E) — 말풍선이 있으면 **이미 간 것**이다
+  const wait = new Set<string>();
 
   /*
    * ★ **못 간 곳은 칩에서 뺀다** (2026-09-23).
@@ -2796,79 +3017,17 @@ function deliveryChips(m: Message, r: Room): HTMLElement | null {
   return row;
 }
 
-/**
- * ★ **이 말이 누구에게 갔나** (§4.1.1 · §4.2).
+/*
+ * ⏪ **«⏳ 대기 중» 띠를 물린다** (v3.0 1-E).
  *
- * 🔴 **이 설계의 유일한 위험**이 «화면엔 다 보이는데 봇은 서로 모른다»는
- * 것이다. 우리는 멘션된 봇에게만 전달하므로(§4.1.1), 단체방의 말풍선은
- * 보이는 것보다 **좁게** 갔다. 그 차이를 안 적으면 사용자는 *"방금 Claude가
- * 한 말 이어서 해줘"* 를 Codex에게 시키고, Codex는 그 말을 본 적이 없다.
+ * 말풍선 아래에 «이 말이 아직 줄에 서 있다»를 적던 자리다. 줄 자체를
+ * 없앴으니 적을 것이 없다 — 보낸 말은 **언제나 이미 간 것**이고, 아직
+ * 안 간 글은 애초에 말풍선이 아니라 **입력창 위 예약 칸**에 있다.
  *
- * 그래서 **보낸 쪽에 받는 이를 적는다.** 메신저의 «읽음»이 있는 자리다.
- *
- * 함께 세 가지를 한 줄에 담는다 — 셋 다 «지금 이 말이 어디까지 갔나»다:
- *
- * | 표시 | 뜻 |
- * |---|---|
- * | `→ Claude` | 갔다 |
- * | `⏳ Codex` | **아직 줄에 서 있다** — 앞 턴이 끝나면 간다 |
- * | (없음) | 못 갔다 — 위의 끊김 줄(`lostLine`)이 이미 말하고 있다 |
- *
- * 1:1에서는 **받는 이를 적지 않는다** — 상대가 하나뿐이라 자명하고, 매
- * 말풍선에 같은 이름이 붙으면 읽는 데 방해만 된다. 대기 표시는 1:1에서도
- * 나온다 — 거기서도 «보냈는데 조용하다»는 똑같이 불안하다.
+ * 받는 이는 원래부터 여기가 아니라 말풍선 **안**이다(`deliveryChips`) —
+ * 10px 회색 글씨가 말풍선 밖에 붙으니 안 읽혔고, §4.1.1 의 유일한 위험을
+ * 막으려고 넣은 표시가 안 읽히면 아무 값이 없다.
  */
-function deliveryNode(m: Message, r: Room): HTMLElement | null {
-  if (m.role !== "user") return null;
-
-  const here = (id: string) => r.participants.find((b) => b.id === id);
-  const lost = new Set(m.notSentTo ?? (m.sendFailed ? m.deliveredTo : []));
-  const wait = new Set(waitingFor(m.id));
-
-  const held: string[] = [];
-  for (const id of m.deliveredTo) {
-    if (lost.has(id) || !wait.has(id)) continue;
-    held.push(here(id)?.name ?? "나간 봇");
-  }
-  /*
-   * ★ **여기는 «지나가는 것»만 맡는다.**
-   *
-   * 🔴 처음에는 받는 이도 여기 «→ Claude · Codex»로 적었다. 그런데 10px 회색
-   * 글씨가 말풍선 **밖 아래**에 붙으니 **안 읽혔다** — §4.1.1의 유일한 위험을
-   * 막으려고 넣은 표시인데, 막으려면 눈에 들어와야 한다.
-   *
-   * 받는 이는 **말풍선 안으로** 옮겼다(`deliveryChips`). 거기가 제자리다 —
-   * 사용자가 칩으로 **직접 쓴 것**이고, 지워지지 않는 메시지의 일부다.
-   * 여기 남는 것은 **곧 사라질 상태**뿐이다: 줄 서 있음, 그리고 물리기.
-   */
-  if (held.length === 0) return null;
-
-  const many = r.participants.length > 1;
-  const row = el("div", { class: "meta delivery" });
-  {
-    row.append(
-      el("span", {
-        class: "held",
-        text: many
-          ? `⏳ ${held.join(" · ")} 대기 중`
-          : "⏳ 앞 대화가 끝나면 보냅니다",
-        title: "앞 턴이 아직 돌고 있습니다. 끝나면 묶어서 한 번에 전달합니다.",
-      }),
-      /*
-       * ⏪ **«지금 보내기»와 «빼기»를 물린다** (v3.0 1-D).
-       *
-       * 둘 다 중지의 일종이었다 — 앞엣것은 끼어들기(남의 턴을 끊는다),
-       * 뒤엣것은 줄에서 빼기. 중지가 여럿이면 **각각이 MCP 큐·권한 대기·
-       * 심사 줄과 어떤 관계인지 따로 정의해야 한다.** 그래서 전체 중지
-       * 하나로 모았다.
-       *
-       * 줄 자체도 곧 없어진다(1-E — 예약 한 칸). 그때까지 이 띠는
-       * **무엇이 줄 서 있는지만** 말한다.
-       */
-    );
-  }
-  return row;
-}
 
 /** 앞 말풍선과 **같은 봇들에게** 못 간 것인가 — 그러면 줄을 또 그여도 소용없다 */
 function lostAlike(above: Message | undefined, m: Message): boolean {
@@ -3095,8 +3254,7 @@ function paintChat(r: Room): void {
      * 누가 받고 누가 기다리는지는 **한 줄에 이미 다 있다** — 받은 이는 칩으로,
      * 기다리는 이는 «⏳ … 대기 중»으로. 말풍선을 둘로 쪼갤 이유가 없다.
      */
-    if (m.placedAt !== undefined) return m.placedAt;
-    return waitingFor(m.id).length > 0 ? Number.POSITIVE_INFINITY : m.createdAt;
+    return m.placedAt ?? m.createdAt;
   };
   const shownMsgs = [...inView].sort((x, y) => orderAt(x) - orderAt(y));
   let day = "";
@@ -3526,7 +3684,6 @@ function sigOf(m: Message): string {
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
-    waitingFor(m.id).join(","),
   ].join(" ");
 }
 
@@ -3797,7 +3954,7 @@ function messageNode(
 
   // 누구에게 갔고 누가 아직 줄에 서 있나 (§4.1.1)
   if (room) {
-    const sent = deliveryNode(m, room);
+    const sent = null;
     if (sent) node.append(sent);
   }
 
@@ -6821,8 +6978,9 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
 
     case "room": {
       const switching = room?.id !== m.room.id;
-      // 🔴 큐는 **방마다**다. 안 비우면 옆 방의 «대기 중»이 여기 붙는다.
-      if (switching) { queued = {}; reviews = []; }
+      // 🔴 심사 줄은 **방마다**다. 안 비우면 옆 방 것이 여기 붙는다.
+      // 치워둔 글도 방을 갈아타면 보여줄 자리가 없다 — 그 방으로 돌아가면 다시 뜬다.
+      if (switching) { reviews = []; }
       room = m.room;
       usage = m.room.usage;
       compactable = m.compactable;
@@ -6877,10 +7035,23 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       }
       break;
 
-    case "queued":
+    /*
+     * ★ **예약을 돌려받았다** — 「수정」의 뒷반쪽 (v3.0 1-E).
+     *
+     * 쓰던 글은 누를 때 이미 치워뒀다(`stash`). 여기서는 돌려받은 것을
+     * 입력창에 꽂기만 한다.
+     */
+    case "stagedBack":
       if (room?.id === m.roomId) {
-        queued = m.bots;
-        renderChat();
+        /*
+         * 🔴 **칸이 비었다는 것을 여기서 바로 반영한다.** 코어도 방을 다시
+         * 내보내지만 그건 따로 오는 소식이라, 기다리면 **«예약»과 «치워둔 글»이
+         * 한 순간 같이** 보인다 — 둘이 동시에 안 뜬다는 것이 이 줄의 약속이다.
+         */
+        delete room.staged;
+        putTokens(room, m.tokens);
+        paintStaged(room);
+        paintSendButton(room);
       }
       break;
 

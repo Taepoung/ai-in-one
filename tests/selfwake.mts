@@ -157,15 +157,18 @@ async function main(): Promise<void> {
        "★ **그 뒤의 말도 나간다** — 줄에 선 채 멈추면 대화가 죽는다");
   }
 
-  console.log("\n[★ 혼잣말 «도중에» 보낸 말도 나가나]");
+  console.log("\n[★ 혼잣말 «도중에» 올려둔 말도 나가나]");
   {
     /*
-     * 🔴 `send` 는 그 봇이 도는 중이면 줄에 세운다. 혼잣말 중에는 상태가
-     * `streaming` 이라 **줄로 들어간다.** 그런데 줄을 빼주는 이어달리기 고리는
-     * **`runQueue` 안에** 있다 — 턴이 없으면 **아무도 안 빼준다.**
+     * 🔴 **혼잣말에는 끝낼 턴이 없다.** 봇이 스스로 깨어나 말하는 동안 상태는
+     * `streaming` 이라 그때 보낸 말은 바로 못 나간다 — 올려둔 칸으로 간다.
+     * 그런데 그 칸을 내보내는 고리가 **`runQueue` 안에만** 있으면, 턴이 없는
+     * 혼잣말 뒤에는 **아무도 안 내보낸다.**
      *
-     * 그러면 화면에는 «⏳ 대기 중»이 떠 있고, 사용자가 **다음 말을 보낼 때까지**
-     * 안 나간다. 봇이 혼자 떠드는 사이에 말을 걸면 그렇게 된다.
+     * 그러면 입력창 위에 «⏳ 끝나면 보냅니다»가 떠 있고, 사용자가 **다음 말을
+     * 보낼 때까지** 안 나간다. 봇이 혼자 떠드는 사이에 말을 걸면 그렇게 된다.
+     *
+     * ⏪ 줄(큐)이던 시절에도 같은 자리였다(2026-09-28). 그릇만 바뀌었다.
      */
     const room = await mgr.createRoom({ agentId: "alpha", title: "도중에" });
     await mgr.send(room.id, `돌려놔줘 [[wake:${TAIL_MS + 1000}]]`);
@@ -180,16 +183,17 @@ async function main(): Promise<void> {
     ok(hit, "★ 혼잣말이 도는 중이다 — 여기서 말을 건다");
 
     await mgr.send(room.id, "그 사이에 한마디");
-    const queuedAt = room.messages.find((m) => m.text.includes("그 사이에"));
-    console.log(`   보낸 직후 자리잡음? ${queuedAt?.placedAt !== undefined}`);
+    ok(room.staged !== undefined, "★ 올려둔 칸으로 갔다 — 혼잣말 한가운데라 지금은 못 간다");
 
-    // 혼잣말이 끝나고도 한참 둔다 — 누가 빼주기를 기다려 본다
+    // 혼잣말이 끝나고도 한참 둔다 — 누가 내보내기를 기다려 본다
     await settle(room.id);
-    await nap(1200);
+    for (let i = 0; i < 400 && room.staged !== undefined; i++) await nap(25);
+    await settle(room.id);
 
-    console.log(`   상태: ${mgr.statusOf(room.id)} · 자리잡음: ${queuedAt?.placedAt !== undefined}`);
-    ok(queuedAt?.placedAt !== undefined,
-       "★ **줄에서 빠져나온다** — 안 빠지면 다음 말을 보낼 때까지 «대기 중»으로 멈춰 있다");
+    const sent = room.messages.find((m) => m.text.includes("그 사이에"));
+    console.log(`   올려둔 칸: ${room.staged === undefined ? "비었다" : "남았다"} · 나갔나: ${sent !== undefined}`);
+    ok(room.staged === undefined && sent !== undefined,
+       "★ **혼잣말이 끝나면 저절로 나간다** — 안 나가면 다음 말을 보낼 때까지 멈춰 있다");
   }
 
   console.log("\n[★ 깨운 활동을 짚는다 — «도중에 딴 말»이 있어도]");

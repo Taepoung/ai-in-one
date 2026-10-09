@@ -126,22 +126,28 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 사용자는 그 사이에도 보낼 수 있다 — 줄에 선다]`);
+  console.log(`${NL}[★ 사용자는 그 사이에도 칠 수 있다 — 올려둔다]`);
   {
+    /*
+     * ⏪ 여기서 «저절로 줄에 선다»를 쟀다. 줄을 없앴으므로(1-E) 이제는
+     * **올려둔 한 칸**으로 간다 — 입력창이 얼어붙지 않는 것은 그대로다.
+     */
     const t = await make(); dirs.push(t.dir);
     const blocked = t.mgr.send(t.room.id, "[[ask:멈춤]] 해줘", undefined, t.a.id);
     await t.waitCard();
 
     const later = t.mgr.send(t.room.id, "이것도 해줘", undefined, t.a.id);
     await new Promise((r) => setTimeout(r, 200));
-    const q = t.mgr.queuedIds(t.room.id);
-    ok(q[t.a.id]?.length === 1,
-       `★ **막히지 않고 줄에 선다** (${JSON.stringify(q)}) — 입력창이 얼어붙지 않는다`);
+    ok(t.room.staged !== undefined,
+       "★ **막히지 않고 올라간다** — 입력창이 얼어붙지 않는다");
 
     t.answer("y");
     await Promise.all([blocked, later]);
     await t.settle();
-    ok(t.mgr.queuedIds(t.room.id)[t.a.id] === undefined, "★ 풀리면 줄도 나간다");
+    for (let i = 0; i < 400 && t.room.staged !== undefined; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    ok(t.room.staged === undefined, "★ 풀리면 올려둔 것이 나간다");
     t.mgr.dispose();
   }
 

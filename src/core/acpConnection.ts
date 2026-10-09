@@ -162,6 +162,8 @@ export class AcpConnection {
    * 들고 있다가 **무조건** 얹는다.
    */
   private mcp: acp.McpServer[] = [];
+  /** 내려간 연결인가 — 내려간 뒤에는 다시 안 띄운다 */
+  private closed = false;
   /** stdout 엿보기용 남은 조각 (`sniff`) */
   private peek = "";
   /** 이미 적어둔 «모르는 종류» — 같은 걸 또 적지 않는다 */
@@ -260,6 +262,18 @@ export class AcpConnection {
   }
 
   async ensureStarted(onSlowStart?: () => void): Promise<void> {
+    /*
+     * ★ **내린 연결은 다시 안 뜬다** (2026-10-09).
+     *
+     * `dispose()` 는 프로세스를 죽이고 `this.proc` 를 비운다. 그런데 **그
+     * 순간 도중이던 호출**이 이 자리에 닿으면, 비어 있다는 이유로 **CLI 를
+     * 새로 띄운다** — 끄려던 참에 하나 더 뜨고, 그게 이벤트 루프를 붙잡아
+     * 프로세스가 안 끝난다.
+     *
+     * 검사에서 먼저 드러났다: `pending.mts` 가 «전부 통과»를 찍고도 안
+     * 끝났고, 살아 있는 핸들을 찍어 보니 **ChildProcess 가 둘** 남아 있었다.
+     */
+    if (this.closed) throw new Error(`${this.agent.label} 연결이 이미 내려갔습니다`);
     if (this.isRunning) return;
     /*
      * ★ **안 받은 에이전트는 여기서 막는다** (2026-10-01).
@@ -463,6 +477,8 @@ export class AcpConnection {
   }
 
   dispose(): void {
+    // 다시 띄우지 않는다 (`ensureStarted` 주석)
+    this.closed = true;
     this.listeners.clear();
     this.pending.clear();
     this.peek = "";

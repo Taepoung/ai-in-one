@@ -166,8 +166,6 @@ export class ChatPanel implements AskTarget {
     }) as never);
     on("status", ((roomId: string, status: never, bots: never) =>
       this.post({ t: "status", roomId, status, bots })) as never);
-    on("queued", ((roomId: string, bots: never) =>
-      this.post({ t: "queued", roomId, bots })) as never);
     on("reviews", ((roomId: string, list: never) =>
       this.post({ t: "reviews", roomId, list })) as never);
     on("clashes", ((roomId: string, list: never) =>
@@ -363,6 +361,34 @@ export class ChatPanel implements AskTarget {
         case "stopAll":
           await this.rooms.stopAll(m.roomId);
           break;
+        case "stage":
+          /*
+           * 🔴 **못 올렸으면 말해준다.** 칸이 하나뿐이라 거절될 수 있는데,
+           * 조용히 삼키면 «눌렀는데 아무 일도 안 일어난다»가 된다.
+           */
+          if (!(await this.rooms.stage(m.roomId, m.tokens, m.attachments))) {
+            this.post({
+              t: "notice",
+              roomId: m.roomId,
+              message: "올려둔 글이 이미 하나 있습니다 — 그것을 보내거나 내린 뒤에 해주세요.",
+            });
+          }
+          break;
+        case "unstage":
+          await this.rooms.unstage(m.roomId);
+          break;
+        case "editStaged": {
+          const was = await this.rooms.takeStaged(m.roomId);
+          if (was) {
+            this.post({
+              t: "stagedBack",
+              roomId: m.roomId,
+              tokens: was.tokens,
+              ...(was.attachments ? { attachments: was.attachments } : {}),
+            });
+          }
+          break;
+        }
         case "retry":
           await this.rooms.retry(m.roomId, m.messageId);
           break;
@@ -1016,9 +1042,6 @@ export class ChatPanel implements AskTarget {
       compactable: this.rooms.compactCommand(room.id) !== undefined,
       compactableBots: this.rooms.compactableBots(room.id),
     });
-    // 🔴 방 스냅샷에는 큐가 안 실린다(런타임 상태다). 따로 한 번 더 보내야
-    // **다시 그릴 때 «대기 중»이 사라지지 않는다.**
-    this.post({ t: "queued", roomId: room.id, bots: this.rooms.queuedIds(room.id) });
     this.post({ t: "reviews", roomId: room.id, list: this.rooms.reviewsIn(room.id) });
     this.post({ t: "clashes", roomId: room.id, list: this.rooms.clashesIn(room.id) });
   }

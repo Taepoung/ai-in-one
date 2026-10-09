@@ -162,44 +162,6 @@ console.log("\n[★ 프롬프트는 안 건드린다 — 그릴 때만 만든다
      "★ **`Message.text`에 칩을 안 넣는다** — 넣으면 에이전트에게 가는 글이 바뀌고, 여럿에게 간 블록이면 «Codex도 받았다»를 Claude에게 알려주는 꼴이 된다");
 }
 
-console.log("\n[★ 줄에 서 있으면 칩이 비고, 아래에 «대기 중»이 뜬다]");
-{
-  const t = mount();
-  open(t, room(BOTH, [msg("u1", ["b1", "b2"])]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-
-  const held = toChips(t).find((c) => c.textContent === "@Claude");
-  ok(held.classList.contains("held"), "★ **칩 자체가 상태를 말한다** — 아직 안 갔다");
-  ok(!toChips(t).find((c) => c.textContent === "@Codex").classList.contains("held"),
-     "★ Codex는 갔다 — 같은 말풍선인데 봇마다 다르다");
-
-  const line = t.$("#screen-chat .delivery .held");
-  ok(line !== null && line.textContent.includes("Claude"),
-     `★ 아래 줄에는 **곧 사라질 것만** 남는다 (${line?.textContent})`);
-}
-
-console.log("\n[★ 아직 안 간 말은 맨 아래로]");
-{
-  /*
-   * 🔴 쓴 순서대로 늘어놓으면 **아직 안 간 것이 이미 일어난 일들 위에** 묻힌다 —
-   * 줄에 선 사이에 옆 봇이 답하거나 시스템 줄 하나만 생겨도 그렇게 된다.
-   * 바닥으로 내려가 «지금 어떻게 됐나»를 보려는데 안 끝난 것이 위에 있는 셈.
-   */
-  const t = mount();
-  open(t, room(BOTH, [
-    { id: "u1", role: "user", text: "오래 걸리는 일", deliveredTo: ["b1"], placedAt: 1, createdAt: 1 },
-    { id: "a1", role: "agent", text: "도는 중", authorBotId: "b1", deliveredTo: ["b1"], createdAt: 2 },
-    { id: "u2", role: "user", text: "급한 거 먼저", deliveredTo: ["b1"], createdAt: 3 },
-    { id: "a2", role: "agent", text: "리뷰어 답", authorBotId: "b2", deliveredTo: ["b2"], createdAt: 4 },
-  ]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u2"] } });
-
-  const order = t.$$("#screen-chat .msg .bubble").map((n) => n.textContent.replace(/@\S+\s*/g, "").trim());
-  ok(order.at(-1) === "급한 거 먼저",
-     `★ **안 간 것이 맨 아래** (${order.join(" | ")})`);
-  ok(order[2] === "리뷰어 답", "★ 이미 일어난 일들은 제 순서 그대로");
-}
-
 console.log("\n[★ 한 명이라도 받았으면 제자리 — 답이 질문 위로 가면 안 된다]");
 {
   /*
@@ -216,14 +178,10 @@ console.log("\n[★ 한 명이라도 받았으면 제자리 — 답이 질문 �
     { id: "a1", role: "agent", text: "구현의 답", authorBotId: "b1",
       deliveredTo: ["b1"], createdAt: 6 },
   ]));
-  t.send({ t: "queued", roomId: "r1", bots: { b2: ["u1"] } });
-
   const order = t.$$("#screen-chat .msg .bubble")
     .map((n) => n.textContent.replace(/[@][^ ]+ ?/g, "").trim());
   ok(order[0] === "둘 다 봐줘" && order[1] === "구현의 답",
-     `★ **질문이 답 위에** (${order.join(" | ")}) — 한 명은 받았으니 이미 들어온 말이다`);
-  ok(/Codex/.test(t.$("#screen-chat .delivery .held")?.textContent ?? ""),
-     "★ 그래도 **누가 기다리는지**는 그 줄에 남는다 — 말풍선을 둘로 쪼갤 이유가 없다");
+     `★ **질문이 답 위에** (${order.join(" | ")}) — 자리를 정하는 것은 «대화에 들어온 시각»이다`);
 }
 
 console.log("\n[★ 보내고 나면 그 자리에 머문다 — 위로 안 튄다]");
@@ -274,24 +232,22 @@ console.log("\n[★ 빼도 그 자리에 머문다 — 누른 것이 달아나�
      "★ 못 간 곳은 칩에서 빠진다 — 남은 건 «오래» 의 칩 하나");
 }
 
-console.log("\n[★ 대기 띠에는 이제 단추가 없다 — 중지는 하나뿐이다]");
+console.log("\n[★ 말풍선 아래 띠가 통째로 사라졌다 (v3.0 1-E)]");
 {
   /*
-   * ⏪ 여기 «지금 보내기»(끼어들기)와 «빼기»(줄에서 빼기)가 나란히 있었다.
-   * 둘 다 중지의 일종이었고, 중지가 넷이면 **각각이 MCP 큐·권한 대기·심사
-   * 줄과 어떤 관계인지를 따로 정의해야 한다** — v3.0 에서 열여섯 조합이
-   * 된다. 그래서 전체 중지 하나로 모았다(1-D).
+   * ⏪ 여기 «⏳ 대기 중» 띠가 있었고, 그 안에 «지금 보내기»(끼어들기)와
+   * «빼기»(줄에서 빼기)가 나란히 있었다.
    *
-   * 줄 자체도 곧 예약 한 칸으로 바뀐다(1-E). 그때까지 이 띠가 하는 일은
-   * **무엇이 줄 서 있는지 말하는 것** 하나다.
+   * 셋이 차례로 사라졌다 — 단추 둘은 **중지가 넷이면 각각이 MCP 큐·권한
+   * 대기·심사 줄과 어떤 관계인지 따로 정의해야 해서**(1-D), 띠는 **큐 자체가
+   * 엇갈림을 만들어서**(1-E).
+   *
+   * 🔴 이제 **말풍선이 있으면 이미 간 것**이다. 아직 안 간 글은 애초에
+   * 말풍선이 아니라 입력창 위 예약 칸에 있다.
    */
   const t = mount();
   open(t, room(BOTH, [msg("u1", ["b1"])]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-
-  ok(t.$("#screen-chat .delivery .held") !== null, "대기 표시는 그대로 뜬다");
-  const btns = [...t.$$("#screen-chat .delivery button")];
-  ok(btns.length === 0, `★ **단추가 하나도 없다** (${btns.length}개)`);
+  ok(t.$("#screen-chat .delivery") === null, "★ **띠가 없다** — 말풍선이 있으면 간 것이다");
 }
 
 console.log("\n[★ 말풍선의 중단도 같은 아이콘 — 그리고 방 전체를 멈춘다]");
@@ -318,40 +274,6 @@ console.log("\n[★ 말풍선의 중단도 같은 아이콘 — 그리고 방 �
   ok(sent?.roomId === "r1", "★ 봇을 안 지목한다 — 방이 통째로");
   ok(sent !== undefined && !("botId" in sent),
      "★ **중지 메시지에 봇 칸이 아예 없다** — 있으면 누군가 다시 쓰게 된다");
-}
-
-console.log("\n[★ 줄에 선 것이 없으면 띠도 없다]");
-{
-  const t = mount();
-  open(t, room(BOTH, [msg("u1", ["b1"])]));
-  ok(t.$("#screen-chat .delivery") === null,
-     "★ 줄에 선 것이 없으면 그 줄 자체가 없다");
-}
-
-console.log("\n[★ 1:1에서도 대기 표시는 나온다]");
-{
-  const t = mount();
-  open(t, room([bot("b1", "claude", "Claude")], [msg("u1", ["b1"])]));
-  ok(t.$("#screen-chat .delivery") === null, "평소엔 없다");
-
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-  ok(t.$("#screen-chat .delivery .held") !== null,
-     "★ «보냈는데 조용하다»는 봇이 하나여도 똑같이 불안하다");
-  // ⏪ 1:1에서도 칩은 붙는다(2026-09-23) — 대기 표시와 **같이** 보인다
-  ok(toChips(t).map((c) => c.textContent).join() === "@Claude",
-     "★ 칩은 그대로 있고, 그 옆에 «대기 중»이 붙는다");
-}
-
-console.log("\n[★ 다 나가면 표시가 걷힌다]");
-{
-  const t = mount();
-  open(t, room(BOTH, [msg("u1", ["b1"])]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-  ok(toChips(t)[0].classList.contains("held"), "대기 중");
-
-  t.send({ t: "queued", roomId: "r1", bots: {} });
-  ok(!toChips(t)[0].classList.contains("held"), "★ **빈 것도 와야** 표시가 걷힌다");
-  ok(t.$("#screen-chat .delivery") === null, "아래 줄도 사라진다");
 }
 
 console.log("\n[★ ⏪ 못 간 곳은 칩에서 뺀다 (2026-09-23 정정)]");
@@ -397,19 +319,6 @@ console.log("\n[★ 내보낸 봇도 자리를 남긴다]");
   ok(chips.length === 2, "★ 둘에게 갔던 사실은 안 지워진다 (§0의 뺄셈 규칙)");
   ok(chips[1].classList.contains("gone"),
      "★ 이름은 잃었지만 **갔었다는 것은 남는다** — `removeBot`이 participants에서 빼기 때문");
-}
-
-console.log("\n[★ 방을 옮기면 옆 방의 줄을 안 들고 간다]");
-{
-  const t = mount();
-  open(t, room(BOTH, [msg("u1", ["b1"])]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-  ok(toChips(t)[0].classList.contains("held"), "대기 중");
-
-  t.send({ t: "room", compactable: false,
-           room: { ...room(BOTH, [msg("u1", ["b1"])]), id: "r2", title: "옆 방" } });
-  ok(!toChips(t)[0].classList.contains("held"),
-     "★ 큐는 **방마다**다 — 안 비우면 옆 방의 «대기 중»이 여기 붙는다");
 }
 
 console.log("\n[★ 전원에게 가도 칩은 하나씩 — «@everyone» 으로 접지 않는다]");

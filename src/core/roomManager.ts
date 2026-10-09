@@ -35,6 +35,7 @@ import {
   cleanBotName,
   taskIdOf,
   type SearchHit,
+  type Staged,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
 
@@ -143,16 +144,6 @@ export interface ForkedSession {
 interface BotRuntime {
   /** 지금 붙어 있는 ACP 세션. 복구했든 새로 만들었든 여기 담긴다 */
   sessionId?: string;
-  /**
-   * 진행 중인 턴이 있으면 그 사이 들어온 메시지를 여기 쌓는다 (§4.3).
-   *
-   * 텍스트가 아니라 **메시지를 통째로** 들고 있어야 응답과 짝지을 수 있고
-   * (`replyToIds`), 전송 실패를 표시할 때도 id로 정확히 찾는다.
-   *
-   * **봇마다 따로다.** 단체방에서 한 봇이 도는 동안 다른 봇에게 보낸 말이
-   * 엉뚱한 줄에 끼면 안 된다.
-   */
-  queue: Message[];
   /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
   roleInjected: boolean;
   /** 그 **세션이** 광고한 슬래시 명령. 압축(C11) 버튼을 여기서 찾는다 */
@@ -206,7 +197,6 @@ interface BotRuntime {
    * 빼는 자리가 둘이 되었으므로(`send` 와 `closeIdle`) 겹치면 **한 묶음이 두
    * 턴으로** 돌 수 있다. 하나만 돌게 한다.
    */
-  draining?: boolean;
   /**
    * ★ **이 봇이 아직 못 적은 blob 쓰기들** (E6).
    *
@@ -754,17 +744,6 @@ type Events = {
    */
   status: [string, RoomStatus, Record<string, RoomStatus>];
   /**
-   * **아직 안 보낸 것들** (roomId, botId → messageId[]) — §4.3.
-   *
-   * 큐에 쌓인 메시지는 화면에 **이미 말풍선으로 떠 있다.** 보낸 것과 똑같이
-   * 생겼으니 사용자는 갔다고 믿는데, 실제로는 앞 턴이 끝나기를 기다리는 중이다.
-   * 그 사이에 «왜 조용하지»가 되고, 그때 할 수 있는 일이 하나도 없다.
-   *
-   * 🔴 **상태(`status`)에 얹지 않는다.** 큐에 쌓이는 순간은 그 봇이 이미
-   * 바쁠 때라 상태가 **안 바뀐다** — 얹어두면 영영 안 나가는 신호가 된다.
-   */
-  queued: [string, Record<string, string[]>];
-  /**
    * **줄 서 있는 심사들** (roomId, 목록) — §4.2.2.
    *
    * 심사 봇의 세션은 하나라 직렬이다(B1). 그래서 승인 요청이 여럿이면
@@ -866,6 +845,19 @@ export class RoomManager extends EventEmitter<Events> {
    * 물러난다 — 중간에 프라미스를 깨우는 것보다 **상태 하나를 보는 편**이
    * 취소·타임아웃과 한 군데서 다뤄진다.
    */
+  /**
+   * 지금 예약을 내보내는 중인 방들.
+   *
+   * 🔴 턴이 끝나는 자리가 여러 군데라 **같은 예약을 두 번 보낼 수 있다** —
+   * 단체방에서 둘이 거의 동시에 끝나면 양쪽 끝에서 한 번씩 부른다. 칸을
+   * 먼저 비우긴 하지만, 비우는 것과 보내는 것 사이에 `await` 가 있어서
+   * 그것만으로는 안 된다 — **먼저 찜하고 그다음 await** 다.
+   */
+  private readonly firing = new Set<string>();
+
+  /** 내린 뒤인가 — 그러면 예약을 더 안 내보낸다 (`dispose`) */
+  private down = false;
+
   private readonly reviews = new Map<string, ReviewWait & { takenOver?: boolean; stopped?: boolean }>();
 
   /**
@@ -2182,9 +2174,14 @@ export class RoomManager extends EventEmitter<Events> {
   /**
    * 메시지를 보낸다.
    *
-   * 진행 중인 턴이 있으면 **큐에 쌓았다가 끝나면 묶어서** 보낸다(§4.3).
-   * 하나씩 순차로 보내면 턴이 여러 번 도는데, 묶으면 한 번이고 에이전트가
-   * 전체 요구를 한 번에 본다.
+   * ⏪ **진행 중이면 쌓았다가 묶어서 보내던 것을 없앴다** (v3.0 1-E).
+   * 그 큐가 엇갈림을 만들었다 — 10분짜리 일이 끝난 뒤에 «그거 말고 이거»가
+   * 나가서 이미 끝난 일에 대한 정정이 날아갔다. 이제는 **예약 한 칸**
+   * (`stage`)이고, 올리는 것은 사용자가 누르는 명시적 행동이다.
+   *
+   * 🔴 **그래도 여기서 한 번 더 막는다.** 화면은 «한가하다»를 보고 보내기를
+   * 눌렀는데 그사이 바빠질 수 있다 — 그대로 밀어 넣으면 **도는 턴 한가운데에
+   * 프롬프트가 하나 더** 들어간다. 그럴 땐 예약 칸으로 돌린다.
    */
   async send(
     roomId: string,
@@ -2197,7 +2194,11 @@ export class RoomManager extends EventEmitter<Events> {
     // v1.0은 방에 봇이 하나다. 단체방에서는 **멘션된 봇마다** 이 아래가 돈다.
     const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
-    const bt = this.botRuntime(roomId, bot.id);
+
+    if (isBusy(this.statusOf(roomId, bot.id)) === true) {
+      await this.holdBack(room, [{ kind: "text", text }], attachments, [bot.name]);
+      return;
+    }
 
     // 보냈으니 초안은 비운다
     room.draft = undefined;
@@ -2218,24 +2219,8 @@ export class RoomManager extends EventEmitter<Events> {
     // VSCode를 닫았을 때 내가 보낸 메시지까지 사라진다.
     await this.saveNewMessage(room, sent);
 
-    // ★ **그 봇이** 도는 중일 때만 쌌는다 — 단체방에서 한 봇이 바쁘다고
-    // 다른 봇에게 보낸 말까지 줄을 설 이유가 없다
-    const mine = this.statusOf(roomId, bot.id);
-    if (mine !== "idle" && mine !== "error") {
-      bt.queue.push(sent);
-      this.emitQueued(roomId);
-      return;
-    }
-
-    // 턴이 끝날 때마다 큐를 비우며 **반복**한다. 재귀로 하면 대화가 길어질수록
-    // 스택이 쌓인다.
-    let batch = [sent];
-    for (;;) {
-      await this.runQueue(room, batch, bot.id);
-      if (bt.queue.length === 0) return;
-      batch = bt.queue.splice(0, bt.queue.length);
-      this.emitQueued(roomId);
-    }
+    await this.runQueue(room, [sent], bot.id);
+    this.maybeFireStaged(room);
   }
 
   /**
@@ -2290,6 +2275,25 @@ export class RoomManager extends EventEmitter<Events> {
       return parsed;
     }
 
+    /*
+     * 🔴 **한 명이라도 바쁘면 통째로 올려둔다** (v3.0 1-E).
+     *
+     * ⏪ 예전에는 **봇마다** 갈라져서, 알파에게는 지금 가고 베타에게는 줄을
+     * 섰다. 예약 칸은 방에 하나뿐이라 그 갈래를 못 만든다 — 그리고 안 만드는
+     * 편이 맞다: 반만 나가면 **반만 나간 것을 사용자가 알아야** 하고, 그걸
+     * 말해주려면 결국 «줄 서 있음» 표시가 다시 필요해진다.
+     *
+     * ⚠️ 예약이 **스스로를 다시 올리는 일은 없다** — `maybeFireStaged` 는
+     * 기다리던 봇이 전부 한가할 때만 부른다.
+     */
+    const busy = [...new Set(parsed.blocks.flatMap((b) => b.botIds))]
+      .filter((id) => isBusy(this.statusOf(roomId, id)) === true)
+      .map((id) => room.participants.find((b) => b.id === id)?.name ?? id);
+    if (busy.length > 0) {
+      await this.holdBack(room, tokens, attachments, busy);
+      return parsed;
+    }
+
     room.draft = undefined;
     clearTimeout(this.draftTimer);
     this.draftTimer = undefined;
@@ -2330,15 +2334,6 @@ export class RoomManager extends EventEmitter<Events> {
       [...byBot].map(async ([botId, batch]) => {
         const bot = room.participants.find((b) => b.id === botId);
         if (!bot) return;
-        const bt = this.botRuntime(roomId, botId);
-
-        // ★ **그 봇이** 도는 중이면 쌓는다 — 다른 봇이 바쁘다고 줄 설 이유가 없다
-        const mine = this.statusOf(roomId, botId);
-        if (mine !== "idle" && mine !== "error") {
-          bt.queue.push(...batch);
-          this.emitQueued(roomId);
-          return;
-        }
         /*
          * ★ **블록마다 한 턴씩** — 합치지 않는다 (§4.1.2).
          *
@@ -2350,9 +2345,9 @@ export class RoomManager extends EventEmitter<Events> {
          * 따로 보낸 것이고, 기다리는 동안 쌓인 것을 한 번에 주는 게 이득이다.
          */
         for (const one of batch) await this.runQueue(room, [one], botId);
-        await this.drainQueue(room, bot);
       }),
     );
+    this.maybeFireStaged(room);
     return parsed;
   }
 
@@ -2395,17 +2390,9 @@ export class RoomManager extends EventEmitter<Events> {
     if (byBot.size === 0) return;
 
     await Promise.all(
-      [...byBot].map(async ([botId, batch]) => {
-        const bt = this.botRuntime(roomId, botId);
-        let run = batch;
-        for (;;) {
-          await this.runQueue(room, run, botId);
-          if (bt.queue.length === 0) return;
-          run = bt.queue.splice(0, bt.queue.length);
-          this.emitQueued(roomId);
-        }
-      }),
+      [...byBot].map(([botId, batch]) => this.runQueue(room, batch, botId)),
     );
+    this.maybeFireStaged(room);
   }
 
   /** 다시 보낼 수 있는 메시지가 있는지 (UI의 `↻` 표시 여부) */
@@ -2466,12 +2453,6 @@ export class RoomManager extends EventEmitter<Events> {
       const bt = rt.bots.get(bot.id);
       if (!bt?.sessionId) continue;
 
-      // 큐에 있던 것들은 **아직 안 보냈다.** 그냥 버리면 화면에는 떠 있는데
-      // 영영 답이 안 와서 "왜 조용하지"가 된다. 다시 보낼 수 있게 표시한다(C5).
-      const dropped = bt.queue.splice(0, bt.queue.length);
-      for (const m of dropped) {
-        await this.markNotSent(room, m, bot.id, "보내기 전에 중단했습니다.");
-      }
       /*
        * 🔴 **왜 끊겼는지는 우리가 적어야 한다.** `session/cancel` 은 «왜»를
        * 안 알려주고, 모델은 그 빈칸을 추측으로 메운다 — 한 판은 «권한이
@@ -2480,7 +2461,16 @@ export class RoomManager extends EventEmitter<Events> {
       if (isBusy(this.statusOf(roomId, bot.id)) === true) bt.interrupted = true;
       await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
     }
-    if (rt.bots.size > 0) this.emitQueued(roomId);
+    /*
+     * ★ **올려둔 것도 같이 내린다** (v3.0 1-E).
+     *
+     * ⏪ 여기서 «줄에 있던 것을 안 갔다로 적는» 일을 했다. 줄이 없어졌으니
+     * 적을 것도 없다 — 대신 **예약 칸**이 그 자리를 잇는다. 남겨두면
+     * **중지한 뒤에 뜬금없이 한 마디가 나간다.**
+     *
+     * 자국은 안 남긴다 — 아무도 못 본 글이다(§0).
+     */
+    await this.unstage(roomId);
 
     /*
      * ★ **«무조건 허용»을 내린다** (§4.2.2).
@@ -2512,6 +2502,138 @@ export class RoomManager extends EventEmitter<Events> {
      */
   }
 
+  // ── 예약 한 칸 (v3.0 1-E) ────────────────────────────────────────────
+
+  /**
+   * ★ **올려둔다** — 지금 바쁜 봇이 있어 못 보내는 글을 한 칸에 둔다.
+   *
+   * ⏪ 여기 있던 것은 **봇마다의 큐**였다. 바쁠 때 보내면 **저절로** 줄에
+   * 섰고, 그게 엇갈림을 만들었다 — 10분짜리 일이 끝난 뒤에 «그거 말고 이거»가
+   * 나가서 **이미 끝난 일에 대한 정정**이 날아갔다.
+   *
+   * 🔴 **예약은 명시적 행동이다.** 옛 큐는 기본 동작이라 모르고 쌓였다
+   * («내가 언제 이걸 줄 세웠지»). 눌러서 올린 것이면 엇갈려도 납득이 된다.
+   *
+   * **아직 말풍선을 안 만든다.** 내리면 흔적 없이 사라져야 하므로(§0) 실제로
+   * 나갈 때 비로소 메시지가 생긴다.
+   *
+   * @returns 올렸으면 `true`. 칸이 이미 찼으면 `false` — **덮어쓰지 않는다**
+   */
+  async stage(
+    roomId: string,
+    tokens: ComposeToken[],
+    attachments?: Attachment[],
+  ): Promise<boolean> {
+    const room = await this.openRoom(roomId);
+    // 🔴 **덮어쓰지 않는다.** 칸이 하나라는 말은 «둘째가 첫째를 밀어낸다»가
+    // 아니라 «둘째를 안 받는다»여야 한다 — 밀어내면 조용히 잃는다(§0).
+    if (room.staged) return false;
+
+    const parsed = parseCompose(tokens, room.participants);
+    const botIds = [...new Set(parsed.blocks.flatMap((b) => b.botIds))];
+    if (botIds.length === 0) return false;
+
+    room.staged = {
+      tokens,
+      ...(attachments?.length ? { attachments } : {}),
+      botIds,
+      at: Date.now(),
+    };
+    await this.saveProps(room, { staged: room.staged });
+    this.emit("room", room);
+    return true;
+  }
+
+  /**
+   * **늦게 알아챘을 때 예약으로 돌린다** (`send`·`sendCompose` 의 막음벽).
+   *
+   * 🔴 화면이 «한가하다»를 보고 보내기를 눌렀는데 그사이 바빠질 수 있다.
+   * 그대로 밀어 넣으면 **도는 턴 한가운데에 프롬프트가 하나 더** 들어간다.
+   *
+   * 칸이 이미 찼으면 **덮어쓰지 않고 말해준다** — 덮어쓰면 조용히 잃는다(§0).
+   * 글은 입력창에 그대로 남아 있으므로 사용자가 잃는 것은 없다.
+   */
+  private async holdBack(
+    room: Room,
+    tokens: ComposeToken[],
+    attachments: Attachment[] | undefined,
+    waitingFor: string[],
+  ): Promise<void> {
+    if (await this.stage(room.id, tokens, attachments)) {
+      this.noteRoom(
+        room,
+        `${waitingFor.join("·")}이(가) 답하는 중이라 올려두었습니다 — 끝나면 보냅니다.`,
+        "info",
+      );
+      return;
+    }
+    this.noteRoom(
+      room,
+      "올려둔 글이 이미 하나 있습니다 — 그것을 보내거나 내린 뒤에 다시 해주세요.",
+      "error",
+    );
+  }
+
+  /**
+   * **내린다** — 글까지 버린다.
+   *
+   * 🔴 흔적을 안 남긴다. 아무도 못 봤으므로 지울 수 있고, 지우면 자국이
+   * 없어야 한다(§0 — «간 적 없는 것만 지울 수 있고, 지우면 흔적이 없다»).
+   */
+  async unstage(roomId: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    if (!room.staged) return;
+    delete room.staged;
+    await this.saveProps(room, { staged: undefined });
+    this.emit("room", room);
+  }
+
+  /**
+   * **수정한다** — 예약을 풀고 글을 돌려준다. 화면이 입력창에 꽂는다.
+   *
+   * 내리기와 **같은 동작이고 «글을 살리느냐»만 다르다.** 그래서 예약 칸은
+   * 입력란을 따로 안 들어도 된다 — 보여주기만 한다.
+   */
+  async takeStaged(roomId: string): Promise<Staged | undefined> {
+    const room = await this.openRoom(roomId);
+    const was = room.staged;
+    if (!was) return undefined;
+    delete room.staged;
+    await this.saveProps(room, { staged: undefined });
+    this.emit("room", room);
+    return was;
+  }
+
+  /**
+   * **때가 되면 내보낸다** — 기다리던 봇이 전부 한가해졌을 때.
+   *
+   * 🔴 **한 봇만 봐서는 안 된다.** 예약은 방에 하나고 받는 이는 여럿일 수
+   * 있다 — 알파가 끝났다고 베타에게 갈 말까지 지금 보내면 **베타의 턴
+   * 한가운데로 밀어 넣는** 꼴이다. 전부 한가할 때까지 기다린다.
+   *
+   * ⚠️ **부르는 쪽을 안 기다린다**(`void`). 턴이 끝나는 자리에서 불리는데,
+   * 거기서 다음 턴이 끝나기를 기다리면 턴 하나가 영영 안 닫힌다.
+   */
+  private maybeFireStaged(room: Room): void {
+    const want = room.staged;
+    if (!want || this.down || this.firing.has(room.id)) return;
+    // 그사이 나간 봇은 기다릴 것이 없다 — 남은 사람만 본다
+    const live = want.botIds.filter((id) => room.participants.some((b) => b.id === id));
+    if (live.length === 0) {
+      void this.unstage(room.id);
+      return;
+    }
+    if (live.some((id) => isBusy(this.statusOf(room.id, id)) === true)) return;
+
+    this.firing.add(room.id);
+    delete room.staged;
+    void this.saveProps(room, { staged: undefined });
+    this.emit("room", room);
+    void this.sendCompose(room.id, want.tokens, want.attachments)
+      .catch((err) => this.opts.host.log(`[${room.id}] 예약 보내기 실패: ${describe(err)}`))
+      .finally(() => this.firing.delete(room.id));
+  }
+
   /** 줄 서 있는 심사들을 화면에 알린다 */
   private emitReviews(roomId: string): void {
     this.emit("reviews", roomId, this.reviewsIn(roomId));
@@ -2539,16 +2661,6 @@ export class RoomManager extends EventEmitter<Events> {
     if (!wait || wait.state !== "waiting") return false;
     wait.takenOver = true;
     return true;
-  }
-
-  /** 지금 줄 서 있는 것들 — 방을 새로 열었을 때 한 번에 실어 보낸다 */
-  queuedIds(roomId: string): Record<string, string[]> {
-    const rt = this.runtimes.get(roomId);
-    const out: Record<string, string[]> = {};
-    for (const [id, bt] of rt?.bots ?? []) {
-      if (bt.queue.length > 0) out[id] = bt.queue.map((m) => m.id);
-    }
-    return out;
   }
 
   /** 에이전트가 압축 명령을 제공하는지 (C11). 없으면 버튼을 숨긴다 */
@@ -2842,37 +2954,6 @@ export class RoomManager extends EventEmitter<Events> {
   // ── 내부 ──────────────────────────────────────────────────────────────
 
 
-  /**
-   * ★ **줄에 선 것을 내보낸다** (이어달리기 고리, 2026-09-28).
-   *
-   * 🔴 이 고리가 **`send` 안에만** 있었다. 그런데 `send` 는 그 봇이 도는 중이면
-   * 줄에 세우고 **바로 돌아간다** — 빼주는 것은 «앞 턴이 끝날 때»이고, 그건
-   * 이 고리다. 턴이 돌고 있었으면 맞는 말이다.
-   *
-   * **혼잣말에는 끝낼 턴이 없다.** 봇이 스스로 깨어나 말하는 동안 상태는
-   * `streaming` 이라 새 말은 줄로 들어가는데, 그 줄을 빼줄 고리가 **아무 데서도
-   * 안 돈다.** 화면에는 «⏳ 대기 중»이 떠 있고, 사용자가 **다음 말을 보낼
-   * 때까지** 안 나간다 — 그때서야 `send` 의 고리가 같이 데려간다.
-   *
-   * 그래서 고리를 꺼내서 `closeIdle` 도 부르게 했다.
-   */
-  private async drainQueue(room: Room, bot: BotInstance): Promise<void> {
-    const bt = this.botRuntime(room.id, bot.id);
-    // 두 군데서 빼면 한 묶음이 두 턴으로 돈다
-    if (bt.draining) return;
-    bt.draining = true;
-    try {
-      for (;;) {
-        if (bt.queue.length === 0) return;
-        const next = bt.queue.splice(0, bt.queue.length);
-        this.emitQueued(room.id);
-        await this.runQueue(room, next, bot.id);
-      }
-    } finally {
-      delete bt.draining;
-    }
-  }
-
   private async runQueue(
     room: Room,
     batch: Message[],
@@ -2889,13 +2970,18 @@ export class RoomManager extends EventEmitter<Events> {
       this.setStatus(room.id, "connecting", bot.id);
       sessionId = await this.ensureSession(room, bot);
     } catch (err) {
-      // 세션을 못 열었으면 **프롬프트가 아예 안 나갔다.** 해당 메시지들을
-      // 실패로 표시해 다시 보낼 수 있게 한다 — 그냥 버리면 다시 타이핑해야 한다.
+      /*
+       * 세션을 못 열었으면 **프롬프트가 아예 안 나갔다.** 해당 메시지들을
+       * 실패로 표시해 다시 보낼 수 있게 한다 — 그냥 버리면 다시 타이핑해야 한다.
+       *
+       * 🔴 **어느 봇에게 안 갔는지도 적는다** (2026-10-09). 여기가 `sendFailed`
+       * 만 적고 `notSentTo` 를 비워뒀다 — 그래서 `retry` 의 «안 간 봇에게만»
+       * 이 **한 번도 안 돌았다.** 빈칸이면 `deliveredTo`(전원)로 떨어지므로,
+       * 알파는 멀쩡히 받았는데 ↻ 를 누르면 **알파가 같은 일을 또 한다.**
+       * 코딩 에이전트에서는 파일을 두 번 고치는 일이다.
+       */
       const reason = describe(err);
-      for (const m of batch) {
-        m.sendFailed = reason;
-        await this.saveMessage(room, { id: m.id, sendFailed: reason });
-      }
+      for (const m of batch) await this.markNotSent(room, m, bot.id, reason);
       this.setStatus(room.id, "error", bot.id);
       this.emit("roomError", room.id, reason);
       return undefined;
@@ -2981,11 +3067,8 @@ export class RoomManager extends EventEmitter<Events> {
        */
       const touched = reply.text.length > 0 || (reply.tools?.length ?? 0) > 0;
       if (!touched && retryable(reason)) {
-        for (const m of batch) {
-          m.sendFailed = reason;
-          await this.saveMessage(room, { id: m.id, sendFailed: reason });
-          this.emit("message", room.id, m);
-        }
+        // 🔴 여기도 **어느 봇에게 안 갔는지**를 같이 적는다 (위 주석 참고)
+        for (const m of batch) await this.markNotSent(room, m, bot.id, reason);
       }
     }
 
@@ -3433,10 +3516,13 @@ export class RoomManager extends EventEmitter<Events> {
     if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
 
     /*
-     * ★ **줄도 빼준다.** 혼잣말 중에 온 말은 «도는 중»이라 줄에 섰는데,
-     * 그걸 빼줄 «턴의 끝»이 없다 — 여기가 그 자리다.
+     * ★ **올려둔 것도 여기서 본다** (2026-09-28 의 이어달리기 고리가 있던 자리).
+     *
+     * 🔴 **혼잣말에는 끝낼 턴이 없다.** 봇이 스스로 깨어나 말하는 동안 상태는
+     * `streaming` 이고, 그동안 올려둔 글을 내보낼 «턴의 끝»이 아무 데도 없다 —
+     * 사용자가 **다음 말을 보낼 때까지** 안 나간다. 여기가 그 자리다.
      */
-    if (bt.queue.length > 0) void this.drainQueue(room, bot);
+    this.maybeFireStaged(room);
   }
 
   /**
@@ -4509,6 +4595,14 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   private connection(agentId: string): AcpConnection {
+    /*
+     * 🔴 **내린 뒤에는 새로 안 만든다** (v3.0 1-E).
+     *
+     * 여기가 CLI 가 뜨는 **유일한 자리**다. `dispose()` 가 연결을 다 내린
+     * 뒤에도 **도중이던 호출**이 이 자리에 닿을 수 있는데, 그때 하나를
+     * 새로 만들면 끄려던 참에 CLI 가 하나 더 뜬다.
+     */
+    if (this.down) throw new Error("이미 내려가는 중입니다");
     let conn = this.connections.get(agentId);
     if (!conn) {
       conn = new AcpConnection(
@@ -4604,7 +4698,6 @@ export class RoomManager extends EventEmitter<Events> {
     if (!bt) {
       bt = {
         status: "idle",
-        queue: [],
         roleInjected: false,
       pendingWrites: [],
         commands: [],
@@ -4653,22 +4746,6 @@ export class RoomManager extends EventEmitter<Events> {
     if (!same || botId !== undefined) this.emit("status", roomId, merged, bots);
     // 띠가 살아 있는지는 **상태가 정한다**(`clashesIn`) — 바뀌었으면 다시 알린다
     this.emit("clashes", roomId, this.clashesIn(roomId));
-  }
-
-  /**
-   * 봇마다 **줄 서 있는 메시지**를 화면에 알린다.
-   *
-   * 큐를 건드린 자리마다 부른다 — 쌓을 때, 꺼낼 때, 중단으로 버릴 때.
-   * 비어 있어도 보낸다: «이제 다 나갔다»도 알려줘야 표시가 걷힌다.
-   */
-  private emitQueued(roomId: string): void {
-    const rt = this.runtimes.get(roomId);
-    if (!rt) return;
-    const out: Record<string, string[]> = {};
-    for (const [id, bt] of rt.bots) {
-      if (bt.queue.length > 0) out[id] = bt.queue.map((m) => m.id);
-    }
-    this.emit("queued", roomId, out);
   }
 
   /**
@@ -5047,6 +5124,17 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   dispose(): void {
+    /*
+     * 🔴 **내린 뒤에 예약이 되살아나면 안 된다** (v3.0 1-E).
+     *
+     * `maybeFireStaged` 는 턴이 끝나는 자리마다 불린다. 그중에는 **우리가
+     * 내린 뒤에 도착하는 것**도 있고, 그때 내보내면 `sendCompose` 가
+     * **새 CLI 프로세스를 띄운다** — 끄려던 참에 하나 더 뜨는 꼴이고,
+     * 그 프로세스가 이벤트 루프를 붙잡아 **프로세스가 안 끝난다.**
+     *
+     * 검사에서 먼저 드러났다(`pending.mts` 가 «전부 통과»를 찍고도 안 끝났다).
+     */
+    this.down = true;
     // **쓰다 만 글을 들고 죽지 않는다.** 창을 닫는 순간 디바운스가 돌고 있으면
     // 그대로 사라진다 — 최소한 쓰기를 시작은 해둔다.
     void this.flushDraft();
