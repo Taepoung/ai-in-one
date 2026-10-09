@@ -13,6 +13,8 @@ import type { WorkspaceHost } from "../core/workspaceHost.js";
  */
 export interface AskTarget {
   permission(req: PermissionRequest): Promise<PermissionDecision>;
+  /** 전체 중지 — 그 방에 떠 있던 승인 카드를 거둔다 (v3.0 1-D) */
+  cancelPermissions(roomId: string): void;
 }
 
 export class VscodeHost implements WorkspaceHost {
@@ -87,6 +89,17 @@ export class VscodeHost implements WorkspaceHost {
     return option ? { outcome: "selected", optionId: option.optionId } : { outcome: "cancelled" };
   }
 
+
+  /**
+   * 떠 있는 승인 카드를 거둔다 (전체 중지).
+   *
+   * 패널이 닫혀 있으면 할 일이 없다 — 그때 띄우는 네이티브 모달은
+   * **사용자가 닫기 전에는 우리가 못 거둔다.** 그 경우에도 답이 오면
+   * `cancelled` 로 읽히므로 에이전트가 무한히 기다리지는 않는다.
+   */
+  cancelPermissions(roomId: string): void {
+    this.target?.cancelPermissions(roomId);
+  }
 
   log(message: string): void {
     this.out.appendLine(`[${new Date().toLocaleTimeString()}] ${message}`);

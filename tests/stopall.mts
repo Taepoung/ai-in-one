@@ -1,17 +1,23 @@
 /**
- * **전부 중단** (v2.0 · C6) — 병렬로 도는 봇을 한 번에 멈춘다.
+ * **전체 중지 — 중지는 이것 하나다** (v3.0 1-D · C6).
  *
- * 🔴 v2.0 감사에서 **이 항목만 테스트가 없었다.** 구현은 있었다 —
- * `cancel(roomId)` 에 봇을 안 지목하면 전원이고, 상태 줄의 «중단» 단추가
- * 그걸 부른다. 하지만 **재본 적이 없었으므로 «된다»고 말할 수 없었다.**
- *
- * 세 가지를 본다:
+ * ⏪ 한때 넷이었다: 방 전체 중단 · 봇 하나만 중단 · 끼어들기 · 줄에서 빼기.
+ * 넷을 다 두면 **각각이 MCP 큐·권한 대기·심사 줄과 어떤 관계인지 따로
+ * 정의해야 한다** — v3.0 에서 그게 열여섯 가지 조합이 된다. 하나면 한 번만
+ * 정하면 되고, 사용자도 «무엇이 멈추는지»를 한 번만 배우면 된다.
  *
  * ```
- * 안 지목하면      전원이 멈춘다      — 봇마다 눌러야 하면 병렬의 뜻이 없다
- * 지목하면         그 봇만            — 한 줄을 물리려고 남의 일을 죽이면 안 된다
- * 큐에 있던 것     «안 갔다»로 남는다 — 조용히 버리면 영영 답을 기다린다 (C5)
+ * 멈춘다    도는 턴 전부 · 줄 서 있던 것 전부
+ * 정리한다  심사 줄 · 떠 있던 승인 카드 — cancelled 로 답하고 거둔다
+ * 내린다    «무조건 허용» → «물어봄»
+ * 남긴다    말풍선 · 내 말은 «안 갔다»+↻ · 그리고 **왜 끊겼는지 한 줄**
  * ```
+ *
+ * 마지막 줄이 특히 중요하다. `session/cancel` 은 **«왜»를 안 남긴다**(진짜
+ * CLI 로 실측 2026-09-23). 그 빈칸을 모델이 추측으로 메우는데 판마다 다르고,
+ * 한 판은 «권한이 거부돼서»라고 지어냈다 — 그러면 우회를 시도하거나 «권한을
+ * 열어달라»는 엉뚱한 말을 한다. ⏪ 원래 끼어들기가 지키던 자리인데, 끼어들기를
+ * 없앴다고 **이 한 줄까지 같이 버리면 안 된다.**
  */
 import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
@@ -30,6 +36,7 @@ const busy = (s: string) => !["idle", "error"].includes(s);
 
 async function make(hold: number) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-stop-"));
+  const state = path.join(dir, "s.jsonl");
   const store = new RoomStore(dir); await store.init();
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
@@ -38,7 +45,7 @@ async function make(hold: number) {
   };
   const base = {
     ...DEFAULT_AGENTS[0]!, command: "node", args: [path.join(here, "fakeagent.cjs")],
-    env: { AIO_FAKE_HOLD: String(hold) },
+    env: { AIO_FAKE_HOLD: String(hold), AIO_FAKE_STATE: state },
   };
   const mgr = new RoomManager({
     host, store, configProbeMs: 20000,
@@ -49,6 +56,13 @@ async function make(hold: number) {
     ],
   });
   mgr.on("roomError", () => {}); mgr.on("notice", () => {});
+  const prompts = async (): Promise<Array<{ text: string }>> => {
+    try {
+      return (await fs.readFile(state, "utf8")).split(NL).filter(Boolean)
+        .map((l) => JSON.parse(l) as { t: string; text: string })
+        .filter((e) => e.t === "prompt");
+    } catch { return []; }
+  };
   const settle = async (id: string) => {
     for (let i = 0; i < 800; i++) {
       if (!busy(mgr.statusOf(id))) return;
@@ -63,13 +77,13 @@ async function make(hold: number) {
     }
     return cond();
   };
-  return { dir, mgr, settle, until };
+  return { dir, mgr, prompts, settle, until };
 }
 
 async function main(): Promise<void> {
   const dirs: string[] = [];
 
-  console.log(`${NL}[★ 안 지목하면 전원이 멈춘다]`);
+  console.log(`${NL}[★ 방이 통째로 멈춘다 — 봇을 지목하지 않는다]`);
   {
     const { dir, mgr, settle, until } = await make(4000); dirs.push(dir);
     const room = await mgr.createRoom({
@@ -81,30 +95,10 @@ async function main(): Promise<void> {
     ok(await until(() => ids.every((id) => busy(mgr.statusOf(room.id, id)))),
        "셋 다 돌고 있다");
 
-    // **봇을 안 지목하면 전원**
-    await mgr.cancel(room.id);
+    await mgr.stopAll(room.id);
     await settle(room.id);
     ok(ids.every((id) => !busy(mgr.statusOf(room.id, id))),
        "★ **한 번에 셋 다 멈춘다** — 봇마다 눌러야 하면 병렬의 뜻이 없다");
-    mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 지목하면 그 봇만 — 남의 일을 죽이지 않는다]`);
-  {
-    const { dir, mgr, settle, until } = await make(4000); dirs.push(dir);
-    const room = await mgr.createRoom({
-      title: "하나만", bots: [{ agentId: "alpha" }, { agentId: "beta" }],
-    });
-    const [a, b] = room.participants;
-    void mgr.send(room.id, "오래", undefined, a!.id);
-    void mgr.send(room.id, "오래", undefined, b!.id);
-    await until(() => busy(mgr.statusOf(room.id, a!.id)) && busy(mgr.statusOf(room.id, b!.id)));
-
-    await mgr.cancel(room.id, a!.id);
-    ok(await until(() => !busy(mgr.statusOf(room.id, a!.id))), "★ 지목한 봇은 멈춘다");
-    ok(busy(mgr.statusOf(room.id, b!.id)),
-       "★ **다른 봇은 계속 돈다** — 한 줄을 물리려고 남의 일을 죽이면 안 된다");
-    await settle(room.id);
     mgr.dispose();
   }
 
@@ -120,7 +114,7 @@ async function main(): Promise<void> {
     void mgr.send(room.id, "줄 서는 말");
     await until(() => mgr.queuedIds(room.id)[bot.id]?.length === 1);
 
-    await mgr.cancel(room.id);
+    await mgr.stopAll(room.id);
     await settle(room.id);
 
     const queued = room.messages.find((m) => m.text === "줄 서는 말");
@@ -128,6 +122,101 @@ async function main(): Promise<void> {
     ok(queued!.notSentTo?.includes(bot.id) === true,
        "★ **아직 안 보낸 것은 «안 갔다»로 적힌다** — 조용히 버리면 영영 답을 기다린다");
     ok(mgr.queuedIds(room.id)[bot.id] === undefined, "★ 줄도 비워졌다");
+    mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 왜 끊겼는지를 다음 프롬프트에 적어준다]`);
+  {
+    const { dir, mgr, prompts, settle, until } = await make(4000); dirs.push(dir);
+    const room = await mgr.createRoom({ agentId: "alpha", title: "설명" });
+    const bot = room.participants[0]!;
+
+    void mgr.send(room.id, "오래 걸리는 일");
+    await until(() => busy(mgr.statusOf(room.id, bot.id)));
+    await mgr.stopAll(room.id);
+    await settle(room.id);
+
+    await mgr.send(room.id, "이거 먼저");
+    await settle(room.id);
+
+    const last = (await prompts()).at(-1)!;
+    /*
+     * 🔴 `session/cancel` 은 **«왜»를 안 남긴다**(실측). 그 빈칸을 모델이
+     * 추측으로 메우는데 판마다 다르고, 한 판은 «권한이 거부돼서»라고
+     * 지어냈다 — 그러면 우회를 시도한다.
+     */
+    ok(last.text.includes("중단했습니다"),
+       "★ **빈칸을 우리가 채운다** — 안 채우면 모델이 지어낸다");
+    ok(last.text.includes("권한 거부나 오류가 아닙니다"),
+       "★ **제일 흔한 오해를 콕 집어 막는다**");
+    ok(last.text.includes("이거 먼저"), "★ 그리고 진짜 요청이 뒤에 온다");
+    mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 한 번만 얹는다 — 다음 턴에는 안 붙는다]`);
+  {
+    const { dir, mgr, prompts, settle, until } = await make(3000); dirs.push(dir);
+    const room = await mgr.createRoom({ agentId: "alpha", title: "한 번" });
+    const bot = room.participants[0]!;
+
+    void mgr.send(room.id, "오래");
+    await until(() => busy(mgr.statusOf(room.id, bot.id)));
+    await mgr.stopAll(room.id);
+    await settle(room.id);
+
+    await mgr.send(room.id, "중지 뒤 첫 말");
+    await settle(room.id);
+    await mgr.send(room.id, "그 다음 평범한 말");
+    await settle(room.id);
+
+    const cut = (await prompts()).filter((p) => p.text.includes("중단했습니다"));
+    ok(cut.length === 1,
+       `★ **끊긴 그 턴에만** (${cut.length}개) — 매번 붙으면 노이즈이고 거짓이다`);
+    mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 안 돌던 봇에는 «끊겼다»를 안 적는다]`);
+  {
+    /*
+     * 🔴 멈출 것이 없던 봇에게까지 «중단했습니다»를 얹으면 **거짓말**이다 —
+     * 그 봇은 하던 일이 없었고, 다음 말 앞에 «하다 말았다»가 붙으면 모델이
+     * 있지도 않은 앞 작업을 가리킨다.
+     */
+    const { dir, mgr, prompts, settle } = await make(100); dirs.push(dir);
+    const room = await mgr.createRoom({ agentId: "alpha", title: "조용" });
+
+    await mgr.send(room.id, "짧은 일");
+    await settle(room.id);
+    await mgr.stopAll(room.id);        // 아무도 안 돌고 있다
+    await mgr.send(room.id, "그 다음");
+    await settle(room.id);
+
+    const cut = (await prompts()).filter((p) => p.text.includes("중단했습니다"));
+    ok(cut.length === 0, `★ **한 줄도 안 붙는다** (${cut.length}개)`);
+    mgr.dispose();
+  }
+
+  console.log(`${NL}[★ «무조건 허용»을 내린다 — 안 내리면 «잠깐 멈춤»이다]`);
+  {
+    const { dir, mgr, settle } = await make(100); dirs.push(dir);
+    const room = await mgr.createRoom({
+      title: "맡김", bots: [{ agentId: "alpha" }, { agentId: "beta" }],
+    });
+    const [a, b] = room.participants;
+    await mgr.setPolicy(room.id, { answerPolicy: "auto" }, a!.id);
+    ok(a!.answerPolicy === "auto", "맡겨둔 상태로 만들었다");
+
+    await mgr.stopAll(room.id);
+    await settle(room.id);
+
+    ok(a!.answerPolicy === "ask",
+       "★ **내려온다** — 안 내리면 다음 말 한 마디에 같은 자리로 돌아간다");
+    ok(b!.answerPolicy === "ask", "원래 «물어봄»이던 봇은 그대로");
+    // 🔴 사용자가 켠 것을 우리가 껐으면 **적어야 한다** (§0)
+    const said = room.messages.filter(
+      (m) => m.role === "system" && m.text.includes("무조건 허용"),
+    );
+    ok(said.length === 1, `★ **조용히 바꾸지 않는다** (${said.length}줄) — 안 적으면 «왜 또 묻지»가 된다`);
     mgr.dispose();
   }
 
@@ -140,4 +229,4 @@ async function main(): Promise<void> {
   console.log(`${NL}전부 통과`);
 }
 
-void main().catch((e: unknown) => { console.error(String(e)); process.exit(1); });
+main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });

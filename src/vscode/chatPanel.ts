@@ -49,7 +49,17 @@ export class ChatPanel implements AskTarget {
 
   private readonly disposables: vscode.Disposable[] = [];
   /** 답을 기다리는 카드들 (D1·D4). 패널이 닫히면 전부 취소로 정리한다 */
-  private readonly pending = new Map<string, (answer: AskAnswer) => void>();
+  /**
+   * 떠 있는 카드들 — id → 어느 방의 것인지와 답을 넣는 손.
+   *
+   * 🔴 **방을 같이 적는다** (v3.0 1-D). 전체 중지가 «이 방의» 카드만 거두려면
+   * 그게 있어야 한다 — 옆 방에서 떠 있던 카드까지 거두면 **멈추라고 누른 적
+   * 없는 방이 멈춘다.**
+   */
+  private readonly pending = new Map<
+    string,
+    { roomId: string; settle: (answer: AskAnswer) => void }
+  >();
   private openRoomId: string | null = null;
   private seq = 0;
 
@@ -195,6 +205,25 @@ export class ChatPanel implements AskTarget {
     );
   }
 
+  /**
+   * ★ **떠 있는 승인 카드를 거둔다** (v3.0 1-D — 전체 중지).
+   *
+   * 🔴 `requestPermission` 은 **답이 올 때까지 안 돌아온다.** 중지가 턴만
+   * 끊고 이걸 두면 **누를 수 없는 카드가 남고** 에이전트는 영영 기다린다 —
+   * 멈추라고 눌렀는데 멈춘 게 아니다.
+   *
+   * 거두면 그 기다림이 `cancelled` 로 풀리고, 에이전트에게 답이 가는 것도
+   * **저절로** 따라온다 — 답하는 길이 애초에 이 하나뿐이기 때문이다.
+   */
+  cancelPermissions(roomId: string): void {
+    for (const [id, waiting] of [...this.pending]) {
+      if (waiting.roomId !== roomId) continue;
+      this.pending.delete(id);
+      // 답이 없는 답 — `decide` 가 `cancelled` 로 읽는다
+      waiting.settle({ kind: "permission" });
+    }
+  }
+
 
   /**
    * 카드를 띄우고 답을 기다린다.
@@ -212,12 +241,15 @@ export class ChatPanel implements AskTarget {
     this.post({ t: "ask", card: full });
 
     return new Promise<T>((resolve) => {
-      this.pending.set(id, (answer) => {
-        // **카드를 치우라고 알린다.** 사용자가 직접 누른 경우엔 화면이 이미
-        // 치웠지만, 패널이 닫히거나(dispose) 다른 이유로 끝난 경우에는
-        // 이게 없으면 **답할 수 없는 카드가 영영 남는다.**
-        this.post({ t: "askResolved", id });
-        resolve(decide(answer));
+      this.pending.set(id, {
+        roomId: full.roomId,
+        settle: (answer) => {
+          // **카드를 치우라고 알린다.** 사용자가 직접 누른 경우엔 화면이 이미
+          // 치웠지만, 패널이 닫히거나(dispose) 다른 이유로 끝난 경우에는
+          // 이게 없으면 **답할 수 없는 카드가 영영 남는다.**
+          this.post({ t: "askResolved", id });
+          resolve(decide(answer));
+        },
       });
     });
   }
@@ -328,14 +360,11 @@ export class ChatPanel implements AskTarget {
           });
           break;
         }
-        case "cancel":
-          await this.rooms.cancel(m.roomId, m.botId);
+        case "stopAll":
+          await this.rooms.stopAll(m.roomId);
           break;
         case "retry":
           await this.rooms.retry(m.roomId, m.messageId);
-          break;
-        case "unqueue":
-          await this.rooms.unqueue(m.roomId, m.messageId, m.botId);
           break;
         case "takeOverReview":
           this.rooms.takeOverReview(m.reviewId);
@@ -362,9 +391,6 @@ export class ChatPanel implements AskTarget {
             ...(m.rolePrompt ? { rolePrompt: m.rolePrompt } : {}),
             ...(m.configValues ? { configValues: m.configValues } : {}),
           });
-          break;
-        case "interrupt":
-          await this.rooms.interrupt(m.roomId, m.botId);
           break;
         case "removeBot":
           try {
@@ -435,9 +461,9 @@ export class ChatPanel implements AskTarget {
           this.postRoom(await this.rooms.openRoom(m.roomId));
           break;
         case "answer": {
-          const resolve = this.pending.get(m.id);
+          const waiting = this.pending.get(m.id);
           this.pending.delete(m.id);
-          resolve?.(m.answer);
+          waiting?.settle(m.answer);
           break;
         }
         case "setPolicy": {
@@ -1077,8 +1103,8 @@ export class ChatPanel implements AskTarget {
     this.onTarget(null);
 
     // **기다리던 카드를 방치하면 에이전트가 영원히 멈춘다.** 취소로 풀어준다.
-    for (const resolve of this.pending.values()) {
-      resolve({ kind: "permission" });
+    for (const waiting of this.pending.values()) {
+      waiting.settle({ kind: "permission" });
     }
     this.pending.clear();
 

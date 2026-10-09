@@ -253,26 +253,16 @@ export type FromWebview =
   /** 전문 검색 (H2). 목록 필터(H1)와 방 안 찾기(H4)는 웹뷰에서 끝난다 */
   | { t: "search"; query: string }
   /**
-   * 진행 중인 턴을 중단한다 (C6).
+   * ★ **전체 중지 — 중지는 이것 하나다** (v3.0 1-D · C6).
    *
-   * `botId`를 주면 **그 봇만** 끊는다 — 단체방에서 한 봇만 그만두게
-   * 하려면 필요하다(v2.0). 안 주면 방 전체다.
-   */
-  | { t: "cancel"; roomId: string; botId?: string }
-  /**
-   * **끼어들기** — 줄은 두고 그 봇의 **턴만** 끊는다 (v2.x).
+   * ⏪ 한때 넷이었다: 방 전체 중단 · 봇 하나만 중단 · 끼어들기 · 줄에서 빼기.
+   * 넷을 다 두면 **각각이 MCP 큐·권한 대기·심사 줄과 어떤 관계인지 따로
+   * 정의해야 한다** — v3.0 에서 그게 열여섯 가지 조합이 된다.
    *
-   * 「중단」과 다르다: 중단은 줄에 있는 것까지 «안 갔다»로 적지만, 끼어들기는
-   * 줄을 살려 두어 **곧바로 이어서 나가게** 한다.
+   * 봇을 안 지목한다 — **방이 통째로** 멈춘다.
    */
-  | { t: "interrupt"; roomId: string; botId: string }
+  | { t: "stopAll"; roomId: string }
   | { t: "retry"; roomId: string; messageId?: string }
-  /**
-   * **줄에서 빼낸다** — 아직 안 보낸 메시지 하나만 물린다 (§4.3).
-   *
-   * 「중단」과 다르다: 중단은 **진행 중인 턴까지 끊고**, 이건 안 보낸 것만 뺀다.
-   */
-  | { t: "unqueue"; roomId: string; messageId: string; botId?: string }
   /** **이 심사는 내가 답한다** — 줄에서 빼고 승인 카드를 띄운다 (§4.2.2) */
   | { t: "takeOverReview"; roomId: string; reviewId: string }
   | { t: "rename"; roomId: string; title: string }

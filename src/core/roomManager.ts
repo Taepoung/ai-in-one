@@ -178,7 +178,7 @@ interface BotRuntime {
    */
   turn?: Message;
   /**
-   * ★ **사용자가 방금 끊었다** (v2.x 끼어들기).
+   * ★ **사용자가 방금 끊었다** (전체 중지).
    *
    * 다음 프롬프트 앞에 **무슨 일이 있었는지 한 줄**을 얹으라는 표시다.
    *
@@ -186,6 +186,9 @@ interface BotRuntime {
    * 2026-09-23). 그 빈칸을 모델이 **추측으로 메우는데 그 추측이 판마다 다르다** —
    * 한 판은 «권한이 거부돼서»라고 지어냈다. 그러면 우회를 시도하거나 «권한을
    * 열어달라»는 엉뚱한 말을 한다. **빈칸은 우리가 채운다.**
+   *
+   * ⏪ 원래는 «끼어들기» 가 세우던 표시였다. 끼어들기는 없앴지만(v3.0 1-D)
+   * **이 한 줄은 중지에도 그대로 필요하다** — 끊긴 이유를 모르는 건 똑같다.
    */
   interrupted?: boolean;
   /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
@@ -863,7 +866,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 물러난다 — 중간에 프라미스를 깨우는 것보다 **상태 하나를 보는 편**이
    * 취소·타임아웃과 한 군데서 다뤄진다.
    */
-  private readonly reviews = new Map<string, ReviewWait & { takenOver?: boolean }>();
+  private readonly reviews = new Map<string, ReviewWait & { takenOver?: boolean; stopped?: boolean }>();
 
   /**
    * ★ **목록을 갈아끼운다** (2026-10-01).
@@ -2423,27 +2426,43 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
-   * 진행 중인 턴을 중단한다 (C6).
+   * ★ **전체 중지 — 중지는 이것 하나다** (v3.0 1-D · C6).
    *
-   * ★ **봇 하나만 끊을 수 있다** (v2.0 준비).
+   * ⏪ 한때 넷이었다: 방 전체 중단 · 봇 하나만 중단 · 끼어들기 · 줄에서 빼기.
+   * 넷을 다 두면 **각각이 MCP 큐·권한 대기·심사 줄과 어떤 관계인지 따로
+   * 정의해야 한다** — v3.0 에서 그게 열여섯 가지 조합이 된다. 하나면 한 번만
+   * 정하면 되고, 사용자도 «무엇이 멈추는지»를 한 번만 배우면 된다.
    *
-   * 단체방에서는 봇마다 자기 턴을 도는데, 그때 «중단»이 방 전체에만 걸리면
-   * *"Codex는 그만두고 Claude는 계속"* 이 불가능하다. 세션이 봇 단위이므로(B1)
-   * 끊는 단위도 봇이어야 맞다 — `session/cancel`은 애초에 세션에 거는 것이다.
+   * ```
+   * 멈춘다    도는 턴 전부 · 줄 서 있던 것 전부
+   * 정리한다  심사 줄 · 떠 있던 승인 카드 — **cancelled 로 답하고** 거둔다
+   * 내린다    «무조건 허용» → «물어봄»
+   * 남긴다    말풍선 · 내 말은 «안 갔다»+↻ · 봇 말은 받은 데까지
+   * ```
    *
-   * 나중에 붙이려면 **부르는 쪽을 전부 고쳐야** 해서 지금 자리를 내둔다.
-   * `botId`를 안 주면 예전처럼 **방의 모든 봇**을 끊는다.
+   * 🔴 **«내린다»가 없으면 중지가 «잠깐 멈춤»이 된다.** 자리를 비운 채
+   * 알아서 하라고 해둔 상태로 되돌아가면, 멈추라고 누른 사람이 다음 말 한
+   * 마디에 **다시 같은 자리로** 간다.
    */
-  async cancel(roomId: string, botId?: string): Promise<void> {
+  async stopAll(roomId: string): Promise<void> {
     const room = this.open.get(roomId);
     const rt = this.runtimes.get(roomId);
     if (!room || !rt) return;
 
-    const targets = botId
-      ? room.participants.filter((b) => b.id === botId)
-      : room.participants;
+    /*
+     * ★ **답을 기다리던 것부터 푼다.**
+     *
+     * `session/request_permission` 은 **블로킹**이다. 턴만 끊고 이걸 그대로
+     * 두면 에이전트는 영영 답을 기다리고, 화면에는 누를 수 없는 카드가 남는다.
+     * 그러니 **먼저** `cancelled` 로 답해 길을 터준다.
+     */
+    for (const wait of this.reviews.values()) {
+      if (wait.roomId === roomId) wait.stopped = true;
+    }
+    this.emitReviews(roomId);
+    this.opts.host.cancelPermissions?.(roomId);
 
-    for (const bot of targets) {
+    for (const bot of room.participants) {
       const bt = rt.bots.get(bot.id);
       if (!bt?.sessionId) continue;
 
@@ -2453,74 +2472,44 @@ export class RoomManager extends EventEmitter<Events> {
       for (const m of dropped) {
         await this.markNotSent(room, m, bot.id, "보내기 전에 중단했습니다.");
       }
-      if (dropped.length > 0) this.emitQueued(roomId);
+      /*
+       * 🔴 **왜 끊겼는지는 우리가 적어야 한다.** `session/cancel` 은 «왜»를
+       * 안 알려주고, 모델은 그 빈칸을 추측으로 메운다 — 한 판은 «권한이
+       * 거부돼서»라고 지어냈다(실측 2026-09-23).
+       */
+      if (isBusy(this.statusOf(roomId, bot.id)) === true) bt.interrupted = true;
       await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
     }
-  }
+    if (rt.bots.size > 0) this.emitQueued(roomId);
 
-  /**
-   * ★ **끼어들기** — 줄은 그대로 두고 **턴만** 끊는다 (v2.x).
-   *
-   * 「중단」과 헷갈리면 안 된다. 둘 다 `session/cancel` 을 쓰지만 **큐를 대하는
-   * 태도가 정반대**다:
-   *
-   * ```
-   * 중단      턴을 끊고 **줄에 있는 것까지 전부** «안 갔다»로 적는다
-   * 끼어들기  턴만 끊는다 — 줄은 살아 있고, 곧바로 이어서 나간다
-   * ```
-   *
-   * 되는 이유는 `send`·`sendCompose` 의 **이어달리기 고리** 덕이다: `runQueue`
-   * 가 끝나면 큐가 비었는지 보고, 남아 있으면 바로 다음 묶음을 보낸다. 그러니
-   * 우리는 **지금 도는 턴만 끊으면** 줄에 선 말이 저절로 앞으로 나온다.
-   *
-   * ★ **맥락은 안 잃는다**(실측 2026-09-23). 도구 단계에서 끊어도, 글을 쓰는
-   * 중에 끊어도 에이전트는 **자기가 뭘 하다 말았는지 안다** — 반쯤 쓴 문장까지
-   * 그대로 인용한다. 그래서 «끊으면 잃습니다» 같은 경고가 필요 없다.
-   */
-  async interrupt(roomId: string, botId: string): Promise<boolean> {
-    const room = this.open.get(roomId);
-    const rt = this.runtimes.get(roomId);
-    const bot = room?.participants.find((b) => b.id === botId);
-    const bt = rt?.bots.get(botId);
-    if (!room || !bot || !bt?.sessionId) return false;
-    // 도는 중이 아니면 끊을 것이 없다 — 줄에 있는 것은 어차피 곧 나간다
-    if (isBusy(this.statusOf(roomId, botId)) !== true) return false;
-
-    // 다음 프롬프트가 **왜 새로 시작하는지** 말해주도록 표시해둔다
-    bt.interrupted = true;
-    await this.connections.get(bot.agentId)?.cancel(bt.sessionId).catch(() => undefined);
-    return true;
-  }
-
-  /**
-   * **줄에서 빼낸다** — 아직 안 보냈으니 그냥 빼면 된다 (§4.3).
-   *
-   * 답을 기다리는 동안 마음이 바뀌는 건 흔하다. 그런데 지금은 길이 «중단»뿐이라,
-   * 큐에 쌓인 한 줄을 물리려면 **진행 중인 턴까지 끊어야** 했다 — 아직 안 보낸
-   * 것을 물리는 대가로 **이미 보낸 것을 죽이는** 셈이다.
-   *
-   * 🔴 **조용히 지우지 않는다** (§0). 말풍선은 그대로 두고 «안 갔다»만 적는다 —
-   * 지워버리면 *"내가 뭐라고 썼더라"* 에 답할 수 없고, 다시 보낼 수도 없다.
-   *
-   * @returns 실제로 뺀 게 있으면 `true`
-   */
-  async unqueue(roomId: string, messageId: string, botId?: string): Promise<boolean> {
-    const room = this.open.get(roomId);
-    const rt = this.runtimes.get(roomId);
-    if (!room || !rt) return false;
-
-    let pulled = false;
-    for (const [id, bt] of rt.bots) {
-      if (botId && id !== botId) continue;
-      const at = bt.queue.findIndex((m) => m.id === messageId);
-      if (at < 0) continue;
-      const [m] = bt.queue.splice(at, 1);
-      if (!m) continue;
-      await this.markNotSent(room, m, id, "보내기 전에 뺐습니다.");
-      pulled = true;
+    /*
+     * ★ **«무조건 허용»을 내린다** (§4.2.2).
+     *
+     * 자리를 비운 채 맡겨둔 상태 그대로 멈추면, 다음 말 한 마디에 **같은
+     * 자리로 되돌아간다.** 멈추라고 누른 사람의 뜻은 거기까지다.
+     *
+     * 🔴 **조용히 바꾸지 않는다**(§0). 사용자가 켠 것을 우리가 껐으므로
+     * 방에 적는다 — 안 적으면 다음에 «왜 또 묻지»가 된다.
+     */
+    const lowered = room.participants.filter((b) => b.answerPolicy === "auto");
+    for (const b of lowered) b.answerPolicy = "ask";
+    if (lowered.length > 0) {
+      await this.saveProps(room, { participants: room.participants });
+      this.noteRoom(
+        room,
+        `중지하면서 ${lowered.map((b) => b.name).join("·")}의 «무조건 허용»을 ` +
+          `«물어봄»으로 내렸습니다.`,
+        "info",
+        lowered.map((b) => b.id),
+      );
     }
-    if (pulled) this.emitQueued(roomId);
-    return pulled;
+
+    /*
+     * ⬜ **MCP 큐도 여기서 비운다** (§2-H 에서 붙는다).
+     *
+     * 봇에게 간 말과 넘긴 권한이 큐에 남아 있으면 **중지한 뒤에 봇이 깨어나**
+     * 하던 이야기를 잇는다. 큐가 생기는 자리에서 이 줄을 채운다.
+     */
   }
 
   /** 줄 서 있는 심사들을 화면에 알린다 */
@@ -3836,7 +3825,7 @@ export class RoomManager extends EventEmitter<Events> {
       void this.saveProps(room, { participants: room.participants, refeedPending: room.refeedPending });
     }
     /*
-     * ★ **끊긴 자리를 설명한다** (끼어들기).
+     * ★ **끊긴 자리를 설명한다** (전체 중지).
      *
      * 🔴 안 적으면 모델이 **지어낸다.** 같은 실험 두 판에서 한 번은 «백그라운드로
      * 실행했지만 결과를 확인 못 했고»(맞음), 한 번은 «거부돼서 실행되지
@@ -4698,9 +4687,9 @@ export class RoomManager extends EventEmitter<Events> {
   /**
    * **이 봇에게는 안 갔다**고 메시지에 적는다 (C5 · §0의 뺄셈 규칙).
    *
-   * 큐에 있던 것을 버리는 길은 둘이다 — 중단(`cancel`)과 빼내기(`unqueue`).
-   * 둘 다 «화면에는 떠 있는데 영영 답이 없는» 말풍선을 남기므로 **같은 자국**을
-   * 남겨야 한다. 이유만 다르다.
+   * ⏪ 한때 버리는 길이 둘이었다 — 중단과 빼내기. 이제 **전체 중지 하나**다
+   * (v3.0 1-D). 그래도 자국은 같은 모양이어야 한다 — «화면에는 떠 있는데
+   * 영영 답이 없는» 말풍선은 어떤 이유로 생겼든 같은 것이기 때문이다.
    *
    * 🔴 **안 간 것은 이 봇에게만이다.** 같은 메시지가 옆 봇에게는 멀쩡히 갔을 수
    * 있고, 그걸 다시 보내면 **두 번 일하게 된다** — 코딩 에이전트에서는 파일을
@@ -4916,7 +4905,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 대신 **기다리는 동안 요청한 봇의 턴은 얼어 있다.** 그래서 보이게 하고
      * (`reviews` 이벤트) 사람이 **가로챌 수 있게** 한다(`takeOverReview`).
      */
-    const wait: ReviewWait & { takenOver?: boolean } = {
+    const wait: ReviewWait & { takenOver?: boolean; stopped?: boolean } = {
       id: messageId(),
       roomId: room.id,
       askerBotId: asker.id,
@@ -4936,6 +4925,14 @@ export class RoomManager extends EventEmitter<Events> {
     // 심사 봇이 **자기 일을 끝내고** 앞선 심사도 비울 때까지
     const until = Date.now() + REVIEW_WAIT_MS;
     for (;;) {
+      /*
+       * ★ **전체 중지는 사람에게 넘기지 않는다** (v3.0 1-D).
+       *
+       * `takenOver` 와 헷갈리면 안 된다. 가로채기는 «내가 답하겠다»라서
+       * 승인 카드가 떠야 하고, 중지는 «아무것도 하지 마»라서 **카드가 뜨면
+       * 안 된다** — 멈추라고 눌렀는데 물어보는 창이 뜨는 꼴이 된다.
+       */
+      if (wait.stopped) { free(); return { outcome: "cancelled" }; }
       if (wait.takenOver) { free(); return hand("사람이 직접 답하기로 해서"); }
       if (Date.now() > until) { free(); return hand(`${judge.name} 쪽이 오래 바빠서`); }
       const busy = this.judging.has(judge.id) || isBusy(this.statusOf(room.id, judge.id));

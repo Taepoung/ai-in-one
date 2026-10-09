@@ -614,7 +614,7 @@ function main() {
     ok(t.screenOf() === "chat", "방에 들어와 있다");
     t.send({ t: "status", roomId: "r1", status: "streaming" });
     t.key("Escape");
-    ok(t.sent.some((m) => m.t === "cancel"), "중단이 나간다");
+    ok(t.sent.some((m) => m.t === "stopAll"), "중지가 나간다");
     ok(t.screenOf() === "chat", "방에 그대로 있다");
 
     t.send({ t: "status", roomId: "r1", status: "idle" });

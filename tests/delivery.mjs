@@ -274,92 +274,58 @@ console.log("\n[★ 빼도 그 자리에 머문다 — 누른 것이 달아나�
      "★ 못 간 곳은 칩에서 빠진다 — 남은 건 «오래» 의 칩 하나");
 }
 
-console.log("\n[★ 지금 보내기 — 끼어들기]");
+console.log("\n[★ 대기 띠에는 이제 단추가 없다 — 중지는 하나뿐이다]");
 {
   /*
-   * 🔴 **보낼 때 고르게 하지 않는다.** 칠 때는 봇이 바쁜지조차 모를 수 있다.
-   * «아 이건 급한데»는 **대기 표시를 보고 나서** 생기는 마음이라, 고르는
-   * 자리도 거기가 맞다. 그리고 끼어들기는 **남의 진행을 죽이는 일**이라
-   * 두 번째 동작인 편이 안전하다 — 옆에 «빼기»가 있어 무를 수도 있다.
+   * ⏪ 여기 «지금 보내기»(끼어들기)와 «빼기»(줄에서 빼기)가 나란히 있었다.
+   * 둘 다 중지의 일종이었고, 중지가 넷이면 **각각이 MCP 큐·권한 대기·심사
+   * 줄과 어떤 관계인지를 따로 정의해야 한다** — v3.0 에서 열여섯 조합이
+   * 된다. 그래서 전체 중지 하나로 모았다(1-D).
+   *
+   * 줄 자체도 곧 예약 한 칸으로 바뀐다(1-E). 그때까지 이 띠가 하는 일은
+   * **무엇이 줄 서 있는지 말하는 것** 하나다.
    */
   const t = mount();
   open(t, room(BOTH, [msg("u1", ["b1"])]));
   t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
 
-  const btns = [...t.$$("#screen-chat .delivery button")].map((b) => b.textContent);
-  ok(btns.join() === "지금 보내기,빼기",
-     `★ **대기 줄에 둘이 나란히** (${btns.join(" · ")}) — 올릴지 물릴지 그 자리에서`);
-
-  t.$$("#screen-chat .delivery button").find((b) => b.textContent === "지금 보내기").click();
-  const sent = t.sent.find((m) => m.t === "interrupt");
-  ok(sent !== undefined, "★ **중단이 아니라 끼어들기**를 보낸다");
-  ok(sent.botId === "b1", `★ 그 봇만 (${sent.botId})`);
-  ok(t.sent.find((m) => m.t === "cancel") === undefined,
-     "★ **«중단»은 안 보낸다** — 그건 줄에 선 것까지 «안 갔다»로 적는다");
+  ok(t.$("#screen-chat .delivery .held") !== null, "대기 표시는 그대로 뜬다");
+  const btns = [...t.$$("#screen-chat .delivery button")];
+  ok(btns.length === 0, `★ **단추가 하나도 없다** (${btns.length}개)`);
 }
 
-console.log("\n[★ 알약 안에 아이콘 — 급할 때 옆엣것을 안 누르게]");
+console.log("\n[★ 말풍선의 중단도 같은 아이콘 — 그리고 방 전체를 멈춘다]");
 {
   /*
-   * 대기 띠는 **급할 때 보는 자리**다. «지금 보내기»와 «빼기»는 결과가
-   * 정반대인데 글자 길이가 비슷해서, 서두르면 옆엣것을 누른다.
+   * 🔴 **«■» 흉내는 걷어냈다.** 말풍선의 중단은 `::before` 로 ■ 를 그렸는데,
+   * 위 상태줄의 «중단»과 **같은 일인데 모양이 달랐다.**
    *
-   * 🔴 **글자를 빼지는 않는다.** 아이콘만 두면 «✕ 가 취소인가 삭제인가»를
-   * 툴팁으로 확인해야 하고, 그건 급한 사람에게 더 느리다. 그래서 여기서
-   * 재는 것은 **아이콘이 있다**와 **글자도 그대로다** 둘 다이다.
+   * ⏪ 그리고 이제 «이 봇만»이 아니다 — 봇이 여럿이어도 **방이 통째로**
+   * 멈춘다. 자리는 그대로 두고 **글자가 하는 일을 말한다**: 「이 봇만」이
+   * 남아 있으면 거짓말이 된다.
    */
   const t = mount();
-  open(t, room(BOTH, [msg("u1", ["b1"])]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-
-  const pick = (label) =>
-    t.$$("#screen-chat .delivery button").find((b) => b.textContent === label);
-
-  for (const [label, want] of [["지금 보내기", "send"], ["빼기", "close"]]) {
-    const b = pick(label);
-    const ic = b?.querySelector("i.codicon");
-    ok(ic !== null && ic !== undefined,
-       `★ «${label}» 알약이 **아이콘을 품는다**`);
-    ok(ic?.classList.contains(`codicon-${want}`),
-       `★ 아이콘은 **글자가 말하는 그대로** (codicon-${want}) — 두 번째 비유를 안 얹는다`);
-  }
-
-  ok(pick("지금 보내기").textContent === "지금 보내기",
-     "★ **글자는 그대로다** — 아이콘이 글자를 밀어내지 않는다 (아이콘만 두면 툴팁을 봐야 한다)");
-
-  /*
-   * 🔴 **«■» 흉내는 걷어냈다.** 말풍선의 «이 봇만 중단»은 `::before` 로
-   * ■ 를 그렸는데, 위 상태줄의 «중단»과 **같은 일인데 모양이 달랐다.**
-   */
-  const t2 = mount();
-  open(t2, room(BOTH, [{ id: "s1", role: "agent", text: "쓰는 중", authorBotId: "b1",
-                         deliveredTo: ["b1"], streaming: true, createdAt: 5 }]));
-  const stopBot = t2.$$("#screen-chat .stop-bot")[0];
+  open(t, room(BOTH, [{ id: "s1", role: "agent", text: "쓰는 중", authorBotId: "b1",
+                        deliveredTo: ["b1"], streaming: true, createdAt: 5 }]));
+  const stopBot = t.$$("#screen-chat .stop-bot")[0];
   ok(stopBot?.querySelector("i.codicon-debug-stop") != null,
      "★ 말풍선의 «중단»도 **같은 아이콘** — ■ 흉내가 아니라 `debug-stop`");
+  ok(stopBot.textContent === "전부 중단",
+     `★ **글자가 하는 일을 말한다** (${stopBot.textContent}) — 「이 봇만」이면 거짓말이다`);
+
+  stopBot.click();
+  const sent = t.sent.find((m) => m.t === "stopAll");
+  ok(sent?.roomId === "r1", "★ 봇을 안 지목한다 — 방이 통째로");
+  ok(sent !== undefined && !("botId" in sent),
+     "★ **중지 메시지에 봇 칸이 아예 없다** — 있으면 누군가 다시 쓰게 된다");
 }
 
-console.log("\n[★ 대기 중이 아니면 «지금 보내기»도 없다]");
+console.log("\n[★ 줄에 선 것이 없으면 띠도 없다]");
 {
   const t = mount();
   open(t, room(BOTH, [msg("u1", ["b1"])]));
   ok(t.$("#screen-chat .delivery") === null,
-     "★ 줄에 선 것이 없으면 그 줄 자체가 없다 — 끊을 이유도 없다");
-}
-
-console.log("\n[★ 빼기 — 진행 중인 답은 안 죽인다]");
-{
-  const t = mount();
-  open(t, room(BOTH, [msg("u1", ["b1", "b2"])]));
-  t.send({ t: "queued", roomId: "r1", bots: { b1: ["u1"] } });
-
-  const btn = t.$$("#screen-chat .delivery button").find((b) => b.textContent === "빼기");
-  ok(btn !== undefined, "★ 그 자리에서 물릴 수 있다");
-  btn.click();
-  const posted = t.sent.find((m) => m.t === "unqueue");
-  ok(posted?.messageId === "u1" && posted.roomId === "r1", "★ 그 메시지만");
-  ok(t.sent.find((m) => m.t === "cancel") === undefined,
-     "★ **«중단»이 아니다** — 중단은 진행 중인 턴까지 끊는다");
+     "★ 줄에 선 것이 없으면 그 줄 자체가 없다");
 }
 
 console.log("\n[★ 1:1에서도 대기 표시는 나온다]");

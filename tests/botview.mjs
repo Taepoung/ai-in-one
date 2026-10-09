@@ -335,12 +335,26 @@ console.log("\n[★ 상태줄도 그 봇 것만 — 중단도 그 봇만]");
   ok(!t.$("#screen-chat .status .stop"),
      "★ **중단도 안 뜬다** — 그 봇은 놀고 있다");
 
-  // 그 봇이 도는 중이면 뜬다. 그리고 **그 봇만** 끊는다
+  /*
+   * 그 봇이 도는 중이면 뜬다.
+   *
+   * ⏪ **여기서 «그 봇만» 끊던 것이 이제 방 전체다** (v3.0 1-D). 뷰의 약속
+   * («그 봇과의 1:1처럼»)과 어긋나지만, 중지가 넷이면 각각이 MCP 큐·권한
+   * 대기·심사 줄과 어떤 관계인지 따로 정의해야 한다 — 하나로 모았다.
+   *
+   * 그래서 **거짓말을 안 하는 쪽**을 고른다: 봇이 둘 이상이면 글자가
+   * «전부 중단»이어야 한다. 「중단」이라고만 두면 **이 봇만 멈추는 줄 알고
+   * 누른다** — 뷰 안에서는 더더욱 그렇게 읽힌다.
+   */
   t.send({ t: "status", roomId: "r1", status: "streaming",
            bots: { b1: "streaming", b2: "streaming" } });
-  t.$("#screen-chat .status .stop").click();
-  const stop = t.sent.find((m) => m.t === "cancel");
-  ok(stop.botId === "b1", `★ **그 봇만 끊는다** (${stop.botId})`);
+  const stopBtn = t.$("#screen-chat .status .stop");
+  ok(stopBtn.textContent === "전부 중단",
+     `★ **글자가 하는 일을 말한다** (${stopBtn.textContent}) — 뷰 안에서 「중단」은 «이 봇만»으로 읽힌다`);
+  stopBtn.click();
+  const stop = t.sent.find((m) => m.t === "stopAll");
+  ok(stop?.roomId === "r1", "★ 봇을 안 지목한다 — 방이 통째로");
+  ok(!("botId" in stop), "★ **봇 칸이 아예 없다** — 있으면 누군가 다시 쓰게 된다");
 }
 
 console.log("\n[★ 부딪힘 띠도 그 봇이 낀 것만]");

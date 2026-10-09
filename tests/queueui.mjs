@@ -120,52 +120,24 @@ console.log("\n[★ 단체방이면 누구를 기다리는지 적는다]");
   ok(held.includes("대기 중"), "무슨 상태인지도 같이");
 }
 
-console.log("\n[★ 급할 때 쓸 두 길을 같이 준다]");
+console.log("\n[★ 띠는 말만 한다 — 단추는 없다]");
 {
+  /*
+   * ⏪ 여기 «지금 보내기»(끼어들기)와 «빼기»(줄에서 빼기)가 나란히 있었다.
+   * 둘 다 중지의 일종이었고, 중지가 넷이면 **각각이 MCP 큐·권한 대기·심사
+   * 줄과 어떤 관계인지 따로 정의해야 한다** — v3.0 에서 열여섯 조합이 된다.
+   * 그래서 전체 중지 하나로 모았다(1-D).
+   *
+   * 띠 자체도 곧 예약 한 칸으로 바뀐다(1-E). 그때까지 하는 일은 **무엇이
+   * 줄 서 있는지 말하는 것** 하나다.
+   */
   const t = open([bot("b1", "claude", "클로드")], [msg("u1", "급한 것", ["b1"])], { b1: ["u1"] });
   const band = bandOf(t);
-  const now = btn(band, "지금 보내기");
-  const drop = btn(band, "빼기");
-  ok(now !== undefined, "★ **지금 보내기** — 앞 턴을 끊고 보낸다");
-  ok(drop !== undefined, "★ **빼기** — 안 보낸 것을 무른다");
-
-  /*
-   * 🔴 결과가 정반대인데 글자 길이가 비슷하다. 급하면 **옆엣것을 누른다** —
-   * 모양이 다르면 글자를 다 읽기 전에 갈린다.
-   */
-  const iconOf = (b) => [...b.querySelectorAll("*")].map((e) => e.className).join(" ");
-  console.log(`   아이콘: 보내기=${/send/.test(iconOf(now))} 빼기=${/close/.test(iconOf(drop))}`);
-  ok(/send/.test(iconOf(now)) && /close/.test(iconOf(drop)),
-     "★ **아이콘이 다르다** — 급할 때 글자만으로는 갈리지 않는다");
-  ok(now.textContent.trim() !== "" && drop.textContent.trim() !== "",
-     "★ **글자를 빼지는 않는다** — 아이콘만 두면 뜻을 툴팁으로 확인해야 한다");
-  ok((drop.getAttribute("title") ?? "").includes("진행 중인 답변은 그대로"),
-     "★ 빼기가 **진행 중인 턴을 안 끊는다**고 말해준다");
-}
-
-console.log("\n[★ 눌렀을 때 무엇이 가나]");
-{
-  const t = open(
-    [bot("b1", "claude", "알파"), bot("b2", "codex", "베타")],
-    [msg("u1", "급한 것", ["b1", "b2"])],
-    { b2: ["u1"] },
-  );
-  btn(bandOf(t), "빼기").click();
-  const un = t.sent.find((m) => m.t === "unqueue");
-  console.log(`   빼기 → ${JSON.stringify(un)}`);
-  ok(un?.messageId === "u1", "★ **그 메시지를** 뺀다");
-  ok(un?.roomId === "r1", "어느 방인지도 실린다");
-
-  const t2 = open(
-    [bot("b1", "claude", "알파"), bot("b2", "codex", "베타")],
-    [msg("u1", "급한 것", ["b1", "b2"])],
-    { b2: ["u1"] },
-  );
-  btn(bandOf(t2), "지금 보내기").click();
-  const ints = t2.sent.filter((m) => m.t === "interrupt").map((m) => m.botId);
-  console.log(`   지금 보내기 → 끊은 봇: ${JSON.stringify(ints)}`);
-  ok(ints.includes("b2"), "★ **기다리게 한 봇을** 끊는다");
-  ok(!ints.includes("b1"), "★ **남의 턴은 안 끊는다** — 끼어들기는 남의 진행을 죽이는 일이다");
+  ok(band !== null, "띠는 그대로 뜬다");
+  const btns = [...band.querySelectorAll("button")];
+  ok(btns.length === 0, `★ **단추가 하나도 없다** (${btns.length}개)`);
+  // 1:1 에서는 «앞 대화가 끝나면 보냅니다», 단체방에서는 «… 대기 중»
+  ok((band.textContent ?? "").includes("⏳"), "★ 그래도 **줄 서 있다고는 말한다**");
 }
 
 console.log("\n[★ 줄에서 빠지면 표시도 사라진다]");

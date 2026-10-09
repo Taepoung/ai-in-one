@@ -22,6 +22,20 @@ export interface WorkspaceHost {
 
   requestPermission(req: PermissionRequest): Promise<PermissionDecision>;
 
+  /**
+   * ★ **떠 있는 승인 카드를 거둔다** (v3.0 — 전체 중지).
+   *
+   * 🔴 `requestPermission` 은 **답이 올 때까지 안 돌아온다.** 전체 중지가
+   * 턴만 끊고 이걸 두면 **누를 수 없는 카드가 화면에 남고** 에이전트는
+   * 영영 기다린다 — 멈추라고 눌렀는데 멈춘 게 아니다.
+   *
+   * 거두면 그 `requestPermission` 들이 `cancelled` 로 풀린다. 그러면
+   * 에이전트에게 답이 가는 것도 **저절로** 따라온다.
+   *
+   * 선택이다 — 카드를 안 띄우는 호스트(검사용)는 할 일이 없다.
+   */
+  cancelPermissions?(roomId: string): void;
+
 
   /** 진단/로그용. 사용자에게 보이는 채널 */
   log(message: string): void;
