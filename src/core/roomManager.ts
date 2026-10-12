@@ -45,7 +45,9 @@ import {
   taskIdOf,
   type SearchHit,
   type Staged,
+  type RelayMode,
   DEFAULT_RELAY,
+  DEFAULT_TURN_CAP,
   rosterText,
   ROSTER_OFF,
 } from "./types.js";
@@ -254,6 +256,21 @@ interface RoomRuntime {
   status: RoomStatus;
   /** 봇별 상태. 열쇠는 `BotInstance.id` */
   bots: Map<string, BotRuntime>;
+  /**
+   * ★ **사용자 말 한 마디 뒤로 봇들이 돈 턴** (v3.0 4-L).
+   *
+   * 🔴 **언제나 센다.** 한때 *"「무조건 허용」일 때만 쓰인다"* 고 적었는데
+   * 구멍이 있었다 — 알림 턴은 `say` 승인과 무관하게 돌므로, 「물어봄」에서
+   * **안 답하는 봇을 영원히 깨우는 고리**가 안 잡힌다. 예외를 없애면 구멍도
+   * 없어진다.
+   *
+   * **사용자가 말을 걸면 0 이다.** 세는 것이 «사람이 안 보는 구간»이니,
+   * 말을 거는 순간 그 구간이 새로 시작된다 — 그래서 숫자가 직관적인 뜻을
+   * 갖는다: *"내가 한 마디 하면 쟤들끼리 열두 번까지 돈다"*.
+   *
+   * 디스크에 안 남긴다 — 껐다 켜면 그 구간 자체가 끝난 것이다.
+   */
+  turns: number;
   /**
    * **지금 부딪히고 있는 파일들** — 열쇠는 경로 (§4.3).
    *
@@ -1096,6 +1113,40 @@ export class RoomManager extends EventEmitter<Events> {
     if (!room) throw new Error("방을 찾을 수 없습니다.");
     this.open.set(roomId, room);
     return room;
+  }
+
+  /**
+   * ★ **봇끼리 부르기 — 끔 · 물어봄 · 무조건 허용** (v3.0 4-L).
+   *
+   * **방 단위**다. 봇별 권한(D2)보다 **층이 하나 위**라 — 이게 꺼져 있으면
+   * 아래 줄들이 다 무의미하다 — 권한 시트 맨 위에 있다.
+   *
+   * 🔴 **도구를 빼서 막지 않는다.** 한때 *"off 면 도구를 아예 안 줘서 봇이
+   * 시도조차 못 한다"* 고 적었는데 전제가 둘 다 죽었다 — 셋이 한 서버에 묶여
+   * 있어 하나만 뺄 수 없고, `tools/list_changed` 를 보내도 **모델까지는 안
+   * 닿는다**(`mcplist.cjs` 실측). 막는 자리는 **호출**이다.
+   */
+  async setRelay(roomId: string, relay: RelayMode): Promise<void> {
+    const room = await this.openRoom(roomId);
+    if ((room.relay ?? DEFAULT_RELAY) === relay) return;
+    room.relay = relay;
+    await this.saveProps(room, { relay });
+    this.emit("room", room);
+  }
+
+  /**
+   * ★ **턴 상한을 고친다** (v3.0 4-L).
+   *
+   * 0 이나 음수는 안 받는다 — «봇끼리 한 턴도 안 돈다»는 «끔»이 할 일이고,
+   * 숫자로 그걸 표현하게 두면 **같은 뜻을 두 군데로** 말하게 된다.
+   */
+  async setTurnCap(roomId: string, turns: number): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const next = Math.max(1, Math.min(999, Math.floor(turns)));
+    if ((room.turnCap ?? DEFAULT_TURN_CAP) === next) return;
+    room.turnCap = next;
+    await this.saveProps(room, { turnCap: next });
+    this.emit("room", room);
   }
 
   /**
@@ -2273,6 +2324,15 @@ export class RoomManager extends EventEmitter<Events> {
       return;
     }
 
+    /*
+     * ★ **사용자가 말을 걸면 상한이 리셋된다** (v3.0 4-L).
+     *
+     * 세는 것이 «사람이 안 보는 구간»이니, **말을 거는 것이 곧 «이제 내가
+     * 본다»**이고 상한이 리셋되는 것이 그 신호의 실제 모양이다. «사람이
+     * 돌아오면»을 따로 만들 필요가 없다.
+     */
+    this.runtime(roomId).turns = 0;
+
     // 보냈으니 초안은 비운다
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -2372,6 +2432,15 @@ export class RoomManager extends EventEmitter<Events> {
       await this.holdBack(room, tokens, attachments, busy);
       return parsed;
     }
+
+    /*
+     * ★ **사용자가 말을 걸면 상한이 리셋된다** (v3.0 4-L).
+     *
+     * 세는 것이 «사람이 안 보는 구간»이니, **말을 거는 것이 곧 «이제 내가
+     * 본다»**이고 상한이 리셋되는 것이 그 신호의 실제 모양이다. «사람이
+     * 돌아오면»을 따로 만들 필요가 없다.
+     */
+    this.runtime(roomId).turns = 0;
 
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -3218,6 +3287,12 @@ export class RoomManager extends EventEmitter<Events> {
      * 프롬프트에 적힌 수와 `check_queue` 가 주는 수가 어긋난다.
      */
     this.queue.startTurn(bot.id);
+    /*
+     * ★ **턴을 센다** (v3.0 4-L). 세는 자리는 **프롬프트가 나가는 곳 하나**다 —
+     * 사용자가 부른 턴도, 봇이 깨운 턴도 여기를 지난다. 예외를 두면 그 길로
+     * 도는 고리가 안 잡힌다.
+     */
+    this.runtime(room.id).turns += 1;
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
 
@@ -5114,7 +5189,11 @@ export class RoomManager extends EventEmitter<Events> {
       if (mode === "off") {
         return no("이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.");
       }
-      // ── 문 ② 승인 ───────────────────────────────────────────────
+      // ── 문 ② 상한 ───────────────────────────────────────────────
+      if (!(await this.withinCap(room))) {
+        return no("이 방의 턴 상한에 닿았습니다. 사용자가 이어가기를 고르지 않았습니다.");
+      }
+      // ── 문 ③ 승인 ───────────────────────────────────────────────
       if (mode === "ask" && !(await this.askRelay(me, target, text))) {
         return no("사용자가 이 호출을 허락하지 않았습니다.");
       }
@@ -5209,6 +5288,66 @@ export class RoomManager extends EventEmitter<Events> {
       ],
     });
     return decided.outcome === "selected" && decided.optionId === RELAY_ALLOW;
+  }
+
+  /**
+   * ★ **턴 상한** — «내 말 한 마디당 봇들이 도는 턴» (v3.0 4-L).
+   *
+   * **턴 수 하나다.** 깊이도 시간도 비용도 아니다:
+   *
+   * ```
+   * 깊이   깊이 N 은 **최소 N 턴**을 쓴다 → 턴 상한이 깊이의 상계다.
+   *        고리(A→B→A)도 턴을 쓰므로 같이 걸린다
+   * 시간   비용과 무관하다 — 봇이 빠르면 10분에 100턴이다
+   * 비용   **못 센다** — `cost` 를 주는 에이전트가 없다 (M4 실측)
+   * ```
+   *
+   * 🔴 **「진전」을 코드로 정의하지 않는다.** 정의하는 순간 **틀린 정의가
+   * 박힌다** — «파일이 안 바뀌었다»는 설계 토론에서 늘 참이고, «새 정보가
+   * 없다»는 우리가 잴 수 있는 것이 아니다. 봇끼리 *"좋네요" "동의합니다"* 로
+   * 헛돌아도 **내 말 한 마디당 열두 턴이 끝**이고, 거기서 멈춰 사람이 본다.
+   *
+   * 🔴 **승인보다 앞에 둔다.** 뒤에 두면 어차피 상한에 걸릴 것으로 사람을
+   * 한 번 더 깨운다.
+   *
+   * @returns 더 가도 되면 `true`. 사람이 «그만»을 고르면 `false`
+   */
+  private async withinCap(room: Room): Promise<boolean> {
+    const cap = room.turnCap ?? DEFAULT_TURN_CAP;
+    const rt = this.runtime(room.id);
+    if (rt.turns < cap) return true;
+
+    /*
+     * ★ **멈추고 묻는다.** 조용히 막으면 봇은 «왜 안 가지»를 모르고, 사용자는
+     * **멈춘 줄도 모른다.** 기다리는 동안 부른 봇의 턴은 멈춰 있는데, 그건
+     * 승인 카드와 **같은 모양의 기다림**이라 거두는 길도 이미 있다(전체 중지).
+     */
+    const decided = await this.opts.host.requestPermission({
+      title: `봇끼리 ${rt.turns}턴을 돌았습니다 — 더 갈까요?`,
+      readOnly: false,
+      kind: "other",
+      text:
+        `«${room.title}» 에서 내 말 한 마디 뒤로 봇들이 ${rt.turns}턴을 돌았습니다. ` +
+        `«그만»을 고르면 지금 도는 것까지 전부 멈춥니다.`,
+      options: [
+        { optionId: CAP_MORE, name: `+${cap}턴`, kind: "allow_once" },
+        { optionId: CAP_STOP, name: "그만", kind: "reject_once" },
+      ],
+    });
+    if (decided.outcome === "selected" && decided.optionId === CAP_MORE) {
+      // **다시 그만큼.** 상한을 올리는 것이 아니라 구간을 새로 연다 —
+      // 사용자가 «여기까지»를 한 번 더 준 것이고, 그 값은 그대로다
+      rt.turns = 0;
+      this.noteRoom(room, `봇끼리 ${cap}턴을 더 돌도록 했습니다.`, "info");
+      return true;
+    }
+    /*
+     * ★ **«그만»은 전체 중지와 같다** (4-9). 사람이 돌아와 그만을 누르는 것이
+     * **상한을 즉시 0 으로 만드는 것**이고, 그러면 도는 턴도 같이 끊어야 한다 —
+     * 이 호출 하나만 막으면 **다음 봇 호출이 이어진다.**
+     */
+    await this.stopAll(room.id);
+    return false;
   }
 
   /**
@@ -5398,7 +5537,7 @@ export class RoomManager extends EventEmitter<Events> {
   private runtime(roomId: string): RoomRuntime {
     let rt = this.runtimes.get(roomId);
     if (!rt) {
-      rt = { status: "idle", bots: new Map(), clashes: new Map() };
+      rt = { status: "idle", bots: new Map(), turns: 0, clashes: new Map() };
       this.runtimes.set(roomId, rt);
     }
     return rt;
@@ -5850,6 +5989,9 @@ function quoteAsk(text: string): string {
 /** 릴레이 승인 카드의 선택지 id — 답을 되읽는 자리와 한 글자도 안 어긋나게 */
 const RELAY_ALLOW = "aio-relay-allow";
 const RELAY_REJECT = "aio-relay-reject";
+/** 상한에 닿았을 때의 두 길 (4-L) */
+const CAP_MORE = "aio-cap-more";
+const CAP_STOP = "aio-cap-stop";
 
 function wireItem(item: QueueItem): Record<string, unknown> {
   const { id, from } = item;

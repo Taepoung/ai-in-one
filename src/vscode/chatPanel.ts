@@ -427,6 +427,12 @@ export class ChatPanel implements AskTarget {
         case "setBlurb":
           await this.rooms.setBlurb(m.roomId, m.blurb, m.botId);
           break;
+        case "setRelay":
+          await this.rooms.setRelay(m.roomId, m.relay);
+          break;
+        case "setTurnCap":
+          await this.rooms.setTurnCap(m.roomId, m.turns);
+          break;
         case "sendCompose":
           await this.rooms.sendCompose(
             m.roomId,

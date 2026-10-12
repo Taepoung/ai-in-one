@@ -834,9 +834,40 @@ function main() {
     // 서면 그 자리에서 바뀐다 — 누른 사람에 대한 답이다
     t.send({ t: "mcp", state: { at: "ready", url: "http://127.0.0.1:1/mcp" } });
     const now = t.$("#screen-perm .sheet-bot.relay");
-    ok(now.querySelector(".bad") === null && now.textContent.includes("쓸 수 있습니다"),
-       `★ **서면 그 자리에서 바뀐다** (${now.textContent})`);
+    ok(now.querySelector(".bad") === null && now.querySelector(".relay-pick") !== null,
+       `★ **서면 그 자리에서 바뀐다** — 길이 섰으니 고를 것이 뜬다 (${now.textContent})`);
     ok(now.querySelector("button.link") === null, "★ 그리고 [다시 시도] 가 걷힌다");
+  }
+
+  console.log("\n[★ 봇끼리 부르기 — 세 칸과 상한 (v3.0 4-L)]");
+  {
+    /*
+     * 🔴 **상한이 «무조건 허용» 옆에만 있으면 거짓말이 된다.** 알림 턴은
+     * 승인과 무관하게 돌아서 「물어봄」에서도 고리가 생길 수 있다 — 언제나
+     * 걸리므로 **언제나 보여야** 한다.
+     */
+    const t = enter(mount(boot([meta()])), { relay: "ask", turnCap: 12 });
+    t.send({ t: "mcp", state: { at: "ready", url: "http://127.0.0.1:1/mcp" } });
+    t.$(".composer .perm").click();
+
+    const row = t.$("#screen-perm .sheet-bot.relay");
+    const pills = row.querySelectorAll(".relay-pick button.pill");
+    ok(pills.length === 3, `★ 세 칸이다 (${[...pills].map((b) => b.textContent).join(" · ")})`);
+    ok([...pills].filter((b) => b.classList.contains("on")).length === 1,
+       "★ **지금 어느 칸인지 하나만 켜져 있다**");
+    ok([...pills].find((b) => b.classList.contains("on")).textContent === "물어봄",
+       "★ 기본은 «물어봄» — 사람이 매 호출을 본다");
+
+    [...pills].find((b) => b.textContent === "무조건 허용").click();
+    const set = t.sent.filter((m) => m.t === "setRelay").pop();
+    ok(set?.relay === "always", `★ 누르면 그대로 간다 (${JSON.stringify(set)})`);
+
+    const cap = row.querySelector("input.cap");
+    ok(cap?.value === "12", `★ **상한이 같은 자리에 보인다** (${cap?.value})`);
+    cap.value = "30";
+    cap.dispatchEvent(new t.w.Event("change"));
+    const capped = t.sent.filter((m) => m.t === "setTurnCap").pop();
+    ok(capped?.turns === 30, `★ 고치면 그대로 간다 (${JSON.stringify(capped)})`);
   }
 
   console.log("\n[설정을 못 불러온 것과 모드가 없는 것은 다른 화면이다]");

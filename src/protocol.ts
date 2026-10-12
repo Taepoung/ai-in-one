@@ -1,5 +1,6 @@
 import type {
   AnswerPolicy,
+  RelayMode,
   ReviewWait,
   Clash,
   Approver,
@@ -307,6 +308,15 @@ export type FromWebview =
    * 프리앰블이 달라진다.
    */
   | { t: "setBlurb"; roomId: string; blurb: string; botId?: string }
+  /**
+   * ★ **봇끼리 부르기 — 방 단위** (v3.0 4-L). 권한 시트 맨 위.
+   *
+   * 봇별 권한(D2)보다 **층이 하나 위**다 — 이게 꺼져 있으면 아래 줄들이
+   * 다 무의미하다.
+   */
+  | { t: "setRelay"; roomId: string; relay: RelayMode }
+  /** ★ **내 말 한 마디당 봇들이 도는 턴의 상한** (v3.0 4-L) */
+  | { t: "setTurnCap"; roomId: string; turns: number }
   /**
    * 봇 이름 바꾸기 (v2.2 준비).
    *

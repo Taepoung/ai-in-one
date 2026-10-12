@@ -5291,7 +5291,7 @@ function paintPermissionSheet(r: Room): void {
       el("button", { class: "icon", title: "돌아가기", onclick: () => closeSheet() }, icon("arrow-left")),
       el("h1", {}, icon("shield"), " 권한 설정"),
     ),
-    relayRow(),
+    relayRow(r),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
     // `replaceChildren` 는 `el()` 과 달리 `null` 을 안 걸러준다
     ...[sharedMemoryRow(r)].filter((n): n is HTMLElement => n !== null),
@@ -5313,13 +5313,13 @@ function paintPermissionSheet(r: Room): void {
  * 안 되면 «왜 안 부르지»를 영영 못 푼다. 그리고 **자동으로 다시 안 한다** —
  * 「몇 초마다」라는 숫자가 하나 생기고 그 숫자는 아무도 고를 수 없다.
  */
-function relayRow(): HTMLElement {
+function relayRow(r: Room): HTMLElement {
   // 아래 봇 칸들과 **같은 상자**를 쓴다 — 같은 화면의 같은 종류의 결정이다
   const box = el("div", { class: "sheet-bot relay" });
   box.append(el("div", { class: "who" }, el("span", { class: "name", text: "봇끼리 부르기" })));
 
   if (mcpAt.at === "ready") {
-    box.append(el("span", { class: "dim", text: "쓸 수 있습니다 — 봇이 서로를 부를 수 있습니다." }));
+    box.append(relayPick(r), capRow(r));
     return box;
   }
 
@@ -5346,6 +5346,74 @@ function relayRow(): HTMLElement {
     ),
   );
   return box;
+}
+
+/**
+ * ★ **세 칸** (v3.0 4-L).
+ *
+ * ```
+ * 끔         say 가 와도 «이 방은 안 됩니다» 로 돌려보낸다
+ * 물어봄      호출마다 승인 카드          ← 기본
+ * 무조건 허용  안 묻는다. 상한만 건다
+ * ```
+ *
+ * 🔴 **켜둔 걸 잊으면 안 되는 종류**라 입력창 옆이다. «무조건 허용»은
+ * **사람이 스스로에게 주는 권한**이라 §4.2.2 의 «`*_always` 는 봇에게 안
+ * 준다»와 어긋나지 않는다.
+ */
+function relayPick(r: Room): HTMLElement {
+  const now = r.relay ?? "ask";
+  const pick = (mode: "off" | "ask" | "always", text: string, why: string) =>
+    el("button", {
+      class: now === mode ? "pill on" : "pill",
+      text,
+      title: why,
+      onclick: () => {
+        if (now === mode) return;
+        post({ t: "setRelay", roomId: r.id, relay: mode });
+      },
+    });
+  return el(
+    "div",
+    { class: "policy relay-pick" },
+    pick("off", "끔", "say 가 와도 돌려보냅니다."),
+    pick("ask", "물어봄", "봇이 다른 봇을 부를 때마다 승인 카드가 뜹니다."),
+    pick("always", "무조건 허용", "안 묻습니다. 아래 상한만 겁니다."),
+  );
+}
+
+/**
+ * ★ **상한 — «내 말 한 마디당 봇들이 도는 턴»** (v3.0 4-L).
+ *
+ * 🔴 **«무조건 허용» 일 때만 뜻이 있는 것이 아니다.** 알림 턴은 승인과
+ * 무관하게 돌아서, 「물어봄」에서도 **안 답하는 봇을 영원히 깨우는 고리**가
+ * 생길 수 있다. 그래서 언제나 걸리고, 그래서 **언제나 보인다.**
+ *
+ * 보이는 자리와 쓰이는 자리를 맞춘다 — «얼마를 맡기는지 모르고 켜는 일»이
+ * 안 생긴다.
+ */
+function capRow(r: Room): HTMLElement {
+  const box = el("input", {
+    type: "number",
+    class: "cap",
+    min: "1",
+    max: "999",
+    value: String(r.turnCap ?? 12),
+    title: "여기 닿으면 멈추고 «더 갈까요»를 묻습니다.",
+  }) as HTMLInputElement;
+  const commit = () => {
+    const n = Number(box.value);
+    if (!Number.isFinite(n)) { box.value = String(r.turnCap ?? 12); return; }
+    post({ t: "setTurnCap", roomId: r.id, turns: n });
+  };
+  box.addEventListener("change", commit);
+  return el(
+    "div",
+    { class: "policy cap-row" },
+    el("span", { class: "dim", text: "내 말 한 마디당" }),
+    box,
+    el("span", { class: "dim", text: "턴까지. 닿으면 멈추고 묻습니다." }),
+  );
 }
 
 /** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
