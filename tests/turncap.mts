@@ -81,11 +81,13 @@ async function make(cap: number) {
     for (let i = 0; i < 1200; i++) { if (cond()) return; await nap(25); }
     throw new Error("FAIL: 전제가 안 섰다 — " + what);
   };
+  const pending = (botId: string): number =>
+    (mgr as unknown as { queue: { pending(id: string): unknown[] } }).queue.pending(botId).length;
   const turns = () =>
     ((mgr as unknown as { runtimes: Map<string, { turns: number }> })
       .runtimes.get(room.id)?.turns ?? 0);
 
-  return { dir, mgr, room, a, b, cards, settle, say, until, turns };
+  return { dir, mgr, room, a, b, cards, settle, say, until, turns, pending };
 }
 
 async function main(): Promise<void> {
@@ -113,7 +115,15 @@ async function main(): Promise<void> {
     await t.settle();
     ok(t.turns() === 1, "★ 전제: 한 턴을 돌았다");
 
-    const sent = t.say("리뷰어", "한 번 더 돌자");
+    const out = await t.say("리뷰어", "한 번 더 돌자");
+    /*
+     * ★ **말은 간다.** 상한이 막는 것은 `say` 가 아니라 **깨우기**다 —
+     * 세는 것이 턴이니 거는 자리도 턴을 만드는 자리여야 한다. 그리고
+     * 이렇게 해야 **아무도 할 말을 안 잃는다.**
+     */
+    ok(out.ok, `★ **배달은 된다** (${JSON.stringify(out)}) — 막히는 것은 다음 턴이다`);
+    ok(t.pending(t.b.id) === 1, "★ **큐에 그대로 남아 있다** — 사용자가 «더»를 고르면 거기서 이어진다");
+
     await t.until(() => t.cards.length > 0, "«더 갈까요» 를 안 물었다");
     const card = t.cards.shift()!;
     ok(card.req.title.includes("더 갈까요"), `★ **멈추고 묻는다** (${card.req.title})`);
@@ -121,8 +131,13 @@ async function main(): Promise<void> {
        `★ 길은 둘이다 (${card.req.options.map((o) => o.name).join(" · ")})`);
 
     card.settle("aio-cap-more");
-    const out = await sent;
-    ok(out.ok, `★ **«더»를 고르면 간다** (${JSON.stringify(out)})`);
+    /*
+     * ⚠️ **큐에서 빠지는 것으로 재면 안 된다.** 항목은 **답해야** 빠지는데
+     * 상대가 가짜 에이전트라 답을 안 한다 — 영영 안 빠진다. 재려는 것은
+     * «턴이 열렸나»이므로 **턴 수**를 본다(바로 앞에서 0 이 됐다).
+     */
+    await t.until(() => t.turns() > 0, "«더» 를 골랐는데 턴이 안 열렸다");
+    ok(true, "★ **«더»를 고르면 거기서 이어진다** — 기다리던 말이 그때 나간다");
     /*
      * 🔴 **`turns` 를 바로 재면 안 된다.** 간 말이 상대를 깨우고, 그 턴이
      * 또 하나를 센다 — 재려는 것(구간이 새로 열렸나)이 아니라 **그 다음에
@@ -156,17 +171,47 @@ async function main(): Promise<void> {
     });
     ok(inner.queue.pending(t.b.id).length === 1, "★ 전제: 큐에 하나 들어 있다");
 
-    const sent = t.say("리뷰어", "더 가자");
+    await t.say("리뷰어", "더 가자");
     await t.until(() => t.cards.length > 0, "«더 갈까요» 를 안 물었다");
     t.cards.shift()!.settle("aio-cap-stop");
+    await t.until(() => t.b.answerPolicy === "ask", "«그만» 이 아무것도 안 했다");
 
-    const out = await sent;
-    ok(!out.ok && (out.reason ?? "").includes("상한"), `★ 그 호출은 막힌다 (${out.reason})`);
     ok(t.b.answerPolicy === "ask",
        "★ 🔴 **«무조건 허용»도 내려간다** — 멈추라고 누른 사람의 뜻은 거기까지다");
     ok(!t.room.staged, "★ 올려둔 것도 같이 내린다");
     ok(inner.queue.pending(t.b.id).length === 0 && inner.queue.pending(t.a.id).length === 0,
        "★ 🔴 **MCP 큐도 비운다** — 안 비우면 다음에 깨우는 순간 밀린 말이 나간다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ «물어봄»에서는 승인이 상한을 리셋한다]`);
+  {
+    /*
+     * ★ **허락을 누른 것도 «내가 본다»다.** 상한이 세는 것은 «사람이 **안
+     * 보는** 구간의 길이»인데, 승인 카드를 누른 사람은 **이 호출을 보고**
+     * 누른 것이다 — 사용자 메시지보다 오히려 강한 증거다.
+     *
+     * 그래서 «물어봄»에서는 상한이 **사실상 안 닿는다.** 닿는 것은 아무도
+     * 안 누르는 사이에 길어질 때뿐이고(= 답만 주고받는 고리), 그게 정확히
+     * 상한이 막으라고 있는 것이다.
+     */
+    const t = await make(1); dirs.push(t.dir);
+    t.room.relay = "ask";
+    await t.mgr.send(t.room.id, "안녕", undefined, t.b.id);
+    await t.settle();
+    ok(t.turns() === 1, "★ 전제: 상한 1 에 이미 닿아 있다");
+
+    const sent = t.say("리뷰어", "봐줄래?");
+    await t.until(() => t.cards.length > 0, "승인 카드가 안 떴다");
+    const card = t.cards.shift()!;
+    ok(card.req.title.includes("→"),
+       `★ **«더 갈까요»가 아니라 평범한 승인 카드다** (${card.req.title})`);
+    card.settle("aio-relay-allow");
+
+    const out = await sent;
+    ok(out.ok, `★ 간다 (${JSON.stringify(out)})`);
+    ok(t.turns() === 0 || t.cards.length === 0,
+       "★ **승인이 구간을 새로 연다** — 그래서 바로 뒤에 «더 갈까요»가 안 뜬다");
     t.mgr.dispose();
   }
 
@@ -190,12 +235,16 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 답은 상한을 안 탄다]`);
+  console.log(`${NL}[★ 🔴 답으로 빠져나가지 못한다]`);
   {
     /*
-     * 🔴 답까지 막으면 **이미 물어본 쪽이 멈춘 채 남는다.** 상한은 «새로
-     * 시작하기»에 거는 것이지 «이미 온 질문에 대답하기»에 거는 것이 아니다.
-     * 그리고 답에 상한을 또 세면 **왕복마다 깎인다.**
+     * 🔴 **여기가 `say` 에 상한을 걸면 뚫리던 자리다.** 답은 릴레이 설정도
+     * 승인도 면제다 — 안 그러면 이미 물어본 쪽이 멈춘 채 남고, 왕복마다
+     * 상한이 깎인다. 그런데 그 면제가 **상한까지** 덮으면 A↔B 가 서로 «답»만
+     * 주고받는 고리가 **어느 모드에서도 안 멈춘다.**
+     *
+     * 상한을 **깨우기**로 옮겨서 막았다 — 답은 그대로 배달되고(아무도 안
+     * 멈춘다), 막히는 것은 **다음 턴을 여는 것**뿐이다.
      */
     const t = await make(1); dirs.push(t.dir);
     await t.mgr.send(t.room.id, "안녕", undefined, t.b.id);
@@ -214,8 +263,10 @@ async function main(): Promise<void> {
       { to: "리뷰어", text: "의존성 판이 어긋났습니다.", id: qid },
     );
     const body = JSON.parse(out.text) as SayOut;
-    ok(body.ok, `★ **상한이 꽉 차도 답은 간다** (${JSON.stringify(body)})`);
-    ok(t.cards.length === 0, "★ 그리고 사람을 안 깨운다");
+    ok(body.ok, `★ **상한이 꽉 차도 답은 배달된다** (${JSON.stringify(body)})`);
+    await t.until(() => t.cards.length > 0, "답으로 깨우는 것이 상한을 안 탔다");
+    ok(t.cards[0]!.req.title.includes("더 갈까요"),
+       "★ 🔴 **그래도 멈추고 묻는다** — 답만 주고받는 고리가 여기서 잡힌다");
     t.mgr.dispose();
   }
 
