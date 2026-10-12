@@ -64,7 +64,13 @@ node tests/probes/agymethods.cjs   # Antigravity 가 할 줄 아는 메서드 (�
 node tests/probes/agydelete.cjs    # Antigravity 는 지우면 지워지나
 node tests/probes/newsess.cjs      # 메시지마다 세션이 새로 생기나
 node tests/probes/fsseam.cjs       # 파일 접근이 우리를 거치나
+npx tsx tests/probes/agysay.mts    # ★ Antigravity 가 say·check_queue 를 제대로 쓰나
 ```
+
+★ **`agysay.mts` 는 다른 것들과 생김새가 다르다** — ACP 를 손으로 말하지 않고
+**제품 코드를 그대로 띄운다**(`RoomManager` · `McpServer` · 진짜 바이너리).
+그래서 재는 것이 «저쪽이 이 메서드를 아나»가 아니라 **«우리가 지은 것이 저쪽에서
+도나»** 다. 상대 봇은 가짜라 할당량은 한쪽만 든다.
 
 여기서 나온 실측은 **`docs/ROADMAP.md` 에 옮겨 적는다.** 프로브 자체가 답이
 아니라, 프로브가 한 번 재고 로드맵이 그걸 기억한다.
