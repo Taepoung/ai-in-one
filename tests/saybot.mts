@@ -308,8 +308,10 @@ async function main(): Promise<void> {
 
     const woke = (await t.prompts()).filter((p) => p.includes("check_queue 로 꺼내세요"));
     ok(woke.length >= 1, `★ **놀고 있으면 그 자리에서 프롬프트가 나간다** (${woke.length}번)`);
-    ok(woke.some((p) => /확인할 것이 \d+개/.test(p)),
+    ok(woke.some((p) => /큐에 \d+개가 남아/.test(p)),
        "★ **몇 개인지 같이 센다** — 몫을 떼어낸 직후라 낡은 값이 아니다");
+    ok(woke.every((p) => p.includes("ai-in-one:")),
+       "★ **누가 하는 말인지 이름을 댄다** — 안 대면 모델에게는 사용자 말로 보인다");
     ok(!woke.some((p) => p.includes("일어나 봐")),
        "★ 🔴 **말을 프롬프트로 안 밀어 넣는다** — 그건 check_queue 로 꺼내는 것이다");
 

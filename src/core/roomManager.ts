@@ -4304,8 +4304,18 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const waiting = this.queue.shareLeft(bot.id);
     if (waiting > 0) {
+      /*
+       * ★ **누가 하는 말인지 이름을 댄다** (2026-10-12).
+       *
+       * 🔴 그냥 «확인할 것이 3개 있습니다» 면 모델에게는 **사용자가 한 말**로
+       * 보인다 — 프롬프트에 섞여 들어가는 글의 기본값이 그것이다. 그러면
+       * «무슨 큐요?» 가 되거나, 더 나쁘게는 사용자가 시킨 일로 읽는다.
+       *
+       * 서버 이름을 앞에 대면 **모델이 이미 아는 것과 이어진다** — 도구 목록에
+       * `ai-in-one` 의 `check_queue` 가 있고, 그 서버가 지금 말을 거는 것이다.
+       */
       parts.push(
-        `[확인할 것이 ${waiting}개 있습니다. check_queue 로 꺼내세요. ` +
+        `[${OUR_MCP_NAME}: 큐에 ${waiting}개가 남아 있습니다. check_queue 로 꺼내세요. ` +
           "메시지는 say, 권한 요청은 verdict 로 답합니다.]",
       );
     }
