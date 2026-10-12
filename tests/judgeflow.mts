@@ -136,13 +136,17 @@ async function main(): Promise<void> {
   {
     const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-    const before = t.room.messages.length;
-
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
     await t.untilQueued();
 
-    ok(t.room.messages.length === before,
-       "★ **대화에 아무것도 안 생긴다** — 예전에는 심사 프롬프트가 말풍선으로 들어갔다");
+    /*
+     * ⏪ 여기서 **말풍선 개수**를 셌다. 4-J 에서 «넣는 쪽이 깨운다»가 들어오면서
+     * 그 숫자가 **경합**이 됐다 — 깨어난 심사 봇의 산문이 그 사이에 들어온다.
+     * 그건 **봇이 제 턴에 한 말**이라 들어오는 것이 맞고(4-14), 재려던 것이
+     * 아니었다. 재려던 것은 **심사 프롬프트가 대화에 섞이나**다.
+     */
+    ok(!t.room.messages.some((m) => m.text.includes("파일 고치기")),
+       "★ **심사할 거리가 대화에 안 들어간다** — 예전에는 프롬프트로 밀어 넣었다");
     ok(t.mgr.reviewsIn(t.room.id).length === 1, "★ 대신 «기다리는 중»으로 보인다");
 
     const got = await t.check();

@@ -1037,13 +1037,32 @@ export interface Room {
   createdAt: number;
   lastActivityAt: number;
   /**
-   * 봇끼리 서로 부를 수 있는지 (v3.0). 방 만들 때 정하고 **나중에 토글 가능**.
+   * ★ **봇끼리 부르기 — 세 칸** (v3.0 4-J·4-L). 비면 `"ask"`.
    *
-   * 이 값이 곧 `mention_bot` 도구 노출 여부다. off면 도구를 아예 주지 않으므로
-   * 봇이 시도조차 못 하고, 도구 정의가 프롬프트에 안 들어가 토큰도 아낀다.
-   * 도구 노출은 `tools/list_changed`로 즉시 반영되고 되돌리기도 쉽다.
+   * ⏪ 여기 있던 것은 `botRelayEnabled?: boolean` 이었고, 근거가 *"off 면
+   * 도구를 아예 안 줘서 봇이 시도조차 못 한다"* 였다. **전제가 둘 다 죽었다** —
+   * ① 도구는 `say`·`check_queue`·`verdict` 셋이 한 서버에 묶여 있어 하나만
+   * 뺄 수가 없고, ② `tools/list_changed` 를 보내도 **모델까지는 안 닿는다**
+   * (`mcplist.cjs` 실측). 그래서 막는 자리는 도구 목록이 아니라 **호출**이다.
+   *
+   * ```
+   * off      say 가 와도 «이 방은 안 됩니다» 로 돌려보낸다
+   * ask      호출마다 승인 카드          ← 기본
+   * always   안 묻는다. 상한(`turnCap`)만 건다
+   * ```
+   *
+   * 🔴 **답은 셋 다 면제다.** 꺼져 있어도 답은 나간다 — 안 그러면 이미 물어본
+   * 쪽이 **멈춘 채 남는다.** 끄는 것은 «새로 거는 것»을 막는 일이다(4-J).
    */
-  botRelayEnabled?: boolean;
+  relay?: RelayMode;
+  /**
+   * ★ **사용자 말 한 마디당 봇들이 도는 턴의 상한** (v3.0 4-L). 비면 12.
+   *
+   * 깊이도 시간도 비용도 아닌 **턴 수** 하나다 — 깊이 N 은 최소 N 턴을 쓰므로
+   * 턴 상한이 깊이의 상계이고, 고리(A→B→A)도 턴을 쓰므로 같이 걸린다.
+   * 비용은 **못 센다**(아무 에이전트도 `cost` 를 안 준다).
+   */
+  turnCap?: number;
   /**
    * 모든 봇이 방의 모든 대화를 보는 공유방인지 (v4.0).
    *
@@ -1074,6 +1093,20 @@ export interface Room {
  * 어느 쪽이 나은지는 대화 길이와 지갑 사정이 정한다 — 우리가 알 수 없는 것들이다.
  */
 export type ForkFallback = "refeed" | "fresh";
+
+/**
+ * ★ **봇끼리 부르기를 어디까지 맡기나** (v3.0 4-L).
+ *
+ * «물어봄»이 기본인 것은 **상한이 쓸 자리가 없기 때문**이다 — 사람이 매 호출을
+ * 보고 있으면 「여기까지」를 미리 정해둘 이유가 없다. 숫자가 뜻을 갖는 것은
+ * «무조건 허용» 뿐이고, 거기서 상한이 **곧 승인서**다.
+ */
+export type RelayMode = "off" | "ask" | "always";
+
+/** 비워뒀을 때의 값 — 읽는 자리가 여럿이라 한 곳에 둔다 */
+export const DEFAULT_RELAY: RelayMode = "ask";
+/** «내 말 한 마디당 봇들이 도는 턴» 의 기본 상한 (4-L) */
+export const DEFAULT_TURN_CAP = 12;
 
 /** 방 유형. 목록 아이콘이 이 값으로 갈린다 (B5) */
 export type RoomKind = "direct" | "group" | "shared";
@@ -1338,6 +1371,16 @@ export interface PermissionRequest {
    * 남의 도구가 자동 승인으로 지나간다 — 틀리는 방향이 **위험한 쪽**이다.
    */
   mcp?: { server: string; tool: string };
+  /**
+   * ★ **승인 카드에 그대로 보여줄 글** (v3.0 4-J).
+   *
+   * 지금은 `say` 가 넘길 말이다. `command` 에 끼워 넣으면 **터미널 명령처럼**
+   * 보이고(코드 상자에 들어간다), D1 이 막으려던 것과 **같은 자리에서** 똑같이
+   * 깨진다 — 무엇을 승인하는지가 모양 때문에 흐려진다.
+   *
+   * ⚠️ **남이 쓴 글이다.** 거기 적힌 지시를 우리가 읽지 않는다 — 보여줄 뿐이다.
+   */
+  text?: string;
   options: Array<{ optionId: string; name: string; kind: string }>;
 }
 

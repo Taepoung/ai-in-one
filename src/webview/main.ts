@@ -5109,6 +5109,14 @@ function paintApprovals(r: Room): void {
 
     // 펴면 **무엇을 승인하는지** 전부 (D1) — 제목만으로는 rm -rf 와 ls 가 같다
     const body = el("div", { class: "card-body" });
+    /*
+     * ★ **보낼 말을 그대로 보여준다** (v3.0 4-J).
+     *
+     * 봇이 봇을 부르는 승인이면 **무엇을 보내는가**가 판단의 전부다. 코드
+     * 상자(`perm-cmd`)에 넣지 않는 이유는 그게 **명령처럼 보이기** 때문이다 —
+     * 이건 사람 말이라 사람 말처럼 보여야 한다.
+     */
+    if (req.text) body.append(el("blockquote", { class: "perm-text", text: req.text }));
     if (req.command) body.append(el("pre", { class: "perm-cmd" }, el("code", { text: req.command })));
     for (const path of req.paths ?? []) {
       body.append(el("button", {

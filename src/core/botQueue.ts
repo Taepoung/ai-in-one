@@ -33,6 +33,15 @@ interface Common {
   to: string;
   /** 누가 넣었나 (보여줄 이름) */
   from: string;
+  /**
+   * ★ **누가 넣었나 — 봇 id** (v3.0 4-J).
+   *
+   * 🔴 `from` 은 **보여줄 이름**이라 바뀔 수 있고(서랍에서 고친다), 같은
+   * 이름이 둘일 수도 있다. 그런데 «`to` 가 이 가닥의 임자인가» 는 **답인지
+   * 새로 거는 것인지**를 가르고, 거기에 승인과 상한이 매달린다 — 이름으로
+   * 맞춰보면 **이름을 고치는 순간 열린 가닥이 통째로 남의 것이 된다.**
+   */
+  fromId: string;
   at: number;
 }
 
@@ -173,6 +182,29 @@ export class BotQueue {
   /** 깨울 거리가 있나 — 다음 몫에 뭔가 들어와 있나 */
   waiting(owner: string): number {
     return this.lanes.get(owner)?.next.length ?? 0;
+  }
+
+  /**
+   * **이번 몫에 아직 안 답한 것이 몇인가** — 도구 결과의 `left` 다.
+   *
+   * `view().left` 와 다르다. 그쪽은 «이 봉투에 안 실린 수»(종류가 다른 것)이고,
+   * 이쪽은 «아직 남은 전부»다. 답하고 나서 *"몇 개 남았나"* 를 묻는 자리다.
+   */
+  shareLeft(owner: string): number {
+    return this.lanes.get(owner)?.share.length ?? 0;
+  }
+
+  /**
+   * **꺼내 보기만 한다** — 빼지 않는다 (v3.0 4-J).
+   *
+   * `say(to, text, id)` 가 «이 가닥의 임자가 `to` 인가» 를 묻는 자리다.
+   * 제3자에게 거는 것이면 그 항목은 **열린 채로 남아야** 하므로, 답인 줄
+   * 알고 먼저 빼놓고 되돌리는 길을 만들면 안 된다.
+   */
+  find(owner: string, id: string): QueueItem | undefined {
+    const lane = this.lanes.get(owner);
+    if (!lane) return undefined;
+    return [...lane.share, ...lane.next].find((i) => i.id === id);
   }
 
   /**

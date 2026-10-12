@@ -2060,6 +2060,16 @@ details.advanced[open] > summary .codicon-chevron-right {
 }
 
 /* 승인 카드 — 무엇을 승인하는지 (D1) */
+/* 봇이 봇에게 보낼 말 — 명령이 아니라 **사람 말**이라 인용으로 보인다 (4-J) */
+.perm-text {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--vscode-textBlockQuote-border, #888);
+  background: var(--vscode-textBlockQuote-background, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .perm-cmd {
   margin: 0;
   padding: 8px 10px;
