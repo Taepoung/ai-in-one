@@ -10,7 +10,7 @@ import {
 } from "./acpConnection.js";
 import type { McpResult, McpServer, McpState, McpTool } from "./mcpServer.js";
 import type { RoomLocks } from "./roomLock.js";
-import { BotQueue, type QueueItem } from "./botQueue.js";
+import { BotQueue, type QueueItem, type QueueMessage } from "./botQueue.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -3285,19 +3285,19 @@ export class RoomManager extends EventEmitter<Events> {
     /*
      * ★ **이 턴이 몇 다리 건너온 것인가** (v3.0 4-L).
      *
-     * 사용자가 연 턴은 0 이고, 큐가 깨운 턴은 **이 턴을 연 것**의 깊이다
-     * (`startTurn` 이 돌려준다). 몫 전체로 재면 **답 안 한 옛 항목**이 섞여
-     * 다른 사슬이 서로를 오염시킨다.
+     * **이 턴을 연 것**의 깊이다(`startTurn` 이 돌려준다). 몫 전체로 재면
+     * **답 안 한 옛 항목**이 섞여 다른 사슬이 서로를 오염시킨다.
      *
-     * ★ **그래서 끼어들기에 아무 손도 안 댄다.** 사용자가 말을 걸면 그 봇은
-     * 0 에서 시작하고, 거기서 뻗는 가지는 1·2·3… 으로 **저절로** 다시 센다.
-     * 돌던 옛 사슬은 제 깊이를 그대로 들고 가다 상한에서 멈춘다 — 그게 맞다.
+     * 🔴 **사용자가 말을 걸었다고 0 으로 내리지 않는다.** 한 턴에 사용자 말과
+     * **밀려 있던 깊은 항목이 같이** 실릴 수 있다. 그때 턴을 0 으로 내리면
+     * 그 깊은 사슬의 답까지 1다리째가 되어, **사용자가 그 봇에게 한 마디만
+     * 하면 돌던 사슬이 통째로 되살아난다.**
      *
-     * 🔴 **인자가 아니라 턴에 붙인다.** 모델이 «사용자 때문»이라고 적는 것을
-     * 믿으면 그 한 줄로 규칙이 통째로 빠져나간다. 우리가 아는 것을 쓴다.
+     * 사용자 말은 «깊이 0 짜리 항목이 하나 더 온 것»이다 — 그래서 `max` 가
+     * 저절로 맞는다. 「누가 열었나」는 `fromUser` 가 따로 들고 있다.
      */
     bt.fromUser = batch.some((m) => m.role === "user");
-    bt.depth = bt.fromUser ? 0 : (incoming || bt.depth || 0);
+    bt.depth = incoming || (bt.fromUser ? 0 : (bt.depth ?? 0));
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
 
@@ -5140,7 +5140,13 @@ export class RoomManager extends EventEmitter<Events> {
       const capped = room
         && (room.relay ?? DEFAULT_RELAY) === "always"
         && cap > 0;
-      // 지금 이 봇이 거는 말은 «턴의 깊이 + 1» 이다 — 거기서 상한까지 몇 다리
+      /*
+       * 지금 이 봇이 **새로 거는** 말은 «턴의 깊이 + 1» 이다.
+       *
+       * ⚠️ 깊은 항목에 답하면 그보다 더 멀 수 있다(`max(턴, 항목)`). 여기 수는
+       * **제일 가까운 경우**라 «적어도 이만큼은 간다»로 읽어야 맞다 — 넘쳐
+       * 보이게 적으면 모델이 **갈 수 있는데 포기한다.**
+       */
       const sayLeft = capped
         ? { depth_left: Math.max(0, cap - ((this.botRuntime(roomId, botId).depth ?? 0) + 1)) }
         : {};
@@ -5258,11 +5264,43 @@ export class RoomManager extends EventEmitter<Events> {
     let answering: string | undefined;
     const bt = this.botRuntime(room.id, fromId);
     /*
-     * ★ **몇 다리째인가** — 이 턴의 깊이에서 하나 더 (v3.0 4-L).
+     * ★ **몇 다리째인가 — 고른 것에서 하나 더** (v3.0 4-L).
      *
-     * 🔴 **`id` 로 세지 않는다.** 그러면 인자를 빼는 것만으로 1 로 되돌아간다.
+     * ```
+     * id "0"   사용자 말에 대한 반응 → 사용자 말이 0 이니 **1다리째**
+     * id "x8"  그 항목에 대한 반응   → **9다리째**
+     * ```
+     *
+     * ★ **턴이 아니라 «고른 것»에서 온다.** 한 턴에 사용자 말과 밀려 있던 깊은
+     * 항목이 **같이** 실릴 수 있다(항목은 답해야 빠지므로). 턴 하나에 깊이를
+     * 하나만 두면 둘 중 하나가 샌다:
+     *
+     * ```
+     * 턴 = 0 (사용자 기준)    8다리 사슬의 답도 1다리째 → **한 마디로 되살아난다**
+     * 턴 = 8 (밀린 것 기준)   방금 시킨 일도 9다리째   → **새 일이 막힌다**
+     * ```
+     *
+     * 반응한 것에서 세면 **둘 다 맞는다.**
      */
-    const depth = (bt.depth ?? 0) + 1;
+    /** 고른 것의 깊이 — «0» 은 사용자 말이라 0 이다 */
+    let from = 0;
+    /**
+     * ★ **쓰면 올린다** (4-L).
+     *
+     * 🔴 **항목은 임자에게 보내야 닫힌다.** 제3자에게 넘기면(위임) 열린 채로
+     * 남고, 그러면 **그 하나를 영구 발판으로** 쓸 수 있다:
+     *
+     * ```
+     * A 의 큐에 x1(1다리) 이 열린 채
+     * A → C (id=x1)  2다리 · x1 은 안 닫힌다
+     * C → A          3다리
+     * A → C (id=x1)  **또 2다리**        … 2·3·2·3 으로 영영
+     * ```
+     *
+     * 항목의 깊이를 «온 거리»가 아니라 **«이 가닥이 지금까지 온 거리»** 로
+     * 읽으면 그 길이 막힌다 — 쓸 때마다 올라가므로 발판이 안 된다.
+     */
+    let bump: QueueMessage | undefined;
 
     if (id === USER_TURN_ID) {
       /*
@@ -5296,6 +5334,8 @@ export class RoomManager extends EventEmitter<Events> {
       if (item.kind !== "message") {
         return { text: `«${id}» 는 권한 요청입니다. verdict 로 답하세요.`, isError: true };
       }
+      from = item.depth;
+      bump = item;
       if (item.fromId === target.id) {
         answering = item.id;
         /*
@@ -5305,6 +5345,8 @@ export class RoomManager extends EventEmitter<Events> {
         about = quoteAsk(item.text);
       }
     }
+
+    const depth = from + 1;
 
     const mode = room.relay ?? DEFAULT_RELAY;
     // ── 문 ① 대화 기능이 켜져 있나 ────────────────────────────────
@@ -5338,6 +5380,8 @@ export class RoomManager extends EventEmitter<Events> {
       return no(`${target.name}은(는) 그사이 방을 떠났습니다.`);
     }
 
+    // ★ **문을 다 지난 뒤에 올린다** — 거절된 호출은 가닥을 안 움직였다
+    if (bump) bump.depth = depth;
     // 답이면 **여기서 공이 넘어간다** — 임자에게 보냈을 때만 닫힌다
     if (answering) this.queue.answer(fromId, answering);
 

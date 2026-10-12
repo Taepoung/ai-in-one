@@ -68,16 +68,24 @@ async function make(cap: number) {
     agents: [
       { ...base, id: "alpha", label: "알파" },
       { ...base, id: "beta", label: "베타" },
+      { ...base, id: "gamma", label: "감마" },
     ],
   });
   mgr.on("roomError", () => {}); mgr.on("notice", () => {});
 
   const room = await mgr.createRoom({
-    title: "깊이", bots: [{ agentId: "alpha", name: "구현" }, { agentId: "beta", name: "리뷰어" }],
+    title: "깊이",
+    bots: [
+      { agentId: "alpha", name: "구현" },
+      { agentId: "beta", name: "리뷰어" },
+      // 제3자가 있어야 «위임» 과 «답» 이 갈린다 — 임자에게 보내야 항목이 닫힌다
+      { agentId: "gamma", name: "테스터" },
+    ],
   });
   room.relay = "always";
   room.depthCap = cap;
-  const [a, b] = room.participants as [typeof room.participants[0], typeof room.participants[0]];
+  const [a, b, c] = room.participants as
+    [typeof room.participants[0], typeof room.participants[0], typeof room.participants[0]];
   const inner = mgr as unknown as {
     queue: BotQueue;
     botRuntime(roomId: string, botId: string): { depth?: number; fromUser?: boolean };
@@ -120,7 +128,7 @@ async function make(cap: number) {
     const item = inner.queue.find(botId, qid);
     return item && item.kind === "message" ? item.depth : undefined;
   };
-  return { dir, mgr, room, a, b, cards, inner, settle, until, say, standAt, plant, depthOf };
+  return { dir, mgr, room, a, b, c, cards, inner, settle, until, say, standAt, plant, depthOf };
 }
 
 async function main(): Promise<void> {
@@ -145,19 +153,21 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[🔴 id 를 바꿔도 깊이가 안 되돌아간다]`);
+  console.log(`${NL}[★ 깊이는 «고른 것»에서 온다 — 턴이 아니라]`);
   {
     /*
-     * 🔴 깊이를 `say` 의 `id` 로 세면 **인자 하나로** 1 로 되돌아간다 —
-     * 막으려던 고리가 거기로 통째로 빠져나간다. 깊이는 **턴에 붙는 값**이다.
+     * ★ 한 턴에 **사용자 말과 밀려 있던 깊은 항목**이 같이 실릴 수 있다
+     * (항목은 답해야 빠지므로). 턴 하나에 깊이를 하나만 두면 둘 중 하나가
+     * 샌다 — 반응한 것에서 세면 **둘 다 맞는다.**
+     *
+     * 얕게 돌아갈 길은 둘 다 막혀 있다: «0» 은 사용자가 연 턴에서만이고,
+     * 그 밖의 id 는 **내 큐에 있는 것**뿐이며 **쓰면 올라간다.**
      */
     const t = await make(12); dirs.push(t.dir);
-    // 큐에는 **1다리째**라고 적힌 항목을 심어둔다 — 턴은 5다리째다
-    const shallow = t.plant(t.a, t.b, 1);
-    t.standAt(t.a, 5);
-    const first = await t.say(t.a, "리뷰어", "다섯 다리째 턴에서", shallow);
-    ok(t.depthOf(t.b.id, first.id!) === 6,
-       `★ **6다리째다** (${t.depthOf(t.b.id, first.id!)}) — 항목에 1 이라 적혀 있어도 턴이 이긴다`);
+    const deep = t.plant(t.a, t.b, 5);
+    const out = await t.say(t.a, "테스터", "다섯 다리짜리에 반응해서", deep);
+    ok(t.depthOf(t.c.id, out.id!) === 6,
+       `★ **6다리째다** (${t.depthOf(t.c.id, out.id!)}) — 고른 것이 5 였으니까`);
     t.mgr.dispose();
   }
 
@@ -290,7 +300,64 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 끼어드는 사이에도 돌던 사슬은 제 깊이를 들고 간다]`);
+  console.log(`${NL}[🔴 사용자가 말을 걸어도 **그 봇이 들고 있던 깊은 사슬**은 안 되살아난다]`);
+  {
+    /*
+     * 🔴 **한 턴에 사용자 말과 밀린 깊은 항목이 같이 실릴 수 있다.** 그때
+     * 턴을 0 으로 내리면 그 깊은 사슬의 답까지 1다리째가 되어, **사용자가
+     * 그 봇에게 한 마디만 하면 돌던 사슬이 통째로 되살아난다.**
+     *
+     * 사용자 말은 «깊이 0 짜리 항목이 하나 더 온 것»이다 — 그래서 둘 중
+     * **깊은 쪽**을 쓰면 저절로 맞는다.
+     */
+    const t = await make(3); dirs.push(t.dir);
+    const deep = t.plant(t.b, t.a, 8);   // 리뷰어가 들고 있던 8다리짜리
+
+    await t.mgr.send(t.room.id, "리뷰어야 이것도 봐줘", undefined, t.b.id);
+    await t.settle();
+
+    // ① 사용자가 시킨 일로 새로 거는 것은 **1다리째** — 막히면 안 된다
+    const fresh = await t.say(t.b, "구현", "사용자가 시킨 건데");
+    ok(fresh.ok && t.depthOf(t.a.id, fresh.id!) === 1,
+       `★ **새 가닥은 1다리째** (${t.depthOf(t.a.id, fresh.id!)}) — 사용자가 방금 말했으니까`);
+
+    // ② 그런데 8다리짜리에 답하는 것은 **9다리째** — 상한 3 에 걸린다
+    const old8 = await t.say(t.b, "구현", "아까 그거 말인데", deep);
+    ok(!old8.ok && (old8.reason ?? "").includes("9다리째"),
+       `★ 🔴 **옛 사슬은 그대로 깊다** (${old8.reason}) — 한 마디로 안 되살아난다`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[🔴 같은 항목을 영구 발판으로 못 쓴다 — 쓰면 올라간다]`);
+  {
+    /*
+     * 🔴 **항목은 임자에게 보내야 닫힌다.** 제3자에게 넘기면 열린 채로 남고,
+     * 깊이를 «온 거리»로만 읽으면 그 하나를 **영구 발판**으로 쓸 수 있다:
+     *
+     * ```
+     * A → C (id=x1)  2다리 · x1 은 안 닫힌다
+     * C → A          3다리
+     * A → C (id=x1)  **또 2다리**     … 2·3·2·3 으로 영영
+     * ```
+     *
+     * 항목의 깊이를 **«이 가닥이 지금까지 온 거리»** 로 읽으면 막힌다.
+     */
+    const t = await make(12); dirs.push(t.dir);
+    // 구현이 베타에게서 받은 1다리짜리 — **제3자(감마)에게 넘기면 안 닫힌다**
+    const foot = t.plant(t.a, t.c, 1);
+
+    const one = await t.say(t.a, "리뷰어", "첫 번째 위임", foot);
+    ok(t.depthOf(t.b.id, one.id!) === 2, `★ 처음엔 2다리째 (${t.depthOf(t.b.id, one.id!)})`);
+    ok(t.inner.queue.find(t.a.id, foot) !== undefined,
+       "★ 전제: 제3자에게 넘겼으니 그 항목은 **열린 채**다");
+
+    const two = await t.say(t.a, "리뷰어", "같은 걸 또 집어서", foot);
+    ok(t.depthOf(t.b.id, two.id!) === 3,
+       `★ **또 집으면 3다리째** (${t.depthOf(t.b.id, two.id!)}) — 쓸 때마다 올라가 발판이 안 된다`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 남의 사슬은 끼어들어도 안 풀린다]`);
   {
     /*
      * 🔴 **두 가지가 여기서 깨졌었다:**
