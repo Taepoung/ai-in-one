@@ -2337,19 +2337,6 @@ export class RoomManager extends EventEmitter<Events> {
       return;
     }
 
-    /*
-     * ★ **사용자가 말을 걸면 거리가 0 부터 다시** (v3.0 4-L).
-     *
-     * 상한이 세는 것은 «사람이 **안 보는** 구간»이다. 말을 거는 것이 곧
-     * «이제 내가 본다»이니, **그 순간 구간이 새로 시작된다.**
-     *
-     * 🔴 **밀린 항목까지 되돌려야 한다.** 턴의 깊이는 큐에 실린 것에서
-     * 나오므로, 항목에 8 이 적힌 채로 두면 **끼어들어도 다음 턴이 또 8 에서**
-     * 시작한다. 그리고 항목은 **답해야** 빠지므로, 아무도 답 안 한 옛 항목
-     * 하나가 그 봇의 깊이를 **영구히** 올려놓는다.
-     */
-    this.queue.resetDepth(room.participants.map((b) => b.id));
-
     // 보냈으니 초안은 비운다
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -2449,19 +2436,6 @@ export class RoomManager extends EventEmitter<Events> {
       await this.holdBack(room, tokens, attachments, busy);
       return parsed;
     }
-
-    /*
-     * ★ **사용자가 말을 걸면 거리가 0 부터 다시** (v3.0 4-L).
-     *
-     * 상한이 세는 것은 «사람이 **안 보는** 구간»이다. 말을 거는 것이 곧
-     * «이제 내가 본다»이니, **그 순간 구간이 새로 시작된다.**
-     *
-     * 🔴 **밀린 항목까지 되돌려야 한다.** 턴의 깊이는 큐에 실린 것에서
-     * 나오므로, 항목에 8 이 적힌 채로 두면 **끼어들어도 다음 턴이 또 8 에서**
-     * 시작한다. 그리고 항목은 **답해야** 빠지므로, 아무도 답 안 한 옛 항목
-     * 하나가 그 봇의 깊이를 **영구히** 올려놓는다.
-     */
-    this.queue.resetDepth(room.participants.map((b) => b.id));
 
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -3307,21 +3281,23 @@ export class RoomManager extends EventEmitter<Events> {
      * **프롬프트를 짓기 직전이어야 한다.** 세는 자리와 떼는 자리가 갈리면
      * 프롬프트에 적힌 수와 `check_queue` 가 주는 수가 어긋난다.
      */
-    this.queue.startTurn(bot.id);
+    const incoming = this.queue.startTurn(bot.id);
     /*
      * ★ **이 턴이 몇 다리 건너온 것인가** (v3.0 4-L).
      *
-     * 사용자가 연 턴은 0 이고, 큐가 깨운 턴은 **실린 것 중 가장 깊은 값**이다.
-     * 가장 깊은 쪽을 고르는 것은 **넘치는 쪽으로 틀리기** 위해서다 — 모자라게
-     * 세면 고리가 한 바퀴 더 돈다.
+     * 사용자가 연 턴은 0 이고, 큐가 깨운 턴은 **이 턴을 연 것**의 깊이다
+     * (`startTurn` 이 돌려준다). 몫 전체로 재면 **답 안 한 옛 항목**이 섞여
+     * 다른 사슬이 서로를 오염시킨다.
+     *
+     * ★ **그래서 끼어들기에 아무 손도 안 댄다.** 사용자가 말을 걸면 그 봇은
+     * 0 에서 시작하고, 거기서 뻗는 가지는 1·2·3… 으로 **저절로** 다시 센다.
+     * 돌던 옛 사슬은 제 깊이를 그대로 들고 가다 상한에서 멈춘다 — 그게 맞다.
      *
      * 🔴 **인자가 아니라 턴에 붙인다.** 모델이 «사용자 때문»이라고 적는 것을
      * 믿으면 그 한 줄로 규칙이 통째로 빠져나간다. 우리가 아는 것을 쓴다.
      */
     bt.fromUser = batch.some((m) => m.role === "user");
-    bt.depth = bt.fromUser
-      ? 0
-      : Math.max(0, ...this.queue.pending(bot.id).map((i) => (i.kind === "message" ? i.depth : 0)));
+    bt.depth = bt.fromUser ? 0 : (incoming || bt.depth || 0);
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
 

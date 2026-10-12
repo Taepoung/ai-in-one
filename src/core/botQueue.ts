@@ -146,10 +146,25 @@ export class BotQueue {
    *
    * 떼어내면 도중에 온 것은 **다음 턴**에 간다. 그 턴은 넣는 쪽이 깨운다.
    */
-  startTurn(owner: string): void {
+  startTurn(owner: string): number {
     const lane = this.lane(owner);
+    /*
+     * ★ **방금 들어온 것 중 가장 깊은 값을 돌려준다** (v3.0 4-L).
+     *
+     * 🔴 **이번에 온 것만 본다.** 몫 전체(`share`)로 재면 **답 안 한 옛 항목**이
+     * 섞인다 — 항목은 답해야 빠지므로, 아무도 답 안 한 8다리짜리 하나가 그
+     * 봇의 깊이를 **영구히** 8 로 올려놓는다. 사용자가 새 대화를 시작해도
+     * 상한 근처에서 출발하고, 눈에는 «갑자기 봇들이 말을 못 건다» 로만 보인다.
+     *
+     * **이 턴을 연 것이 이 턴의 깊이다.** 다른 사슬이 섞이지 않는다.
+     */
+    let deepest = 0;
+    for (const item of lane.next) {
+      if (item.kind === "message" && item.depth > deepest) deepest = item.depth;
+    }
     lane.share = [...lane.share, ...lane.next];
     lane.next = [];
+    return deepest;
   }
 
   /**
@@ -195,34 +210,6 @@ export class BotQueue {
       if (at >= 0) return list.splice(at, 1)[0];
     }
     return undefined;
-  }
-
-  /**
-   * ★ **사용자가 말을 걸었다 — 지금까지의 거리를 0 으로 되돌린다** (v3.0 4-L).
-   *
-   * 🔴 **안 되돌리면 두 가지가 깨진다:**
-   *
-   * ```
-   * ① 끼어들어도 안 풀린다   8다리째에서 사용자가 말을 걸어도 항목에 8 이
-   *                        적혀 있어 다음 턴이 또 8 에서 시작한다
-   * ② 답 안 한 것이 영영 남는다  항목은 **답해야** 빠지는데, 아무도 답 안 한
-   *                        옛 항목 하나가 그 봇의 깊이를 **영구히** 올려놓는다
-   * ```
-   *
-   * ②가 특히 고약하다 — 한 번 깊어진 방은 **새 대화를 시작해도** 상한 근처에서
-   * 출발한다. 사용자 눈에는 «갑자기 봇들이 말을 못 건다» 로만 보인다.
-   *
-   * **버리지 않고 0 으로 만든다.** 할 말은 그대로 두고 **거리만** 되돌린다 —
-   * 세는 것이 «사람이 안 보는 구간»이고, 지금 사람이 왔기 때문이다.
-   */
-  resetDepth(owners: string[]): void {
-    for (const owner of owners) {
-      const lane = this.lanes.get(owner);
-      if (!lane) continue;
-      for (const list of [lane.share, lane.next]) {
-        for (const item of list) if (item.kind === "message") item.depth = 0;
-      }
-    }
   }
 
   /** 그 봇이 아직 답 안 한 것들 — 이번 몫과 다음 몫을 합쳐서 */

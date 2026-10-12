@@ -262,7 +262,35 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[🔴 사용자가 끼어들면 거리가 0 부터 다시 — 밀린 것까지]`);
+  console.log(`${NL}[🔴 답 안 한 옛 항목이 다른 사슬을 오염시키지 않는다]`);
+  {
+    /*
+     * 🔴 **항목은 답해야 빠진다.** 턴의 깊이를 «몫 전체의 max» 로 재면, 아무도
+     * 답 안 한 8다리짜리 하나가 그 봇의 깊이를 **영구히** 8 로 올려놓는다 —
+     * 사용자가 새 대화를 시작해도 상한 근처에서 출발하고, 눈에는 «갑자기
+     * 봇들이 말을 못 건다» 로만 보인다.
+     *
+     * **이 턴을 연 것이 이 턴의 깊이다.** 그래서 끼어들기에 손댈 것이 없다 —
+     * 사용자가 말을 걸면 그 봇은 0 에서 시작하고, 거기서 뻗는 가지는 1·2·3…
+     * 으로 저절로 다시 센다.
+     */
+    const t = await make(3); dirs.push(t.dir);
+    t.plant(t.b, t.a, 8);   // 아무도 답 안 한 옛 항목
+    ok(t.inner.queue.pending(t.b.id).length === 1, "★ 전제: 답 안 한 8다리짜리가 있다");
+
+    await t.mgr.send(t.room.id, "그거 말고 이거 해줘", undefined, t.b.id);
+    await t.settle();
+    ok(t.inner.queue.pending(t.b.id).length === 1,
+       "★ **옛 항목은 그대로 남는다** — 거리를 고치려고 할 말을 건드리지 않는다");
+
+    const out = await t.say(t.b, "구현", "이제 물어볼게");
+    ok(out.ok, `★ **그래도 새 대화는 간다** (${JSON.stringify(out)})`);
+    ok(t.depthOf(t.a.id, out.id!) === 1,
+       `★ 1다리째부터 (${t.depthOf(t.a.id, out.id!)}) — 옛 사슬이 안 섞인다`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 끼어드는 사이에도 돌던 사슬은 제 깊이를 들고 간다]`);
   {
     /*
      * 🔴 **두 가지가 여기서 깨졌었다:**
@@ -277,23 +305,23 @@ async function main(): Promise<void> {
      *
      * ②는 사용자 눈에 «갑자기 봇들이 말을 못 건다» 로만 보인다.
      */
+    /*
+     * ★ **사용자가 끼어들어도 돌던 사슬은 안 풀린다** — 그게 맞다.
+     *
+     * 상한이 재는 것은 «이 사슬이 사용자에게서 얼마나 멀어졌나»다. 사용자가
+     * **다른 봇에게** 한 마디 했다고 그 사슬이 사용자에게 가까워진 것은 아니다.
+     * 풀고 싶으면 **그 사슬의 봇에게** 말을 걸면 된다 — 그러면 그 봇이 0 이다.
+     */
     const t = await make(3); dirs.push(t.dir);
-    // 아무도 답 안 한 옛 항목 — 깊이 8
-    t.plant(t.b, t.a, 8);
-    ok(t.inner.queue.pending(t.b.id).length === 1, "★ 전제: 답 안 한 옛 항목이 하나 있다");
+    t.standAt(t.a, 3);   // 구현은 3다리째 사슬을 돌고 있다
+    const held = t.plant(t.a, t.b, 3);
 
-    await t.mgr.send(t.room.id, "그거 말고 이거 해줘", undefined, t.b.id);
+    // 사용자가 **리뷰어에게** 끼어든다
+    await t.mgr.send(t.room.id, "리뷰어야 이거 봐줘", undefined, t.b.id);
     await t.settle();
 
-    const still = t.inner.queue.pending(t.b.id)
-      .map((i) => (i.kind === "message" ? i.depth : -1));
-    ok(still.every((d) => d === 0),
-       `★ **밀린 항목의 거리도 0 이 된다** (${JSON.stringify(still)}) — 할 말은 그대로 두고 거리만`);
-
-    // 그러니 리뷰어는 다시 1다리째부터 걸 수 있다
-    const out = await t.say(t.b, "구현", "이제 물어볼게");
-    ok(out.ok, `★ **끼어든 뒤에는 다시 간다** (${JSON.stringify(out)})`);
-    ok(t.depthOf(t.a.id, out.id!) === 1, `★ 1다리째부터 (${t.depthOf(t.a.id, out.id!)})`);
+    const deep = await t.say(t.a, "리뷰어", "사슬을 이어서", held);
+    ok(!deep.ok, `★ **구현의 사슬은 여전히 막혀 있다** (${deep.reason})`);
     t.mgr.dispose();
   }
 
