@@ -10,7 +10,7 @@ import {
 } from "./acpConnection.js";
 import type { McpResult, McpServer, McpState, McpTool } from "./mcpServer.js";
 import type { RoomLocks } from "./roomLock.js";
-import { BotQueue, type QueueItem, type QueueMessage } from "./botQueue.js";
+import { BotQueue, type QueueItem } from "./botQueue.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -5023,22 +5023,27 @@ export class RoomManager extends EventEmitter<Events> {
     return [{
       name: "say",
       description:
-        "방의 다른 봇에게 **말을 보낸다.** `to` 는 봇 이름이다.\n" +
-        "★ **보내고 바로 돌아온다 — 답을 기다리지 않는다.** 상대가 답하면 " +
-        "나중에 check_queue 로 들어오고, **안 올 수도 있다.** 그러니 보내놓고 " +
-        "기다리지 말고 네 일을 계속하거나 사용자에게 말해라.\n" +
+        "방의 다른 봇들에게 **말을 보낸다.** `to` 는 봇 이름 목록이다 — " +
+        "한 명이든 여럿이든 된다.\n" +
+        "★ **전송이지 왕복이 아니다.** 보내고 바로 돌아온다. 받은 봇이 나중에 " +
+        "반응하면 check_queue 로 들어오고, **안 할 수도 있다.** 기다리지 말고 " +
+        "네 일을 계속하거나 사용자에게 말해라.\n" +
         "★ **할 말은 반드시 `text` 에 넣어라** — 산문에만 쓰면 상대에게 안 간다.\n" +
-        "`id` 에는 **무엇에 대한 반응인지**를 적는다. 빠뜨릴 수 없다:\n" +
+        "`id` 에는 **무엇에 반응해서 보내는지**를 적는다. 빠뜨릴 수 없다:\n" +
         "  · 사용자가 방금 한 말 때문이면 \"0\" — 사용자가 연 턴에서만 쓸 수 있다\n" +
         "  · 다른 봇의 말 때문이면 check_queue 가 준 id 를 그대로\n" +
-        "`to` 가 그 항목을 보낸 봇이면 **답**이 되어 그 항목이 닫히고, " +
-        "다른 봇이면 그 항목은 열린 채로 그쪽에 새 가닥이 열린다.\n" +
-        "이 방에 설정된 바에 따라 사용자의 승인을 받거나, 주고받는 횟수가 " +
-        "사용자에게서 너무 멀어지면 거절된다. 거절되면 사용자에게 직접 말해라.",
+        "★ **반응하면 그 항목은 닫힌다** — 받는 이가 누구든. 들고 있어도 " +
+        "그 턴에서 더 할 수 있는 것이 없다.\n" +
+        "이 방에 설정된 바에 따라 사용자의 승인을 받거나, 사용자에게서 너무 " +
+        "멀어지면 거절된다. 거절되면 사용자에게 직접 말해라.",
       inputSchema: {
         type: "object",
         properties: {
-          to: { type: "string", description: "받을 봇의 이름" },
+          to: {
+            type: "array",
+            items: { type: "string" },
+            description: "받을 봇들의 이름. 한 명이면 하나만 넣는다",
+          },
           text: { type: "string", description: "할 말" },
           id: {
             type: "string",
@@ -5098,9 +5103,19 @@ export class RoomManager extends EventEmitter<Events> {
        * 🔴 **모양이 안 맞으면 지어내지 않는다** — `verdict` 와 같은 줄이다.
        * `to` 를 넘겨짚으면 **엉뚱한 봇에게 간다**, 그리고 그건 §4.1.1 이다.
        */
-      if (typeof a.to !== "string" || typeof a.text !== "string" || !a.text.trim()) {
+      /*
+       * ⚠️ **글자 하나도 받아준다.** `"리뷰어"` 를 `["리뷰어"]` 로 읽는 것은
+       * 넘겨짚는 것이 아니라 **좁은 모양을 넓은 모양에 담는 것**이라 뜻이
+       * 안 갈린다.
+       */
+      const to = typeof a.to === "string"
+        ? [a.to]
+        : Array.isArray(a.to) && a.to.every((x) => typeof x === "string")
+          ? (a.to as string[])
+          : undefined;
+      if (!to || to.length === 0 || typeof a.text !== "string" || !a.text.trim()) {
         return {
-          text: "say 에는 `to`(봇 이름)와 `text`(할 말)가 있어야 합니다.",
+          text: "say 에는 `to`(봇 이름 목록)와 `text`(할 말)가 있어야 합니다.",
           isError: true,
         };
       }
@@ -5118,7 +5133,7 @@ export class RoomManager extends EventEmitter<Events> {
           isError: true,
         };
       }
-      return await this.relaySay(roomId, botId, a.to, a.text, a.id);
+      return await this.relaySay(roomId, botId, to, a.text, a.id);
     }
     if (tool === "check_queue") {
       /*
@@ -5206,7 +5221,7 @@ export class RoomManager extends EventEmitter<Events> {
   private async relaySay(
     roomId: string,
     fromId: string,
-    to: string,
+    to: string[],
     rawText: string,
     id: string,
   ): Promise<McpResult> {
@@ -5230,77 +5245,51 @@ export class RoomManager extends EventEmitter<Events> {
       }),
     });
 
-    const want = botKey(to);
-    const hit = room.participants.filter((b) => botKey(b.name) === want);
-    if (hit.length > 1) {
-      return no(`«${to}» 라는 이름의 봇이 둘입니다. 이름을 바꿔야 부를 수 있습니다.`);
+    /*
+     * ★ **여러 명에게 한 번에 보낸다** (v3.0 4-J).
+     *
+     * 🔴 **하나라도 못 찾으면 통째로 거절한다.** 되는 것만 보내면 «반만 갔다»가
+     * 되고, 그걸 알리려면 결과에 갈래가 또 생긴다 — 이름이 틀렸을 때와
+     * **똑같은 모양**(거절 + 목록)으로 끝내는 편이 낫다.
+     */
+    const targets: BotInstance[] = [];
+    for (const one of to) {
+      const want = botKey(one);
+      const hit = room.participants.filter((b) => botKey(b.name) === want);
+      if (hit.length > 1) {
+        return no(`«${one}» 라는 이름의 봇이 둘입니다. 이름을 바꿔야 부를 수 있습니다.`);
+      }
+      const found = hit[0];
+      if (!found) return no(`«${one}» 는 이 방에 없습니다.`);
+      // 자기에게 거는 것은 말 걸기가 아니라 **혼잣말**이고, 턴만 하나 더 쓴다
+      if (found.id === fromId) return no("자기 자신에게는 말을 걸 수 없습니다.");
+      if (!targets.some((b) => b.id === found.id)) targets.push(found);
     }
-    const target = hit[0];
-    if (!target) return no(`«${to}» 는 이 방에 없습니다.`);
-    // 자기에게 거는 것은 말 걸기가 아니라 **혼잣말**이고, 턴만 하나 더 쓴다
-    if (target.id === fromId) return no("자기 자신에게는 말을 걸 수 없습니다.");
+    if (targets.length === 0) return no("받을 봇을 한 명 이상 적어야 합니다.");
 
     const text = rawText.trim();
 
     /*
-     * ★ **답인가, 새로 거는 것인가** — 가르는 것은 도구 이름이 아니라
-     * «받는 이가 그 가닥의 임자인가» 다.
-     */
-    /*
-     * ★ **모든 `say` 는 «무엇에 대한 반응인가»를 들고 온다** (v3.0 4-L).
+     * ★ **`id` 는 답장이 아니라 «무엇에 반응했나»다** (v3.0 4-J).
      *
-     * ```
-     * id = "0"      사용자가 방금 한 말 때문에   ← 사용자가 연 턴에서만
-     * id = "x7"     큐 항목 때문에
-     *                 to 가 그 항목의 임자  → **답**. 항목이 닫힌다
-     *                 to 가 제3자          → 위임. 항목은 열린 채
-     * ```
+     * 받는 이가 누구든 — 임자든 제3자든 — **반응했으면 그 항목은 닫힌다.**
      *
-     * ⏪ 전에는 **`id` 가 없는 것**이 «새로 거는 것»이었다. 그러면 뜻을
-     * **없는 것으로** 만드는 꼴이라 «빠뜨린 것»과 구별이 안 되고, 갈래가 둘로
-     * 늘었다. 자리를 하나 주니 갈래가 하나가 된다.
+     * ⏪ 한때 *"임자에게 보냈을 때만 닫는다"* 고 적었다. **열어둘 수가 없다:**
+     * 열어두는 뜻은 «이 가닥을 아직 들고 있다, 답을 기다린다» 인데, 턴이
+     * 시작될 때 큐를 **스냅샷으로 떼어내므로**(2-H) 그 턴 안에서 기다릴 길이
+     * 없다. 다음 턴에 **같은 것을 또 보는 것**뿐이고, 그때 새로 아는 것도 없다.
+     *
+     * 🔴 **그리고 안 닫으면 영구 발판이 된다.** 제3자에게 넘긴 뒤 그 항목을
+     * 계속 가리키면 깊이가 2·3·2·3 으로 영영 돈다 — 한 번 쓰면 사라지니
+     * 그 길이 통째로 막힌다.
      */
+    const bt = this.botRuntime(room.id, fromId);
     let about: string | undefined;
     let answering: string | undefined;
-    const bt = this.botRuntime(room.id, fromId);
-    /*
-     * ★ **몇 다리째인가 — 고른 것에서 하나 더** (v3.0 4-L).
-     *
-     * ```
-     * id "0"   사용자 말에 대한 반응 → 사용자 말이 0 이니 **1다리째**
-     * id "x8"  그 항목에 대한 반응   → **9다리째**
-     * ```
-     *
-     * ★ **턴이 아니라 «고른 것»에서 온다.** 한 턴에 사용자 말과 밀려 있던 깊은
-     * 항목이 **같이** 실릴 수 있다(항목은 답해야 빠지므로). 턴 하나에 깊이를
-     * 하나만 두면 둘 중 하나가 샌다:
-     *
-     * ```
-     * 턴 = 0 (사용자 기준)    8다리 사슬의 답도 1다리째 → **한 마디로 되살아난다**
-     * 턴 = 8 (밀린 것 기준)   방금 시킨 일도 9다리째   → **새 일이 막힌다**
-     * ```
-     *
-     * 반응한 것에서 세면 **둘 다 맞는다.**
-     */
     /** 고른 것의 깊이 — «0» 은 사용자 말이라 0 이다 */
     let from = 0;
-    /**
-     * ★ **쓰면 올린다** (4-L).
-     *
-     * 🔴 **항목은 임자에게 보내야 닫힌다.** 제3자에게 넘기면(위임) 열린 채로
-     * 남고, 그러면 **그 하나를 영구 발판으로** 쓸 수 있다:
-     *
-     * ```
-     * A 의 큐에 x1(1다리) 이 열린 채
-     * A → C (id=x1)  2다리 · x1 은 안 닫힌다
-     * C → A          3다리
-     * A → C (id=x1)  **또 2다리**        … 2·3·2·3 으로 영영
-     * ```
-     *
-     * 항목의 깊이를 «온 거리»가 아니라 **«이 가닥이 지금까지 온 거리»** 로
-     * 읽으면 그 길이 막힌다 — 쓸 때마다 올라가므로 발판이 안 된다.
-     */
-    let bump: QueueMessage | undefined;
+    /** 그 항목의 임자 — **그 봇에게 가는 몫에만** 인용을 붙인다 */
+    let owner: string | undefined;
 
     if (id === USER_TURN_ID) {
       /*
@@ -5335,15 +5324,13 @@ export class RoomManager extends EventEmitter<Events> {
         return { text: `«${id}» 는 권한 요청입니다. verdict 로 답하세요.`, isError: true };
       }
       from = item.depth;
-      bump = item;
-      if (item.fromId === target.id) {
-        answering = item.id;
-        /*
-         * **인용은 임자에게 돌려줄 때만 괜찮다** — A 가 제 질문을 다시 보는
-         * 것이라 새는 것이 없다. 제3자에게 갈 때는 `about` 을 안 만든다.
-         */
-        about = quoteAsk(item.text);
-      }
+      answering = item.id;
+      owner = item.fromId;
+      /*
+       * **인용은 임자에게 돌려줄 때만 만든다** — 제 질문을 다시 보는 것이라
+       * 새는 것이 없다. 제3자에게 갈 몫에는 안 붙는다(§4.1.1).
+       */
+      if (targets.some((b) => b.id === item.fromId)) about = quoteAsk(item.text);
     }
 
     const depth = from + 1;
@@ -5368,7 +5355,7 @@ export class RoomManager extends EventEmitter<Events> {
       );
     }
     // ── 문 ③ 승인 — «물어봄» 은 **답까지 전부** 묻는다 ───────────
-    if (mode === "ask" && !(await this.askRelay(me, target, text, depth))) {
+    if (mode === "ask" && !(await this.askRelay(me, targets, text, depth))) {
       return no("사용자가 이 호출을 허락하지 않았습니다.");
     }
     /*
@@ -5376,24 +5363,27 @@ export class RoomManager extends EventEmitter<Events> {
      * 그동안 받는 봇이 나가거나 전체 중지가 돌 수 있다 — 깨어난 뒤에 **다시
      * 본다.** 안 보면 떠난 봇의 큐에 넣고 아무도 안 꺼낸다.
      */
-    if (!room.participants.some((b) => b.id === target.id)) {
-      return no(`${target.name}은(는) 그사이 방을 떠났습니다.`);
+    const gone = targets.filter((b) => !room.participants.some((p) => p.id === b.id));
+    if (gone.length > 0) {
+      return no(`${gone.map((b) => b.name).join("·")}은(는) 그사이 방을 떠났습니다.`);
     }
 
-    // ★ **문을 다 지난 뒤에 올린다** — 거절된 호출은 가닥을 안 움직였다
-    if (bump) bump.depth = depth;
-    // 답이면 **여기서 공이 넘어간다** — 임자에게 보냈을 때만 닫힌다
+    // ★ **반응했으면 닫힌다** — 받는 이가 임자든 아니든 (위 주석)
     if (answering) this.queue.answer(fromId, answering);
 
-    const qid = this.queue.put({
-      kind: "message",
-      to: target.id,
-      from: me.name,
-      fromId: me.id,
-      text,
-      depth,
-      ...(about ? { about } : {}),
-    });
+    const sent = targets.map((target) => ({
+      to: target.name,
+      id: this.queue.put({
+        kind: "message",
+        to: target.id,
+        from: me.name,
+        fromId: me.id,
+        text,
+        depth,
+        // 인용은 **임자에게 가는 몫에만** — 제3자에게 붙이면 §4.1.1 이 샌다
+        ...(about && target.id === owner ? { about } : {}),
+      }),
+    }));
 
     /*
      * ★ **말풍선이다** (§7 · v3.0 4-14).
@@ -5409,7 +5399,7 @@ export class RoomManager extends EventEmitter<Events> {
       role: "agent",
       authorBotId: me.id,
       text,
-      deliveredTo: [target.id],
+      deliveredTo: targets.map((b) => b.id),
       createdAt: Date.now(),
     };
     /*
@@ -5427,11 +5417,11 @@ export class RoomManager extends EventEmitter<Events> {
     await this.saveNewMessage(room, bubble);
 
     // ★ **넣는 쪽이 깨운다.** 놀고 있으면 지금, 바쁘면 그 턴이 끝날 때
-    this.maybeWake(room, target.id);
+    for (const target of targets) this.maybeWake(room, target.id);
 
     return {
       text: JSON.stringify({
-        ok: true, to: target.name, id: qid, queue_left: this.queue.shareLeft(fromId),
+        ok: true, sent, queue_left: this.queue.shareLeft(fromId),
       }),
     };
   }
@@ -5448,13 +5438,15 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private async askRelay(
     from: BotInstance,
-    to: BotInstance,
+    to: BotInstance[],
     text: string,
     depth: number,
   ): Promise<boolean> {
     const decided = await this.opts.host.requestPermission({
-      // **몇 다리째인지 제목에 적는다** — 길어지는 것이 눈에 보여야 끊을 수 있다
-      title: `${from.name} → ${to.name}${depth > 1 ? ` (${depth}다리째)` : ""}`,
+      // **몇 다리째인지, 몇 명에게인지 제목에 적는다** — 눈에 보여야 끊을 수 있다
+      title:
+        `${from.name} → ${to.map((b) => b.name).join("·")}` +
+        (depth > 1 ? ` (${depth}다리째)` : ""),
       askerBotId: from.id,
       readOnly: false,
       kind: "other",

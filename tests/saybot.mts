@@ -32,11 +32,13 @@ interface SayOut {
   ok: boolean;
   reason?: string;
   can_call?: string[];
-  to?: string;
-  id?: string;
-  left: number;
+  sent?: Array<{ to: string; id: string }>;
+  queue_left: number;
   items?: Array<{ id: string }>;
 }
+
+/** 첫 수신자에게 간 몫의 id */
+const firstId = (o: SayOut) => o.sent?.[0]?.id;
 
 async function make(hold = 60) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-say-"));
@@ -252,8 +254,9 @@ async function main(): Promise<void> {
        `★ 🔴 **인용이 안 간다** (${JSON.stringify(toGamma.items[0]?.about)}) — 그건 베타의 사정이다`);
     ok(!JSON.stringify(toGamma.items).includes("hunter2"),
        "★ 🔴 **알파가 쓴 글이 감마에게 한 글자도 안 간다** (§4.1.1)");
-    ok(t.inner.queue.find(t.b.id, id) !== undefined,
-       "★ **앞 항목은 열린 채다** — 임자에게 보냈을 때만 닫힌다");
+    ok(t.inner.queue.find(t.b.id, id) === undefined,
+       "★ **반응했으니 닫힌다** — 받는 이가 제3자여도. 들고 있어 봐야 " +
+         "큐는 턴 시작에 떼어낸 스냅샷이라 그 턴에서 기다릴 수가 없다");
 
     ok(bubbles(t.room, t.b.id, t.c.id).length === 1, "★ 감마에게 간 말풍선은 있다");
     ok(bubbles(t.room, t.b.id, t.c.id)[0]!.text === "이 부분 네가 짰지?",
