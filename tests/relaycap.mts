@@ -1,24 +1,25 @@
 /**
- * **세 칸과 깊이 상한** (v3.0 4-L).
+ * **세 칸과 주고받기 상한** (v3.0 4-L).
  *
  * ```
  * 끄기        대화 기능 off — **답도 포함**
  * 승인        say 마다 승인 카드 — **답도 포함.** 그래서 상한이 할 일이 없다
- * 무조건 허용  자유. 대신 **깊이 상한**
+ * 무조건 허용  자유. 대신 **주고받는 횟수** 상한
  * ```
  *
- * 깊이는 «사용자에게서 몇 다리째인가» 다:
+ * **세는 것이 곧 턴이고 돈이다** — 큐에 한 줄 들어가면 상대가 깨어나 한 턴을
+ * 돈다. 사용자가 말을 걸면 0 부터 다시 센다.
+ *
+ * 🔴 **`say` 를 부르는 순간 센다.** 그래야 넘칠 때 **그 자리에서 거절**된다 —
+ * 카드도, 큐 비우기도, «더 갈까요»도 필요 없다. 턴이 열리는 자리에서 막으면
+ * 셋 다 필요해진다(그렇게 지었다가 걷어냈다).
+ *
+ * 그리고 **모든 `say` 는 «무엇에 대한 반응인가»를 들고 온다**:
  *
  * ```
- * 0  사용자 메시지
- * 1  그 메시지에 반응해서 봇이 거는 말
- * 2  1 에 반응해서 거는 말 — **답도 반응이다**
+ * id = "0"   사용자가 방금 한 말 때문에   ← 사용자가 연 턴에서만
+ * id = "x7"  큐 항목 때문에
  * ```
- *
- * 🔴 **깊이로 고른 까닭은 «언제 아느냐»다.** 턴 수는 **이미 일어난 일**이라
- * 막으려면 턴이 열리는 자리에서 사람을 불러 세워야 했다 — 카드가 뜨고, 큐를
- * 비우고, «더 갈까요»가 생겼다. 깊이는 `say` 를 **부르는 그 순간** 알 수 있어서
- * **그 자리에서 거절**된다. 그래서 그 셋이 통째로 없어졌다.
  */
 import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
@@ -68,11 +69,12 @@ async function make(cap: number) {
     title: "깊이", bots: [{ agentId: "alpha", name: "구현" }, { agentId: "beta", name: "리뷰어" }],
   });
   room.relay = "always";
-  room.depthCap = cap;
+  room.relayCap = cap;
   const [a, b] = room.participants as [typeof room.participants[0], typeof room.participants[0]];
   const inner = mgr as unknown as {
     queue: BotQueue;
-    botRuntime(roomId: string, botId: string): { depth?: number };
+    runtimes: Map<string, { relayed: number }>;
+    botRuntime(roomId: string, botId: string): { fromUser?: boolean };
   };
 
   const settle = async () => {
@@ -86,87 +88,121 @@ async function make(cap: number) {
     for (let i = 0; i < 1200; i++) { if (cond()) return; await nap(25); }
     throw new Error("FAIL: 전제가 안 섰다 — " + what);
   };
-  /** 그 봇이 하듯 — 지금 제 턴의 깊이에서 한 다리 더 건다 */
+  /** 그 봇이 하듯 — `id` 를 안 주면 «사용자가 방금 한 말 때문에» 다 */
   const say = async (
-    from: { id: string }, to: string, text: string, id?: string,
+    from: { id: string }, to: string, text: string, id = "0",
   ): Promise<SayOut> => {
-    const out = await mgr.mcpCall(`${room.id}:${from.id}`, "say", { to, text, ...(id ? { id } : {}) });
+    const out = await mgr.mcpCall(`${room.id}:${from.id}`, "say", { to, text, id });
     return out.isError ? { ok: false, reason: out.text } : JSON.parse(out.text) as SayOut;
   };
-  /** 「이 봇은 지금 N다리째 턴을 돌고 있다」를 세워둔다 */
-  const standAt = (bot: { id: string }, depth: number) => {
-    inner.botRuntime(room.id, bot.id).depth = depth;
+  /** 「이 턴을 사용자가 열었다/안 열었다」를 세워둔다 — 진짜로는 `runQueue` 가 한다 */
+  const openedBy = (bot: { id: string }, user: boolean) => {
+    inner.botRuntime(room.id, bot.id).fromUser = user;
   };
-  const depthOf = (botId: string, qid: string) => {
-    const item = inner.queue.find(botId, qid);
-    return item && item.kind === "message" ? item.depth : undefined;
+  /** 지금까지 몇 번 주고받았나 */
+  const relayed = () => inner.runtimes.get(room.id)?.relayed ?? 0;
+  const bump = (n: number) => {
+    const rt = inner.runtimes.get(room.id);
+    if (rt) rt.relayed = n;
   };
-  return { dir, mgr, room, a, b, cards, inner, settle, until, say, standAt, depthOf };
+  return { dir, mgr, room, a, b, cards, inner, settle, until, say, openedBy, relayed, bump };
 }
 
 async function main(): Promise<void> {
   const dirs: string[] = [];
 
-  console.log(`${NL}[★ 깊이는 턴에서 온다 — 사용자 턴이 0, 거기서 건 말이 1]`);
+  console.log(`${NL}[★ 주고받을 때마다 센다 — 사용자가 말하면 0]`);
   {
     const t = await make(12); dirs.push(t.dir);
-    await t.mgr.send(t.room.id, "안녕", undefined, t.a.id);
+    t.openedBy(t.a, true);
+    await t.say(t.a, "리뷰어", "하나");
+    ok(t.relayed() === 1, `★ 한 번 걸었으니 1 (${t.relayed()})`);
+
+    await t.say(t.a, "리뷰어", "둘");
+    ok(t.relayed() === 2,
+       `★ **부채꼴도 센다** (${t.relayed()}) — 같은 사람에게 두 번도 턴 둘이다`);
+
+    await t.mgr.send(t.room.id, "그만하고 이거 해줘", undefined, t.a.id);
     await t.settle();
-
-    const first = await t.say(t.a, "리뷰어", "이것 좀");
-    ok(first.ok, "★ 전제: 갔다");
-    ok(t.depthOf(t.b.id, first.id!) === 1,
-       `★ **사용자 턴에서 건 말은 1다리째** (${t.depthOf(t.b.id, first.id!)})`);
-
-    // 리뷰어가 그 말을 받아 도는 턴 — 거기서 거는 말은 2다리째다
-    t.standAt(t.b, 1);
-    const second = await t.say(t.b, "구현", "그건 이렇습니다", first.id);
-    ok(t.depthOf(t.a.id, second.id!) === 2,
-       `★ **답도 반응이라 한 다리 는다** (${t.depthOf(t.a.id, second.id!)})`);
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[🔴 id 를 빼도 깊이가 안 되돌아간다]`);
-  {
-    /*
-     * 🔴 깊이를 `say` 의 `id` 로 세면 **인자 하나를 빼는 것만으로** 1 로
-     * 되돌아간다 — 막으려던 고리가 거기로 통째로 빠져나간다. 깊이는
-     * **턴에 붙는 값**이라 인자로는 못 흔든다.
-     */
-    const t = await make(12); dirs.push(t.dir);
-    t.standAt(t.a, 5);
-    const out = await t.say(t.a, "리뷰어", "새 가닥인 척");
-    ok(t.depthOf(t.b.id, out.id!) === 6,
-       `★ **id 가 없어도 6다리째다** (${t.depthOf(t.b.id, out.id!)}) — 턴이 깊이를 들고 있다`);
+    ok(t.relayed() === 0,
+       `★ **사용자가 말을 걸면 0 부터 다시** (${t.relayed()}) — «이제 내가 본다»다`);
     t.mgr.dispose();
   }
 
   console.log(`${NL}[★ 상한에 닿으면 — 그 자리에서 거절된다]`);
   {
     const t = await make(3); dirs.push(t.dir);
-    t.standAt(t.a, 3);   // 여기서 거는 말은 4다리째 — 상한 3 을 넘는다
-    const out = await t.say(t.a, "리뷰어", "한 다리 더");
+    t.openedBy(t.a, true);
+    t.bump(3);   // 이미 셋을 주고받았다
 
+    const out = await t.say(t.a, "리뷰어", "한 번 더");
     ok(!out.ok, `★ **거절된다** (${out.reason})`);
     ok((out.reason ?? "").includes("3"), "★ **상한이 얼마인지 말해준다**");
     ok((out.reason ?? "").includes("사용자"),
-       "★ **어떻게 풀리는지도** — 사용자가 말을 걸면 깊이가 0 부터 다시다");
+       "★ **어떻게 풀리는지도** — 사용자가 말을 걸면 0 부터 다시다");
     ok(t.cards.length === 0,
-       "★ 🔴 **카드가 안 뜬다** — 깊이는 부르는 순간 알 수 있어 사람을 안 깨운다");
+       "★ 🔴 **카드가 안 뜬다** — 부르는 순간 알 수 있어 사람을 안 깨운다");
     ok(t.inner.queue.pending(t.b.id).length === 0,
        "★ 🔴 **큐에도 안 들어간다** — 그래서 나중에 비울 것도 없다");
+    ok(t.relayed() === 3, `★ **거절은 안 센다** (${t.relayed()}) — 턴을 안 만들었다`);
     t.mgr.dispose();
   }
 
   console.log(`${NL}[★ 0 은 제한 없음]`);
   {
     const t = await make(0); dirs.push(t.dir);
-    t.standAt(t.a, 99);
-    const out = await t.say(t.a, "리뷰어", "백 다리째");
+    t.openedBy(t.a, true);
+    t.bump(999);
+    const out = await t.say(t.a, "리뷰어", "천 번째");
     ok(out.ok, `★ 닿을 데가 없다 (${JSON.stringify(out)})`);
 
-    await t.mgr.setRelayDepth(t.room.id, -5);
-    ok(t.room.depthCap === 0, `★ 음수는 0 으로 접는다 (${t.room.depthCap})`);
+    await t.mgr.setRelayCap(t.room.id, -5);
+    ok(t.room.relayCap === 0, `★ 음수는 0 으로 접는다 (${t.room.relayCap})`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[🔴 id "0" 은 사용자가 연 턴에서만]`);
+  {
+    /*
+     * 🔴 **여기가 가지치기를 막는 자리다.** 사슬 깊은 데 있는 봇이 아무 때나
+     * 새 대화를 시작할 수 있으면 가지가 갈리고, 턴이 **곱셈으로** 는다.
+     *
+     * 그리고 이 판단은 **우리가 아는 것**으로 한다 — 모델이 «사용자 때문»
+     * 이라고 적는 것을 믿으면 그 한 줄로 규칙이 통째로 빠져나간다.
+     */
+    const t = await make(12); dirs.push(t.dir);
+
+    t.openedBy(t.a, true);
+    ok((await t.say(t.a, "리뷰어", "사용자가 시킨 일이야")).ok,
+       "★ 사용자가 연 턴에서는 «0» 이 통한다");
+
+    t.openedBy(t.a, false);   // 다른 봇이 깨운 턴
+    const deep = await t.say(t.a, "리뷰어", "갑자기 딴 얘기");
+    ok(!deep.ok && (deep.reason ?? "").includes("0"),
+       `★ 🔴 **다른 봇이 연 턴에서는 막힌다** (${deep.reason})`);
+    ok((deep.reason ?? "").includes("check_queue"),
+       "★ **대신 뭘 쓰라고 말해준다** — 거절은 언제나 «왜 + 어떻게»다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 받은 id 로는 깊은 데서도 건다 — 위임은 살아 있다]`);
+  {
+    /*
+     * §4-J 가 일부러 넣은 모양이다 — B 가 A 의 부탁을 처리하다가 C 에게
+     * 물어보는 것. 받는 이가 제3자라 «답»은 아니지만, **받은 항목 때문**인
+     * 것은 맞다. 막으면 일을 나눠주는 것이 **사용자와 직접 말하는 봇 하나**
+     * 로 좁아진다.
+     */
+    const t = await make(12); dirs.push(t.dir);
+    t.openedBy(t.a, true);
+    const first = await t.say(t.a, "리뷰어", "이것 좀 봐줄래?");
+
+    // 리뷰어는 깨워진 턴이다 — «0» 은 못 쓴다
+    t.openedBy(t.b, false);
+    const on = await t.say(t.b, "구현", "그 부분 네가 짰지?", first.id);
+    ok(on.ok, `★ **받은 id 를 들고는 걸 수 있다** (${JSON.stringify(on)})`);
+    ok(t.inner.queue.find(t.b.id, first.id!) === undefined,
+       "★ 임자에게 보냈으니 그 항목은 닫힌다");
     t.mgr.dispose();
   }
 
@@ -183,19 +219,21 @@ async function main(): Promise<void> {
      */
     const t = await make(1); dirs.push(t.dir);
     t.room.relay = "ask";
-    t.standAt(t.a, 9);   // 상한 1 을 한참 넘는 깊이
+    t.openedBy(t.a, true);
+    t.bump(9);   // 상한 1 을 한참 넘겨둔다
 
     const sent = t.say(t.a, "리뷰어", "봐줄래?");
     await t.until(() => t.cards.length > 0, "승인 카드가 안 떴다");
     const card = t.cards.shift()!;
-    ok(card.req.title.includes("10다리째"),
-       `★ **몇 다리째인지 보인다** (${card.req.title}) — 길어지는 것이 눈에 보여야 끊는다`);
+    ok(card.req.title.includes("10번째"),
+       `★ **몇 번째인지 보인다** (${card.req.title}) — 길어지는 것이 눈에 보여야 끊는다`);
     card.settle("aio-relay-allow");
-    ok((await sent).ok, "★ **깊이 상한은 안 걸린다** — 사람이 매번 보고 있다");
+    const first = await sent;
+    ok(first.ok, "★ **상한은 안 걸린다** — 사람이 매 호출을 보고 있다");
 
     // 답도 마찬가지로 묻는다
-    t.standAt(t.b, 10);
-    const back = t.say(t.b, "구현", "이렇습니다", undefined);
+    t.openedBy(t.b, false);
+    const back = t.say(t.b, "구현", "이렇습니다", first.id);
     await t.until(() => t.cards.length > 0, "답에는 안 물었다");
     ok(true, "★ 🔴 **답도 묻는다** — 그래야 «모든 대화를 승인» 이 참이 된다");
     t.cards.shift()!.settle("aio-relay-reject");
@@ -206,9 +244,12 @@ async function main(): Promise<void> {
   console.log(`${NL}[★ «끄기» — 답도 포함해서 꺼진다]`);
   {
     const t = await make(12); dirs.push(t.dir);
+    t.openedBy(t.a, true);
+    const first = await t.say(t.a, "리뷰어", "이것 좀");
+
     t.room.relay = "off";
-    t.standAt(t.b, 1);
-    const out = await t.say(t.b, "구현", "답입니다");
+    t.openedBy(t.b, false);
+    const out = await t.say(t.b, "구현", "답입니다", first.id);
     ok(!out.ok && (out.reason ?? "").includes("꺼져"),
        `★ **답도 안 나간다** (${out.reason}) — «대화 기능 off» 가 말 그대로다`);
     ok(t.cards.length === 0, "★ 사람도 안 깨운다");

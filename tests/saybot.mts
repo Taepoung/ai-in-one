@@ -96,12 +96,23 @@ async function make(hold = 60) {
     throw new Error("FAIL: 전제가 안 섰다 — " + what);
   };
   /** 봇이 하듯 — `say` 를 부른다 */
+  /**
+   * 봇이 하듯 — `say` 를 부른다.
+   *
+   * `id` 를 안 주면 «사용자가 방금 한 말 때문에»(`"0"`)로 친다. 그러려면 그
+   * 턴을 사용자가 열었어야 하므로 **전제를 같이 세워준다** — 진짜로는
+   * `runQueue` 가 세우는 값이다.
+   */
   const say = async (
     from: { id: string }, to: string, text: string, id?: string,
   ): Promise<SayOut & { isError?: boolean }> => {
+    if (!id) {
+      (mgr as unknown as { botRuntime(r: string, b: string): { fromUser?: boolean } })
+        .botRuntime(room.id, from.id).fromUser = true;
+    }
     const out = await mgr.mcpCall(
       `${room.id}:${from.id}`, "say",
-      { to, text, ...(id ? { id } : {}) },
+      { to, text, id: id ?? "0" },
     );
     if (out.isError) return { ok: false, reason: out.text, left: 0, isError: true };
     return JSON.parse(out.text) as SayOut;

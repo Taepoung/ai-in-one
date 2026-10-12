@@ -14,6 +14,7 @@
  * ```
  */
 import { BotQueue } from "../src/core/botQueue.js";
+import { USER_TURN_ID } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const NL = String.fromCharCode(10);
@@ -21,7 +22,7 @@ const NL = String.fromCharCode(10);
 const perm = (to: string, title: string, over = {}) =>
   ({ kind: "permission" as const, to, from: "알파", title, readOnly: false, ...over });
 const msg = (to: string, text: string, over = {}) =>
-  ({ kind: "message" as const, to, from: "알파", fromId: "alpha-1", depth: 1, text, ...over });
+  ({ kind: "message" as const, to, from: "알파", fromId: "alpha-1", text, ...over });
 
 function main(): void {
   console.log(`${NL}[★ 떼어낸 몫만 보인다 — 그래야 턴이 끝난다]`);
@@ -148,6 +149,24 @@ function main(): void {
     ok(dropped.length === 3,
        `★ **이번 몫과 다음 몫을 다** (${dropped.length}) — 하나라도 남기면 그 봇이 멈춘 채로 남는다`);
     ok(q.pending("베타").length === 0, "그리고 비었다");
+  }
+
+  console.log(`${NL}[🔴 «0» 은 절대 안 내준다 — say(id: "0") 이 쓰는 자리다]`);
+  {
+    /*
+     * 겹치면 «사용자가 방금 한 말 때문에»가 **남의 큐 항목에 대한 답**으로
+     * 읽히고, 그 길로 사슬 깊은 데 있는 봇이 새 대화를 시작한다 — 오류가
+     * 아니라 **조용히** 뚫린다. 앞글자와 «1 부터» 둘 중 하나만 바뀌어도
+     * 보장이 사라지므로 여기서 지킨다.
+     */
+    const q = new BotQueue();
+    const ids: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      ids.push(q.put(msg("베타", `${i}`)));
+      ids.push(q.put({ kind: "permission", to: "베타", from: "알파", fromId: "a", title: "x", readOnly: true }));
+    }
+    ok(!ids.includes(USER_TURN_ID), `★ 백 개를 내줘도 «${USER_TURN_ID}» 는 안 나온다`);
+    ok(ids.every((id) => /^[px]\d+$/.test(id)), "★ 앞글자 + 1 부터 — 그 둘이 보장의 전부다");
   }
 
   console.log(`${NL}전부 통과`);

@@ -5383,13 +5383,10 @@ function relayPick(r: Room): HTMLElement {
 }
 
 /**
- * ★ **깊이 상한 — «사용자에게서 몇 다리까지»** (v3.0 4-L).
+ * ★ **상한 — «내 말 한 마디당 봇끼리 몇 번»** (v3.0 4-L).
  *
- * ```
- * 0  사용자 메시지
- * 1  거기 반응해서 봇이 거는 말
- * 2  그 말에 반응해서 거는 말 — **답도 반응이다**
- * ```
+ * 세는 것이 곧 **턴이고 돈**이다 — 한 번 주고받을 때마다 상대가 깨어나 한
+ * 턴을 돈다. 사용자가 말을 걸면 0 부터 다시 센다.
  *
  * 🔴 **«무조건 허용» 일 때만 걸린다.** 「물어봄」은 **답까지 전부** 사람이
  * 누르므로 상한이 할 일이 없다. 그래서 다른 칸일 때는 **흐리게** 둔다 —
@@ -5402,29 +5399,29 @@ function capRow(r: Room): HTMLElement {
     class: "cap",
     min: "0",
     max: "999",
-    value: String(r.depthCap ?? 12),
-    title: "사용자에게서 이만큼 멀어지면 say 가 거절됩니다. 0 이면 제한 없음.",
+    value: String(r.relayCap ?? 12),
+    title: "이만큼 주고받으면 그 다음 say 가 거절됩니다. 0 이면 제한 없음.",
   }) as HTMLInputElement;
   if (!live) box.disabled = true;
   const commit = () => {
     const n = Number(box.value);
-    if (!Number.isFinite(n)) { box.value = String(r.depthCap ?? 12); return; }
-    post({ t: "setRelayDepth", roomId: r.id, depth: n });
+    if (!Number.isFinite(n)) { box.value = String(r.relayCap ?? 12); return; }
+    post({ t: "setRelayCap", roomId: r.id, times: n });
   };
   box.addEventListener("change", commit);
   return el(
     "div",
     { class: live ? "policy cap-row" : "policy cap-row off" },
-    el("span", { class: "dim", text: "사용자에게서" }),
+    el("span", { class: "dim", text: "내 말 한 마디당" }),
     box,
     el("span", {
       class: "dim",
       // **0 이 무슨 뜻인지 그 자리에 적는다** — 숫자만 두면 «0 = 아예 못 한다» 로 읽는다
       text: !live
-        ? "다리까지 — «무조건 허용» 에서만 걸립니다."
-        : (r.depthCap ?? 12) === 0
-          ? "다리 — 제한 없음."
-          : "다리까지. 넘으면 그 호출이 거절됩니다.",
+        ? "번까지 — «무조건 허용» 에서만 걸립니다."
+        : (r.relayCap ?? 12) === 0
+          ? "번 — 제한 없음."
+          : "번까지. 넘으면 그 호출이 거절됩니다.",
     }),
   );
 }

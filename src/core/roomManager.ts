@@ -47,7 +47,8 @@ import {
   type Staged,
   type RelayMode,
   DEFAULT_RELAY,
-  DEFAULT_DEPTH_CAP,
+  DEFAULT_RELAY_CAP,
+  USER_TURN_ID,
   rosterText,
   ROSTER_OFF,
 } from "./types.js";
@@ -169,12 +170,15 @@ interface BotRuntime {
   /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
   roleInjected: boolean;
   /**
-   * ★ **이 턴이 사용자에게서 몇 다리 건너왔나** (v3.0 4-L).
+   * ★ **이 턴을 사용자가 열었나** (v3.0 4-L).
    *
-   * 사용자가 부른 턴은 0. 이 봇이 이 턴에 거는 말은 전부 `depth + 1` 이다.
+   * 🔴 **`say(id: "0")` 이 여기에 걸린다.** «사용자가 방금 한 말 때문에»는
+   * 사용자가 방금 말을 건 턴에서만 참이다. 안 그러면 사슬 깊은 데 있는 봇이
+   * **아무 때나 새 대화를 시작**할 수 있고, 그러면 가지가 갈려 턴이 곱셈으로 는다.
+   *
    * **턴에 붙는 값**이라 `say` 의 인자로는 못 흔든다.
    */
-  depth?: number;
+  fromUser?: boolean;
   /**
    * ★ **마지막으로 보낸 명단 글** (v3.0 4-K).
    *
@@ -263,6 +267,15 @@ interface RoomRuntime {
   status: RoomStatus;
   /** 봇별 상태. 열쇠는 `BotInstance.id` */
   bots: Map<string, BotRuntime>;
+  /**
+   * ★ **사용자 말 한 마디 뒤로 `say` 가 몇 번 불렸나** (v3.0 4-L).
+   *
+   * **세는 것이 곧 턴이고 돈이다** — 큐에 한 줄 들어가면 상대가 깨어나 한 턴을
+   * 돈다. 그래서 이 수가 «봇끼리 얼마나 주고받았나»의 실제 값이다.
+   *
+   * 디스크에 안 남긴다 — 껐다 켜면 그 구간 자체가 끝난 것이다.
+   */
+  relayed: number;
   /**
    * **지금 부딪히고 있는 파일들** — 열쇠는 경로 (§4.3).
    *
@@ -1127,11 +1140,11 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
-   * ★ **깊이 상한을 고친다** (v3.0 4-L). `always` 에서만 쓰인다.
+   * ★ **주고받는 횟수 상한을 고친다** (v3.0 4-L). `always` 에서만 쓰인다.
    *
    * ```
-   * 0      **제한 없음** — 닿을 데가 없다
-   * 1..999 사용자에게서 그만큼 멀어지면 그 `say` 가 거절된다
+   * 0      **제한 없음**
+   * 1..999 사용자 말 한 마디 뒤로 그만큼 주고받으면 그 `say` 가 거절된다
    * ```
    *
    * 🔴 **0 이 «한 번도 못 건다»가 아니다.** 그건 «끔»이 할 일이고, 숫자로도
@@ -1140,12 +1153,12 @@ export class RoomManager extends EventEmitter<Events> {
    * ⚠️ 음수는 0 으로 접는다 — 저쪽이 무슨 뜻으로 보냈든 **안 막는 쪽**이
    * 그나마 짐작이 덜 섞인다.
    */
-  async setRelayDepth(roomId: string, depth: number): Promise<void> {
+  async setRelayCap(roomId: string, times: number): Promise<void> {
     const room = await this.openRoom(roomId);
-    const next = Math.max(0, Math.min(999, Math.floor(depth)));
-    if ((room.depthCap ?? DEFAULT_DEPTH_CAP) === next) return;
-    room.depthCap = next;
-    await this.saveProps(room, { depthCap: next });
+    const next = Math.max(0, Math.min(999, Math.floor(times)));
+    if ((room.relayCap ?? DEFAULT_RELAY_CAP) === next) return;
+    room.relayCap = next;
+    await this.saveProps(room, { relayCap: next });
     this.emit("room", room);
   }
 
@@ -2324,6 +2337,14 @@ export class RoomManager extends EventEmitter<Events> {
       return;
     }
 
+    /*
+     * ★ **사용자가 말을 걸면 0 부터 다시** (v3.0 4-L).
+     *
+     * 세는 것이 «사람이 **안 보는** 구간»이니, 말을 거는 것이 곧 «이제 내가
+     * 본다»이고 **그 구간이 새로 시작되는 것**이 그 신호의 실제 모양이다.
+     */
+    this.runtime(roomId).relayed = 0;
+
     // 보냈으니 초안은 비운다
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -2423,6 +2444,14 @@ export class RoomManager extends EventEmitter<Events> {
       await this.holdBack(room, tokens, attachments, busy);
       return parsed;
     }
+
+    /*
+     * ★ **사용자가 말을 걸면 0 부터 다시** (v3.0 4-L).
+     *
+     * 세는 것이 «사람이 **안 보는** 구간»이니, 말을 거는 것이 곧 «이제 내가
+     * 본다»이고 **그 구간이 새로 시작되는 것**이 그 신호의 실제 모양이다.
+     */
+    this.runtime(roomId).relayed = 0;
 
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -3270,18 +3299,12 @@ export class RoomManager extends EventEmitter<Events> {
      */
     this.queue.startTurn(bot.id);
     /*
-     * ★ **이 턴이 몇 다리 건너온 것인가** (v3.0 4-L).
+     * ★ **이 턴을 누가 열었나** (v3.0 4-L) — `say(id: "0")` 이 여기에 걸린다.
      *
-     * 사용자가 부른 턴은 0 이고, 큐가 깨운 턴은 **실린 것 중 가장 깊은 값**이다.
-     * 이 봇이 이 턴에 거는 말은 전부 그보다 한 다리 더 멀다.
-     *
-     * 🔴 **`say` 의 `id` 로 세지 않는다.** 그러면 `id` 를 빼고 부르는 것만으로
-     * 깊이가 1 로 되돌아간다 — 막으려던 고리가 **인자 하나로 빠져나간다.**
-     * 깊이는 **턴에 붙는 것**이지 인자에 붙는 것이 아니다.
+     * 🔴 **인자가 아니라 턴에 붙인다.** 모델이 «사용자 때문»이라고 적는 것을
+     * 믿으면 그 한 줄로 규칙이 통째로 빠져나간다. 우리가 아는 것을 쓴다.
      */
-    bt.depth = batch.some((m) => m.role === "user")
-      ? 0
-      : Math.max(0, ...this.queue.pending(bot.id).map((i) => (i.kind === "message" ? i.depth : 0)));
+    bt.fromUser = batch.some((m) => m.role === "user");
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
 
@@ -4315,17 +4338,16 @@ export class RoomManager extends EventEmitter<Events> {
        *
        * 0(제한 없음)이면 **아예 안 적는다.** 적을 말이 없다.
        */
-      const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
-      const far = (bt.depth ?? 0) + 1;
+      const cap = room.relayCap ?? DEFAULT_RELAY_CAP;
       const left = cap > 0 && (room.relay ?? DEFAULT_RELAY) === "always"
-        ? Math.max(0, cap - far) : undefined;
+        ? Math.max(0, cap - this.runtime(room.id).relayed) : undefined;
       parts.push(
         `[${OUR_MCP_NAME}: 큐에 ${waiting}개가 남아 있습니다. check_queue 로 꺼내세요. ` +
           "메시지는 say, 권한 요청은 verdict 로 답합니다." +
           (left === undefined
             ? ""
-            : ` 지금 당신이 거는 말은 사용자에게서 ${far}다리째이고, ` +
-              `${left}다리 더 갈 수 있습니다 — 넘으면 say 가 거절됩니다.`) +
+            : ` 봇끼리 ${left}번 더 주고받을 수 있습니다 — ` +
+              "넘으면 say 가 거절되고, 사용자가 말을 걸어야 다시 셉니다.") +
           "]",
       );
     }
@@ -5009,12 +5031,13 @@ export class RoomManager extends EventEmitter<Events> {
       description:
         "방의 다른 봇에게 말을 건다. `to` 는 봇 이름이다.\n" +
         "★ **답은 반드시 `text` 에 넣어라** — 산문에만 쓰면 상대에게 안 간다.\n" +
-        "`id` 를 주면 check_queue 에서 받은 그 항목에 대한 반응이다. " +
+        "`id` 에는 **무엇에 대한 반응인지**를 적는다. 빠뜨릴 수 없다:\n" +
+        "  · 사용자가 방금 한 말 때문이면 \"0\" — 사용자가 연 턴에서만 쓸 수 있다\n" +
+        "  · 다른 봇의 말 때문이면 check_queue 가 준 id 를 그대로\n" +
         "`to` 가 그 항목을 보낸 봇이면 **답**이 되어 그 항목이 닫히고, " +
-        "다른 봇이면 그 항목은 열린 채로 새 가닥이 시작된다.\n" +
-        "`id` 없이 부르는 것은 새로 거는 것이고, 사용자의 승인을 받는다.\n" +
-        "봇끼리 주고받는 것이 길어지면 사용자에게 계속할지 묻기 때문에, "
-        + "새로 거는 호출은 거절될 수 있다. 그때는 사용자에게 직접 말해라.",
+        "다른 봇이면 그 항목은 열린 채로 그쪽에 새 가닥이 열린다.\n" +
+        "이 방에 설정된 바에 따라 사용자의 승인을 받거나, 주고받는 횟수가 " +
+        "상한에 닿으면 거절된다. 거절되면 사용자에게 직접 말해라.",
       inputSchema: {
         type: "object",
         properties: {
@@ -5022,10 +5045,12 @@ export class RoomManager extends EventEmitter<Events> {
           text: { type: "string", description: "할 말" },
           id: {
             type: "string",
-            description: "check_queue 가 준 항목의 id — 그것에 대한 반응일 때만",
+            description:
+              '무엇에 대한 반응인가 — 사용자가 방금 한 말이면 "0", ' +
+              "다른 봇의 말이면 check_queue 가 준 id",
           },
         },
-        required: ["to", "text"],
+        required: ["to", "text", "id"],
       },
     }, {
       name: "verdict",
@@ -5078,10 +5103,21 @@ export class RoomManager extends EventEmitter<Events> {
           isError: true,
         };
       }
-      return await this.relaySay(
-        roomId, botId, a.to, a.text,
-        typeof a.id === "string" && a.id ? a.id : undefined,
-      );
+      /*
+       * 🔴 **`id` 는 필수다.** 「없으면 새로 거는 것」이던 시절에는 **빠뜨린
+       * 것과 뜻한 것이 구별되지 않았다.** 지금은 «사용자가 방금 한 말 때문»도
+       * 제 자리(`USER_TURN_ID`)가 있으므로, 없는 것은 그냥 **빠뜨린 것**이다.
+       */
+      if (typeof a.id !== "string" || !a.id) {
+        return {
+          text:
+            "say 에는 `id` 가 있어야 합니다 — 무엇에 대한 반응인지 적습니다. " +
+            `사용자가 방금 한 말 때문이면 «${USER_TURN_ID}», ` +
+            "다른 봇의 말 때문이면 check_queue 가 준 id 를 그대로 쓰세요.",
+          isError: true,
+        };
+      }
+      return await this.relaySay(roomId, botId, a.to, a.text, a.id);
     }
     if (tool === "check_queue") {
       const got = this.queue.view(botId);
@@ -5138,7 +5174,7 @@ export class RoomManager extends EventEmitter<Events> {
     fromId: string,
     to: string,
     rawText: string,
-    id?: string,
+    id: string,
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     if (!room) {
@@ -5176,16 +5212,47 @@ export class RoomManager extends EventEmitter<Events> {
      * ★ **답인가, 새로 거는 것인가** — 가르는 것은 도구 이름이 아니라
      * «받는 이가 그 가닥의 임자인가» 다.
      */
+    /*
+     * ★ **모든 `say` 는 «무엇에 대한 반응인가»를 들고 온다** (v3.0 4-L).
+     *
+     * ```
+     * id = "0"      사용자가 방금 한 말 때문에   ← 사용자가 연 턴에서만
+     * id = "x7"     큐 항목 때문에
+     *                 to 가 그 항목의 임자  → **답**. 항목이 닫힌다
+     *                 to 가 제3자          → 위임. 항목은 열린 채
+     * ```
+     *
+     * ⏪ 전에는 **`id` 가 없는 것**이 «새로 거는 것»이었다. 그러면 뜻을
+     * **없는 것으로** 만드는 꼴이라 «빠뜨린 것»과 구별이 안 되고, 갈래가 둘로
+     * 늘었다. 자리를 하나 주니 갈래가 하나가 된다.
+     */
     let about: string | undefined;
     let answering: string | undefined;
-    if (id !== undefined) {
+    const bt = this.botRuntime(room.id, fromId);
+
+    if (id === USER_TURN_ID) {
+      /*
+       * 🔴 **사용자가 연 턴에서만 참이다.** 안 그러면 사슬 깊은 데 있는 봇이
+       * **아무 때나 새 대화를 시작**할 수 있고, 그러면 가지가 갈려 턴이 곱셈으로
+       * 는다. 그리고 이 판단은 **우리가 아는 것**으로 한다 — 모델이 «사용자
+       * 때문»이라고 적는 것을 믿으면 그 한 줄로 규칙이 빠져나간다.
+       */
+      if (!bt.fromUser) {
+        return no(
+          "«0» 은 사용자가 방금 한 말에 대한 반응일 때만 씁니다. " +
+            "지금 턴은 다른 봇이 열었습니다 — check_queue 로 받은 id 를 쓰세요.",
+        );
+      }
+    } else {
       const item = this.queue.find(fromId, id);
       // ① 없는 id — 거절하고 **지금 들고 있는 것을 다시 실어준다**
       if (!item) {
         return {
           text: JSON.stringify({
             ok: false,
-            reason: `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요.`,
+            reason:
+              `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요. ` +
+              `사용자가 방금 한 말 때문이면 id 를 «${USER_TURN_ID}» 로 주세요.`,
             items: this.queue.pending(fromId).map(wireItem),
             left: this.queue.shareLeft(fromId),
           }),
@@ -5205,40 +5272,35 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
 
-    /*
-     * ★ **몇 다리째인가** (v3.0 4-L).
-     *
-     * ```
-     * 0  사용자 메시지
-     * 1  그 메시지에 반응해서 봇이 거는 말
-     * 2  1 에 반응해서 거는 말 — **답도 반응이다**
-     * ```
-     *
-     * 🔴 **턴에서 가져온다.** `say` 의 `id` 로 세면 **인자를 빼는 것만으로**
-     * 깊이가 1 로 되돌아간다 — 막으려던 고리가 거기로 빠져나간다.
-     */
-    const depth = (this.botRuntime(room.id, fromId).depth ?? 0) + 1;
-
     const mode = room.relay ?? DEFAULT_RELAY;
     // ── 문 ① 대화 기능이 켜져 있나 ────────────────────────────────
     if (mode === "off") {
       return no("이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.");
     }
-    // ── 문 ② 깊이 — «무조건 허용» 에서만 ─────────────────────────
-    const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
-    if (mode === "always" && cap > 0 && depth > cap) {
-      /*
-       * ★ **거절로 끝난다.** 카드도, 큐 비우기도, «더 갈까요»도 없다 —
-       * 깊이는 **부르는 순간** 알 수 있어서 그 자리에서 답할 수 있다.
-       * 모델은 이 글을 읽고 사용자에게 말하면 된다.
-       */
+    /*
+     * ── 문 ② 횟수 — «무조건 허용» 에서만 ─────────────────────────
+     *
+     * ★ **세는 것이 곧 턴이고 돈이다.** 큐에 한 줄 들어가면 상대가 깨어나 한
+     * 턴을 돈다. 그래서 이 수가 «봇끼리 얼마나 주고받았나»의 실제 값이다.
+     *
+     * 🔴 **부르는 순간 센다.** 그래야 넘칠 때 **그 자리에서 거절**된다 —
+     * 카드도, 큐 비우기도, «더 갈까요»도 필요 없다. 턴이 열리는 자리에서
+     * 막으면 셋 다 필요해진다(그렇게 지었다가 걷어냈다).
+     *
+     * 「승인」은 안 센 것으로 치지 않는다 — 세기는 하고 **보지만 않는다.**
+     * 사람이 매 호출을 누르고 있어 숫자가 할 일이 없기 때문이고, 중간에
+     * 「무조건 허용」으로 바꾸면 **그때까지 오간 것이 그대로 세어져 있다.**
+     */
+    const rt = this.runtime(room.id);
+    const cap = room.relayCap ?? DEFAULT_RELAY_CAP;
+    if (mode === "always" && cap > 0 && rt.relayed >= cap) {
       return no(
-        `봇끼리 이어지는 깊이 상한(${cap})에 닿았습니다. ` +
+        `봇끼리 주고받는 횟수 상한(${cap})에 닿았습니다. ` +
           "더 가려면 사용자가 말을 걸어야 합니다. 사용자에게 지금까지를 알리세요.",
       );
     }
     // ── 문 ③ 승인 — «물어봄» 은 **답까지 전부** 묻는다 ───────────
-    if (mode === "ask" && !(await this.askRelay(me, target, text, depth))) {
+    if (mode === "ask" && !(await this.askRelay(me, target, text, rt.relayed + 1))) {
       return no("사용자가 이 호출을 허락하지 않았습니다.");
     }
     /*
@@ -5259,9 +5321,13 @@ export class RoomManager extends EventEmitter<Events> {
       from: me.name,
       fromId: me.id,
       text,
-      depth,
       ...(about ? { about } : {}),
     });
+    /*
+     * ★ **여기서 센다 — 문을 다 지난 뒤**다. 거절된 호출은 안 세고, 사람이
+     * 막은 것도 안 센다. 세는 것은 «실제로 턴을 하나 만든 것»이다.
+     */
+    rt.relayed += 1;
 
     /*
      * ★ **말풍선이다** (§7 · v3.0 4-14).
@@ -5318,11 +5384,11 @@ export class RoomManager extends EventEmitter<Events> {
     from: BotInstance,
     to: BotInstance,
     text: string,
-    depth: number,
+    nth: number,
   ): Promise<boolean> {
     const decided = await this.opts.host.requestPermission({
-      // **몇 다리째인지 제목에 적는다** — 길어지는 것이 눈에 보여야 끊을 수 있다
-      title: `${from.name} → ${to.name}${depth > 1 ? ` (${depth}다리째)` : ""}`,
+      // **몇 번째인지 제목에 적는다** — 길어지는 것이 눈에 보여야 끊을 수 있다
+      title: `${from.name} → ${to.name}${nth > 1 ? ` (${nth}번째)` : ""}`,
       askerBotId: from.id,
       readOnly: false,
       kind: "other",
@@ -5523,7 +5589,7 @@ export class RoomManager extends EventEmitter<Events> {
   private runtime(roomId: string): RoomRuntime {
     let rt = this.runtimes.get(roomId);
     if (!rt) {
-      rt = { status: "idle", bots: new Map(), clashes: new Map() };
+      rt = { status: "idle", bots: new Map(), relayed: 0, clashes: new Map() };
       this.runtimes.set(roomId, rt);
     }
     return rt;
