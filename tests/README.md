@@ -65,6 +65,7 @@ node tests/probes/agydelete.cjs    # Antigravity 는 지우면 지워지나
 node tests/probes/newsess.cjs      # 메시지마다 세션이 새로 생기나
 node tests/probes/fsseam.cjs       # 파일 접근이 우리를 거치나
 npx tsx tests/probes/agysay.mts    # ★ Antigravity 가 say·check_queue 를 제대로 쓰나
+npx tsx tests/probes/agytalk.mts   # ★ 봇끼리의 말이 진짜 대화인가 · 울타리는 버티나 (M3)
 ```
 
 ★ **`agysay.mts` 는 다른 것들과 생김새가 다르다** — ACP 를 손으로 말하지 않고
