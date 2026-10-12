@@ -32,13 +32,11 @@ interface SayOut {
   ok: boolean;
   reason?: string;
   can_call?: string[];
-  sent?: Array<{ to: string; id: string }>;
+  to?: string[];
   queue_left: number;
   items?: Array<{ id: string }>;
 }
 
-/** 첫 수신자에게 간 몫의 id */
-const firstId = (o: SayOut) => o.sent?.[0]?.id;
 
 async function make(hold = 60) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-say-"));

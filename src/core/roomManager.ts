@@ -5371,9 +5371,18 @@ export class RoomManager extends EventEmitter<Events> {
     // ★ **반응했으면 닫힌다** — 받는 이가 임자든 아니든 (위 주석)
     if (answering) this.queue.answer(fromId, answering);
 
-    const sent = targets.map((target) => ({
-      to: target.name,
-      id: this.queue.put({
+    /*
+     * ★ **돌려주는 id 가 없다** (2026-10-12).
+     *
+     * 🔴 넣으면서 받는 id 는 **받는 쪽 큐의 번호**다. 보낸 봇은 그걸로 할 수
+     * 있는 것이 **하나도 없다** — 제 큐에 없으니 `say(id=…)` 에 쓰면 거절이고,
+     * 거두거나 고칠 길도 없다. 상대가 반응하면 **다른 번호**로 온다.
+     *
+     * 쓸 수 없는 번호를 보여주면 **모델이 써본다.** 그 한 번이 왕복 하나다.
+     * «우리 장부를 같이 보내지 않는다»(2-H)와 같은 줄이다.
+     */
+    for (const target of targets) {
+      this.queue.put({
         kind: "message",
         to: target.id,
         from: me.name,
@@ -5382,8 +5391,8 @@ export class RoomManager extends EventEmitter<Events> {
         depth,
         // 인용은 **임자에게 가는 몫에만** — 제3자에게 붙이면 §4.1.1 이 샌다
         ...(about && target.id === owner ? { about } : {}),
-      }),
-    }));
+      });
+    }
 
     /*
      * ★ **말풍선이다** (§7 · v3.0 4-14).
@@ -5419,9 +5428,15 @@ export class RoomManager extends EventEmitter<Events> {
     // ★ **넣는 쪽이 깨운다.** 놀고 있으면 지금, 바쁘면 그 턴이 끝날 때
     for (const target of targets) this.maybeWake(room, target.id);
 
+    /*
+     * **이름은 돌려준다** — `@` 를 떼고 대소문자를 모은 **우리가 고른 이름**
+     * 이라, 모델이 적어 보낸 것과 다를 수 있다. 거기까지가 쓸모 있는 전부다.
+     */
     return {
       text: JSON.stringify({
-        ok: true, sent, queue_left: this.queue.shareLeft(fromId),
+        ok: true,
+        to: targets.map((b) => b.name),
+        queue_left: this.queue.shareLeft(fromId),
       }),
     };
   }

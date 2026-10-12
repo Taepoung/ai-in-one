@@ -43,10 +43,7 @@ const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const here = path.dirname(fileURLToPath(import.meta.url));
 const busy = (s: string) => !["idle", "error"].includes(s);
 
-interface SayOut { ok: boolean; reason?: string; sent?: Array<{ to: string; id: string }> }
-
-/** 첫 수신자에게 간 몫의 id — 검사는 거기 적힌 깊이를 본다 */
-const firstId = (o: SayOut) => o.sent?.[0]?.id;
+interface SayOut { ok: boolean; reason?: string; to?: string[] }
 
 async function make(cap: number) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-depth-"));
@@ -131,7 +128,17 @@ async function make(cap: number) {
     const item = inner.queue.find(botId, qid);
     return item && item.kind === "message" ? item.depth : undefined;
   };
-  return { dir, mgr, room, a, b, c, cards, inner, settle, until, say, standAt, plant, depthOf };
+  /**
+   * 그 봇의 큐에 **가장 나중에 들어온** 항목의 id.
+   *
+   * 🔴 `say` 는 **번호를 안 돌려준다** — 보낸 쪽이 쓸 데가 없는 값이라서.
+   * 검사는 받는 쪽에서 집는다.
+   */
+  const newest = (botId: string): string | undefined =>
+    inner.queue.pending(botId).at(-1)?.id;
+  return {
+    dir, mgr, room, a, b, c, cards, inner, settle, until, say, standAt, plant, depthOf, newest,
+  };
 }
 
 async function main(): Promise<void> {
@@ -145,14 +152,14 @@ async function main(): Promise<void> {
 
     const first = await t.say(t.a, "리뷰어", "이것 좀");
     ok(first.ok, "★ 전제: 갔다");
-    ok(t.depthOf(t.b.id, firstId(first)!) === 1,
-       `★ **사용자 턴에서 건 말은 1다리째** (${t.depthOf(t.b.id, firstId(first)!)})`);
+    ok(t.depthOf(t.b.id, t.newest(t.b.id)!) === 1,
+       `★ **사용자 턴에서 건 말은 1다리째** (${t.depthOf(t.b.id, t.newest(t.b.id)!)})`);
 
     // 리뷰어가 그 말을 받아 도는 턴 — 거기서 거는 말은 2다리째다
     t.standAt(t.b, 1);
-    const second = await t.say(t.b, "구현", "그건 이렇습니다", firstId(first));
-    ok(t.depthOf(t.a.id, firstId(second)!) === 2,
-       `★ **답도 반응이라 한 다리 는다** (${t.depthOf(t.a.id, firstId(second)!)})`);
+    const second = await t.say(t.b, "구현", "그건 이렇습니다", t.newest(t.b.id));
+    ok(t.depthOf(t.a.id, t.newest(t.a.id)!) === 2,
+       `★ **답도 반응이라 한 다리 는다** (${t.depthOf(t.a.id, t.newest(t.a.id)!)})`);
     t.mgr.dispose();
   }
 
@@ -169,8 +176,8 @@ async function main(): Promise<void> {
     const t = await make(12); dirs.push(t.dir);
     const deep = t.plant(t.a, t.b, 5);
     const out = await t.say(t.a, "테스터", "다섯 다리짜리에 반응해서", deep);
-    ok(t.depthOf(t.c.id, firstId(out)!) === 6,
-       `★ **6다리째다** (${t.depthOf(t.c.id, firstId(out)!)}) — 고른 것이 5 였으니까`);
+    ok(t.depthOf(t.c.id, t.newest(t.c.id)!) === 6,
+       `★ **6다리째다** (${t.depthOf(t.c.id, t.newest(t.c.id)!)}) — 고른 것이 5 였으니까`);
     t.mgr.dispose();
   }
 
@@ -269,9 +276,9 @@ async function main(): Promise<void> {
     const first = await t.say(t.a, "리뷰어", "이것 좀 봐줄래?");
 
     t.standAt(t.b, 1);   // 깨워진 턴이라 «0» 은 못 쓴다
-    const on = await t.say(t.b, "구현", "그 부분 네가 짰지?", firstId(first));
+    const on = await t.say(t.b, "구현", "그 부분 네가 짰지?", t.newest(t.b.id));
     ok(on.ok, `★ **받은 id 를 들고는 걸 수 있다** (${JSON.stringify(on)})`);
-    ok(t.depthOf(t.a.id, firstId(on)!) === 2, `★ 그래도 깊이는 는다 (${t.depthOf(t.a.id, firstId(on)!)})`);
+    ok(t.depthOf(t.a.id, t.newest(t.a.id)!) === 2, `★ 그래도 깊이는 는다 (${t.depthOf(t.a.id, t.newest(t.a.id)!)})`);
     t.mgr.dispose();
   }
 
@@ -298,8 +305,8 @@ async function main(): Promise<void> {
 
     const out = await t.say(t.b, "구현", "이제 물어볼게");
     ok(out.ok, `★ **그래도 새 대화는 간다** (${JSON.stringify(out)})`);
-    ok(t.depthOf(t.a.id, firstId(out)!) === 1,
-       `★ 1다리째부터 (${t.depthOf(t.a.id, firstId(out)!)}) — 옛 사슬이 안 섞인다`);
+    ok(t.depthOf(t.a.id, t.newest(t.a.id)!) === 1,
+       `★ 1다리째부터 (${t.depthOf(t.a.id, t.newest(t.a.id)!)}) — 옛 사슬이 안 섞인다`);
     t.mgr.dispose();
   }
 
@@ -321,8 +328,8 @@ async function main(): Promise<void> {
 
     // ① 사용자가 시킨 일로 새로 거는 것은 **1다리째** — 막히면 안 된다
     const fresh = await t.say(t.b, "구현", "사용자가 시킨 건데");
-    ok(fresh.ok && t.depthOf(t.a.id, firstId(fresh)!) === 1,
-       `★ **새 가닥은 1다리째** (${t.depthOf(t.a.id, firstId(fresh)!)}) — 사용자가 방금 말했으니까`);
+    ok(fresh.ok && t.depthOf(t.a.id, t.newest(t.a.id)!) === 1,
+       `★ **새 가닥은 1다리째** (${t.depthOf(t.a.id, t.newest(t.a.id)!)}) — 사용자가 방금 말했으니까`);
 
     // ② 그런데 8다리짜리에 답하는 것은 **9다리째** — 상한 3 에 걸린다
     const old8 = await t.say(t.b, "구현", "아까 그거 말인데", deep);
@@ -348,7 +355,7 @@ async function main(): Promise<void> {
 
     // **임자(테스터)가 아니라 제3자(리뷰어)에게** 반응한다
     const out = await t.say(t.a, "리뷰어", "테스터 말 때문인데", got);
-    ok(out.ok, `★ 제3자에게 보낼 수 있다 (${JSON.stringify(out.sent)})`);
+    ok(out.ok, `★ 제3자에게 보낼 수 있다 (${JSON.stringify(out.to)})`);
     ok(t.inner.queue.find(t.a.id, got) === undefined,
        "★ 🔴 **그래도 닫힌다** — 들고 있어 봐야 그 턴에서 할 수 있는 것이 없다");
 
@@ -363,17 +370,18 @@ async function main(): Promise<void> {
     const got = t.plant(t.a, t.c, 4);
 
     const out = await t.say(t.a, ["리뷰어", "테스터"], "둘 다 봐줘", got);
-    ok(out.ok && out.sent?.length === 2, `★ 둘에게 간다 (${JSON.stringify(out.sent)})`);
-    ok(t.depthOf(t.b.id, out.sent![0]!.id) === 5
-       && t.depthOf(t.c.id, out.sent![1]!.id) === 5,
+    ok(out.ok && out.to?.join("·") === "리뷰어·테스터",
+       `★ 둘에게 간다 (${JSON.stringify(out.to)}) — **우리가 고른 이름**으로 돌려준다`);
+    const mine = t.newest(t.b.id)!, hers = t.newest(t.c.id)!;
+    ok(t.depthOf(t.b.id, mine) === 5 && t.depthOf(t.c.id, hers) === 5,
        "★ **깊이는 같다** — 한 번의 반응이니까");
 
     /*
      * 🔴 **인용은 임자에게 가는 몫에만** — 제3자에게 붙이면 §4.1.1 이 샌다.
      * 테스터는 그 항목의 임자라 제 글을 다시 보는 것이고, 리뷰어는 아니다.
      */
-    const toJudge = t.inner.queue.find(t.b.id, out.sent![0]!.id);
-    const toTester = t.inner.queue.find(t.c.id, out.sent![1]!.id);
+    const toJudge = t.inner.queue.find(t.b.id, mine);
+    const toTester = t.inner.queue.find(t.c.id, hers);
     ok(toJudge?.kind === "message" && toJudge.about === undefined,
        "★ 🔴 **제3자에게는 인용이 안 간다**");
     ok(toTester?.kind === "message" && toTester.about !== undefined,
@@ -412,7 +420,7 @@ async function main(): Promise<void> {
 
     // 답도 마찬가지로 묻는다
     t.standAt(t.b, 10);
-    const back = t.say(t.b, "구현", "이렇습니다", firstId(first));
+    const back = t.say(t.b, "구현", "이렇습니다", t.newest(t.b.id));
     await t.until(() => t.cards.length > 0, "답에는 안 물었다");
     ok(true, "★ 🔴 **답도 묻는다** — 그래야 «모든 대화를 승인» 이 참이 된다");
     t.cards.shift()!.settle("aio-relay-reject");
@@ -428,7 +436,7 @@ async function main(): Promise<void> {
 
     t.room.relay = "off";
     t.standAt(t.b, 1);
-    const out = await t.say(t.b, "구현", "답입니다", firstId(first));
+    const out = await t.say(t.b, "구현", "답입니다", t.newest(t.b.id));
     ok(!out.ok && (out.reason ?? "").includes("꺼져"),
        `★ **답도 안 나간다** (${out.reason}) — «대화 기능 off» 가 말 그대로다`);
     ok(t.cards.length === 0, "★ 사람도 안 깨운다");
