@@ -101,7 +101,7 @@ async function make() {
     const out = await mgr.mcpCall(`${room.id}:${judge.id}`, "check_queue", {});
     return JSON.parse(out.text) as {
       kind: string | null;
-      answer_with?: string;
+      use?: string;
       items: Array<{ id: string; from: string; title?: string; command?: string }>;
     };
   };
@@ -150,8 +150,8 @@ async function main(): Promise<void> {
     ok(t.mgr.reviewsIn(t.room.id).length === 1, "★ 대신 «기다리는 중»으로 보인다");
 
     const got = await t.check();
-    ok(got.kind === "permission" && got.answer_with === "verdict",
-       `★ 심사 봇이 꺼내 보면 권한이 나온다 (${got.kind} · ${got.answer_with})`);
+    ok(got.kind === "permission" && got.use === "verdict",
+       `★ 심사 봇이 꺼내 보면 권한이 나온다 (${got.kind} · ${got.use})`);
     ok(got.items[0]?.from === t.asker.name, `★ 누가 하려는지 (${got.items[0]?.from})`);
 
     await t.verdict(got.items[0]!.id, true, "되돌릴 수 있는 변경입니다.");

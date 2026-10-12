@@ -4308,43 +4308,60 @@ export class RoomManager extends EventEmitter<Events> {
      * 숫자는 **이 턴에 실제로 꺼낼 수 있는 수**다 — 낡은 값이 아니다.
      */
     const waiting = this.queue.shareLeft(bot.id);
+    /*
+     * ★ **이 줄은 우리가 하는 말이다** (v3.0 4-J·4-L).
+     *
+     * 🔴 **프롬프트에 섞여 들어가는 글의 기본값은 «사용자가 한 말»이다.**
+     * 그래서 서버 이름을 앞에 대고, **누가 이 턴을 열었는지**를 적는다.
+     * 안 적으면 모델은 이 알림을 사용자 지시로 읽고 `say(id:"0")` 을 써본다 —
+     * 거절되고 **왕복 하나가 헛돈다.**
+     *
+     * 🔴 **규칙은 도구 설명에, 상태는 여기에.** «"0" 은 사용자가 말한 턴에서만»
+     * 이라는 규칙은 세션에 굳어 있고(공짜), **이 턴이 그런 턴인가**는 매번
+     * 달라지므로 여기서 말한다.
+     */
+    const others = room.participants.some((b) => b.id !== bot.id);
+    const relayOn = others && (room.relay ?? DEFAULT_RELAY) !== "off";
+    const bits: string[] = [];
+
+    if (relayOn && bt.fromUser) {
+      bits.push(
+        '사용자가 방금 말했습니다 — 그 말 때문에 다른 봇에게 보내려면 ' +
+          'say 의 id 를 "0" 으로 주세요.',
+      );
+    }
+    if (!bt.fromUser) {
+      // 깨워진 턴 — **사용자가 보낸 말이 아니다.** 이것만으로 «0» 이 막힌다
+      bits.push(
+        '알림 — 사용자가 보낸 말이 아닙니다. 이 턴에서는 say 의 id 에 "0" 을 ' +
+          "쓸 수 없고, 받은 항목의 id 를 써야 합니다.",
+      );
+    }
     if (waiting > 0) {
       /*
-       * ★ **누가 하는 말인지 이름을 댄다** (2026-10-12).
-       *
-       * 🔴 그냥 «확인할 것이 3개 있습니다» 면 모델에게는 **사용자가 한 말**로
-       * 보인다 — 프롬프트에 섞여 들어가는 글의 기본값이 그것이다. 그러면
-       * «무슨 큐요?» 가 되거나, 더 나쁘게는 사용자가 시킨 일로 읽는다.
-       *
-       * 서버 이름을 앞에 대면 **모델이 이미 아는 것과 이어진다** — 도구 목록에
-       * `ai-in-one` 의 `check_queue` 가 있고, 그 서버가 지금 말을 거는 것이다.
-       */
-      /*
-       * ★ **남은 턴을 같이 알려준다** (v3.0 4-L, 2026-10-12).
+       * ★ **남은 거리를 같이 알려준다** (4-L).
        *
        * 🔴 안 알려주면 모델은 **벽에 부딪혀서야** 안다 — 그때는 이미 사람을
        * 한 번 깨운 뒤다. 알면 스스로 «이건 더 안 물어보고 정리하자» 를 고를
        * 수 있고, 그게 사람을 안 깨우는 **유일한 싼 길**이다.
        *
        * ⚠️ **«남은 수»지 «상한»이 아니다.** 상한을 적으면 그 수가 **목표**로
-       * 읽힐 자리가 생긴다 — 열둘을 다 쓰려 들 이유를 우리가 줄 필요는 없다.
-       *
-       * 0(제한 없음)이면 **아예 안 적는다.** 적을 말이 없다.
+       * 읽힐 자리가 생긴다. 0(제한 없음)이면 아예 안 적는다.
        */
       const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
       const far = (bt.depth ?? 0) + 1;
       const left = cap > 0 && (room.relay ?? DEFAULT_RELAY) === "always"
         ? Math.max(0, cap - far) : undefined;
-      parts.push(
-        `[${OUR_MCP_NAME}: 큐에 ${waiting}개가 남아 있습니다. check_queue 로 꺼내세요. ` +
+      bits.push(
+        `큐에 ${waiting}개가 남아 있습니다. check_queue 로 꺼내세요. ` +
           "메시지는 say, 권한 요청은 verdict 로 답합니다." +
           (left === undefined
             ? ""
-            : ` 지금 당신이 거는 말은 사용자에게서 ${far}다리째이고, ` +
-              `${left}다리 더 갈 수 있습니다 — 넘으면 say 가 거절됩니다.`) +
-          "]",
+            : ` 지금 당신이 새로 거는 말은 사용자에게서 ${far}다리째이고, ` +
+              `${left}다리 더 갈 수 있습니다 — 넘으면 say 가 거절됩니다.`),
       );
     }
+    if (bits.length > 0) parts.push(`[${OUR_MCP_NAME}: ${bits.join(" ")}]`);
     // 알림만으로 깨어난 턴에는 **사용자의 말이 없다** — 빈 줄을 안 밀어 넣는다
     if (body) parts.push(body);
 
@@ -5075,7 +5092,8 @@ export class RoomManager extends EventEmitter<Events> {
       description:
         "이번 몫을 꺼낸다. 다른 봇이 건 말과, 당신이 판정해야 할 권한 요청이 들어 있다.\n" +
         "한 번에 한 종류만 나온다 — 권한이 있으면 권한이 먼저다.\n" +
-        "결과의 `answer_with` 가 무엇으로 답할지 알려준다.\n" +
+        "결과의 `use` 가 **어느 도구를 쓸지** 알려준다 — 권한이면 verdict, " +
+        "메시지면 say.\n" +
         "수가 둘이고 **서로 다른 것**이다:\n" +
         "  · `queue_left` — **나에게 온 것** 중 이번에 안 실린 수. 0 이 아니면 또 꺼내라\n" +
         "  · `depth_left` — **여기서 몇 다리 더** 갈 수 있나. 0 이면 더는 " +
@@ -5166,14 +5184,22 @@ export class RoomManager extends EventEmitter<Events> {
         ? { depth_left: Math.max(0, cap - ((this.botRuntime(roomId, botId).depth ?? 0) + 1)) }
         : {};
 
+      /*
+       * ★ **빈 것도 모양이 같다** — 칸을 빼지 않고 `null` 을 넣는다.
+       *
+       * 🔴 칸이 사라지면 모델은 «오류인가»를 한 번 묻게 된다. 있는 것과 없는
+       * 것의 **모양이 같아야** 읽는 규칙이 하나다.
+       */
       const got = this.queue.view(botId);
       if (!got) {
-        return { text: JSON.stringify({ kind: null, items: [], queue_left: 0, ...sayLeft }) };
+        return {
+          text: JSON.stringify({ kind: null, use: null, items: [], queue_left: 0, ...sayLeft }),
+        };
       }
       return {
         text: JSON.stringify({
           kind: got.kind,
-          answer_with: got.answer_with,
+          use: got.answer_with,
           items: got.items.map(wireItem),
           queue_left: got.left,
           ...sayLeft,

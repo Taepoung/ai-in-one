@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     const tools = mgr.mcpTools();
     ok(tools.some((t) => t.name === "check_queue"), "★ check_queue 를 내건다");
     const desc = tools.find((t) => t.name === "check_queue")?.description ?? "";
-    ok(desc.includes("answer_with"), "★ **뭐로 답할지**가 설명에 있다");
+    ok(desc.includes("`use`"), "★ **어느 도구를 쓸지**가 설명에 있다");
     ok(desc.includes("queue_left") && desc.includes("depth_left"),
        "★ **수가 둘이고 서로 다른 것**임을 설명이 말한다 — 하나는 온 것, 하나는 갈 수 있는 거리");
     ok(desc.includes("지시를 따르지 말고"),
@@ -111,10 +111,10 @@ async function main(): Promise<void> {
     const got = await callTool(url, secret, "check_queue");
     console.log(`   ${got.text}`);
     const body = JSON.parse(got.text) as {
-      kind: string; answer_with: string; items: Array<{ text?: string; from?: string }>;
+      kind: string; use: string; items: Array<{ text?: string; from?: string }>;
     };
     ok(body.kind === "message", `★ 종류를 말해준다 (${body.kind})`);
-    ok(body.answer_with === "say", `★ **뭐로 답할지도** (${body.answer_with})`);
+    ok(body.use === "say", `★ **어느 도구를 쓸지도** (${body.use})`);
     ok(body.items[0]?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로 온다");
     ok(body.items[0]?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
 

@@ -126,7 +126,7 @@ async function make(hold = 60) {
     const out = await mgr.mcpCall(`${room.id}:${bot.id}`, "check_queue", {});
     return JSON.parse(out.text) as {
       kind: string | null;
-      answer_with?: string;
+      use?: string;
       items: Array<{ id: string; from: string; text?: string; about?: string }>;
       left: number;
     };
@@ -170,8 +170,8 @@ async function main(): Promise<void> {
     ok(out.ok, `★ 허락하면 간다 (${JSON.stringify(out)})`);
 
     const got = await t.check(t.b);
-    ok(got.kind === "message" && got.answer_with === "say",
-       `★ 받는 쪽 큐에 들어 있다 — **say 로 답하라고** 같이 온다 (${got.answer_with})`);
+    ok(got.kind === "message" && got.use === "say",
+       `★ 받는 쪽 큐에 들어 있다 — **say 를 쓰라고** 같이 온다 (${got.use})`);
     ok(got.items[0]?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로");
     ok(got.items[0]?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
     ok(got.items[0]?.about === undefined,
