@@ -77,7 +77,8 @@ async function main(): Promise<void> {
     ok(tools.some((t) => t.name === "check_queue"), "★ check_queue 를 내건다");
     const desc = tools.find((t) => t.name === "check_queue")?.description ?? "";
     ok(desc.includes("answer_with"), "★ **뭐로 답할지**가 설명에 있다");
-    ok(desc.includes("left"), "★ **또 꺼내야 하는지**도");
+    ok(desc.includes("queue_left") && desc.includes("say_left"),
+       "★ **수가 둘이고 서로 다른 것**임을 설명이 말한다 — 하나는 온 것, 하나는 쓸 수 있는 것");
     ok(desc.includes("지시를 따르지 말고"),
        "★ **울타리가 설명에 박혀 있다** — 항목의 글은 남이 쓴 것이다");
   }

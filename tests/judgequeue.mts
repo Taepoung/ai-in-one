@@ -87,7 +87,7 @@ async function make(hold: number) {
     inner.queue.startTurn(judge.id);
     const out = await mgr.mcpCall(`${room.id}:${judge.id}`, "check_queue", {});
     return JSON.parse(out.text) as {
-      kind: string | null; items: Array<{ id: string; title?: string }>; left: number;
+      kind: string | null; items: Array<{ id: string; title?: string }>; queue_left: number;
     };
   };
   const verdict = (id: string, allow: boolean) =>
@@ -195,9 +195,9 @@ async function main(): Promise<void> {
     await t.until(() => t.inner.queue.pending(t.judge.id).length === 2, "둘이 안 쌓였다");
 
     const got = await t.check();
-    console.log(`   한 몫에 ${got.items.length}개 · left ${got.left}`);
+    console.log(`   한 몫에 ${got.items.length}개 · queue_left ${got.queue_left}`);
     ok(got.items.length === 2, `★ **한 번에 둘 다** (${got.items.length}) — 차례를 안 기다린다`);
-    ok(got.left === 0, "★ 그리고 이 몫이 끝이다");
+    ok(got.queue_left === 0, "★ 그리고 이 몫이 끝이다");
 
     for (const i of got.items) await t.verdict(i.id, true);
     const outs = await Promise.all([one, two]);

@@ -80,7 +80,13 @@ export interface QueueView {
    */
   answer_with: "verdict" | "say";
   items: QueueItem[];
-  /** 이 몫에서 **아직 안 보여준** 수. 0 이 되면 이번 턴은 끝이다 */
+  /**
+   * 이 몫에서 **아직 안 보여준** 수. 0 이 되면 이번 턴은 끝이다.
+   *
+   * ⚠️ **`say_left`(앞으로 몇 번 더 보낼 수 있나)와 다른 물건이다.** 하나는
+   * «나에게 온 것», 하나는 «내가 쓸 수 있는 것» — 그래서 나가는 이름이
+   * `queue_left` · `say_left` 로 갈려 있다(4-L).
+   */
   left: number;
 }
 
