@@ -22,7 +22,7 @@ const NL = String.fromCharCode(10);
 const perm = (to: string, title: string, over = {}) =>
   ({ kind: "permission" as const, to, from: "알파", title, readOnly: false, ...over });
 const msg = (to: string, text: string, over = {}) =>
-  ({ kind: "message" as const, to, from: "알파", fromId: "alpha-1", text, ...over });
+  ({ kind: "message" as const, to, from: "알파", fromId: "alpha-1", depth: 1, text, ...over });
 
 function main(): void {
   console.log(`${NL}[★ 떼어낸 몫만 보인다 — 그래야 턴이 끝난다]`);

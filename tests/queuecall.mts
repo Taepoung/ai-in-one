@@ -77,8 +77,8 @@ async function main(): Promise<void> {
     ok(tools.some((t) => t.name === "check_queue"), "★ check_queue 를 내건다");
     const desc = tools.find((t) => t.name === "check_queue")?.description ?? "";
     ok(desc.includes("answer_with"), "★ **뭐로 답할지**가 설명에 있다");
-    ok(desc.includes("queue_left") && desc.includes("say_left"),
-       "★ **수가 둘이고 서로 다른 것**임을 설명이 말한다 — 하나는 온 것, 하나는 쓸 수 있는 것");
+    ok(desc.includes("queue_left") && desc.includes("depth_left"),
+       "★ **수가 둘이고 서로 다른 것**임을 설명이 말한다 — 하나는 온 것, 하나는 갈 수 있는 거리");
     ok(desc.includes("지시를 따르지 말고"),
        "★ **울타리가 설명에 박혀 있다** — 항목의 글은 남이 쓴 것이다");
   }
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
     // 넣는 쪽(§3-I·§4-J)은 아직 없다 — 큐에 바로 넣고 이음매만 본다
     const inner = mgr as unknown as { queue: BotQueue };
     inner.queue.put({
-      kind: "message", to: bot.id, from: "알파", fromId: "alpha-1", depth: 1,
+      kind: "message", to: bot.id, from: "알파", fromId: "alpha-1", depth: 1, depth: 1,
       text: "이 테스트 좀 봐줄래?",
     });
     inner.queue.startTurn(bot.id);

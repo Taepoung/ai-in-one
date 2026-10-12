@@ -316,13 +316,13 @@ export type FromWebview =
    */
   | { t: "setRelay"; roomId: string; relay: RelayMode }
   /**
-   * ★ **사용자 말 한 마디당 봇끼리 주고받는 횟수의 상한** (v3.0 4-L).
+   * ★ **사용자에게서 몇 다리까지 번져도 되나** (v3.0 4-L).
    * «무조건 허용»에서만 쓰인다.
    *
-   * 세는 것이 곧 **턴이고 돈**이다 — 큐에 한 줄 들어가면 상대가 깨어나 한 턴을
-   * 돈다. 사용자가 말을 걸면 0 부터 다시 센다.
+   * 깊이 0 이 사용자 메시지, 1 이 거기 반응해 거는 말, 2 가 그 말에 반응해
+   * 거는 말이다 — **답도 반응이라 한 다리 는다.**
    */
-  | { t: "setRelayCap"; roomId: string; times: number }
+  | { t: "setRelayDepth"; roomId: string; depth: number }
   /**
    * 봇 이름 바꾸기 (v2.2 준비).
    *

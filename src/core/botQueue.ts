@@ -65,6 +65,14 @@ export interface QueuePermission extends Common {
 export interface QueueMessage extends Common {
   kind: "message";
   text: string;
+  /**
+   * ★ **사용자에게서 몇 다리 건너왔나** (v3.0 4-L).
+   *
+   * 사용자가 부른 턴에서 건 말이 1, 그 말을 받은 봇이 거는 말이 2 다 —
+   * **답도 반응이라 한 다리 는다.** `always` 에서 이 수가 상한을 넘으면
+   * **그 `say` 가 거절된다.**
+   */
+  depth: number;
   /** 답이면 **무엇에 대한 답인지** — 봇이 여럿에게 물었을 때 짝을 찾는다 */
   about?: string;
 }

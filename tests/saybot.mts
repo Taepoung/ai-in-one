@@ -107,8 +107,9 @@ async function make(hold = 60) {
     from: { id: string }, to: string, text: string, id?: string,
   ): Promise<SayOut & { isError?: boolean }> => {
     if (!id) {
-      (mgr as unknown as { botRuntime(r: string, b: string): { fromUser?: boolean } })
-        .botRuntime(room.id, from.id).fromUser = true;
+      // «0» 은 **사용자가 연 턴**에서만 통한다 — 진짜로는 `runQueue` 가 박는 값이다
+      (mgr as unknown as { botRuntime(r: string, b: string): { depth?: number } })
+        .botRuntime(room.id, from.id).depth = 0;
     }
     const out = await mgr.mcpCall(
       `${room.id}:${from.id}`, "say",
