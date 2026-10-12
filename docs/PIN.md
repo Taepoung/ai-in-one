@@ -908,6 +908,90 @@ HEAD 에 111,404,059 를 주는데 진짜는 111,456,962 였다 — 52,903 바�
 
 ---
 
+### G6. Antigravity 는 **지우는 길이 없다** (2026-10-12 실측)
+
+`delsess.cjs`·`delsess2.cjs` 는 **Claude 에 박혀 있어서**(`~/.claude/projects`·
+`claude.exe`) §0 P4(«방을 나가면 CLI 에 아무것도 안 남는다»)가 Antigravity 에서도
+참인지는 **한 번도 안 봤다.** 재보니 **거짓이었다.**
+
+```
+sessionCapabilities   {"list":{}, "resume":{}}        ← delete 도 close 도 **없다**
+session/delete        Method not found (-32601)
+```
+
+🔴 **그래서 우리는 아무 요청도 안 보내고 있었다.** `deleteSession` 은 `delete`
+capability 가 없으면 `closeSession` 으로 떨어지는데, `closeSession` 도 `close`
+capability 를 보고 **조용히 돌아왔다.** 방을 나가도 저쪽은 세션을 붙든 채였다.
+
+#### ★ «광고 안 함» ≠ «구현 안 함»
+
+여덟 이름을 두드려 봤다(`probes/agymethods.cjs`):
+
+```
+✅ session/close · session/list · session/resume
+—  session/delete · remove · discard · end · archive
+   conversation/delete · conversation/remove
+```
+
+**`close` 는 광고를 안 하는데 실제로 된다.** 그래서 **capability 가 없어도
+불러본다** — 없는 쪽은 `Method not found` 로 돌아오고 그건 **고장이 아니라 답**
+이라, 그것만 조용히 넘긴다.
+
+#### 그리고 **대화 전문이 평문으로 남는다**
+
+세션에 비밀을 심고 지워봤다(`probes/agydelete.cjs`):
+
+```
+~/.gemini/antigravity-acp/
+  brain/<id>/.system_generated/logs/transcript.jsonl        ← 친 말 **원문**
+                              logs/transcript_full.jsonl
+                              logs/chunks/transcript/00000000.jsonl
+                              logs/chunks/transcript_full/00000000.jsonl
+  conversations/<id>.db · .db-shm · .db-wal · .meta
+```
+
+Claude 는 **껍데기**(제목·마지막 한 줄)만 남았는데 Antigravity 는 **전부** 남는다.
+
+🔴 **sqlite 는 늦게 찬다.** 지운 직후에 `.db` 를 뒤지면 비밀이 **없다** — 아직
+`-wal` 에 있기 때문이다. 나중에 옮겨 담기고 나면 **평문 그대로** 들어 있다.
+«지운 직후에 봤더니 깨끗하더라» 로 넘기면 안 되는 자리다.
+
+#### 그래서 우리가 파일을 지운다 (`AgentDef.purgeFiles`)
+
+`agy` CLI 에도 서브커맨드가 **없고**(delete·rm·remove·conversation(s)·
+session(s)·clean·clear·prune·purge 열한 개를 두드렸다), 게다가 **다른 집**을
+본다(§G4-2 — `antigravity-cli/` 가 제 `brain`·`conversations` 를 따로 갖는다).
+
+| | 지우는 길 | 남는 것 |
+|---|---|---|
+| Claude | ACP `session/delete` | **껍데기** — 제목·마지막 친 말 |
+| Codex | ACP delete **+** `codex delete --force` | 없음 (sqlite 인덱스까지) |
+| **Antigravity** | **없다 → 우리가 파일을 지운다** | 없음 (밀린 것까지 치우면) |
+
+⚠️ **Codex 때 sqlite 를 안 건드린 것과 다르다.** 그건 **남의 스키마 안**(행을
+지워야 함)이었고, 이건 **파일 통째**다 — 안이 어떻게 생겼는지 알 필요가 없다.
+
+#### 🔴 그 자리에서는 반만 지워진다
+
+```
+brain/<id>/        ✅ 지워진다 — 평문 transcript 가 여기 있다
+conversations/*    🔴 EPERM — close 뒤에도, 우리가 내린 뒤에도 3초를 기다려도
+```
+
+까닭은 **이미 알고 있던 것**이다: *"Antigravity 의 파이썬 서버는 안 끝난다"*
+(`sweepStrays` 가 있는 이유). 우리가 내린 것은 우리가 띄운 프로세스고, 그
+**자식들이 살아남아 sqlite 를 들고 있다.**
+
+그래서 못 지운 것은 **밀린 목록**(`AppState.purgeBacklog`)으로 넘기고, 다음에
+켤 때 **버려진 프로세스를 죽인 바로 다음에** 치운다. 순서가 뒤집히면 또 EPERM 이다.
+
+★ **«그 집에 남는 것» 을 쓸지 않는다.** 같은 집을 보는 다른 ACP 클라이언트가
+있을 수 있고, 그러면 **남이 만든 세션까지 지운다.** 우리가 지우려다 못 지운
+것만 들고 있는 이유다.
+
+★ **세션 id 는 저쪽이 준 값**이라 경로에 꽂기 전에 본다 — `..` 나 구분자가
+섞이면 홈 밖을 지우게 된다(`tests/purgefiles.mts`).
+
 ## H. 에이전트를 올릴 때
 
 → **`docs/BUMP.md`**

@@ -350,11 +350,36 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * 🔴 레지스트리가 **해시를 안 준다.** 받은 것이 온전한지 맞춰볼 기준이
      * 없어서, HTTPS 와 **푸는 중 크기 확인**이 지금 가진 전부다(`unzip.ts`).
      *
-     * ⚠️ 로그인·뒷정리 명령을 **안 적었다.** 어떤 길인지 안 재봤고,
-     * 지어내면 엉뚱한 걸 부르게 된다(`codex-code-mode-host` 전적).
+     * ⚠️ **로그인 명령은 안 적었다.** 어떤 길인지 안 재봤고, 지어내면
+     * 엉뚱한 걸 부르게 된다(`codex-code-mode-host` 전적).
      */
     command: "",
     args: [],
+    /*
+     * ★ **지울 명령이 없어서 파일을 지운다** (2026-10-12 실측).
+     *
+     * 🔴 여덟 이름을 두드려 봤다 — `delete`·`remove`·`discard`·`end`·
+     * `archive`·`conversation/delete`·`conversation/remove` 전부 없고,
+     * 되는 것은 `close`·`list`·`resume` 셋뿐이다(`probes/agymethods.cjs`).
+     * `agy` CLI 에도 서브커맨드가 없고 **다른 집**을 본다(§G4-2).
+     *
+     * 안 지우면 **대화 전문이 평문으로 남는다** — 지운 뒤에도
+     * `transcript.jsonl` 에 사용자가 친 말이 그대로 있었다
+     * (`probes/agydelete.cjs`).
+     *
+     * 세션 하나가 파일 **다섯**을 만든다 — 폴더 하나와 sqlite 넷
+     * (`-shm`·`-wal` 은 sqlite 가 쓰다 남기는 짝이라 같이 지운다).
+     */
+    purgeFiles: {
+      home: "~/.gemini/antigravity-acp",
+      paths: [
+        "brain/{id}",
+        "conversations/{id}.db",
+        "conversations/{id}.db-shm",
+        "conversations/{id}.db-wal",
+        "conversations/{id}.meta",
+      ],
+    },
     pkg: {
       /*
        * ★ **받는 것은 zip 하나다** (2026-10-07).

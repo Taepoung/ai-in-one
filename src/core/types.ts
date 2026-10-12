@@ -41,6 +41,32 @@ export interface AgentDef {
    */
   purgeSession?: { command: string; args: string[] };
   /**
+   * ★ **지울 명령이 아예 없는 에이전트** (2026-10-12 실측).
+   *
+   * 🔴 Antigravity 는 **지우는 길이 없다.** `session/delete` 는
+   * `Method not found` 이고, `remove`·`discard`·`end`·`archive`·
+   * `conversation/delete` 도 전부 없다. `agy` CLI 에도 서브커맨드가 없고,
+   * 게다가 `agy` 는 **다른 집**(`antigravity-cli/`)을 본다(§G4-2).
+   *
+   * 그런데 안 지우면 **대화 전문이 평문으로 쌓인다** — 재봤더니 지운 뒤에도
+   * `brain/<id>/.system_generated/logs/transcript.jsonl` 에 사용자가 친 말이
+   * 그대로 있었다. §0 P4(«나가면 아무것도 안 남는다»)가 통째로 거짓이 된다.
+   *
+   * 그래서 **우리가 파일을 지운다.** Codex 때 sqlite 를 안 건드린 것과
+   * 다르다 — 그건 **남의 스키마 안**이었고 이건 **파일 통째**다.
+   *
+   * ⚠️ **문서에 없는 내부 구조다.** 바뀌면 조용히 안 지우게 되므로,
+   * 지운 결과를 로그에 남긴다 — Codex 의 종료코드를 남기는 것과 같은 이유다.
+   *
+   * 경로는 **홈 아래 상대 경로**이고 `{id}` 가 세션 id 로 바뀐다.
+   */
+  purgeFiles?: {
+    /** 홈 아래 어디인가 — `~` 가 홈이다 */
+    home: string;
+    /** 지울 것들. 폴더면 통째로 */
+    paths: string[];
+  };
+  /**
    * ★ **우리 자리에 받아두는 꺼라면 여기 적는다** (2026-10-01).
    *
    * 적혀 있으면 `command`·`args` 를 **받은 뒤 덮어쓴다**
@@ -1130,6 +1156,18 @@ export interface SearchHit {
 export interface AppState {
   /** 에이전트별 마지막 모델 선택. 다음 방의 기본값이 된다 (B15) */
   lastModelByAgent?: Record<string, string>;
+  /**
+   * ★ **치우다 만 세션 파일들** (2026-10-12).
+   *
+   * 지우는 길이 없는 에이전트는 우리가 파일을 지우는데(`purgeFiles`), 방을
+   * 나가는 그 순간에는 **저쪽 프로세스가 아직 들고 있다.** 다음에 켤 때
+   * 버려진 프로세스를 죽인 **다음에** 치운다.
+   *
+   * 🔴 **«그 집에 남는 것» 을 쓸지 않는다** — 같은 집을 보는 다른 ACP
+   * 클라이언트가 있을 수 있고, 그러면 **남이 만든 세션까지 지운다.**
+   * 우리가 지우려다 못 지운 것만 들고 있는 이유다.
+   */
+  purgeBacklog?: Array<{ agentId: string; sessionId: string; at: number }>;
 }
 
 export function toMeta(room: Room): RoomMeta {

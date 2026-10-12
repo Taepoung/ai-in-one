@@ -5,6 +5,7 @@ import { withInstalled, sweepStrays } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
 import { McpServer } from "../core/mcpServer.js";
 import { RoomLocks } from "../core/roomLock.js";
+import { sweepBacklog } from "../core/purgeBacklog.js";
 import { RoomStore } from "../core/store.js";
 import type { AgentDef } from "../core/types.js";
 import { BLOB_SCHEME, BlobDocuments } from "./blobDocuments.js";
@@ -109,6 +110,25 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   try {
     const swept = sweepStrays(agentRoot);
     if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
+  } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
+
+  /*
+   * ★ **치우다 만 세션 파일을 여기서 치운다** (2026-10-12 실측).
+   *
+   * 🔴 **바로 위 줄 다음이라야 한다.** 지우는 길이 없는 에이전트는 우리가
+   * 파일을 지우는데(`purgeFiles`), 방을 나가는 그 순간에는 **저쪽 프로세스가
+   * 아직 들고 있어** `EPERM` 이다 — `close` 뒤에도, 우리가 내린 뒤에도.
+   *
+   * 까닭은 바로 위가 말하고 있다: **그 파이썬 서버는 안 끝난다.** 그래서
+   * 그걸 죽인 **다음**이라야 지울 수 있다.
+   */
+  try {
+    const left = store.getAppState().purgeBacklog ?? [];
+    if (left.length > 0) {
+      const { done, keep } = sweepBacklog(left, agents, (m) => out.appendLine(m));
+      if (done > 0) out.appendLine(`밀려 있던 세션 ${done}개의 파일을 치웠습니다.`);
+      if (keep.length !== left.length) void store.patchAppState({ purgeBacklog: keep });
+    }
   } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
 
   /*

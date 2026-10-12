@@ -59,7 +59,9 @@ tests/
 손으로 돌린다:
 
 ```
-node tests/probes/delsess2.cjs     # 세션을 지우면 디스크에서 뭐가 사라지나
+node tests/probes/delsess2.cjs     # 세션을 지우면 디스크에서 뭐가 사라지나 (Claude)
+node tests/probes/agymethods.cjs   # Antigravity 가 할 줄 아는 메서드 (프롬프트 안 씀)
+node tests/probes/agydelete.cjs    # Antigravity 는 지우면 지워지나
 node tests/probes/newsess.cjs      # 메시지마다 세션이 새로 생기나
 node tests/probes/fsseam.cjs       # 파일 접근이 우리를 거치나
 ```

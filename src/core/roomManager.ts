@@ -4881,6 +4881,24 @@ export class RoomManager extends EventEmitter<Events> {
     }];
   }
 
+  /**
+   * **치우다 만 세션 파일을 적어둔다** (2026-10-12).
+   *
+   * 🔴 저쪽 프로세스가 아직 들고 있어 안 지워진다. 다음에 켤 때 **버려진
+   * 프로세스를 죽인 뒤에** 치운다(`sweepBacklog`).
+   *
+   * ⚠️ **«그 집에 남는 것» 을 쓸지 않는다** — 같은 집을 보는 다른 ACP
+   * 클라이언트가 있을 수 있고, 그러면 남이 만든 세션까지 지운다.
+   * 우리가 지우려다 못 지운 것만 적는다.
+   */
+  private rememberPurge(agentId: string, sessionId: string): void {
+    const prev = this.opts.store.getAppState().purgeBacklog ?? [];
+    if (prev.some((x) => x.agentId === agentId && x.sessionId === sessionId)) return;
+    void this.opts.store.patchAppState({
+      purgeBacklog: [...prev, { agentId, sessionId, at: Date.now() }],
+    });
+  }
+
   private connection(agentId: string): AcpConnection {
     /*
      * 🔴 **내린 뒤에는 새로 안 만든다** (v3.0 1-E).
@@ -4898,6 +4916,7 @@ export class RoomManager extends EventEmitter<Events> {
         (reason) => this.onAgentCrash(agentId, reason),
         (sessionId, note) => this.recordDecision(sessionId, note),
         (sessionId, req) => this.askApprover(sessionId, req),
+        (agentId, sessionId) => this.rememberPurge(agentId, sessionId),
       );
       this.connections.set(agentId, conn);
     }

@@ -8,6 +8,7 @@ import type {
   PermissionRequest,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
+import { purgeOnce } from "./purgeBacklog.js";
 
 /**
  * 에이전트가 턴 중에 흘려보내는 것들.
@@ -216,6 +217,14 @@ export class AcpConnection {
       sessionId: string,
       req: PermissionRequest,
     ) => Promise<PermissionDecision>,
+    /**
+     * ★ **세션 파일을 지우다 말았다** (2026-10-12).
+     *
+     * 저쪽 프로세스가 아직 들고 있어 안 지워진다 — **다음에 켜질 때**
+     * 버려진 프로세스를 죽인 뒤에 치운다. 연결은 저장소를 모르므로
+     * 적어두는 일은 방을 쥐고 있는 쪽에 맡긴다.
+     */
+    private readonly onPurgeLeft?: (agentId: string, sessionId: string) => void,
   ) {}
 
   /**
@@ -868,10 +877,22 @@ export class AcpConnection {
    */
   async closeSession(sessionId: string): Promise<void> {
     this.listeners.delete(sessionId);
-    if (!this.conn || !this.init?.agentCapabilities?.sessionCapabilities?.close) return;
+    if (!this.conn) return;
+    /*
+     * ★ **광고를 안 해도 불러본다** (2026-10-12 실측).
+     *
+     * 🔴 «광고 안 함» 과 «구현 안 함» 은 다르다. Antigravity 는
+     * `sessionCapabilities` 에 `{list, resume}` 만 내놓는데 **`session/close`
+     * 가 실제로 된다**(`probes/agymethods.cjs`). capability 만 믿고 안 불렀더니
+     * 방을 나갈 때 **아무 요청도 안 보내고** 있었다 — 저쪽은 세션을 붙든 채다.
+     *
+     * 없는 쪽은 `Method not found` 로 돌아오고, 그건 **고장이 아니라 답**이다.
+     * 그래서 그것만 조용히 넘긴다 — 나머지 실패는 적는다.
+     */
     try {
       await this.conn.agent.request(acp.methods.agent.session.close, { sessionId });
     } catch (err) {
+      if (notFound(err)) return;
       this.host.log(`[${this.agent.id}] 세션 해제 실패: ${describe(err)}`);
     }
   }
@@ -894,6 +915,16 @@ export class AcpConnection {
     // 실패한다. 게다가 실패한 `delete`가 세션을 망가뜨려 뒤이은 `close`까지 깨진다.
     if (!hasContent || !caps?.delete) {
       await this.closeSession(sessionId);
+      /*
+       * ★ **지울 명령이 없어도 파일은 지운다** (2026-10-12).
+       *
+       * 🔴 Antigravity 는 `session/delete` 가 아예 없다. 그래서 여기로
+       * 떨어지는데, 예전에는 **떼기만 하고 끝**이었다 — 대화 전문이
+       * `transcript.jsonl` 에 평문으로 남았다(`probes/agydelete.cjs`).
+       *
+       * 말을 건 적 없는 세션은 쓴 것도 없다 — 그때는 지울 것이 없다.
+       */
+      if (hasContent) this.purge(sessionId);
       return;
     }
 
@@ -934,7 +965,42 @@ export class AcpConnection {
    * 한 번 걷은 길이다. 그래서 **막지는 않되 남긴다** — 종료코드와 stderr 를
    * 받아 로그로 흘린다. 나가기는 여전히 기다리지 않는다.
    */
+  /**
+   * ★ **지울 명령이 없는 에이전트는 파일을 지운다** (2026-10-12 실측).
+   *
+   * 🔴 Antigravity 에는 지우는 길이 **아예 없다** — 여덟 이름을 두드려 봤고
+   * `close`·`list`·`resume` 셋뿐이다(`probes/agymethods.cjs`). `agy` CLI 에도
+   * 서브커맨드가 없고, 게다가 **다른 집**을 본다(§G4-2).
+   *
+   * 안 지우면 **대화 전문이 평문으로 쌓인다.** §0 P4 가 통째로 거짓이 된다.
+   *
+   * 🔴 **그 자리에서 다 지워지지는 않는다.** sqlite 가 잠겨 있다 — 재봤더니
+   * `close` 뒤에도, 프로세스를 내린 뒤에도 `EPERM` 이었다. 까닭은 알고 있던
+   * 것이다: **Antigravity 의 파이썬 서버는 안 끝난다**(`sweepStrays`).
+   * 그래서 못 지운 것은 **밀린 목록**으로 넘긴다.
+   */
+  private purgeFiles(sessionId: string): void {
+    if (!this.agent.purgeFiles) return;
+    const { wiped, left } = purgeOnce(this.agent, sessionId, (m) => this.host.log(m));
+    if (left > 0) {
+      // 다음에 켤 때 치운다 — 저쪽 프로세스가 죽은 뒤라야 된다
+      this.onPurgeLeft?.(this.agent.id, sessionId);
+      return;
+    }
+    /*
+     * ★ **하나도 못 찾았으면 말한다.** 저쪽이 자리를 옮기면 그때부터 조용히
+     * 쌓이는데, 사용자는 **몇 달 뒤 디스크가 차고 나서** 알게 된다.
+     */
+    if (wiped === 0) {
+      this.host.log(
+        `[${this.agent.id}] 세션 ${sessionId} 의 파일을 하나도 못 찾았습니다 — ` +
+          `${this.agent.purgeFiles.home} 아래 자리가 바뀌었을 수 있습니다`,
+      );
+    }
+  }
+
   private purge(sessionId: string): void {
+    this.purgeFiles(sessionId);
     const p = this.agent.purgeSession;
     if (!p) return;
     const args = p.args.map((a) => a.replace("{id}", sessionId));
@@ -1230,6 +1296,18 @@ function pair(
   if (typeof server !== "string" || typeof tool !== "string") return undefined;
   if (!server || !tool) return undefined;
   return { server, tool };
+}
+
+/**
+ * **«그런 메서드 없다»인가** (JSON-RPC `-32601`).
+ *
+ * 🔴 이것만은 **고장이 아니라 답**이다 — 저쪽이 그 길을 안 만든 것뿐이다.
+ * 다른 실패와 섞어 적으면 로그가 «안 되는 것»으로 차서, 정작 **고칠 수 있는
+ * 실패**가 묻힌다.
+ */
+function notFound(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return text.includes("-32601") || /method not found/i.test(text);
 }
 
 /**
