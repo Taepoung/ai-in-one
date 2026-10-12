@@ -3642,3 +3642,8 @@ fieldset.bot .bot-drop.danger:hover {
   color: var(--vscode-input-foreground);
   font: inherit;
 }
+
+/* 깊이 상한은 «무조건 허용» 에서만 걸린다 — 다른 칸에서는 흐리게 (4-L) */
+.cap-row.off {
+  opacity: 0.5;
+}

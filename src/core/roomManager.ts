@@ -47,7 +47,7 @@ import {
   type Staged,
   type RelayMode,
   DEFAULT_RELAY,
-  DEFAULT_TURN_CAP,
+  DEFAULT_DEPTH_CAP,
   rosterText,
   ROSTER_OFF,
 } from "./types.js";
@@ -169,6 +169,13 @@ interface BotRuntime {
   /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
   roleInjected: boolean;
   /**
+   * ★ **이 턴이 사용자에게서 몇 다리 건너왔나** (v3.0 4-L).
+   *
+   * 사용자가 부른 턴은 0. 이 봇이 이 턴에 거는 말은 전부 `depth + 1` 이다.
+   * **턴에 붙는 값**이라 `say` 의 인자로는 못 흔든다.
+   */
+  depth?: number;
+  /**
    * ★ **마지막으로 보낸 명단 글** (v3.0 4-K).
    *
    * 🔴 **«언제 다시 보내나» 를 목록으로 관리하지 않는다.** 이름 · 설명 ·
@@ -256,21 +263,6 @@ interface RoomRuntime {
   status: RoomStatus;
   /** 봇별 상태. 열쇠는 `BotInstance.id` */
   bots: Map<string, BotRuntime>;
-  /**
-   * ★ **사용자 말 한 마디 뒤로 봇들이 돈 턴** (v3.0 4-L).
-   *
-   * 🔴 **언제나 센다.** 한때 *"「무조건 허용」일 때만 쓰인다"* 고 적었는데
-   * 구멍이 있었다 — 알림 턴은 `say` 승인과 무관하게 돌므로, 「물어봄」에서
-   * **안 답하는 봇을 영원히 깨우는 고리**가 안 잡힌다. 예외를 없애면 구멍도
-   * 없어진다.
-   *
-   * **사용자가 말을 걸면 0 이다.** 세는 것이 «사람이 안 보는 구간»이니,
-   * 말을 거는 순간 그 구간이 새로 시작된다 — 그래서 숫자가 직관적인 뜻을
-   * 갖는다: *"내가 한 마디 하면 쟤들끼리 열두 번까지 돈다"*.
-   *
-   * 디스크에 안 남긴다 — 껐다 켜면 그 구간 자체가 끝난 것이다.
-   */
-  turns: number;
   /**
    * **지금 부딪히고 있는 파일들** — 열쇠는 경로 (§4.3).
    *
@@ -853,8 +845,6 @@ export class RoomManager extends EventEmitter<Events> {
    * 같은 선택이다(§4.2.2).
    */
   private readonly queue = new BotQueue();
-  /** 상한 카드가 떠 있는 방 — **방에 하나만** 띄운다 (4-L) */
-  private readonly capAsking = new Set<string>();
 
   /**
    * 큐에 든 권한 요청의 **답을 넣을 손** — id → 푸는 함수.
@@ -1137,26 +1127,25 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
-   * ★ **턴 상한을 고친다** (v3.0 4-L).
+   * ★ **깊이 상한을 고친다** (v3.0 4-L). `always` 에서만 쓰인다.
    *
    * ```
-   * 0      **제한 없음** — 닿을 데가 없으니 안 묻는다
-   * 1..999 그만큼 돌면 멈추고 «더 갈까요»
+   * 0      **제한 없음** — 닿을 데가 없다
+   * 1..999 사용자에게서 그만큼 멀어지면 그 `say` 가 거절된다
    * ```
    *
-   * 🔴 **0 이 «한 턴도 안 돈다»가 아니다.** 그건 «끔»이 할 일이고, 숫자로도
-   * 같은 말을 하게 두면 **같은 뜻을 두 군데**에서 말하게 된다. 숫자 칸에서
-   * 0 은 어느 설정에서나 **«세지 않는다»** 다.
+   * 🔴 **0 이 «한 번도 못 건다»가 아니다.** 그건 «끔»이 할 일이고, 숫자로도
+   * 같은 말을 하게 두면 **같은 뜻을 두 군데**에서 말하게 된다.
    *
-   * ⚠️ 음수는 0 으로 접는다 — 저쪽이 무슨 뜻으로 보냈든 **안 세는 쪽**이
+   * ⚠️ 음수는 0 으로 접는다 — 저쪽이 무슨 뜻으로 보냈든 **안 막는 쪽**이
    * 그나마 짐작이 덜 섞인다.
    */
-  async setTurnCap(roomId: string, turns: number): Promise<void> {
+  async setRelayDepth(roomId: string, depth: number): Promise<void> {
     const room = await this.openRoom(roomId);
-    const next = Math.max(0, Math.min(999, Math.floor(turns)));
-    if ((room.turnCap ?? DEFAULT_TURN_CAP) === next) return;
-    room.turnCap = next;
-    await this.saveProps(room, { turnCap: next });
+    const next = Math.max(0, Math.min(999, Math.floor(depth)));
+    if ((room.depthCap ?? DEFAULT_DEPTH_CAP) === next) return;
+    room.depthCap = next;
+    await this.saveProps(room, { depthCap: next });
     this.emit("room", room);
   }
 
@@ -2335,15 +2324,6 @@ export class RoomManager extends EventEmitter<Events> {
       return;
     }
 
-    /*
-     * ★ **사용자가 말을 걸면 상한이 리셋된다** (v3.0 4-L).
-     *
-     * 세는 것이 «사람이 안 보는 구간»이니, **말을 거는 것이 곧 «이제 내가
-     * 본다»**이고 상한이 리셋되는 것이 그 신호의 실제 모양이다. «사람이
-     * 돌아오면»을 따로 만들 필요가 없다.
-     */
-    this.runtime(roomId).turns = 0;
-
     // 보냈으니 초안은 비운다
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -2443,15 +2423,6 @@ export class RoomManager extends EventEmitter<Events> {
       await this.holdBack(room, tokens, attachments, busy);
       return parsed;
     }
-
-    /*
-     * ★ **사용자가 말을 걸면 상한이 리셋된다** (v3.0 4-L).
-     *
-     * 세는 것이 «사람이 안 보는 구간»이니, **말을 거는 것이 곧 «이제 내가
-     * 본다»**이고 상한이 리셋되는 것이 그 신호의 실제 모양이다. «사람이
-     * 돌아오면»을 따로 만들 필요가 없다.
-     */
-    this.runtime(roomId).turns = 0;
 
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -3299,11 +3270,18 @@ export class RoomManager extends EventEmitter<Events> {
      */
     this.queue.startTurn(bot.id);
     /*
-     * ★ **턴을 센다** (v3.0 4-L). 세는 자리는 **프롬프트가 나가는 곳 하나**다 —
-     * 사용자가 부른 턴도, 봇이 깨운 턴도 여기를 지난다. 예외를 두면 그 길로
-     * 도는 고리가 안 잡힌다.
+     * ★ **이 턴이 몇 다리 건너온 것인가** (v3.0 4-L).
+     *
+     * 사용자가 부른 턴은 0 이고, 큐가 깨운 턴은 **실린 것 중 가장 깊은 값**이다.
+     * 이 봇이 이 턴에 거는 말은 전부 그보다 한 다리 더 멀다.
+     *
+     * 🔴 **`say` 의 `id` 로 세지 않는다.** 그러면 `id` 를 빼고 부르는 것만으로
+     * 깊이가 1 로 되돌아간다 — 막으려던 고리가 **인자 하나로 빠져나간다.**
+     * 깊이는 **턴에 붙는 것**이지 인자에 붙는 것이 아니다.
      */
-    this.runtime(room.id).turns += 1;
+    bt.depth = batch.some((m) => m.role === "user")
+      ? 0
+      : Math.max(0, ...this.queue.pending(bot.id).map((i) => (i.kind === "message" ? i.depth : 0)));
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
 
@@ -4337,15 +4315,17 @@ export class RoomManager extends EventEmitter<Events> {
        *
        * 0(제한 없음)이면 **아예 안 적는다.** 적을 말이 없다.
        */
-      const cap = room.turnCap ?? DEFAULT_TURN_CAP;
-      const left = cap > 0 ? Math.max(0, cap - this.runtime(room.id).turns) : undefined;
+      const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
+      const far = (bt.depth ?? 0) + 1;
+      const left = cap > 0 && (room.relay ?? DEFAULT_RELAY) === "always"
+        ? Math.max(0, cap - far) : undefined;
       parts.push(
         `[${OUR_MCP_NAME}: 큐에 ${waiting}개가 남아 있습니다. check_queue 로 꺼내세요. ` +
           "메시지는 say, 권한 요청은 verdict 로 답합니다." +
           (left === undefined
             ? ""
-            : ` 봇끼리 돌 수 있는 턴은 ${left}번 남았습니다 — ` +
-              "다 쓰면 멈추고 사용자에게 물어봅니다.") +
+            : ` 지금 당신이 거는 말은 사용자에게서 ${far}다리째이고, ` +
+              `${left}다리 더 갈 수 있습니다 — 넘으면 say 가 거절됩니다.`) +
           "]",
       );
     }
@@ -5225,39 +5205,49 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
 
-    // ── 문 ① 릴레이 설정 ──────────────────────────────────────────
-    if (!answering) {
-      const mode = room.relay ?? DEFAULT_RELAY;
-      if (mode === "off") {
-        return no("이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.");
-      }
-      // ── 문 ② 승인 ───────────────────────────────────────────────
-      if (mode === "ask") {
-        if (!(await this.askRelay(me, target, text))) {
-          return no("사용자가 이 호출을 허락하지 않았습니다.");
-        }
-        /*
-         * ★ **허락을 누른 것도 «내가 본다»다** (v3.0 4-L, 2026-10-12).
-         *
-         * 상한이 세는 것은 «사람이 **안 보는** 구간의 길이»다. 사용자 메시지가
-         * 그 구간을 새로 여는 것과 **같은 이유로** 승인도 연다 — 둘 다 사람이
-         * 그 자리에 있다는 증거이고, 승인 쪽이 오히려 **이 호출을 보고** 누른
-         * 것이라 더 강하다.
-         *
-         * 그래서 «물어봄»에서는 상한이 사실상 안 닿는다 — 새 가닥마다 사람이
-         * 누르니까. 닿는 것은 **아무도 안 누르는 사이에 길어질 때**뿐이고,
-         * 그게 정확히 상한이 막으라고 있는 것이다.
-         */
-        this.runtime(room.id).turns = 0;
-      }
+    /*
+     * ★ **몇 다리째인가** (v3.0 4-L).
+     *
+     * ```
+     * 0  사용자 메시지
+     * 1  그 메시지에 반응해서 봇이 거는 말
+     * 2  1 에 반응해서 거는 말 — **답도 반응이다**
+     * ```
+     *
+     * 🔴 **턴에서 가져온다.** `say` 의 `id` 로 세면 **인자를 빼는 것만으로**
+     * 깊이가 1 로 되돌아간다 — 막으려던 고리가 거기로 빠져나간다.
+     */
+    const depth = (this.botRuntime(room.id, fromId).depth ?? 0) + 1;
+
+    const mode = room.relay ?? DEFAULT_RELAY;
+    // ── 문 ① 대화 기능이 켜져 있나 ────────────────────────────────
+    if (mode === "off") {
+      return no("이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.");
+    }
+    // ── 문 ② 깊이 — «무조건 허용» 에서만 ─────────────────────────
+    const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
+    if (mode === "always" && cap > 0 && depth > cap) {
       /*
-       * ⚠️ **기다리는 사이에 방이 바뀔 수 있다.** 승인 카드는 사람을 기다리고,
-       * 그동안 받는 봇이 나가거나 전체 중지가 돌 수 있다 — 깨어난 뒤에 **다시
-       * 본다.** 안 보면 떠난 봇의 큐에 넣고 아무도 안 꺼낸다.
+       * ★ **거절로 끝난다.** 카드도, 큐 비우기도, «더 갈까요»도 없다 —
+       * 깊이는 **부르는 순간** 알 수 있어서 그 자리에서 답할 수 있다.
+       * 모델은 이 글을 읽고 사용자에게 말하면 된다.
        */
-      if (!room.participants.some((b) => b.id === target.id)) {
-        return no(`${target.name}은(는) 그사이 방을 떠났습니다.`);
-      }
+      return no(
+        `봇끼리 이어지는 깊이 상한(${cap})에 닿았습니다. ` +
+          "더 가려면 사용자가 말을 걸어야 합니다. 사용자에게 지금까지를 알리세요.",
+      );
+    }
+    // ── 문 ③ 승인 — «물어봄» 은 **답까지 전부** 묻는다 ───────────
+    if (mode === "ask" && !(await this.askRelay(me, target, text, depth))) {
+      return no("사용자가 이 호출을 허락하지 않았습니다.");
+    }
+    /*
+     * ⚠️ **기다리는 사이에 방이 바뀔 수 있다.** 승인 카드는 사람을 기다리고,
+     * 그동안 받는 봇이 나가거나 전체 중지가 돌 수 있다 — 깨어난 뒤에 **다시
+     * 본다.** 안 보면 떠난 봇의 큐에 넣고 아무도 안 꺼낸다.
+     */
+    if (!room.participants.some((b) => b.id === target.id)) {
+      return no(`${target.name}은(는) 그사이 방을 떠났습니다.`);
     }
 
     // 답이면 **여기서 공이 넘어간다** — 임자에게 보냈을 때만 닫힌다
@@ -5269,6 +5259,7 @@ export class RoomManager extends EventEmitter<Events> {
       from: me.name,
       fromId: me.id,
       text,
+      depth,
       ...(about ? { about } : {}),
     });
 
@@ -5327,9 +5318,11 @@ export class RoomManager extends EventEmitter<Events> {
     from: BotInstance,
     to: BotInstance,
     text: string,
+    depth: number,
   ): Promise<boolean> {
     const decided = await this.opts.host.requestPermission({
-      title: `${from.name} → ${to.name}`,
+      // **몇 다리째인지 제목에 적는다** — 길어지는 것이 눈에 보여야 끊을 수 있다
+      title: `${from.name} → ${to.name}${depth > 1 ? ` (${depth}다리째)` : ""}`,
       askerBotId: from.id,
       readOnly: false,
       kind: "other",
@@ -5341,95 +5334,6 @@ export class RoomManager extends EventEmitter<Events> {
       ],
     });
     return decided.outcome === "selected" && decided.optionId === RELAY_ALLOW;
-  }
-
-  /**
-   * ★ **더 돌아도 되나** (v3.0 4-L).
-   *
-   * **턴 수 하나다.** 깊이도 시간도 비용도 아니다:
-   *
-   * ```
-   * 깊이   깊이 N 은 **최소 N 턴**을 쓴다 → 턴 상한이 깊이의 상계다.
-   *        고리(A→B→A)도 턴을 쓰므로 같이 걸린다
-   * 시간   비용과 무관하다 — 봇이 빠르면 10분에 100턴이다
-   * 비용   **못 센다** — `cost` 를 주는 에이전트가 없다 (M4 실측)
-   * ```
-   *
-   * 🔴 **「진전」을 코드로 정의하지 않는다.** 정의하는 순간 **틀린 정의가
-   * 박힌다** — «파일이 안 바뀌었다»는 설계 토론에서 늘 참이고, «새 정보가
-   * 없다»는 우리가 잴 수 있는 것이 아니다. 봇끼리 *"좋네요" "동의합니다"* 로
-   * 헛돌아도 **내 말 한 마디당 열두 턴이 끝**이고, 거기서 멈춰 사람이 본다.
-   */
-  private underCap(room: Room): boolean {
-    const cap = room.turnCap ?? DEFAULT_TURN_CAP;
-    // ★ **0 은 제한 없음** — 닿을 데가 없으니 세지도 묻지도 않는다
-    if (cap === 0) return true;
-    return this.runtime(room.id).turns < cap;
-  }
-
-  /**
-   * ★ **상한에 닿았다 — 멈추고 묻는다** (v3.0 4-L).
-   *
-   * ⏪ 이 검사는 `say` **안**에 있었다. 자리를 **깨우기**로 옮겼고, 그게
-   * 제자리다:
-   *
-   * ```
-   * 🔴 say 에 걸면   **답이 빠져나간다.** 답은 승인·릴레이 설정과 함께 상한도
-   *                 면제라(안 그러면 왕복마다 깎인다), A↔B 가 서로 «답»만
-   *                 주고받으면 **어느 모드에서도 안 멈춘다**
-   * ✅ 깨우기에 걸면  상한이 세는 것과 거는 것이 **같은 것**이 된다 — 턴이다.
-   *                 그리고 말은 **배달된다**(큐에 남는다). 멈추는 것은
-   *                 «다음 턴을 여는 것»뿐이라 아무도 할 말을 잃지 않는다
-   * ```
-   *
-   * 🔴 **방에 하나만 띄운다.** 안 그러면 봇 셋이 동시에 닿았을 때 같은 질문이
-   * 세 장 뜬다 — 사용자는 하나만 답하면 되는 질문이다.
-   */
-  private askMore(room: Room): void {
-    if (this.capAsking.has(room.id) || this.down) return;
-    this.capAsking.add(room.id);
-
-    const cap = room.turnCap ?? DEFAULT_TURN_CAP;
-    const turns = this.runtime(room.id).turns;
-    void (async () => {
-      try {
-        const decided = await this.opts.host.requestPermission({
-          title: `봇끼리 ${turns}턴을 돌았습니다 — 더 갈까요?`,
-          readOnly: false,
-          kind: "other",
-          text:
-            `«${room.title}» 에서 내 말 한 마디 뒤로 봇들이 ${turns}턴을 돌았습니다. ` +
-            `기다리는 말은 그대로 있습니다 — «더»를 고르면 거기서 이어집니다. ` +
-            `«그만»을 고르면 지금 도는 것까지 전부 멈춥니다.`,
-          options: [
-            { optionId: CAP_MORE, name: `+${cap}턴`, kind: "allow_once" },
-            { optionId: CAP_STOP, name: "그만", kind: "reject_once" },
-          ],
-        });
-        if (decided.outcome === "selected" && decided.optionId === CAP_MORE) {
-          /*
-           * **다시 그만큼.** 상한 값을 올리는 것이 아니라 구간을 새로 연다 —
-           * 사용자가 «여기까지»를 한 번 더 준 것이지 «앞으로는 더»가 아니다.
-           */
-          this.runtime(room.id).turns = 0;
-          this.noteRoom(room, `봇끼리 ${cap}턴을 더 돌도록 했습니다.`, "info");
-          this.capAsking.delete(room.id);
-          // 기다리던 말이 여기서 이어진다 — 큐에 그대로 있다
-          this.maybeWake(room);
-          return;
-        }
-        /*
-         * ★ **«그만»은 전체 중지와 같다** (4-9). 사람이 돌아와 그만을 누르는
-         * 것이 **상한을 즉시 0 으로 만드는 것**이고, 그러면 도는 턴도 같이
-         * 끊어야 한다 — 깨우기만 막으면 **도는 턴은 계속 돈다.**
-         */
-        await this.stopAll(room.id);
-      } catch (err) {
-        this.opts.host.log(`[${room.id}] 상한 묻기 실패: ${describe(err)}`);
-      } finally {
-        this.capAsking.delete(room.id);
-      }
-    })();
   }
 
   /**
@@ -5456,17 +5360,6 @@ export class RoomManager extends EventEmitter<Events> {
       if (this.queue.waiting(bot.id) === 0) continue;
       // 바쁘면 안 깨운다 — 지금 도는 턴이 끝나면서 여기를 다시 부른다
       if (isBusy(this.statusOf(room.id, bot.id))) continue;
-      /*
-       * ★ **상한은 여기서 건다** (v3.0 4-L, 2026-10-12).
-       *
-       * 세는 것이 «봇이 돈 턴»이고 턴을 만드는 것이 **깨우기**다. `say` 에
-       * 걸면 **답이 빠져나간다** — 답은 상한도 면제라서 A↔B 가 답만 주고받으면
-       * 어느 모드에서도 안 멈춘다. 여기 걸면 그 길까지 같이 잡힌다.
-       *
-       * ⚠️ **말은 큐에 그대로 남는다.** 막는 것은 «다음 턴을 여는 것»뿐이라,
-       * 사용자가 «더»를 고르면 **거기서 이어진다.** 아무도 할 말을 안 잃는다.
-       */
-      if (!this.underCap(room)) { this.askMore(room); return; }
       /*
        * ★ **말풍선을 안 만든다** (§4.2.2 가 걱정한 그것).
        *
@@ -5630,7 +5523,7 @@ export class RoomManager extends EventEmitter<Events> {
   private runtime(roomId: string): RoomRuntime {
     let rt = this.runtimes.get(roomId);
     if (!rt) {
-      rt = { status: "idle", bots: new Map(), turns: 0, clashes: new Map() };
+      rt = { status: "idle", bots: new Map(), clashes: new Map() };
       this.runtimes.set(roomId, rt);
     }
     return rt;
@@ -6082,9 +5975,6 @@ function quoteAsk(text: string): string {
 /** 릴레이 승인 카드의 선택지 id — 답을 되읽는 자리와 한 글자도 안 어긋나게 */
 const RELAY_ALLOW = "aio-relay-allow";
 const RELAY_REJECT = "aio-relay-reject";
-/** 상한에 닿았을 때의 두 길 (4-L) */
-const CAP_MORE = "aio-cap-more";
-const CAP_STOP = "aio-cap-stop";
 
 function wireItem(item: QueueItem): Record<string, unknown> {
   const { id, from } = item;

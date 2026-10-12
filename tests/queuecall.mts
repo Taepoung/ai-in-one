@@ -101,7 +101,7 @@ async function main(): Promise<void> {
     // 넣는 쪽(§3-I·§4-J)은 아직 없다 — 큐에 바로 넣고 이음매만 본다
     const inner = mgr as unknown as { queue: BotQueue };
     inner.queue.put({
-      kind: "message", to: bot.id, from: "알파", fromId: "alpha-1",
+      kind: "message", to: bot.id, from: "알파", fromId: "alpha-1", depth: 1,
       text: "이 테스트 좀 봐줄래?",
     });
     inner.queue.startTurn(bot.id);

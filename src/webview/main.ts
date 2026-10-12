@@ -5383,39 +5383,48 @@ function relayPick(r: Room): HTMLElement {
 }
 
 /**
- * ★ **상한 — «내 말 한 마디당 봇들이 도는 턴»** (v3.0 4-L).
+ * ★ **깊이 상한 — «사용자에게서 몇 다리까지»** (v3.0 4-L).
  *
- * 🔴 **«무조건 허용» 일 때만 뜻이 있는 것이 아니다.** 알림 턴은 승인과
- * 무관하게 돌아서, 「물어봄」에서도 **안 답하는 봇을 영원히 깨우는 고리**가
- * 생길 수 있다. 그래서 언제나 걸리고, 그래서 **언제나 보인다.**
+ * ```
+ * 0  사용자 메시지
+ * 1  거기 반응해서 봇이 거는 말
+ * 2  그 말에 반응해서 거는 말 — **답도 반응이다**
+ * ```
  *
- * 보이는 자리와 쓰이는 자리를 맞춘다 — «얼마를 맡기는지 모르고 켜는 일»이
- * 안 생긴다.
+ * 🔴 **«무조건 허용» 일 때만 걸린다.** 「물어봄」은 **답까지 전부** 사람이
+ * 누르므로 상한이 할 일이 없다. 그래서 다른 칸일 때는 **흐리게** 둔다 —
+ * 숨기면 «언제 쓰이는 값이지»가 되고, 그냥 두면 «지금도 걸리나»가 된다.
  */
 function capRow(r: Room): HTMLElement {
+  const live = (r.relay ?? "ask") === "always";
   const box = el("input", {
     type: "number",
     class: "cap",
     min: "0",
     max: "999",
-    value: String(r.turnCap ?? 12),
-    title: "여기 닿으면 멈추고 «더 갈까요»를 묻습니다. 0 이면 안 묻습니다.",
+    value: String(r.depthCap ?? 12),
+    title: "사용자에게서 이만큼 멀어지면 say 가 거절됩니다. 0 이면 제한 없음.",
   }) as HTMLInputElement;
+  if (!live) box.disabled = true;
   const commit = () => {
     const n = Number(box.value);
-    if (!Number.isFinite(n)) { box.value = String(r.turnCap ?? 12); return; }
-    post({ t: "setTurnCap", roomId: r.id, turns: n });
+    if (!Number.isFinite(n)) { box.value = String(r.depthCap ?? 12); return; }
+    post({ t: "setRelayDepth", roomId: r.id, depth: n });
   };
   box.addEventListener("change", commit);
   return el(
     "div",
-    { class: "policy cap-row" },
-    el("span", { class: "dim", text: "내 말 한 마디당" }),
+    { class: live ? "policy cap-row" : "policy cap-row off" },
+    el("span", { class: "dim", text: "사용자에게서" }),
     box,
     el("span", {
       class: "dim",
       // **0 이 무슨 뜻인지 그 자리에 적는다** — 숫자만 두면 «0 = 아예 못 한다» 로 읽는다
-      text: (r.turnCap ?? 12) === 0 ? "턴 — 제한 없음. 안 묻습니다." : "턴까지. 닿으면 멈추고 묻습니다.",
+      text: !live
+        ? "다리까지 — «무조건 허용» 에서만 걸립니다."
+        : (r.depthCap ?? 12) === 0
+          ? "다리 — 제한 없음."
+          : "다리까지. 넘으면 그 호출이 거절됩니다.",
     }),
   );
 }

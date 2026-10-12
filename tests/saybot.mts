@@ -186,7 +186,7 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 답 — 문 둘을 다 면제받고, 그 항목이 닫힌다]`);
+  console.log(`${NL}[★ 답 — 그 항목이 닫히고 인용이 실린다]`);
   {
     const t = await make(); dirs.push(t.dir);
     await t.mgr.send(t.room.id, "안녕", undefined, t.a.id);
@@ -199,11 +199,16 @@ async function main(): Promise<void> {
     const mine = await t.check(t.b);
     const id = mine.items[0]!.id;
 
-    // 🔴 릴레이를 **꺼도** 답은 나가야 한다 — 안 그러면 알파가 멈춘 채 남는다
-    t.room.relay = "off";
+    /*
+     * ⏪ 여기서 **릴레이를 끄고도 답이 나가는지**를 쟀다. 그 면제는 걷어냈다
+     * (2026-10-12) — 근거가 *"안 그러면 묻는 쪽이 멈춘 채 남는다"* 였는데
+     * **`say` 는 막힌 적이 없다.** 묻는 쪽은 제 턴을 이미 닫았고, 답이 안 오면
+     * 그냥 안 오는 것이다(§16). 면제가 치르던 값이 더 컸다 — 「승인」이
+     * «모든 대화를 승인»이 아니게 되고, 답 고리가 **어느 문도 안 타고** 샜다.
+     */
+    t.room.relay = "always";
     const back = await t.say(t.b, "알파", "의존성 판이 어긋났습니다.", id);
-    ok(back.ok, `★ **릴레이가 꺼져도 답은 간다** (${JSON.stringify(back)})`);
-    ok(t.cards.length === 0, "★ **승인도 안 묻는다** — 이미 온 질문에 대답하는 것뿐이다");
+    ok(back.ok, `★ 답이 간다 (${JSON.stringify(back)})`);
     ok(t.inner.queue.find(t.b.id, id) === undefined,
        "★ **그 항목이 닫힌다** — 공이 넘어갔다");
 
@@ -241,7 +246,7 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 릴레이 «끔» — 새로 거는 것만 막는다]`);
+  console.log(`${NL}[★ 릴레이 «끔» — 대화 기능이 통째로 꺼진다]`);
   {
     const t = await make(); dirs.push(t.dir);
     t.room.relay = "off";

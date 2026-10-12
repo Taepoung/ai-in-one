@@ -315,8 +315,13 @@ export type FromWebview =
    * 다 무의미하다.
    */
   | { t: "setRelay"; roomId: string; relay: RelayMode }
-  /** ★ **내 말 한 마디당 봇들이 도는 턴의 상한** (v3.0 4-L) */
-  | { t: "setTurnCap"; roomId: string; turns: number }
+  /**
+   * ★ **봇끼리 이어지는 깊이의 상한** (v3.0 4-L). «무조건 허용»에서만 쓰인다.
+   *
+   * 깊이 0 이 사용자 메시지, 1 이 거기 반응해 거는 말, 2 가 그 말에 반응해
+   * 거는 말이다 — **답도 반응이라 한 다리 늘어난다.**
+   */
+  | { t: "setRelayDepth"; roomId: string; depth: number }
   /**
    * 봇 이름 바꾸기 (v2.2 준비).
    *
