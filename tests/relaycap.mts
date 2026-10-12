@@ -148,6 +148,38 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
+  console.log(`${NL}[★ check_queue 가 «몇 번 더 보낼 수 있나»를 싣는다]`);
+  {
+    /*
+     * 프롬프트의 큐 줄에도 같은 수가 있지만 **그것은 턴이 열릴 때 한 번**이다.
+     * 그 턴 안에서 몇 번 보내고 나면 이미 낡는다 — `check_queue` 는 보내기
+     * 직전에 불리므로 여기 수가 **그 순간의 참**이다.
+     */
+    const t = await make(3); dirs.push(t.dir);
+    t.openedBy(t.a, true);
+
+    const peek = async () =>
+      JSON.parse((await t.mgr.mcpCall(`${t.room.id}:${t.a.id}`, "check_queue", {})).text) as
+        { say_left?: number };
+
+    ok((await peek()).say_left === 3, `★ 처음엔 셋 (${(await peek()).say_left})`);
+    await t.say(t.a, "리뷰어", "하나");
+    ok((await peek()).say_left === 2,
+       `★ **한 번 보낼 때마다 준다** (${(await peek()).say_left}) — 같은 턴 안에서도 맞다`);
+    t.bump(3);
+    ok((await peek()).say_left === 0,
+       "★ **0 이면 «더 못 보낸다»가 자명하다** — 상한 값을 같이 적지 않는 이유다");
+
+    /*
+     * 🔴 **안 걸리는 방에는 아예 안 싣는다.** 「승인」·「끔」에서는 상한이
+     * 안 걸리는데 숫자를 보여주면 **있지도 않은 벽**을 피해 가게 된다.
+     */
+    t.room.relay = "ask";
+    ok((await peek()).say_left === undefined,
+       "★ 「승인」에서는 칸 자체가 없다");
+    t.mgr.dispose();
+  }
+
   console.log(`${NL}[★ 0 은 제한 없음]`);
   {
     const t = await make(0); dirs.push(t.dir);
