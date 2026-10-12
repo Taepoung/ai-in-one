@@ -2377,19 +2377,34 @@ function quoteish(text: string): string {
  * 눌러보고 나서 알려주면 이미 한 번 헛손질한 뒤다.
  */
 function paintSendButton(r: Room): void {
-  const btn = chat?.box.parentElement?.querySelector<HTMLElement>("button.send");
+  const btn = chat?.box.parentElement?.querySelector<HTMLButtonElement>("button.send");
   if (!btn) return;
   const targets = viewBotId ? [viewBotId] : r.participants.map((b) => b.id);
   const held = busyAmong(r, targets);
   const full = r.staged !== undefined;
 
-  btn.classList.toggle("later", held.length > 0);
+  /*
+   * 🔴 **올려둔 것이 있으면 아무것도 안 나간다** — 받는 이가 누구든.
+   *
+   * ⏪ 한때 «바쁜 봇에게만» 막았다. 그러면 올려둔 글이 베타를 기다리는 동안
+   * **알파에게 친 말이 먼저 나간다** — 입력창 위에는 «끝나면 보냅니다» 가
+   * 떠 있는데 나중에 친 말이 먼저 가는 꼴이라, **그 줄이 거짓이 된다.**
+   *
+   * 예약 칸을 하나로 둔 근거가 «하나뿐이라 순서가 없다» 였는데, 그러면
+   * 사실상 «예약 1 + 즉시 전송» 이라 **순서가 둘**이 된다.
+   *
+   * ★ **끄는 것이 거절보다 낫다.** 거절하려면 일단 보내야 하고, 보내려면
+   * 입력창을 비워야 한다 — 그 사이에 **글을 잃는다**(실제로 그랬다).
+   * 꺼두면 누를 수가 없으니 비울 일도 없다.
+   */
+  btn.disabled = full;
+  btn.classList.toggle("later", !full && held.length > 0);
   btn.title = full
-    ? "올려둔 글이 이미 하나 있습니다 — 그것을 보내거나 내린 뒤에 해주세요."
+    ? "올려둔 글이 먼저 나가야 합니다 — 위에서 보내거나 내릴 수 있습니다."
     : held.length > 0
       ? `${held.join("·")}이(가) 답하는 중입니다 — 끝나면 보냅니다.`
       : "보내기";
-  btn.replaceChildren(icon(held.length > 0 ? "history" : "send"));
+  btn.replaceChildren(icon(held.length > 0 && !full ? "history" : "send"));
 }
 
 /** 칩 하나. `botId`가 진짜 값이고 글자는 보여주기용이다 */
@@ -2652,6 +2667,11 @@ function mountChat(r: Room): void {
   }
 
   const send = () => {
+    /*
+     * 🔴 **단추를 끄는 것만으로는 부족하다.** 엔터는 이 함수를 바로 부른다 —
+     * 끈 단추를 지나쳐 들어온다. 규칙은 한 자리에서 지킨다.
+     */
+    if (live().staged) { paintSendButton(live()); return; }
     if (group) {
       const tokens = readTokens(box);
       const parsed = parseCompose(tokens, live().participants);
@@ -2842,6 +2862,8 @@ function mountChat(r: Room): void {
   // 방에 **들어올 때 한 번만** 자리를 잡는다. 갱신마다 하면 화면이 계속 끌려간다.
   paintChat(r);
   paintStaged(r);
+  // 🔴 다시 붙이는 길에서도 칠한다 — 안 하면 **방을 옮겼을 때만** 단추가 산다
+  paintSendButton(r);
   scrollIntoPlace(list);
 }
 
@@ -4864,47 +4886,40 @@ function noticeInChat(text: string): void {
 /**
  * ★ **줄 서 있는 심사 한 줄** (§4.2.2).
  *
- * 심사 봇의 세션은 하나라 직렬이다(B1) — 그 봇이 자기 일을 하는 중이면
- * 심사는 기다려야 한다. **끼어들지 않는 것이 맞다**: 끊은 일은 자동으로
- * 다시 이어지지 않는다.
+ * 심사는 그 봇의 **큐에 들어간다** — 바빠도 바로 들어가고, 봇은 제 턴에
+ * 꺼내 본다(v3.0 3-I). 그래서 기다리는 데 끝이 정해져 있지 않다.
  *
- * 🔴 그런데 기다리는 동안 **요청한 봇의 턴은 얼어 있다.** 그래서 안 보이면
- * «왜 아무 일도 안 일어나지»가 되고, 그때 할 수 있는 일도 없다.
- * 보여주고, **빠져나올 길**을 준다.
+ * 🔴 그동안 **요청한 봇의 턴은 얼어 있다.** 안 보이면 «왜 아무 일도 안
+ * 일어나지»가 되고, 그때 할 수 있는 일도 없다. 보여주고, **빠져나올 길**을 준다.
  *
- * 이미 물어본 뒤(`asking`)에는 가로채기를 안 준다 — 그 턴은 이미 돌고 있고
- * 끊어도 되돌아오지 않는다. 그때는 «곧 끝난다»만 말해주면 된다.
+ * ⏪ 한때 «줄 서는 중» 과 «물어보는 중» 을 갈라 그렸다. 묻는 것이 봇이 제
+ * 턴에 꺼내 보는 일이 되면서 **우리가 그 순간을 모르게 됐다** — 한 모양이다.
  */
 function reviewNode(w: ReviewWait, r: Room): HTMLElement {
   const name = (id: string) => r.participants.find((b) => b.id === id)?.name ?? "봇";
-  const waiting = w.state === "waiting";
   return el(
     "div",
     { class: "card review-wait" },
     el(
       "div",
       { class: "card-title" },
-      icon(waiting ? "watch" : "law"),
+      icon("watch"),
       ` ${name(w.askerBotId)}의 «${w.title}»`,
     ),
     el("div", {
       class: "dim",
-      text: waiting
-        ? `${name(w.judgeBotId)} 쪽이 하던 일을 끝내면 물어봅니다.`
-        : `${name(w.judgeBotId)}에게 물어보는 중…`,
+      text: `${name(w.judgeBotId)}의 판단을 기다립니다.`,
     }),
-    waiting
-      ? el(
-          "div",
-          { class: "card-actions" },
-          el("button", {
-            text: "내가 답할게",
-            title: "기다리지 않고 승인 카드를 지금 띄웁니다",
-            onclick: () =>
-              room && post({ t: "takeOverReview", roomId: room.id, reviewId: w.id }),
-          }),
-        )
-      : null,
+    el(
+      "div",
+      { class: "card-actions" },
+      el("button", {
+        text: "내가 답할게",
+        title: "기다리지 않고 승인 카드를 지금 띄웁니다",
+        onclick: () =>
+          room && post({ t: "takeOverReview", roomId: room.id, reviewId: w.id }),
+      }),
+    ),
   );
 }
 

@@ -174,14 +174,90 @@ console.log("\n[★ 바쁘면 보내기 단추가 «끝나면 보내기»라고 
      `★ 말로도 알려준다 (${send.getAttribute("title")})`);
 }
 
-console.log("\n[★ 칸이 차 있으면 미리 말해준다]");
+console.log("\n[★ 올려둔 것이 있으면 보내기가 꺼진다 — 받는 이가 누구든]");
 {
-  const t = open(ONE, { tokens: [{ kind: "text", text: "이미 하나" }], botIds: ["b1"], at: 1 },
-                 { b1: "streaming" });
-  const send = t.$("#screen-chat .composer button.send");
-  ok((send.getAttribute("title") ?? "").includes("이미 하나 있습니다"),
-     `★ **눌러보기 전에** 안다 (${send.getAttribute("title")})`);
+  /*
+   * 🔴 **순서가 보이는 대로여야 한다.** 입력창 위에 «⏳ 끝나면 보냅니다» 가
+   * 떠 있는데 나중에 친 말이 먼저 가면 **그 줄이 거짓이 된다.**
+   *
+   * ⏪ 한때 «바쁜 봇에게만» 막았다. 그러면 올려둔 글이 베타를 기다리는 동안
+   * 알파에게 친 말이 먼저 나갔다 — 예약 칸을 하나로 둔 근거가 «하나뿐이라
+   * 순서가 없다» 였는데, 그러면 사실상 «예약 1 + 즉시 전송» 이라 **순서가
+   * 둘**이 된다.
+   *
+   * ★ **끄는 것이 거절보다 낫다.** 거절하려면 일단 보내야 하고, 보내려면
+   * 입력창을 비워야 한다 — 그 사이에 **글을 잃는다**(실제로 그랬다).
+   */
+  const staged = { tokens: [{ kind: "text", text: "올려둔 글" }], botIds: ["b1"], at: 1 };
+  const t = open(TWO, staged, { b1: "streaming", b2: "idle" });
+  const btn = t.$("#screen-chat .composer button.send");
+  ok(btn.disabled === true, "★ **꺼져 있다**");
+  ok((btn.getAttribute("title") ?? "").includes("먼저 나가야"),
+     `★ 왜인지도 (${btn.getAttribute("title")})`);
+
+  // 베타가 한가해도 마찬가지다 — 예약이 기다리는 것은 알파다
+  const box = t.$("#screen-chat .composer .chipbox") ?? t.$("#screen-chat .composer textarea");
+  ok(box !== null, "입력창은 그대로 쓸 수 있다");
+  btn.click();
+  const tried = t.sent.filter((m) => ["send", "sendCompose", "stage"].includes(m.t));
+  ok(tried.length === 0, `★ **눌러도 아무것도 안 나간다** (${tried.length}건)`);
 }
+
+console.log("\n[★ 올려둔 것이 나가면 **바로** 다시 켜진다]");
+{
+  /*
+   * 🔴 늦게 켜지면 «왜 아직 못 보내지» 가 된다 — 위 줄은 이미 사라졌는데
+   * 단추만 꺼져 있으면 **화면이 두 가지를 말하는** 꼴이다.
+   */
+  const staged = { tokens: [{ kind: "text", text: "올려둔 글" }], botIds: ["b1"], at: 1 };
+  const t = open(ONE, staged, { b1: "streaming" });
+  ok(t.$("#screen-chat .composer button.send").disabled === true, "꺼져 있다");
+
+  // 코어가 내보내고 방을 다시 보낸다 — `staged` 가 빠진 채로
+  t.send({
+    t: "room", compactable: false,
+    room: {
+      id: "r1", title: "방", cwd: "/ws/proj", participants: ONE,
+      messages: [], unread: 0, createdAt: 1, lastActivityAt: 2,
+    },
+  });
+  ok(t.$("#screen-chat .composer button.send").disabled === false,
+     "★ **그 자리에서 켜진다**");
+  ok(t.$("#screen-chat .staged-row") === null || t.$("#screen-chat .staged-row").hidden,
+     "★ 줄도 같이 걷힌다 — 둘이 따로 놀면 안 된다");
+}
+
+console.log("\n[★ 내려도 바로 켜진다]");
+{
+  const staged = { tokens: [{ kind: "text", text: "내릴 글" }], botIds: ["b1"], at: 1 };
+  const t = open(ONE, staged, { b1: "idle" });
+  ok(t.$("#screen-chat .composer button.send").disabled === true, "꺼져 있다");
+  btn(rowOf(t), "내리기").click();
+  // 코어가 내리고 방을 다시 보낸다
+  t.send({
+    t: "room", compactable: false,
+    room: {
+      id: "r1", title: "방", cwd: "/ws/proj", participants: ONE,
+      messages: [], unread: 0, createdAt: 1, lastActivityAt: 2,
+    },
+  });
+  ok(t.$("#screen-chat .composer button.send").disabled === false, "★ 켜진다");
+}
+
+console.log("\n[★ 수정하면 바로 켜진다 — 방 소식을 안 기다린다]");
+{
+  /*
+   * 🔴 «수정» 은 글을 입력창으로 가져오는 것이라, **그 자리에서 보낼 수
+   * 있어야** 한다. 방 소식을 기다리면 한 박자 늦게 켜진다.
+   */
+  const staged = { tokens: [{ kind: "text", text: "고칠 글" }], botIds: ["b1"], at: 1 };
+  const t = open(ONE, staged, { b1: "idle" });
+  btn(rowOf(t), "수정").click();
+  t.send({ t: "stagedBack", roomId: "r1", tokens: [{ kind: "text", text: "고칠 글" }] });
+  ok(t.$("#screen-chat .composer button.send").disabled === false,
+     "★ **돌려받자마자 켜진다**");
+}
+
 
 console.log("\n[★ 단체방 — 누구를 기다리는지 적는다]");
 {

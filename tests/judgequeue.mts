@@ -1,23 +1,34 @@
 /**
- * **심사는 줄을 선다 — 끼어들지 않고, 보이고, 가로챌 수 있다** (§4.2.2 · §4.3).
+ * **심사는 줄을 안 선다 — 큐에 들어간다** (v3.0 3-I · §4.2.2 · §4.3).
  *
- * 심사 봇의 세션은 하나라 직렬이다(B1). 그 봇이 자기 일을 하는 중이면 심사는
- * 기다려야 한다 — **끊은 일은 자동으로 다시 이어지지 않기** 때문이다.
+ * ⏪ 이 파일은 원래 **줄서기**를 쟀다. 심사 봇의 세션은 하나라 직렬인데
+ * (B1), 심사가 그 봇의 **턴을 가로채** 물어봤기 때문이다:
  *
- * 🔴 한때 «바쁘면 사람에게»로 막았다. 그건 **급할 때마다 위임이 꺼지는** 것이라
- * 맡긴 보람이 없다. 기다리되, **기다리는 동안 요청한 봇의 턴은 얼어 있으므로**
- * 보이게 하고 빠져나올 길을 준다.
+ * ```
+ * 바쁘면 기다린다      앞 일이 끝나야 턴을 쓸 수 있다 (최대 90초)
+ * 물어보면 또 기다린다  답이 와야 한다 (최대 15초)
+ * 늦으면 사람에게      기다리는 동안 **요청한 봇의 턴은 얼어 있다**
+ * ```
+ *
+ * 🔴 **줄을 선 이유가 턴 하나를 써야 해서였다.** 큐는 턴을 안 쓴다 — 봇이
+ * **제 턴에** 꺼내 보고 답한다. 그래서 **바빠도 바로 들어간다.**
+ *
+ * 남은 것은 하나다: 기다리는 동안 요청한 봇의 턴은 **여전히 얼어 있다.**
+ * 그래서 보이게 하고, 사람이 가로챌 수 있게 둔다.
  */
 import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
 import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { McpServer } from "../src/core/mcpServer.js";
+import type { BotQueue } from "../src/core/botQueue.js";
 import type { PermissionRequest, PermissionDecision, ReviewWait } from "../src/core/types.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const NL = String.fromCharCode(10);
+const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const REQ = (title = "파일 고치기"): PermissionRequest => ({
@@ -38,22 +49,23 @@ async function make(hold: number) {
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const base = { ...DEFAULT_AGENTS[0]!, command: "node", args: [path.join(here, "fakeagent.cjs")] };
+  const mcp = new McpServer({ log: () => {} });
   const mgr = new RoomManager({
-    host, store, configProbeMs: 20000,
+    host, store, configProbeMs: 20000, mcp,
     agents: [
       { ...base, id: "alpha", label: "알파", env: {} },
-      { ...base, id: "beta", label: "베타",
-        env: { AIO_FAKE_SAY: "ALLOW" + NL + "ok", AIO_FAKE_HOLD: String(hold) } },
+      { ...base, id: "beta", label: "베타", env: { AIO_FAKE_HOLD: String(hold) } },
       { ...base, id: "gamma", label: "감마", env: {} },
     ],
   });
   const seen: ReviewWait[][] = [];
-  mgr.on("roomError", () => {});
-  mgr.on("notice", () => {});
+  mgr.on("roomError", () => {}); mgr.on("notice", () => {});
   mgr.on("reviews", (_id: string, list: ReviewWait[]) => { seen.push(list); });
+  mcp.setHandlers(mgr.mcpTools(), (o, t, a) => mgr.mcpCall(o, t, a));
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
+    queue: BotQueue;
   };
   const room = await mgr.createRoom({
     title: "줄", bots: [{ agentId: "alpha" }, { agentId: "beta" }, { agentId: "gamma" }],
@@ -61,185 +73,149 @@ async function make(hold: number) {
   const settle = async () => {
     for (let i = 0; i < 800; i++) {
       if (["idle", "error"].includes(mgr.statusOf(room.id))) return;
-      await new Promise((r) => setTimeout(r, 25));
+      await nap(25);
     }
   };
-  /**
-   * ★ **전제부터 확인한다** (2026-10-09).
-   *
-   * 🔴 아래 세 자리가 «300ms 면 심사 봇이 바빠졌겠지» 로 되어 있었다. 기계가
-   * 느린 날 — 스위트 예순 개 뒤라든가 — 그 사이에 프롬프트가 에이전트까지 못
-   * 가면 심사가 **줄을 안 서고 바로 사람에게** 떨어진다. 그러면 «가로챈다» 가
-   * 깨지는데, 깨진 자리는 가로채기가 아니라 **아직 안 바쁜 것**이다.
-   *
-   * 시간을 믿는 대신 **그 상태가 될 때까지** 기다린다.
-   */
   const until = async (cond: () => boolean, what: string) => {
-    for (let i = 0; i < 400; i++) {
-      if (cond()) return;
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    for (let i = 0; i < 600; i++) { if (cond()) return; await nap(25); }
     throw new Error("FAIL: 전제가 안 섰다 — " + what);
   };
-  const busyJudge = () => until(
-    () => mgr.statusOf(room.id, room.participants[1]!.id) !== "idle",
-    "심사 봇이 바빠지지 않았다",
-  );
-  return { dir, mgr, room, inner, seen, settle, until, busyJudge,
-           asker: room.participants[0]!, judge: room.participants[1]!,
-           other: room.participants[2]!, userAsks: () => askedUser };
+
+  const asker = room.participants[0]!;
+  const judge = room.participants[1]!;
+  const check = async () => {
+    inner.queue.startTurn(judge.id);
+    const out = await mgr.mcpCall(`${room.id}:${judge.id}`, "check_queue", {});
+    return JSON.parse(out.text) as {
+      kind: string | null; items: Array<{ id: string; title?: string }>; left: number;
+    };
+  };
+  const verdict = (id: string, allow: boolean) =>
+    mgr.mcpCall(`${room.id}:${judge.id}`, "verdict", { id, allow, reason: "그래서요" });
+
+  return {
+    dir, mgr, mcp, room, inner, seen, settle, until, check, verdict,
+    asker, judge, other: room.participants[2]!, userAsks: () => askedUser,
+  };
 }
 
 async function main(): Promise<void> {
   const dirs: string[] = [];
+  const bye = (t: { mgr: RoomManager; mcp: McpServer; dir: string }) => {
+    t.mcp.close(); t.mgr.dispose(); dirs.push(t.dir);
+  };
 
-  console.log(`${NL}[★ 하던 일이 끝나기를 기다렸다가 심사한다]`);
+  console.log(`${NL}[★ 심사 봇이 바빠도 바로 들어간다 — 줄 설 이유가 없다]`);
   {
-    const t = await make(1200); dirs.push(t.dir);
+    /*
+     * ⏪ 여기서 «앞 일이 끝나기를 기다린다» 를 쟀다. 줄을 선 이유가 **턴
+     * 하나를 써야 해서**였는데, 큐는 턴을 안 쓴다.
+     *
+     * 🔴 그 차이가 큰 이유: 기다리는 동안 **요청한 봇의 턴은 얼어 있다.**
+     * 줄이 길면 그 얼음이 길어지고, 한때 그걸 «바쁘면 사람에게» 로 막았다가
+     * **급할 때마다 위임이 꺼지는** 것이 됐다.
+     */
+    const t = await make(3000);
     await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
     await t.settle();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
 
-    const busy = t.mgr.send(t.room.id, "긴 일 좀 해줘", undefined, t.judge.id);
-    await t.busyJudge();
-    ok(t.mgr.statusOf(t.room.id, t.judge.id) !== "idle", "심사 봇은 자기 일 하는 중");
+    const busy = t.mgr.send(t.room.id, "긴 일", undefined, t.judge.id);
+    await t.until(() => !["idle", "error"].includes(t.mgr.statusOf(t.room.id, t.judge.id)),
+                  "심사 봇이 바빠지지 않았다");
 
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ());
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ("바쁜데 들어가나"));
+    await t.until(() => t.inner.queue.pending(t.judge.id).length === 1, "큐에 안 들어갔다");
+    ok(true, "★ **바쁜 채로 큐에 들어간다** — 기다리지 않는다");
+    ok(t.userAsks() === 0, "★ 사람도 안 깨운다 — «바쁘면 사람에게» 였던 자리");
+
+    // 심사 봇이 하던 일을 끝내고, 제 턴에 꺼내 본다
     await busy.catch(() => undefined);
     await t.settle();
+    const got = await t.check();
+    ok(got.items.length === 1, "★ 그리고 제 턴에 꺼내 본다");
+    await t.verdict(got.items[0]!.id, true);
+    const out = await pending;
+    ok(out.outcome === "selected", `★ 판정이 돌아간다 (${JSON.stringify(out)})`);
 
-    ok(out.outcome === "selected" && out.optionId === "y",
-       `★ **기다렸다가 심사했다** (${JSON.stringify(out)}) — 바쁘다고 위임이 꺼지지 않는다`);
-    ok(t.userAsks() === 0, "★ 사람을 안 깨웠다");
-
-    const mine = t.room.messages.find((m) => m.text === "긴 일 좀 해줘")!;
+    const mine = t.room.messages.find((m) => m.text === "긴 일");
     const reply = t.room.messages.find(
-      (m) => m.role === "agent" && (m.replyToIds ?? []).includes(mine.id),
+      (m) => m.role === "agent" && (m.replyToIds ?? []).includes(mine?.id ?? ""),
     );
-    ok((reply?.text ?? "").length > 0 && !reply!.streaming,
-       "★ **하던 일도 멀쩡히 끝났다** — 끊으면 자동으로 안 이어진다");
-    t.mgr.dispose();
+    ok((reply?.text ?? "").length > 0,
+       "★ **하던 일도 멀쩡히 끝났다** — 턴을 안 가로채므로 끊을 일이 없다");
+    bye(t);
   }
 
   console.log(`${NL}[★ 기다리는 동안 화면에 보인다]`);
   {
-    const t = await make(1200); dirs.push(t.dir);
+    /*
+     * 심사 봇이 언제 제 턴을 돌릴지는 알 수 없다. 그동안 **요청한 봇의
+     * 턴은 얼어 있으므로**, 무엇이 누구를 기다리는지 보여야 한다.
+     */
+    const t = await make(100);
     await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
     await t.settle();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
 
-    const busy = t.mgr.send(t.room.id, "긴 일", undefined, t.judge.id);
-    await t.busyJudge();
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ("보이나"));
-    await t.until(() => t.mgr.reviewsIn(t.room.id).length === 1, "심사가 줄을 안 섬다");
+    await t.until(() => t.mgr.reviewsIn(t.room.id).length === 1, "띠에 안 떴다");
 
     const now = t.mgr.reviewsIn(t.room.id);
-    ok(now.length === 1, `★ 줄에 하나 (${now.length})`);
-    ok(now[0]!.state === "waiting", "★ **«기다리는 중»으로 구분된다** — «물어보는 중»과 다른 화면이어야 한다");
     ok(now[0]!.askerBotId === t.asker.id && now[0]!.judgeBotId === t.judge.id,
        "★ 누가 누구를 기다리는지 적힌다");
     ok(now[0]!.title === "보이나", "무엇을 승인하려는지도");
 
-    await pending; await busy.catch(() => undefined); await t.settle();
-    ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 끝나면 줄에서 빠진다");
+    const got = await t.check();
+    await t.verdict(got.items[0]!.id, true);
+    await pending;
+    ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 답이 나면 띠에서 빠진다");
     ok(t.seen.some((l) => l.length === 1) && t.seen.at(-1)!.length === 0,
        "★ **바뀔 때마다 알린다** — 빈 것도 보내야 표시가 걷힌다");
-    t.mgr.dispose();
+    bye(t);
   }
 
-  console.log(`${NL}[★ 사람이 가로챌 수 있다]`);
+  console.log(`${NL}[★ 둘이 쌓이면 한 번에 나온다 — 차례를 기다리지 않는다]`);
   {
-    const t = await make(2000); dirs.push(t.dir);
+    /*
+     * ⏪ 예전에는 **하나씩** 물어봤다 — 턴을 하나씩 썼으므로. 둘째는 첫째가
+     * 끝나기를 기다렸고, 그 사이 요청한 봇 **둘이** 얼어 있었다.
+     *
+     * 큐는 한 몫에 담아 준다. 봇은 한 턴에 둘 다 판정한다.
+     */
+    const t = await make(100);
     await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
     await t.settle();
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    for (const b of [t.asker, t.other]) {
+      await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, b.id);
+    }
 
-    const busy = t.mgr.send(t.room.id, "긴 일", undefined, t.judge.id);
-    await t.busyJudge();
-    const pending = t.inner.askApprover(t.asker.sessionId!, REQ("가로채기"));
-    await t.until(() => t.mgr.reviewsIn(t.room.id).length === 1, "심사가 줄을 안 섬다");
+    const one = t.inner.askApprover(t.asker.sessionId!, REQ("첫째"));
+    const two = t.inner.askApprover(t.other.sessionId!, REQ("둘째"));
+    await t.until(() => t.inner.queue.pending(t.judge.id).length === 2, "둘이 안 쌓였다");
 
-    const id = t.mgr.reviewsIn(t.room.id)[0]!.id;
-    ok(t.mgr.takeOverReview(id), "★ 가로챈다");
-    const out = await pending;
-    ok(t.userAsks() === 1, "★ **승인 카드가 사람에게 떴다** — 기다림에서 빠져나올 길");
-    ok(out.outcome === "cancelled", "사람이 답한 대로 (여기선 취소)");
-    ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 줄에서도 빠진다");
+    const got = await t.check();
+    console.log(`   한 몫에 ${got.items.length}개 · left ${got.left}`);
+    ok(got.items.length === 2, `★ **한 번에 둘 다** (${got.items.length}) — 차례를 안 기다린다`);
+    ok(got.left === 0, "★ 그리고 이 몫이 끝이다");
 
-    await busy.catch(() => undefined); await t.settle();
-    const mine = t.room.messages.find((m) => m.text === "긴 일")!;
-    const reply = t.room.messages.find(
-      (m) => m.role === "agent" && (m.replyToIds ?? []).includes(mine.id),
-    );
-    ok((reply?.text ?? "").length > 0,
-       "★ **가로채도 심사 봇이 하던 일은 안 건드린다**");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 이미 물어본 뒤에는 못 가로챈다 — 그 턴은 되돌아오지 않는다]`);
-  {
-    const t = await make(1500); dirs.push(t.dir);
-    await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
-    await t.settle();
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
-    const pending = t.inner.askApprover(t.asker.sessionId!, REQ("이미 물어봄"));
-    await new Promise((r) => setTimeout(r, 400));
-
-    const now = t.mgr.reviewsIn(t.room.id);
-    ok(now[0]?.state === "asking", `★ 이미 «물어보는 중» (${now[0]?.state})`);
-    ok(t.mgr.takeOverReview(now[0]!.id) === false,
-       "★ **거절한다** — 돌고 있는 턴을 끊어도 자동으로 안 이어진다");
-    await pending; await t.settle();
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 둘이 쌓이면 차례로 — 둘 다 심사된다]`);
-  {
-    const t = await make(500); dirs.push(t.dir);
-    await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
-    await t.settle();
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.other.id);
-
-    const [a, b] = await Promise.all([
-      t.inner.askApprover(t.asker.sessionId!, REQ("알파 것")),
-      t.inner.askApprover(t.other.sessionId!, REQ("감마 것")),
-    ]);
-    await t.settle();
-    ok(a.outcome === "selected" && b.outcome === "selected",
-       `★ **둘 다 봇이 판단했다** (${JSON.stringify([a, b])}) — 예전에는 둘째가 사람에게 떨어졌다`);
+    for (const i of got.items) await t.verdict(i.id, true);
+    const outs = await Promise.all([one, two]);
+    ok(outs.every((o) => o.outcome === "selected"), "★ **둘 다 봇이 판단했다**");
     ok(t.userAsks() === 0, "★ 사람을 한 번도 안 깨웠다");
-    ok(t.mgr.reviewsIn(t.room.id).length === 0, "줄이 비었다");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 심사를 맡고 있는 봇의 요청은 사람에게 — 재귀 금지]`);
-  {
-    const t = await make(1500); dirs.push(t.dir);
-    await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
-    await t.settle();
-    // 알파가 베타에게 맡기고, 베타는 감마에게 맡긴다
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.other.id } }, t.judge.id);
-
-    const pending = t.inner.askApprover(t.asker.sessionId!, REQ("알파 것"));
-    await new Promise((r) => setTimeout(r, 400));
-    // 심사 중인 베타가 스스로 권한을 요청하면
-    await t.inner.askApprover(t.judge.sessionId!, REQ("베타 것"));
-    ok(t.userAsks() === 1,
-       "★ **사람에게 간다** — 기다려서 풀릴 일이 아니라 줄도 안 세운다");
-    await pending; await t.settle();
-    t.mgr.dispose();
+    bye(t);
   }
 
   for (const d of dirs) {
     for (let n = 0; n < 5; n++) {
       try { await fs.rm(d, { recursive: true, force: true }); break; }
-      catch { await new Promise((r) => setTimeout(r, 200)); }
+      catch { await nap(200); }
     }
   }
   console.log(`${NL}전부 통과`);
 }
 
-void main().catch((e: unknown) => { console.error(String(e)); process.exit(1); });
+main()
+  .then(() => nap(50))
+  .then(() => process.exit(0))
+  .catch((e) => { console.error(e); process.exit(1); });

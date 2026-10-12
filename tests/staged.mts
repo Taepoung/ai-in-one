@@ -132,10 +132,42 @@ async function main(): Promise<void> {
     mgr.dispose();
   }
 
+  console.log(`${NL}[★ 기다릴 것이 없으면 지금이 그때다]`);
+  {
+    /*
+     * 🔴 `maybeFireStaged` 는 **턴이 끝나는 자리**에서만 돈다. 끝낼 턴이
+     * 없으면 영영 안 나간다 — 올려둔 글이 입력창 위에 뜬 채로 멎는다.
+     *
+     * 규칙을 그대로 읽으면 이미 답이 있다 — «기다리던 봇이 **전부 한가해지면**
+     * 나간다». 한가하면 그 조건이 **이미 참**이다.
+     *
+     * ★ 이게 없으면 둘째 구멍이 딸린다: 그 상태에서 새로 친 말을 보내면
+     * **새 말이 먼저 가고 올려둔 말이 그 뒤에** 간다 — 1-E 가 없애려던
+     * 엇갈림과 같은 종류다.
+     */
+    const { dir, mgr, settle, untilSent } = await make(100); dirs.push(dir);
+    const room = await mgr.createRoom({ agentId: "alpha", title: "한가한데" });
+    await mgr.send(room.id, "첫 말");
+    await settle(room.id);
+
+    ok(await mgr.stage(room.id, [{ kind: "text", text: "한가할 때 올린 글" }]), "올렸다");
+    await untilSent("한가할 때 올린 글");
+    await settle(room.id);
+    ok(room.staged === undefined, "★ **저절로 나간다** — 끝낼 턴이 없어도");
+    mgr.dispose();
+  }
+
   console.log(`${NL}[★ 내리면 흔적이 없다 · 수정하면 글이 돌아온다]`);
   {
-    const { dir, mgr } = await make(100); dirs.push(dir);
+    /*
+     * ⚠️ **봇을 바쁘게 해둔다.** 한가하면 올리는 **즉시 나가므로**(바로 위
+     * 블록) 내릴 것이 없다 — 화면에서도 올리기는 바쁠 때만 생기는 일이다.
+     */
+    const { dir, mgr, until } = await make(4000); dirs.push(dir);
     const room = await mgr.createRoom({ agentId: "alpha", title: "물리기" });
+    const bot = room.participants[0]!;
+    void mgr.send(room.id, "오래");
+    await until(() => busy(mgr.statusOf(room.id, bot.id)), "봇이 안 바빠졌다");
 
     await mgr.stage(room.id, [{ kind: "text", text: "내릴 글" }]);
     await mgr.unstage(room.id);
@@ -148,6 +180,55 @@ async function main(): Promise<void> {
     ok(back?.tokens[0]?.kind === "text" && back.tokens[0].text === "고칠 글",
        "★ **글을 돌려준다** — 화면이 입력창에 꽂는다");
     ok(room.staged === undefined, "★ 그리고 칸은 비워진다 — 둘이 동시에 안 뜬다");
+    await mgr.stopAll(room.id);
+    mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 올려둔 것이 먼저다 — 한가한 봇에게도 안 간다]`);
+  {
+    /*
+     * 🔴 **순서가 보이는 대로여야 한다.** 입력창 위에 «⏳ 끝나면 보냅니다» 가
+     * 떠 있는데 나중에 친 말이 먼저 가면 **그 줄이 거짓이 된다.**
+     *
+     * ⏪ 한때 «바쁜 봇에게만» 막았다. 그러면 올려둔 글이 베타를 기다리는
+     * 동안 **알파에게 친 말이 먼저 나갔다** — 예약을 한 칸으로 둔 근거가
+     * «하나뿐이라 순서가 없다» 였는데, 그러면 «예약 1 + 즉시 전송» 이라
+     * **순서가 둘**이 된다.
+     *
+     * 화면은 단추를 끄지만, 규칙은 **코어에서도** 지킨다 — 화면이 늦게
+     * 알거나 다른 길로 들어왔을 때를 위해서다.
+     */
+    const { dir, mgr, prompts, settle, until } = await make(4000); dirs.push(dir);
+    const room = await mgr.createRoom({
+      title: "순서", bots: [{ agentId: "alpha", name: "알파" }, { agentId: "beta", name: "베타" }],
+    });
+    const [a, b] = room.participants;
+
+    // 베타만 바쁘게 하고, 베타를 기다리는 글을 올려둔다
+    void mgr.send(room.id, "오래", undefined, b!.id);
+    await until(() => busy(mgr.statusOf(room.id, b!.id)), "베타가 안 바빠졌다");
+    await mgr.sendCompose(room.id, [
+      { kind: "mention", botId: b!.id }, { kind: "text", text: " 올려둘 글" },
+    ]);
+    ok(room.staged !== undefined, "올려뒀다");
+
+    // 알파는 한가하다 — 그래도 안 간다
+    const before = (await prompts()).length;
+    await mgr.sendCompose(room.id, [
+      { kind: "mention", botId: a!.id }, { kind: "text", text: " 새로 친 글" },
+    ]);
+    const after = (await prompts()).slice(before);
+    console.log(`   나간 것: ${JSON.stringify(after)}`);
+    ok(!after.some((t) => t.includes("새로 친 글")),
+       "★ **한가한 알파에게도 안 간다** — 올려둔 것이 먼저다");
+    ok(!room.messages.some((m) => m.text.includes("새로 친 글")),
+       "★ 말풍선도 안 생긴다");
+    ok(room.messages.some((m) => m.role === "system" && m.text.includes("먼저 나가야")),
+       "★ **왜 안 갔는지 말해준다**");
+    ok(room.staged !== undefined, "★ 그리고 올려둔 것은 그대로다 — 덮어쓰지 않는다");
+
+    await mgr.stopAll(room.id);
+    await settle(room.id);
     mgr.dispose();
   }
 
@@ -207,8 +288,12 @@ async function main(): Promise<void> {
 
   console.log(`${NL}[★ 껐다 켜도 올려둔 것은 남는다]`);
   {
-    const { dir, mgr, store } = await make(100); dirs.push(dir);
+    // ⚠️ 여기도 바쁘게 해둔다 — 한가하면 올리는 즉시 나가서 남을 것이 없다
+    const { dir, mgr, store, until } = await make(4000); dirs.push(dir);
     const room = await mgr.createRoom({ agentId: "alpha", title: "저장" });
+    const bot = room.participants[0]!;
+    void mgr.send(room.id, "오래");
+    await until(() => busy(mgr.statusOf(room.id, bot.id)), "봇이 안 바빠졌다");
     await mgr.stage(room.id, [{ kind: "text", text: "남아야 하는 글" }]);
     mgr.dispose();
 

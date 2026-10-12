@@ -1,22 +1,37 @@
 /**
- * **승인을 다른 봇에게 물어본다** (v2.0 · §4.2.2).
+ * **승인을 다른 봇에게 물어본다** (v3.0 3-I · §4.2.2).
  *
- * 🔴 **승인 주체가 넘어가는 게 아니다.** `session/request_permission`은 클라이언트
- * 메서드라 답은 언제나 우리가 만든다 — ACP에 «다른 에이전트에게 위임»이라는
- * 개념이 없다. **주체가 우리라서 조건을 걸 수 있고**, 그 조건들이 이 파일이 재는
- * 전부다: 자기 심사 금지 · 읽기는 안 넘김 · 재귀 금지 · 못 읽으면 사람 ·
- * 늦으면 사람 · 그리고 **누가 정했는지 기록에 남는다**(D3).
+ * 🔴 **승인 주체가 넘어가는 게 아니다.** `session/request_permission` 은
+ * 클라이언트 메서드라 답은 **언제나 우리가** 만든다 — ACP 에 «다른 에이전트에게
+ * 위임» 이라는 개념이 없다. **주체가 우리라서 조건을 걸 수 있고**, 그 조건들이
+ * 이 파일이 재는 전부다.
+ *
+ * ⏪ **묻는 방법이 바뀌었다** (v3.0 3-I). 예전에는 심사 봇의 **턴을 가로채**
+ * 프롬프트로 묻고 **답의 첫 줄을 읽었다.** 그래서 넷이 딸려 있었다:
+ *
+ * ```
+ * 읽기 전용 거르기   «요청 하나에 리뷰어 턴 하나» 라서 비용이 아까웠다
+ * 90초 줄서기       앞 일이 끝나야 턴을 쓸 수 있었다
+ * 첫 줄 파서        산문에서 ALLOW 를 주웠다 — **인젝션이 통하는 자리**였다
+ * 15초 재촉          턴을 하나 쓰는 일이라 늦으면 포기해야 했다
+ * ```
+ *
+ * 이제 **큐에 넣고 봇이 제 턴에 꺼내 본다.** 턴을 안 쓰므로 넷이 다 사라졌고,
+ * 답은 `verdict` **도구**로 온다 — `allow` 가 불리언이라 **읽을 것이 없다.**
  */
 import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
 import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { McpServer } from "../src/core/mcpServer.js";
+import type { BotQueue } from "../src/core/botQueue.js";
 import type { PermissionRequest, PermissionDecision, Room } from "../src/core/types.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const NL = String.fromCharCode(10);
+const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 const OPTIONS = [
@@ -33,8 +48,7 @@ const REQ = (over: Partial<PermissionRequest> = {}): PermissionRequest => ({
   ...over,
 });
 
-/** 심사 봇이 뭐라고 답할지 정해두고 방을 하나 만든다 */
-async function make(say: string) {
+async function make() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-judge-"));
   const store = new RoomStore(dir); await store.init();
 
@@ -42,45 +56,70 @@ async function make(say: string) {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => { askedUser++; return { outcome: "cancelled" }; },
-    askUser: async () => ({ outcome: "cancelled" }),
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const base = {
     ...DEFAULT_AGENTS[0]!, command: "node", args: [path.join(here, "fakeagent.cjs")],
   };
+  const mcp = new McpServer({ log: () => {} });
   const mgr = new RoomManager({
-    host, store, configProbeMs: 20000,
+    host, store, configProbeMs: 20000, mcp,
     agents: [
       { ...base, id: "alpha", label: "알파", env: {} },
-      // ★ 심사 봇만 판결을 말한다
-      { ...base, id: "beta", label: "베타", env: { AIO_FAKE_SAY: say } },
+      { ...base, id: "beta", label: "베타", env: {} },
     ],
   });
   const notices: string[] = [];
   mgr.on("roomError", () => {}); mgr.on("notice", (_id: string, m: string) => notices.push(m));
+  mcp.setHandlers(mgr.mcpTools(), (o, t, a) => mgr.mcpCall(o, t, a));
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
     judging: Set<string>;
+    queue: BotQueue;
   };
 
   const room = await mgr.createRoom({
     title: "심사", bots: [{ agentId: "alpha" }, { agentId: "beta" }],
   });
-  // 세션을 실제로 열어둔다 — 심사는 살아 있는 세션에 묻는다
+  // 세션을 실제로 열어둔다 — 심사는 살아 있는 세션에 맡긴다
   await mgr.send(room.id, "안녕", undefined, room.participants[1]!.id);
   const settle = async () => {
     for (let i = 0; i < 400; i++) {
       if (["idle", "error"].includes(mgr.statusOf(room.id))) return;
-      await new Promise((r) => setTimeout(r, 25));
+      await nap(25);
     }
   };
   await settle();
 
+  const asker = room.participants[0]!;
+  const judge = room.participants[1]!;
+
+  /** 심사 봇이 하듯 — 제 몫을 꺼내 본다 */
+  const check = async () => {
+    inner.queue.startTurn(judge.id);
+    const out = await mgr.mcpCall(`${room.id}:${judge.id}`, "check_queue", {});
+    return JSON.parse(out.text) as {
+      kind: string | null;
+      answer_with?: string;
+      items: Array<{ id: string; from: string; title?: string; command?: string }>;
+    };
+  };
+  /** 그리고 판정한다 */
+  const verdict = (id: string, allow: boolean, reason = "그래서요", who = judge.id) =>
+    mgr.mcpCall(`${room.id}:${who}`, "verdict", { id, allow, reason });
+
+  /** 큐에 들 때까지 기다린다 — 넣는 쪽이 `await` 를 건너뛴다 */
+  const untilQueued = async () => {
+    for (let i = 0; i < 400; i++) {
+      if (inner.queue.waiting(judge.id) > 0 || inner.queue.pending(judge.id).length > 0) return;
+      await nap(25);
+    }
+  };
+
   return {
-    dir, mgr, room, inner, notices, settle,
-    asker: room.participants[0]!, judge: room.participants[1]!,
-    userAsks: () => askedUser,
+    dir, mgr, mcp, room, inner, notices, settle, check, verdict, untilQueued,
+    asker, judge, userAsks: () => askedUser,
   };
 }
 
@@ -89,192 +128,215 @@ const systemTexts = (room: Room) =>
 
 async function main(): Promise<void> {
   const dirs: string[] = [];
+  const bye = (t: { mgr: RoomManager; mcp: McpServer; dir: string }) => {
+    t.mcp.close(); t.mgr.dispose(); dirs.push(t.dir);
+  };
 
-  console.log(`${NL}[★ 봇이 허용하면 허용으로 답한다 — 그리고 누가 정했는지 남는다]`);
+  console.log(`${NL}[★ 큐에 넣는다 — 턴을 가로채지 않는다]`);
   {
-    const t = await make(`ALLOW${NL}되돌릴 수 있는 변경입니다.`); dirs.push(t.dir);
+    const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const before = t.room.messages.length;
 
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ());
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
+    await t.untilQueued();
+
+    ok(t.room.messages.length === before,
+       "★ **대화에 아무것도 안 생긴다** — 예전에는 심사 프롬프트가 말풍선으로 들어갔다");
+    ok(t.mgr.reviewsIn(t.room.id).length === 1, "★ 대신 «기다리는 중»으로 보인다");
+
+    const got = await t.check();
+    ok(got.kind === "permission" && got.answer_with === "verdict",
+       `★ 심사 봇이 꺼내 보면 권한이 나온다 (${got.kind} · ${got.answer_with})`);
+    ok(got.items[0]?.from === t.asker.name, `★ 누가 하려는지 (${got.items[0]?.from})`);
+
+    await t.verdict(got.items[0]!.id, true, "되돌릴 수 있는 변경입니다.");
+    const out = await pending;
     ok(out.outcome === "selected" && out.optionId === "y",
-       `★ **에이전트가 준 선택지 중에서** 고른다 (${JSON.stringify(out)}) — 우리가 지어내지 않는다`);
-    ok(t.userAsks() === 0, "★ 사용자에게 안 물었다 — 그게 위임의 요점이다");
-    ok(systemTexts(t.room).some((x) => x.includes("베타") && x.includes("승인")),
-       `★ **누가 정했는지 기록에 남는다**(D3) — 사람 결정과 구분되어야 한다`);
-    t.mgr.dispose();
+       `★ **«이번만 허용»으로 옮겨 답한다** (${JSON.stringify(out)})`);
+    ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 띠에서도 빠진다");
+    bye(t);
   }
 
-  console.log(`${NL}[★ 봇이 막으면 막는다 — 그리고 사용자에게 보인다]`);
+  console.log(`${NL}[★ 누가 정했고 왜 그랬는지 남는다 (D3)]`);
   {
-    const t = await make(`DENY${NL}이 경로는 설정 파일입니다.`); dirs.push(t.dir);
+    const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
+    await t.untilQueued();
+    const got = await t.check();
+    await t.verdict(got.items[0]!.id, false, "되돌릴 수 없는 삭제입니다.");
+    const out = await pending;
 
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ());
-    ok(out.outcome === "selected" && out.optionId === "n",
-       "★ **봇의 거부는 언제나 존중한다**");
+    ok(out.outcome === "selected" && out.optionId === "n", "★ 막으면 거절로 답한다");
     const said = systemTexts(t.room).find((x) => x.includes("막았습니다"));
-    ok(said !== undefined, `★ 막았다는 것이 기록에 남는다 (${said})`);
-    ok(t.room.messages.some((m) => m.text === said && m.mark === "error"),
-       "★ **붉게 갈라진다** — 조용히 지나가면 «왜 안 됐지»가 된다");
-    t.mgr.dispose();
+    console.log(`   ${said}`);
+    ok(said !== undefined, "★ **사용자에게 보인다** — 봇이 막은 것을 모르고 지나가면 안 된다");
+    ok(said!.includes(t.judge.name), "★ 누가 정했는지");
+    ok(said!.includes("되돌릴 수 없는"), "★ **왜 그랬는지도** — 이유를 모르면 그냥 열어주게 된다");
+    bye(t);
+  }
+
+  console.log(`${NL}[★ 읽기도 넘긴다 — 이제 턴이 안 든다]`);
+  {
+    /*
+     * ⏪ 예전에는 «요청 하나에 리뷰어 턴 하나» 라서 **읽기는 안 넘겼다.**
+     * 큐는 턴을 안 쓴다 — 거를 이유가 사라졌다. 사용자가 «전부 넘긴다» 고
+     * 정한 것을 우리가 비용 때문에 반만 지키던 자리다.
+     */
+    const t = await make();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ({ readOnly: true, kind: "read" }));
+    await t.untilQueued();
+    const got = await t.check();
+    ok(got.items.length === 1, "★ **읽기도 큐에 든다**");
+    await t.verdict(got.items[0]!.id, true);
+    await pending;
+    ok(t.userAsks() === 0, "★ 사람을 안 깨웠다");
+    bye(t);
   }
 
   console.log(`${NL}[★ 자기 자신은 심사하지 않는다]`);
   {
-    const t = await make("ALLOW"); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.judge.id);
-
-    await t.inner.askApprover(t.judge.sessionId!, REQ());
-    ok(t.userAsks() === 1,
-       "★ 사람에게 넘어간다 — 같은 맥락이 «해도 된다»고 답하는 건 심사가 아니라 메아리다");
-    ok(t.notices.some((n) => n.includes("자기 자신")),
-       `★ **조용히 넘기지 않는다** (${t.notices.join(" | ")}) — 맡겼다고 생각하고 자리를 비우면 안 된다`);
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 읽기는 안 넘긴다 — 요청 하나에 리뷰어 턴 하나다]`);
-  {
-    const t = await make("ALLOW"); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
-    await t.inner.askApprover(t.asker.sessionId!, REQ({ readOnly: true, kind: "read" }));
-    ok(t.userAsks() === 1, "★ 사람에게 간다");
-    ok(t.notices.some((n) => n.includes("읽기")),
-       "★ 되돌릴 게 없는 것까지 넘기면 **비용이 요청 수에 비례**하는데 얻는 게 없다");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 답을 못 읽으면 넘겨짚지 않는다]`);
-  {
-    const t = await make("음… 상황에 따라 다를 것 같습니다."); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
+    const t = await make();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.asker.id } }, t.asker.id);
     await t.inner.askApprover(t.asker.sessionId!, REQ());
-    ok(t.userAsks() === 1, "★ 사람에게 간다 — 모르면 모른다고 한다");
-    ok(t.notices.some((n) => n.includes("읽을 수 없어")), "★ 왜 넘겼는지 말한다");
-    t.mgr.dispose();
+    ok(t.userAsks() === 1, "★ **사람에게 간다** — 같은 맥락이 «해도 된다»면 메아리다");
+    ok(t.notices.some((m) => m.includes("자기 자신")), `★ 왜인지 말해준다 (${t.notices.at(-1)})`);
+    bye(t);
   }
 
-  console.log(`${NL}[★ 첫 줄만 본다 — «ALLOW 할 수 없습니다»를 허용으로 읽으면 안 된다]`);
+  console.log(`${NL}[★ 심사를 맡고 있는 봇의 요청은 사람에게 — 재귀 금지]`);
   {
-    const t = await make(`DENY${NL}ALLOW 라고 답하고 싶지만 위험합니다.`); dirs.push(t.dir);
+    const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ());
-    ok(out.outcome === "selected" && out.optionId === "n",
-       "★ 뒤의 ALLOW를 줍지 않는다 — 본문에서 단어를 주우면 **인젝션이 통하는 자리**가 하나 더 생긴다");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[장식이 붙어도 읽는다]`);
-  {
-    const t = await make(`**ALLOW**${NL}괜찮습니다.`); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ());
-    ok(out.outcome === "selected" && out.optionId === "y",
-       "★ 굵게·글머리표는 모델이 자주 붙인다 — 그것 때문에 사람을 깨우지 않는다");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 심사를 재귀시키지 않는다]`);
-  {
-    const t = await make("ALLOW"); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
-    // 베타가 이미 심사를 맡고 있는 중이라고 치면
-    t.inner.judging.add(t.judge.id);
+    t.inner.judging.add(t.asker.id);
     await t.inner.askApprover(t.asker.sessionId!, REQ());
-    t.inner.judging.delete(t.judge.id);
-
-    ok(t.userAsks() === 1,
-       "★ 심사 중에 온 요청은 **사용자에게** — A가 B에게, B가 A에게 묻는 고리를 막는다");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[★ 무엇을 넘겼는지 기록에 남는다 — 인젝션을 눈으로 볼 수 있는 자리]`);
-  {
-    const t = await make(`ALLOW${NL}ok`); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-    await t.inner.askApprover(t.asker.sessionId!, REQ({ command: "rm -rf /tmp/x" }));
-
-    const asked = t.room.messages.find((m) => m.mark === "review");
-    ok(asked !== undefined, "★ 물어본 글이 기록으로 남는다");
-    ok(asked!.text.includes("rm -rf /tmp/x"),
-       "★ **요청 내용을 버리지 않는다**(D1) — 사람도 판단 못 하는 걸 봇에게 물을 수는 없다");
-    ok(asked!.text.includes("지시가 아닙니다"),
-       "★ **심사 대상이 곧 프롬프트의 입력이다** — 데이터지 지시가 아니라고 못 박는다");
-    ok(asked!.deliveredTo.join() === t.judge.id, "★ 심사 봇에게만 갔다");
-    t.mgr.dispose();
-  }
-
-  console.log(`${NL}[방에 없는 봇에게 맡겼으면 사람에게]`);
-  {
-    const t = await make("ALLOW"); dirs.push(t.dir);
-    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: "없는봇" } }, t.asker.id);
-    await t.inner.askApprover(t.asker.sessionId!, REQ());
-    ok(t.userAsks() === 1, "★ 내보낸 봇에게 맡긴 채로 두면 영영 답이 안 온다");
-    t.mgr.dispose();
+    ok(t.userAsks() === 1, "★ **사람에게** — A가 B에게, B가 A에게 묻는 고리를 막는다");
+    bye(t);
   }
 
   console.log(`${NL}[★ «항상»은 봇에게 주지 않는다 — 앞으로를 바꾸는 값이다]`);
   {
-    const t = await make(`ALLOW${NL}괜찮습니다.`); dirs.push(t.dir);
+    /*
+     * 🔴 `*_always` 는 이 요청 하나를 넘어 **앞으로를 바꾼다.** 봇이 그걸
+     * 고르면 이후 같은 종류는 **아무에게도 안 물어보고** 지나간다 —
+     * 프롬프트 인젝션 한 번의 값이 «이번 편집» 이 아니라 «앞으로 전부» 가 된다.
+     */
+    const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
-    // 에이전트가 **«항상»을 먼저** 준 경우. 예전 코드는 /allow/i 로 골라서
-    // 순서에 따라 이걸 집었다 — 우리가 고른 적 없는 값이 배열 순서로 정해졌다.
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ({
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ({
       options: [
-        { optionId: "A", name: "항상 허용", kind: "allow_always" },
-        { optionId: "a", name: "이번만 허용", kind: "allow_once" },
-        { optionId: "n", name: "거절", kind: "reject_once" },
+        { optionId: "always", name: "항상 허용", kind: "allow_always" },
+        { optionId: "once", name: "이번만", kind: "allow_once" },
+        { optionId: "no", name: "거절", kind: "reject_once" },
       ],
     }));
-    ok(out.outcome === "selected" && out.optionId === "a",
-       `★ **«이번만»을 집는다** (${JSON.stringify(out)}) — 인젝션 한 번의 값이 «앞으로 전부»가 되면 안 된다`);
-    t.mgr.dispose();
+    await t.untilQueued();
+    const got = await t.check();
+    await t.verdict(got.items[0]!.id, true);
+    const out = await pending;
+    ok(out.outcome === "selected" && out.optionId === "once",
+       `★ **«이번만»으로 옮긴다** (${JSON.stringify(out)}) — 순서가 아니라 kind 로 고른다`);
+    bye(t);
   }
 
-  console.log(`${NL}[★ «이번만» 선택지가 아예 없으면 사람에게]`);
+  console.log(`${NL}[★ «이번만» 선택지가 아예 없으면 — 넣기 전에 사람에게]`);
   {
-    const t = await make(`ALLOW${NL}ok`); dirs.push(t.dir);
+    /*
+     * ⏪ 예전에는 답을 받은 **뒤에** 이걸 알았다. 그러면 심사 봇의 턴을 한 번
+     * 쓰고 나서 사용자에게 넘기게 된다 — **값을 치르고 아무것도 안 사는** 꼴이다.
+     */
+    const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-
     await t.inner.askApprover(t.asker.sessionId!, REQ({
-      options: [
-        { optionId: "A", name: "항상 허용", kind: "allow_always" },
-        { optionId: "R", name: "항상 거절", kind: "reject_always" },
-      ],
+      options: [{ optionId: "always", name: "항상 허용", kind: "allow_always" }],
     }));
-    ok(t.userAsks() === 1,
-       "★ **«항상»으로 대신하지 않는다** — 없으면 없는 것이고, 지어내지 않는다");
-    ok(t.notices.some((n) => n.includes("이번만")), "왜 넘겼는지 말한다");
-    t.mgr.dispose();
+    ok(t.userAsks() === 1, "★ **사람에게 간다**");
+    ok(t.inner.queue.pending(t.judge.id).length === 0,
+       "★ **큐에 넣지도 않는다** — 옮길 데가 없는 것을 물어봐야 값만 치른다");
+    bye(t);
   }
 
-  console.log(`${NL}[거절도 «이번만»으로]`);
+  console.log(`${NL}[★ 남의 판정은 안 먹는다 — 소유자 검사]`);
   {
-    const t = await make(`DENY${NL}위험합니다.`); dirs.push(t.dir);
+    /*
+     * 🔴 이게 없으면 봇이 **제 요청을 스스로 승인**할 수 있다. 큐에서 빼는
+     * 것이 곧 검사다 — 남의 항목이면 `answer` 가 아무것도 안 돌려준다.
+     */
+    const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
+    await t.untilQueued();
+    const got = await t.check();
 
-    const out = await t.inner.askApprover(t.asker.sessionId!, REQ({
-      options: [
-        { optionId: "R", name: "항상 거절", kind: "reject_always" },
-        { optionId: "n", name: "이번만 거절", kind: "reject_once" },
-      ],
-    }));
-    ok(out.outcome === "selected" && out.optionId === "n",
-       "★ 막는 쪽도 앞으로를 바꾸지 않는다 — 사용자가 다음에 다시 판단할 수 있어야 한다");
-    t.mgr.dispose();
+    const stolen = await t.verdict(got.items[0]!.id, true, "내가 할게", t.asker.id);
+    ok(stolen.isError === true, `★ **요청한 봇이 답하면 안 먹는다** (${stolen.text})`);
+    ok(t.mgr.reviewsIn(t.room.id).length === 1, "★ 그래서 아직 기다리고 있다");
+
+    await t.verdict(got.items[0]!.id, true);
+    await pending;
+    bye(t);
+  }
+
+  console.log(`${NL}[★ 모양이 안 맞으면 지어내지 않는다]`);
+  {
+    const t = await make();
+    const bad = await t.mgr.mcpCall(`${t.room.id}:${t.judge.id}`, "verdict", { id: "p1" });
+    ok(bad.isError === true,
+       `★ **allow 가 없으면 거절도 승인도 아니다** (${bad.text}) — false 로 읽으면 우리가 막은 것이 된다`);
+    bye(t);
+  }
+
+  console.log(`${NL}[★ 사람이 가로채면 봇의 답은 안 먹는다]`);
+  {
+    /*
+     * 🔴 안 빼면 심사 봇이 나중에 제 턴에 꺼내 보고 `verdict` 를 부르는데,
+     * 그때는 **이미 사람이 답한 뒤**다 — 봇은 제 판정이 먹힌 줄 알고,
+     * 사람은 모르는 답이 하나 더 생긴다.
+     */
+    const t = await make();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
+    await t.untilQueued();
+    const got = await t.check();
+
+    ok(t.mgr.takeOverReview(got.items[0]!.id), "★ 가로챈다");
+    const out = await pending;
+    ok(t.userAsks() === 1, "★ **승인 카드가 사람에게 떴다**");
+    ok(out.outcome === "cancelled", "사람이 답한 대로 (여기선 취소)");
+
+    const late = await t.verdict(got.items[0]!.id, true);
+    ok(late.isError === true, `★ **늦은 판정은 안 먹는다** (${late.text})`);
+    bye(t);
+  }
+
+  console.log(`${NL}[★ 전체 중지는 기다리던 것을 푼다]`);
+  {
+    const t = await make();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
+    await t.untilQueued();
+
+    await t.mgr.stopAll(t.room.id);
+    const out = await pending;
+    ok(out.outcome === "cancelled",
+       `★ **cancelled 로 답해준다** (${JSON.stringify(out)}) — 안 답하면 저쪽은 영영 기다린다`);
+    ok(t.inner.queue.pending(t.judge.id).length === 0, "★ 큐도 비었다");
+    ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 띠도 걷혔다");
+    bye(t);
   }
 
   for (const d of dirs) {
     for (let n = 0; n < 5; n++) {
       try { await fs.rm(d, { recursive: true, force: true }); break; }
-      catch { await new Promise((r) => setTimeout(r, 200)); }
+      catch { await nap(200); }
     }
   }
   console.log(`${NL}전부 통과`);
 }
 
-void main().catch((e: unknown) => { console.error(e); process.exit(1); });
+main()
+  .then(() => nap(50))
+  .then(() => process.exit(0))
+  .catch((e) => { console.error(e); process.exit(1); });

@@ -69,7 +69,7 @@ const room = () => ({
 });
 const wait = (over = {}) => ({
   id: "w1", roomId: "r1", askerBotId: "b1", judgeBotId: "b2",
-  title: "파일 고치기", state: "waiting", since: 1, ...over,
+  title: "파일 고치기", since: 1, ...over,
 });
 
 function open(t) {
@@ -88,8 +88,8 @@ console.log("\n[★ 기다리는 중이면 보이고, 가로챌 수 있다]");
   ok(card !== null, "★ 줄에 서면 보인다");
   ok(card.textContent.includes("구현") && card.textContent.includes("파일 고치기"),
      `★ **누가 무엇을** 승인하려는지 (${card.querySelector(".card-title").textContent.trim()})`);
-  ok(card.textContent.includes("리뷰어") && card.textContent.includes("끝내면"),
-     "★ **왜 기다리는지** — 심사 봇이 하던 일을 끝내면 물어본다");
+  ok(card.textContent.includes("리뷰어") && card.textContent.includes("기다립니다"),
+     `★ **누구를 기다리는지** (${card.querySelector(".dim").textContent})`);
 
   const btn = [...card.querySelectorAll("button")].find((b) => b.textContent === "내가 답할게");
   ok(btn !== undefined, "★ **빠져나올 길이 있다**");
@@ -98,18 +98,16 @@ console.log("\n[★ 기다리는 중이면 보이고, 가로챌 수 있다]");
   ok(posted?.reviewId === "w1" && posted.roomId === "r1", "★ 그 심사만 가로챈다");
 }
 
-console.log("\n[★ 이미 물어본 뒤에는 가로채기를 안 준다]");
-{
-  const t = mount();
-  open(t);
-  t.send({ t: "reviews", roomId: "r1", list: [wait({ state: "asking" })] });
-
-  const card = t.$(".review-wait");
-  ok(card.textContent.includes("물어보는 중"),
-     `★ «곧 끝난다»로 읽혀야 한다 (${card.textContent.trim()})`);
-  ok([...card.querySelectorAll("button")].length === 0,
-     "★ **돌고 있는 턴은 끊어도 자동으로 안 이어진다** — 그래서 버튼을 안 준다");
-}
+/*
+ * ⏪ **«이미 물어본 뒤에는 가로채기를 안 준다» 가 여기 있었다** (v3.0 3-I).
+ *
+ * 심사가 **턴을 가로채** 물어보던 시절에는 «줄 서는 중» 과 «물어보는 중» 이
+ * 달랐다 — 뒤엣것은 이미 턴이 돌고 있어서, 끊어도 되돌아오지 않았다.
+ *
+ * 이제 큐에 넣으면 끝이고, 묻는 것은 봇이 **제 턴에 꺼내 보는 일**이라
+ * **우리가 그 순간을 모른다.** 한 모양이고, 가로채기는 **언제나** 있다 —
+ * 가로채면 큐에서 빼므로 늦게 온 판정은 안 먹는다(`judgeflow.mts`).
+ */
 
 console.log("\n[★ 여럿이면 여럿 다 보인다]");
 {

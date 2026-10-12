@@ -17,6 +17,16 @@
 /** 큐에 든 것 하나 */
 export type QueueItem = QueuePermission | QueueMessage;
 
+/**
+ * 넣을 때의 모양 — `id`·`at` 은 큐가 붙인다.
+ *
+ * ⚠️ `Omit<QueueItem, …>` 로 쓰면 **합집합이 눌려서** 한쪽에만 있는 칸
+ * (`readOnly`·`text`)이 사라진다. 갈래마다 따로 적는다.
+ */
+export type NewQueueItem =
+  | Omit<QueuePermission, "id" | "at">
+  | Omit<QueueMessage, "id" | "at">;
+
 interface Common {
   id: string;
   /** 누구의 큐인가 — 봇 하나 */
@@ -88,7 +98,7 @@ export class BotQueue {
    * 도는 턴이 있으면 **다음 몫**으로 간다 — 그게 `left` 가 0 에 닿게 해준다
    * (`startTurn` 주석).
    */
-  put(item: Omit<QueueItem, "id" | "at">): string {
+  put(item: NewQueueItem): string {
     const id = `${item.kind === "permission" ? "p" : "x"}${++this.seq}`;
     this.lane(item.to).next.push({ ...item, id, at: Date.now() } as QueueItem);
     return id;
