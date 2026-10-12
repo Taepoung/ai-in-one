@@ -5396,10 +5396,10 @@ function capRow(r: Room): HTMLElement {
   const box = el("input", {
     type: "number",
     class: "cap",
-    min: "1",
+    min: "0",
     max: "999",
     value: String(r.turnCap ?? 12),
-    title: "여기 닿으면 멈추고 «더 갈까요»를 묻습니다.",
+    title: "여기 닿으면 멈추고 «더 갈까요»를 묻습니다. 0 이면 안 묻습니다.",
   }) as HTMLInputElement;
   const commit = () => {
     const n = Number(box.value);
@@ -5412,7 +5412,11 @@ function capRow(r: Room): HTMLElement {
     { class: "policy cap-row" },
     el("span", { class: "dim", text: "내 말 한 마디당" }),
     box,
-    el("span", { class: "dim", text: "턴까지. 닿으면 멈추고 묻습니다." }),
+    el("span", {
+      class: "dim",
+      // **0 이 무슨 뜻인지 그 자리에 적는다** — 숫자만 두면 «0 = 아예 못 한다» 로 읽는다
+      text: (r.turnCap ?? 12) === 0 ? "턴 — 제한 없음. 안 묻습니다." : "턴까지. 닿으면 멈추고 묻습니다.",
+    }),
   );
 }
 

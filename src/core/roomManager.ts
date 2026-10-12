@@ -1137,12 +1137,21 @@ export class RoomManager extends EventEmitter<Events> {
   /**
    * ★ **턴 상한을 고친다** (v3.0 4-L).
    *
-   * 0 이나 음수는 안 받는다 — «봇끼리 한 턴도 안 돈다»는 «끔»이 할 일이고,
-   * 숫자로 그걸 표현하게 두면 **같은 뜻을 두 군데로** 말하게 된다.
+   * ```
+   * 0      **제한 없음** — 닿을 데가 없으니 안 묻는다
+   * 1..999 그만큼 돌면 멈추고 «더 갈까요»
+   * ```
+   *
+   * 🔴 **0 이 «한 턴도 안 돈다»가 아니다.** 그건 «끔»이 할 일이고, 숫자로도
+   * 같은 말을 하게 두면 **같은 뜻을 두 군데**에서 말하게 된다. 숫자 칸에서
+   * 0 은 어느 설정에서나 **«세지 않는다»** 다.
+   *
+   * ⚠️ 음수는 0 으로 접는다 — 저쪽이 무슨 뜻으로 보냈든 **안 세는 쪽**이
+   * 그나마 짐작이 덜 섞인다.
    */
   async setTurnCap(roomId: string, turns: number): Promise<void> {
     const room = await this.openRoom(roomId);
-    const next = Math.max(1, Math.min(999, Math.floor(turns)));
+    const next = Math.max(0, Math.min(999, Math.floor(turns)));
     if ((room.turnCap ?? DEFAULT_TURN_CAP) === next) return;
     room.turnCap = next;
     await this.saveProps(room, { turnCap: next });
@@ -5002,7 +5011,9 @@ export class RoomManager extends EventEmitter<Events> {
         "`id` 를 주면 check_queue 에서 받은 그 항목에 대한 반응이다. " +
         "`to` 가 그 항목을 보낸 봇이면 **답**이 되어 그 항목이 닫히고, " +
         "다른 봇이면 그 항목은 열린 채로 새 가닥이 시작된다.\n" +
-        "`id` 없이 부르는 것은 새로 거는 것이고, 사용자의 승인을 받는다.",
+        "`id` 없이 부르는 것은 새로 거는 것이고, 사용자의 승인을 받는다.\n" +
+        "봇끼리 주고받는 것이 길어지면 사용자에게 계속할지 묻기 때문에, "
+        + "새로 거는 호출은 거절될 수 있다. 그때는 사용자에게 직접 말해라.",
       inputSchema: {
         type: "object",
         properties: {
@@ -5324,6 +5335,8 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private async withinCap(room: Room): Promise<boolean> {
     const cap = room.turnCap ?? DEFAULT_TURN_CAP;
+    // ★ **0 은 제한 없음** — 닿을 데가 없으니 세지도 묻지도 않는다
+    if (cap === 0) return true;
     const rt = this.runtime(room.id);
     if (rt.turns < cap) return true;
 

@@ -142,6 +142,19 @@ async function main(): Promise<void> {
     await t.settle();
     // 자리를 비운 상태로 둔다 — 중지가 이것을 내리는지 같이 본다
     t.b.answerPolicy = "auto";
+    /*
+     * ★ **큐에 거리를 남겨둔다** — «그만» 이 이것까지 치우는지 본다.
+     *
+     * 🔴 안 치우면 **멈추라고 눌렀는데 하던 이야기가 이어진다** — 다음에
+     * 누가 그 봇을 깨우는 순간 밀린 말이 그대로 나간다.
+     */
+    const inner = t.mgr as unknown as {
+      queue: { put(x: unknown): string; pending(id: string): unknown[] };
+    };
+    inner.queue.put({
+      kind: "message", to: t.b.id, from: t.a.name, fromId: t.a.id, text: "밀려 있던 말",
+    });
+    ok(inner.queue.pending(t.b.id).length === 1, "★ 전제: 큐에 하나 들어 있다");
 
     const sent = t.say("리뷰어", "더 가자");
     await t.until(() => t.cards.length > 0, "«더 갈까요» 를 안 물었다");
@@ -152,6 +165,28 @@ async function main(): Promise<void> {
     ok(t.b.answerPolicy === "ask",
        "★ 🔴 **«무조건 허용»도 내려간다** — 멈추라고 누른 사람의 뜻은 거기까지다");
     ok(!t.room.staged, "★ 올려둔 것도 같이 내린다");
+    ok(inner.queue.pending(t.b.id).length === 0 && inner.queue.pending(t.a.id).length === 0,
+       "★ 🔴 **MCP 큐도 비운다** — 안 비우면 다음에 깨우는 순간 밀린 말이 나간다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 0 은 «제한 없음» — «한 턴도 안 돈다»가 아니다]`);
+  {
+    /*
+     * 🔴 **같은 뜻을 두 군데서 말하지 않는다.** «봇끼리 한 턴도 안 돈다»는
+     * `relay: "off"` 가 할 일이다. 숫자 칸의 0 이 그걸 또 하면 **끔과 0 이
+     * 뭐가 다른지**를 아무도 답할 수 없다.
+     */
+    const t = await make(0); dirs.push(t.dir);
+    await t.mgr.send(t.room.id, "안녕", undefined, t.b.id);
+    await t.settle();
+    // 상한이 1 이었으면 여기서 물었을 자리다
+    const out = await t.say("리뷰어", "계속 가자");
+    ok(out.ok, `★ **안 묻고 간다** (${JSON.stringify(out)})`);
+    ok(t.cards.length === 0, "★ 닿을 데가 없으니 카드도 안 뜬다");
+
+    await t.mgr.setTurnCap(t.room.id, -5);
+    ok(t.room.turnCap === 0, `★ 음수는 0 으로 접는다 (${t.room.turnCap}) — 안 세는 쪽이 짐작이 덜 섞인다`);
     t.mgr.dispose();
   }
 
