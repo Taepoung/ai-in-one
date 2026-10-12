@@ -88,7 +88,9 @@ async function make(cap: number) {
     [typeof room.participants[0], typeof room.participants[0], typeof room.participants[0]];
   const inner = mgr as unknown as {
     queue: BotQueue;
-    botRuntime(roomId: string, botId: string): { depth?: number; fromUser?: boolean };
+    botRuntime(roomId: string, botId: string): {
+      depth?: number; fromUser?: boolean; saidZero?: Set<string>;
+    };
   };
 
   const settle = async () => {
@@ -261,6 +263,41 @@ async function main(): Promise<void> {
        `★ 🔴 **다른 봇이 연 턴에서는 막힌다** (${deep.reason})`);
     ok((deep.reason ?? "").includes("check_queue"),
        "★ **대신 뭘 쓰라고 말해준다** — 거절은 언제나 «왜 + 어떻게»다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[🔴 id "0" 으로는 같은 봇에게 한 번만 — 무한 가지치기를 막는다]`);
+  {
+    /*
+     * 🔴 **`id:"0"` 은 깊이가 1 이라 상한에 구조적으로 안 걸린다.** 묶지 않으면
+     * 사용자 말 한 마디가 가지를 **무한히** 연다 — 재봤더니 한 턴에 스무 번이
+     * 다 나갔다(상한 3 인 방에서).
+     *
+     * 「같은 봇에게 한 번」이면 **방의 봇 수가 곧 상한**이고 숫자는 안 는다.
+     * 막는 것은 «같은 봇에게 또»뿐이고, 그건 **이미 말한 것**이다.
+     */
+    const t = await make(3); dirs.push(t.dir);
+    t.standAt(t.a, 0);
+
+    ok((await t.say(t.a, "리뷰어", "한 번")).ok, "★ 한 번은 간다");
+    const again = await t.say(t.a, "리뷰어", "또");
+    ok(!again.ok && (again.reason ?? "").includes("이미 전송"),
+       `★ 🔴 **두 번째는 막힌다** (${again.reason})`);
+
+    // 다른 봇에게는 된다 — 묶이는 것은 «같은 봇» 이다
+    ok((await t.say(t.a, "테스터", "너한테도")).ok,
+       "★ **다른 봇에게는 간다** — 방의 봇 수가 곧 상한이다");
+
+    // 한 번에 여럿도 된다 — 중복만 걸러진다
+    const both = await t.say(t.a, ["리뷰어", "테스터"], "둘 다");
+    ok(!both.ok && (both.reason ?? "").includes("리뷰어"),
+       `★ 섞여 있으면 **통째로 거절** (${both.reason}) — 반만 가면 알릴 길이 는다`);
+
+    // 🔴 턴이 새로 열리면 다시 샌다 — 사용자가 또 말했으니까
+    t.standAt(t.a, 0);
+    (t.inner.botRuntime(t.room.id, t.a.id) as { saidZero?: Set<string> }).saidZero = new Set();
+    ok((await t.say(t.a, "리뷰어", "새 턴에서")).ok,
+       "★ **턴이 바뀌면 다시 샌다** — 사용자가 또 말한 것이다");
     t.mgr.dispose();
   }
 

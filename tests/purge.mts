@@ -183,10 +183,21 @@ async function main(): Promise<void> {
     const took = Date.now() - began;
     ok(took < 3000, `★ 그래도 나가기는 안 막힌다 (${took}ms)`);
 
+    /*
+     * ⚠️ **«뒷정리» 가 든 줄은 둘이다** — «N 으로 끝났습니다»(저쪽이 거절)와
+     * «못 했습니다»(아예 못 띄움). 재려는 것은 **앞엣것**인데, 스위트가 한꺼번에
+     * 돌면 프로세스를 못 띄워 뒤엣것이 나올 수 있다(2026-10-12에 한 번 그랬다).
+     *
+     * 그때는 **재려던 것이 깨진 것이 아니라 전제가 안 선 것**이다 — 섞어서
+     * «실패» 로 찍으면 읽는 사람이 엉뚱한 곳을 판다.
+     */
     for (let i = 0; i < 80 && !logs.some((l) => l.includes("뒷정리")); i++) await nap(50);
     const note = logs.find((l) => l.includes("뒷정리")) ?? "";
     console.log(`   남은 말: «${note}»`);
     ok(note.length > 0, "★ **조용히 안 넘어간다** — 종료코드가 로그로 남는다");
+    if (!note.includes("끝났습니다")) {
+      throw new Error(`FAIL: 전제가 안 섰다 — 뒷정리 프로세스를 못 띄웠다: ${note}`);
+    }
     ok(note.includes("2"), "★ 몇으로 죽었는지가 들어 있다");
     ok(note.includes("unknown option"),
        "★ **저쪽이 한 말이 들어 있다** — 없으면 «안 됐다» 만 알고 왜인지를 모른다");

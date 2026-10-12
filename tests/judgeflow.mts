@@ -311,6 +311,9 @@ async function main(): Promise<void> {
     ok(out.outcome === "cancelled", "사람이 답한 대로 (여기선 취소)");
 
     const late = await t.verdict(got.item!.id, true);
+    ok(late.text.includes("이미 응답") && late.text.includes("사용자에 의해"),
+       `★ 🔴 **«누가 응답했는지»까지 말해준다** (${late.text}) — «그런 id 없음»과 ` +
+         "같은 글로 돌려주면 모델은 다시 확인하려 들고, 그래 봐야 영영 안 나온다");
     ok(late.isError === true, `★ **늦은 판정은 안 먹는다** (${late.text})`);
     bye(t);
   }

@@ -178,6 +178,17 @@ interface BotRuntime {
    */
   depth?: number;
   /**
+   * ★ **이 턴의 사용자 말에 대해 이미 보낸 봇들** (v3.0 4-L, 2026-10-12).
+   *
+   * 🔴 `say(id: "0")` 은 **깊이가 1 이라 상한에 구조적으로 안 걸린다.** 그리고
+   * 한 턴에 몇 번이든 부를 수 있었다 — 실측에서 **스무 번이 다 나갔다.**
+   * 사용자 말 한 마디가 가지를 **무한히** 열 수 있었다는 뜻이다.
+   *
+   * 「같은 봇에게 한 번」으로 묶으면 **방의 봇 수가 곧 상한**이 되고, 숫자를
+   * 하나도 안 늘린다. 여럿에게는 `to` 가 목록이라 손해도 없다.
+   */
+  saidZero?: Set<string>;
+  /**
    * ★ **이 턴을 사용자가 열었나** (v3.0 4-L) — `say(id: "0")` 이 여기에 걸린다.
    *
    * ⏪ 한때 `depth === 0` 으로 갈음했다. **깨졌다** — 사용자가 끼어들면 밀린
@@ -858,6 +869,21 @@ export class RoomManager extends EventEmitter<Events> {
    * 같은 선택이다(§4.2.2).
    */
   private readonly queue = new BotQueue();
+  /**
+   * ★ **방금 닫힌 항목이 왜 닫혔나** (v3.0 2-E, 2026-10-12).
+   *
+   * 🔴 큐에서 빠지면 «그런 id 없음»과 «이미 응답됨»이 **똑같이 보인다.**
+   *
+   * ★ **누가 응답했는지까지 적는다** — 봇이 꺼내 본 뒤에도 **사용자가 가로채**
+   * 답할 수 있으므로(`takeOverReview`), «당신에 의해»와 «사용자에 의해»는
+   * 모델에게 다른 사실이다.
+   * 둘은 모델이 할 일이 다르다 — 앞엣것은 **다시 확인해야** 하고, 뒤엣것은
+   * **아무것도 안 해도 된다.** 특히 사람이 가로챈 뒤에 봇이 늦게 `verdict` 를
+   * 부르면, 생기는 일은 없는데 **모델은 제 판정이 먹힌 줄 안다.**
+   *
+   * 영수증만 들고 있으면 되므로 작게 묶어둔다 — 넘치면 **오래된 것부터** 버린다.
+   */
+  private readonly closed = new Map<string, string>();
 
   /**
    * 큐에 든 권한 요청의 **답을 넣을 손** — id → 푸는 함수.
@@ -2598,6 +2624,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 눌렀는데 하던 이야기가 이어지는 꼴이다.
      */
     for (const item of this.queue.dropAll(room.participants.map((b) => b.id))) {
+      this.noteClosed(item.id, "전체 중지로 거두어졌습니다");
       if (item.kind === "permission") this.settleQueued(item.id, { outcome: "cancelled" });
     }
     /*
@@ -2660,6 +2687,16 @@ export class RoomManager extends EventEmitter<Events> {
    * 조용히 아무 일도 안 일어나는데, 그 사이 **두 번째 답이 사라진다** —
    * 지운 뒤에 부른다.
    */
+  /** 닫힌 자국을 남긴다 — 오래된 것부터 버려 **무한히 안 는다** */
+  private noteClosed(id: string, why: string): void {
+    this.closed.set(id, why);
+    while (this.closed.size > CLOSED_MEMORY) {
+      const oldest = this.closed.keys().next().value;
+      if (oldest === undefined) break;
+      this.closed.delete(oldest);
+    }
+  }
+
   private settleQueued(id: string, decision: PermissionDecision | undefined): void {
     const held = this.queued.get(id);
     if (!held) return;
@@ -2851,6 +2888,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 판정이 먹힌 줄 알고, 사람은 모르는 답이 하나 더 생긴다.
      */
     this.queue.answer(wait.judgeBotId, reviewId);
+    this.noteClosed(reviewId, "사용자에 의해 이미 응답되었습니다");
     // `undefined` 는 «사람에게 넘긴다» 다 — `askApprover` 가 받아서 카드를 띄운다
     this.settleQueued(reviewId, undefined);
     this.emit("notice", wait.roomId, `직접 답하기로 했습니다 — «${wait.title}»`);
@@ -2875,11 +2913,22 @@ export class RoomManager extends EventEmitter<Events> {
   ): Promise<McpResult> {
     const item = this.queue.answer(botId, id);
     if (!item || item.kind !== "permission") {
+      /*
+       * ★ **«없다»와 «이미 났다»를 가른다** (2-E ②).
+       *
+       * 🔴 둘이 같은 글로 돌아오면 모델이 할 일이 안 갈린다 — 앞엣것은 다시
+       * 확인해야 하고, 뒤엣것은 **아무것도 안 해도 된다.** 특히 사람이 가로챈
+       * 뒤라면, 다시 확인해봐야 그 항목은 영영 안 나온다.
+       */
+      const why = this.closed.get(id);
       return {
-        text: `«${id}» 는 지금 당신이 판정할 거리가 아닙니다. check_queue 로 다시 확인하세요.`,
+        text: why
+          ? `«${id}» 는 ${why}. 더 할 일이 없습니다.`
+          : `«${id}» 는 지금 당신이 판정할 거리가 아닙니다. check_queue 로 다시 확인하세요.`,
         isError: true,
       };
     }
+    this.noteClosed(id, "당신에 의해 이미 응답되었습니다");
     const held = this.queued.get(id);
     if (!held) return { text: `«${id}» 는 이미 답이 난 것입니다.`, isError: true };
 
@@ -3297,6 +3346,8 @@ export class RoomManager extends EventEmitter<Events> {
      * 저절로 맞는다. 「누가 열었나」는 `fromUser` 가 따로 들고 있다.
      */
     bt.fromUser = batch.some((m) => m.role === "user");
+    // 턴마다 새로 — «이 턴의 사용자 말»에 대해 누구에게 보냈나는 턴 안에서만 뜻이 있다
+    bt.saidZero = new Set<string>();
     bt.depth = incoming || (bt.fromUser ? 0 : (bt.depth ?? 0));
 
     const prompt = await this.buildPrompt(room, bot, bt, batch);
@@ -4304,64 +4355,41 @@ export class RoomManager extends EventEmitter<Events> {
      * 🔴 **따로 턴을 쓰지 않는다.** «확인할 것이 있다» 한 줄을 전하려고 모델을
      * 깨우면, 사용자가 말을 건 턴과 **합쳐서 한 번** 갈 수 있는 것을 두 번 쓴다.
      *
-     * **수는 여기서 센다.** 바로 위에서 `startTurn` 이 몫을 떼어냈으므로 이
-     * 숫자는 **이 턴에 실제로 꺼낼 수 있는 수**다 — 낡은 값이 아니다.
-     */
-    const waiting = this.queue.shareLeft(bot.id);
-    /*
-     * ★ **이 줄은 우리가 하는 말이다** (v3.0 4-J·4-L).
-     *
-     * 🔴 **프롬프트에 섞여 들어가는 글의 기본값은 «사용자가 한 말»이다.**
-     * 그래서 서버 이름을 앞에 대고, **누가 이 턴을 열었는지**를 적는다.
-     * 안 적으면 모델은 이 알림을 사용자 지시로 읽고 `say(id:"0")` 을 써본다 —
-     * 거절되고 **왕복 하나가 헛돈다.**
-     *
-     * 🔴 **규칙은 도구 설명에, 상태는 여기에.** «"0" 은 사용자가 말한 턴에서만»
-     * 이라는 규칙은 세션에 굳어 있고(공짜), **이 턴이 그런 턴인가**는 매번
-     * 달라지므로 여기서 말한다.
+     * 🔴 **이 줄은 우리가 하는 말이다.** 프롬프트에 섞여 들어가는 글의 기본값은
+     * «사용자가 한 말»이라, 서버 이름을 앞에 안 대면 모델이 **사용자 지시로
+     * 읽는다.**
      */
     const others = room.participants.some((b) => b.id !== bot.id);
     const relayOn = others && (room.relay ?? DEFAULT_RELAY) !== "off";
     const bits: string[] = [];
 
-    if (relayOn && bt.fromUser) {
-      bits.push(
-        '사용자가 방금 말했습니다 — 그 말 때문에 다른 봇에게 보내려면 ' +
-          'say 의 id 를 "0" 으로 주세요.',
-      );
-    }
-    if (!bt.fromUser) {
-      // 깨워진 턴 — **사용자가 보낸 말이 아니다.** 이것만으로 «0» 이 막힌다
-      bits.push(
-        '알림 — 사용자가 보낸 말이 아닙니다. 이 턴에서는 say 의 id 에 "0" 을 ' +
-          "쓸 수 없고, 받은 항목의 id 를 써야 합니다.",
-      );
-    }
-    if (waiting > 0) {
-      /*
-       * ★ **남은 거리를 같이 알려준다** (4-L).
-       *
-       * 🔴 안 알려주면 모델은 **벽에 부딪혀서야** 안다 — 그때는 이미 사람을
-       * 한 번 깨운 뒤다. 알면 스스로 «이건 더 안 물어보고 정리하자» 를 고를
-       * 수 있고, 그게 사람을 안 깨우는 **유일한 싼 길**이다.
-       *
-       * ⚠️ **«남은 수»지 «상한»이 아니다.** 상한을 적으면 그 수가 **목표**로
-       * 읽힐 자리가 생긴다. 0(제한 없음)이면 아예 안 적는다.
-       */
-      const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
-      const far = (bt.depth ?? 0) + 1;
-      const left = cap > 0 && (room.relay ?? DEFAULT_RELAY) === "always"
-        ? Math.max(0, cap - far) : undefined;
-      bits.push(
-        `큐에 ${waiting}개가 남아 있습니다. check_queue 로 꺼내세요. ` +
-          "메시지는 say, 권한 요청은 verdict 로 답합니다." +
-          (left === undefined
-            ? ""
-            : ` 지금 당신이 새로 거는 말은 사용자에게서 ${far}다리째이고, ` +
-              `${left}다리 더 갈 수 있습니다 — 넘으면 say 가 거절됩니다.`),
-      );
-    }
-    if (bits.length > 0) parts.push(`[${OUR_MCP_NAME}: ${bits.join(" ")}]`);
+    /*
+     * ★ **깃발 하나.** 길게 쓰면 **사용자 말처럼 읽힌다** — 막으려던 바로
+     * 그것이다. 짧은 표식은 사람 말로 안 읽히고, 뜻은 도구 설명이 들고 있다.
+     *
+     * ★ **있을 때만 적는다** — «없으면 못 쓴다»는 **안 적는다.**
+     *
+     * 🔴 도구 설명에 «프롬프트에 이 글자가 있을 때만» 이라고 쓰면 **설명이
+     * 이 줄의 생김새에 묶인다.** 설명은 세션에 굳으므로(`mcplist.cjs` 실측),
+     * 나중에 이 줄을 고치는 날 **열린 세션들은 틀린 지시를 영영 들고 있다.**
+     * 설명에는 «사용자가 방금 한 말 때문이면» 만 적는다 — 그건 언제나 참이다.
+     *
+     * 틀리게 써도 거절 글이 **그 자리에서** 바로잡아 준다.
+     */
+    if (relayOn && bt.fromUser) bits.push('say id="0" 가능');
+
+    /*
+     * ★ **깨우는 줄은 «할 일»만.** 어느 도구로 답하는지도, 몇 다리 더 갈 수
+     * 있는지도 **`check_queue` 결과가 들고 온다**(`use`·`depth_left`) — 거기
+     * 수는 **보내기 직전의 참**이고, 여기 적은 것은 턴이 열릴 때 찍은 값이라
+     * 그 턴 안에서 이미 낡는다. 같은 말을 두 번 하면서 한쪽이 틀리는 것이다.
+     */
+    const waiting = this.queue.shareLeft(bot.id);
+    if (waiting > 0) bits.push(`큐에 ${waiting}개 — check_queue 로 꺼내세요`);
+
+    // 가운뎃점으로 가른다 — 공백만으로는 **앞 줄 끝과 뒷 줄 머리가 붙어 읽힌다**
+    if (bits.length > 0) parts.push(`[${OUR_MCP_NAME}: ${bits.join(" · ")}]`);
+
     // 알림만으로 깨어난 턴에는 **사용자의 말이 없다** — 빈 줄을 안 밀어 넣는다
     if (body) parts.push(body);
 
@@ -5047,7 +5075,7 @@ export class RoomManager extends EventEmitter<Events> {
         "네 일을 계속하거나 사용자에게 말해라.\n" +
         "★ **할 말은 반드시 `text` 에 넣어라** — 산문에만 쓰면 상대에게 안 간다.\n" +
         "`id` 에는 **무엇에 반응해서 보내는지**를 적는다. 빠뜨릴 수 없다:\n" +
-        "  · 사용자가 방금 한 말 때문이면 \"0\" — 사용자가 연 턴에서만 쓸 수 있다\n" +
+        "  · 사용자가 방금 한 말 때문이면 \"0\" — 같은 봇에게는 한 턴에 한 번만\n" +
         "  · 다른 봇의 말 때문이면 check_queue 가 준 id 를 그대로\n" +
         "★ **반응하면 그 항목은 닫힌다** — 받는 이가 누구든. 들고 있어도 " +
         "그 턴에서 더 할 수 있는 것이 없다.\n" +
@@ -5332,17 +5360,40 @@ export class RoomManager extends EventEmitter<Events> {
             "지금 턴은 다른 봇이 열었습니다 — check_queue 로 받은 id 를 쓰세요.",
         );
       }
+      /*
+       * ★ **같은 봇에게는 한 번** (2026-10-12).
+       *
+       * 🔴 `id:"0"` 은 깊이가 1 이라 **상한에 구조적으로 안 걸린다.** 묶지
+       * 않으면 사용자 말 한 마디가 가지를 **무한히** 연다(실측: 스무 번이 다
+       * 나갔다). 「한 번」이면 **방의 봇 수가 곧 상한**이고 숫자는 안 는다.
+       *
+       * 막는 것은 «같은 봇에게 또»뿐이다 — 그건 **이미 말한 것**이고, 여럿에게
+       * 보내려면 `to` 가 목록이며, 서로 다른 말이면 봇마다 한 번씩 부르면 된다.
+       */
+      /*
+       * ⚠️ **없으면 만든다.** 보통은 `runQueue` 가 턴을 열며 깔지만, 턴 밖에서
+       * 늦게 도착한 도구 호출도 있다 — 그때 칸이 비어 있으면 **이 문이 조용히
+       * 열린 채**가 된다. 울타리는 «없으면 통과»로 지면 안 된다.
+       */
+      const said = (bt.saidZero ??= new Set<string>());
+      const twice = targets.filter((b) => said.has(b.id));
+      if (twice.length > 0) {
+        // **«이 턴에»를 남긴다** — 빼면 «영영 못 보낸다»로 읽혀 포기해 버린다
+        return no(`${twice.map((b) => b.name).join("·")}에게 이 턴에 이미 전송했습니다.`);
+      }
     } else {
       const item = this.queue.find(fromId, id);
       // ① 없는 id — 거절하고 **지금 들고 있는 것을 다시 실어준다**
       if (!item) {
+        const why = this.closed.get(id);
         return {
           text: JSON.stringify({
             ok: false,
-            reason:
-              `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요. ` +
-              `사용자가 방금 한 말 때문이면 id 를 «${USER_TURN_ID}» 로 주세요.`,
-            items: this.queue.pending(fromId).map(wireItem),
+            reason: why
+              ? `«${id}» 는 ${why}. 더 할 일이 없습니다.`
+              : `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요. ` +
+                `사용자가 방금 한 말 때문이면 id 를 «${USER_TURN_ID}» 로 주세요.`,
+            ...(why ? {} : { items: this.queue.pending(fromId).map(wireItem) }),
             queue_left: this.queue.shareLeft(fromId),
           }),
         };
@@ -5396,8 +5447,16 @@ export class RoomManager extends EventEmitter<Events> {
       return no(`${gone.map((b) => b.name).join("·")}은(는) 그사이 방을 떠났습니다.`);
     }
 
+    // ★ **같은 봇에게 두 번은 없다** — 문을 다 지난 뒤에 적는다(거절은 안 센다)
+    if (id === USER_TURN_ID) {
+      const said = (bt.saidZero ??= new Set<string>());
+      for (const b of targets) said.add(b.id);
+    }
     // ★ **반응했으면 닫힌다** — 받는 이가 임자든 아니든 (위 주석)
-    if (answering) this.queue.answer(fromId, answering);
+    if (answering) {
+      this.queue.answer(fromId, answering);
+      this.noteClosed(answering, "당신에 의해 이미 응답되었습니다");
+    }
 
     /*
      * ★ **돌려주는 id 가 없다** (2026-10-12).
@@ -6138,6 +6197,9 @@ function quoteAsk(text: string): string {
   const cut = one.length > ABOUT_MAX ? `${one.slice(0, ABOUT_MAX)}…` : one;
   return `«${cut}»`;
 }
+
+/** 닫힌 항목을 몇 개나 기억하나 — 늦게 온 호출을 알아볼 만큼만 */
+const CLOSED_MEMORY = 300;
 
 /** 릴레이 승인 카드의 선택지 id — 답을 되읽는 자리와 한 글자도 안 어긋나게 */
 const RELAY_ALLOW = "aio-relay-allow";

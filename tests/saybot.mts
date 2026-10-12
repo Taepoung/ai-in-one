@@ -329,8 +329,16 @@ async function main(): Promise<void> {
 
     const woke = (await t.prompts()).filter((p) => p.includes("check_queue 로 꺼내세요"));
     ok(woke.length >= 1, `★ **놀고 있으면 그 자리에서 프롬프트가 나간다** (${woke.length}번)`);
-    ok(woke.some((p) => /큐에 \d+개가 남아/.test(p)),
+    ok(woke.some((p) => /큐에 \d+개/.test(p)),
        "★ **몇 개인지 같이 센다** — 몫을 떼어낸 직후라 낡은 값이 아니다");
+    /*
+     * ⏪ 여기 «메시지는 say, 권한은 verdict» 와 «몇 다리 더» 도 실려 있었다.
+     * **둘 다 `check_queue` 결과가 들고 온다**(`use`·`depth_left`) — 거기
+     * 수는 **보내기 직전의 참**이고, 프롬프트에 적은 것은 턴이 열릴 때 찍은
+     * 값이라 그 턴 안에서 낡는다. 같은 말을 두 번 하면서 한쪽이 틀리는 것이다.
+     */
+    ok(woke.every((p) => !p.includes("다리 더") && !p.includes("verdict 로 답합니다")),
+       "★ **깨우는 줄은 «할 일»만** — 자세한 것은 도구 결과가 든다");
     ok(woke.every((p) => p.includes("ai-in-one:")),
        "★ **누가 하는 말인지 이름을 댄다** — 안 대면 모델에게는 사용자 말로 보인다");
     ok(!woke.some((p) => p.includes("일어나 봐")),
