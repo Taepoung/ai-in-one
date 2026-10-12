@@ -127,7 +127,7 @@ async function make(hold = 60) {
     return JSON.parse(out.text) as {
       kind: string | null;
       use?: string;
-      items: Array<{ id: string; from: string; text?: string; about?: string }>;
+      item: { id: string; from: string; text?: string; about?: string } | null;
       left: number;
     };
   };
@@ -172,9 +172,9 @@ async function main(): Promise<void> {
     const got = await t.check(t.b);
     ok(got.kind === "message" && got.use === "say",
        `★ 받는 쪽 큐에 들어 있다 — **say 를 쓰라고** 같이 온다 (${got.use})`);
-    ok(got.items[0]?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로");
-    ok(got.items[0]?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
-    ok(got.items[0]?.about === undefined,
+    ok(got.item?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로");
+    ok(got.item?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
+    ok(got.item?.about === undefined,
        "★ **새로 거는 것에는 인용이 없다** — 인용은 답일 때만 뜻이 있다");
 
     const said = bubbles(t.room, t.a.id, t.b.id);
@@ -212,7 +212,7 @@ async function main(): Promise<void> {
     await first;
 
     const mine = await t.check(t.b);
-    const id = mine.items[0]!.id;
+    const id = mine.item!.id;
 
     /*
      * ⏪ 여기서 **릴레이를 끄고도 답이 나가는지**를 쟀다. 그 면제는 걷어냈다
@@ -228,8 +228,8 @@ async function main(): Promise<void> {
        "★ **그 항목이 닫힌다** — 공이 넘어갔다");
 
     const got = await t.check(t.a);
-    ok(got.items[0]?.about === "«빌드 왜 깨졌어?»",
-       `★ **무엇에 대한 답인지 실린다** (${got.items[0]?.about}) — 알파 제 질문이라 새는 것이 없다`);
+    ok(got.item?.about === "«빌드 왜 깨졌어?»",
+       `★ **무엇에 대한 답인지 실린다** (${got.item?.about}) — 알파 제 질문이라 새는 것이 없다`);
     t.mgr.dispose();
   }
 
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
     const first = t.say(t.a, "베타", "이 비밀번호 좀 봐줘: hunter2");
     await t.answerCard(true);
     await first;
-    const id = (await t.check(t.b)).items[0]!.id;
+    const id = (await t.check(t.b)).item!.id;
 
     // 베타가 **감마**에게 묻는다 — 같은 가닥 번호를 들고
     const on = t.say(t.b, "감마", "이 부분 네가 짰지?", id);
@@ -248,9 +248,9 @@ async function main(): Promise<void> {
     ok(out.ok, "★ 제3자에게도 걸 수 있다 — 체인이 자연스럽다");
 
     const toGamma = await t.check(t.c);
-    ok(toGamma.items[0]?.about === undefined,
-       `★ 🔴 **인용이 안 간다** (${JSON.stringify(toGamma.items[0]?.about)}) — 그건 베타의 사정이다`);
-    ok(!JSON.stringify(toGamma.items).includes("hunter2"),
+    ok(toGamma.item?.about === undefined,
+       `★ 🔴 **인용이 안 간다** (${JSON.stringify(toGamma.item?.about)}) — 그건 베타의 사정이다`);
+    ok(!JSON.stringify(toGamma.item).includes("hunter2"),
        "★ 🔴 **알파가 쓴 글이 감마에게 한 글자도 안 간다** (§4.1.1)");
     ok(t.inner.queue.find(t.b.id, id) === undefined,
        "★ **반응했으니 닫힌다** — 받는 이가 제3자여도. 들고 있어 봐야 " +

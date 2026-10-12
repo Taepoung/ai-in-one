@@ -92,8 +92,8 @@ async function main(): Promise<void> {
     const secret = mcp.issue(owner);
     const got = await callTool(url, secret, "check_queue");
     console.log(`   ${got.text}`);
-    const body = JSON.parse(got.text) as { kind: unknown; items: unknown[]; left: number };
-    ok(body.kind === null && body.items.length === 0,
+    const body = JSON.parse(got.text) as { kind: unknown; item: unknown; queue_left: number };
+    ok(body.kind === null && body.item === null,
        "★ **빈 것도 모양이 같다** — 모델이 «오류인가» 를 안 묻는다");
   }
 
@@ -111,12 +111,12 @@ async function main(): Promise<void> {
     const got = await callTool(url, secret, "check_queue");
     console.log(`   ${got.text}`);
     const body = JSON.parse(got.text) as {
-      kind: string; use: string; items: Array<{ text?: string; from?: string }>;
+      kind: string; use: string; item: { text?: string; from?: string };
     };
     ok(body.kind === "message", `★ 종류를 말해준다 (${body.kind})`);
     ok(body.use === "say", `★ **어느 도구를 쓸지도** (${body.use})`);
-    ok(body.items[0]?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로 온다");
-    ok(body.items[0]?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
+    ok(body.item?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로 온다");
+    ok(body.item?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
 
     /*
      * 🔴 **우리 장부를 같이 보내지 않는다.** 큐 항목에는 `to`(봇 id)·`at`
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
      * ⏪ 같은 자리를 전에 한 번 밟았다 — `replyToIds`·`afterIds` 를 «프롬프트에
      * 실린다» 고 적어뒀는데 그건 **우리가 알기 편하려고** 둔 칸이었다.
      */
-    const keys = Object.keys(body.items[0] as object).sort();
+    const keys = Object.keys(body.item as object).sort();
     ok(keys.join() === "from,id,text",
        `★ **봇이 알 것만 간다** (${keys.join(" · ")}) — to·at 은 우리 장부다`);
   }
@@ -140,8 +140,8 @@ async function main(): Promise<void> {
     const stranger = mcp.issue(`${room.id}:딴봇`);
     const got = await callTool(url, stranger, "check_queue");
     console.log(`   ${got.text}`);
-    const body = JSON.parse(got.text) as { items: unknown[] };
-    ok(body.items.length === 0, "★ **빈 것만 본다** — 비밀이 가리키는 봇의 큐만 열린다");
+    const body = JSON.parse(got.text) as { item: unknown };
+    ok(body.item === null, "★ **빈 것만 본다** — 비밀이 가리키는 봇의 큐만 열린다");
   }
 
   console.log(`${NL}[★ 모르는 도구는 «도구가 실패했다»로]`);

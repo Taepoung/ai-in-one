@@ -5090,12 +5090,14 @@ export class RoomManager extends EventEmitter<Events> {
     }, {
       name: "check_queue",
       description:
-        "이번 몫을 꺼낸다. 다른 봇이 건 말과, 당신이 판정해야 할 권한 요청이 들어 있다.\n" +
-        "한 번에 한 종류만 나온다 — 권한이 있으면 권한이 먼저다.\n" +
+        "이번 몫에서 **하나**를 꺼낸다. 다른 봇이 건 말이거나, 당신이 판정해야 할 " +
+        "권한 요청이다.\n" +
+        "★ **한 번에 하나씩** 나온다 — 권한이 있으면 권한이 먼저고, 그 안에서는 " +
+        "온 순서다. 하나를 답하고 또 꺼내면 다음이 온다.\n" +
         "결과의 `use` 가 **어느 도구를 쓸지** 알려준다 — 권한이면 verdict, " +
         "메시지면 say.\n" +
         "수가 둘이고 **서로 다른 것**이다:\n" +
-        "  · `queue_left` — **나에게 온 것** 중 이번에 안 실린 수. 0 이 아니면 또 꺼내라\n" +
+        "  · `queue_left` — **이것 말고 남은** 수. 0 이 아니면 답하고 또 꺼내라\n" +
         "  · `depth_left` — **여기서 몇 다리 더** 갈 수 있나. 0 이면 더는 " +
         "못 보내니 사용자에게 말해라. 이 칸이 없으면 그 방에는 상한이 없다\n" +
         "★ 긴 일을 하는 중에도 가끔 꺼내 봐라 — 당신을 기다리는 봇이 있을 수 있다.\n" +
@@ -5193,14 +5195,14 @@ export class RoomManager extends EventEmitter<Events> {
       const got = this.queue.view(botId);
       if (!got) {
         return {
-          text: JSON.stringify({ kind: null, use: null, items: [], queue_left: 0, ...sayLeft }),
+          text: JSON.stringify({ kind: null, use: null, item: null, queue_left: 0, ...sayLeft }),
         };
       }
       return {
         text: JSON.stringify({
           kind: got.kind,
           use: got.answer_with,
-          items: got.items.map(wireItem),
+          item: wireItem(got.item),
           queue_left: got.left,
           ...sayLeft,
         }),

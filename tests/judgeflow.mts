@@ -102,7 +102,7 @@ async function make() {
     return JSON.parse(out.text) as {
       kind: string | null;
       use?: string;
-      items: Array<{ id: string; from: string; title?: string; command?: string }>;
+      item: { id: string; from: string; title?: string; command?: string } | null;
     };
   };
   /** 그리고 판정한다 */
@@ -152,9 +152,9 @@ async function main(): Promise<void> {
     const got = await t.check();
     ok(got.kind === "permission" && got.use === "verdict",
        `★ 심사 봇이 꺼내 보면 권한이 나온다 (${got.kind} · ${got.use})`);
-    ok(got.items[0]?.from === t.asker.name, `★ 누가 하려는지 (${got.items[0]?.from})`);
+    ok(got.item?.from === t.asker.name, `★ 누가 하려는지 (${got.item?.from})`);
 
-    await t.verdict(got.items[0]!.id, true, "되돌릴 수 있는 변경입니다.");
+    await t.verdict(got.item!.id, true, "되돌릴 수 있는 변경입니다.");
     const out = await pending;
     ok(out.outcome === "selected" && out.optionId === "y",
        `★ **«이번만 허용»으로 옮겨 답한다** (${JSON.stringify(out)})`);
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ());
     await t.untilQueued();
     const got = await t.check();
-    await t.verdict(got.items[0]!.id, false, "되돌릴 수 없는 삭제입니다.");
+    await t.verdict(got.item!.id, false, "되돌릴 수 없는 삭제입니다.");
     const out = await pending;
 
     ok(out.outcome === "selected" && out.optionId === "n", "★ 막으면 거절로 답한다");
@@ -193,8 +193,8 @@ async function main(): Promise<void> {
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ({ readOnly: true, kind: "read" }));
     await t.untilQueued();
     const got = await t.check();
-    ok(got.items.length === 1, "★ **읽기도 큐에 든다**");
-    await t.verdict(got.items[0]!.id, true);
+    ok(got.item !== null, "★ **읽기도 큐에 든다**");
+    await t.verdict(got.item!.id, true);
     await pending;
     ok(t.userAsks() === 0, "★ 사람을 안 깨웠다");
     bye(t);
@@ -238,7 +238,7 @@ async function main(): Promise<void> {
     }));
     await t.untilQueued();
     const got = await t.check();
-    await t.verdict(got.items[0]!.id, true);
+    await t.verdict(got.item!.id, true);
     const out = await pending;
     ok(out.outcome === "selected" && out.optionId === "once",
        `★ **«이번만»으로 옮긴다** (${JSON.stringify(out)}) — 순서가 아니라 kind 로 고른다`);
@@ -274,11 +274,11 @@ async function main(): Promise<void> {
     await t.untilQueued();
     const got = await t.check();
 
-    const stolen = await t.verdict(got.items[0]!.id, true, "내가 할게", t.asker.id);
+    const stolen = await t.verdict(got.item!.id, true, "내가 할게", t.asker.id);
     ok(stolen.isError === true, `★ **요청한 봇이 답하면 안 먹는다** (${stolen.text})`);
     ok(t.mgr.reviewsIn(t.room.id).length === 1, "★ 그래서 아직 기다리고 있다");
 
-    await t.verdict(got.items[0]!.id, true);
+    await t.verdict(got.item!.id, true);
     await pending;
     bye(t);
   }
@@ -305,12 +305,12 @@ async function main(): Promise<void> {
     await t.untilQueued();
     const got = await t.check();
 
-    ok(t.mgr.takeOverReview(got.items[0]!.id), "★ 가로챈다");
+    ok(t.mgr.takeOverReview(got.item!.id), "★ 가로챈다");
     const out = await pending;
     ok(t.userAsks() === 1, "★ **승인 카드가 사람에게 떴다**");
     ok(out.outcome === "cancelled", "사람이 답한 대로 (여기선 취소)");
 
-    const late = await t.verdict(got.items[0]!.id, true);
+    const late = await t.verdict(got.item!.id, true);
     ok(late.isError === true, `★ **늦은 판정은 안 먹는다** (${late.text})`);
     bye(t);
   }

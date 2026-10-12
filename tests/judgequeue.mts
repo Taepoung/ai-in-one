@@ -87,7 +87,7 @@ async function make(hold: number) {
     inner.queue.startTurn(judge.id);
     const out = await mgr.mcpCall(`${room.id}:${judge.id}`, "check_queue", {});
     return JSON.parse(out.text) as {
-      kind: string | null; items: Array<{ id: string; title?: string }>; queue_left: number;
+      kind: string | null; item: { id: string; title?: string } | null; queue_left: number;
     };
   };
   const verdict = (id: string, allow: boolean) =>
@@ -133,8 +133,8 @@ async function main(): Promise<void> {
     await busy.catch(() => undefined);
     await t.settle();
     const got = await t.check();
-    ok(got.items.length === 1, "★ 그리고 제 턴에 꺼내 본다");
-    await t.verdict(got.items[0]!.id, true);
+    ok(got.item !== null, "★ 그리고 제 턴에 꺼내 본다");
+    await t.verdict(got.item!.id, true);
     const out = await pending;
     ok(out.outcome === "selected", `★ 판정이 돌아간다 (${JSON.stringify(out)})`);
 
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
     ok(now[0]!.title === "보이나", "무엇을 승인하려는지도");
 
     const got = await t.check();
-    await t.verdict(got.items[0]!.id, true);
+    await t.verdict(got.item!.id, true);
     await pending;
     ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 답이 나면 띠에서 빠진다");
     ok(t.seen.some((l) => l.length === 1) && t.seen.at(-1)!.length === 0,
@@ -195,11 +195,24 @@ async function main(): Promise<void> {
     await t.until(() => t.inner.queue.pending(t.judge.id).length === 2, "둘이 안 쌓였다");
 
     const got = await t.check();
-    console.log(`   한 몫에 ${got.items.length}개 · queue_left ${got.queue_left}`);
-    ok(got.items.length === 2, `★ **한 번에 둘 다** (${got.items.length}) — 차례를 안 기다린다`);
-    ok(got.queue_left === 0, "★ 그리고 이 몫이 끝이다");
+    console.log(`   하나 나오고 queue_left ${got.queue_left}`);
+    /*
+     * ⏪ 여기서 **«한 번에 둘 다»** 를 쟀다. 묶어 주면 얼어 있던 둘이 한 턴에
+     * 풀린다는 것이었는데 — **그 이득은 모델이 다 답할 때만 생긴다.** 둘을
+     * 주면 하나 답하고 나머지를 잊는 일이 생기고, 그러면 **잊힌 쪽이 더 오래**
+     * 얼어 있는다. 그리고 어느 것부터 답할지를 모델이 정하게 된다.
+     *
+     * 지금은 **하나씩**이고, `queue_left` 가 «더 있다»를 말한다. 한 턴 안에서
+     * 여러 번 꺼낼 수 있으므로 **둘 다 같은 턴에 풀리는 것은 그대로**다.
+     */
+    ok(got.item !== null && got.queue_left === 1,
+       `★ **하나씩 나오고 남은 수를 말해준다** (queue_left ${got.queue_left})`);
 
-    for (const i of got.items) await t.verdict(i.id, true);
+    await t.verdict(got.item!.id, true);
+    const next = await t.check();
+    ok(next.item !== null && next.queue_left === 0,
+       `★ **답하면 다음이 나온다** (queue_left ${next.queue_left}) — 같은 턴에서`);
+    await t.verdict(next.item!.id, true);
     const outs = await Promise.all([one, two]);
     ok(outs.every((o) => o.outcome === "selected"), "★ **둘 다 봇이 판단했다**");
     ok(t.userAsks() === 0, "★ 사람을 한 번도 안 깨웠다");

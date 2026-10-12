@@ -39,19 +39,21 @@ function main(): void {
 
     q.startTurn("베타");
     const got = q.view("베타")!;
-    ok(got.items.length === 2, `★ 떼면 둘 다 보인다 (${got.items.length})`);
+    ok(got.item !== undefined && got.left === 1,
+       `★ 떼면 보이지만 **하나씩** 나온다 (left ${got.left})`);
 
     // 턴 도중에 들어온 것 — **다음 몫**이다
     q.put(msg("베타", "도중에 온 것"));
     const again = q.view("베타")!;
-    ok(again.items.length === 2,
-       `★ **도중에 온 것은 이번 몫이 아니다** (${again.items.length}) — 안 그러면 left 가 0 에 안 닿는다`);
+    ok(again.left === 1,
+       `★ **도중에 온 것은 이번 몫이 아니다** (left ${again.left}) — 안 그러면 left 가 0 에 안 닿는다`);
     ok(q.waiting("베타") === 1, "★ 그래도 **깨울 거리로는 세어둔다**");
 
-    for (const i of again.items) q.answer("베타", i.id);
+    // 하나씩 꺼내 답한다 — 이번 몫이 빌 때까지
+    for (let v = q.view("베타"); v; v = q.view("베타")) q.answer("베타", v.item.id);
     ok(q.view("베타") === null, "★ 다 답하면 이번 몫이 빈다 — 턴이 끝난다");
     q.startTurn("베타");
-    ok(q.view("베타")?.items.length === 1, "★ 다음 턴에 그것이 나온다");
+    ok(q.view("베타")?.item !== undefined, "★ 다음 턴에 그것이 나온다");
   }
 
   console.log(`${NL}[★ 한 번에 한 종류만 — 권한 먼저]`);
@@ -71,12 +73,12 @@ function main(): void {
 
     const first = q.view("베타")!;
     ok(first.kind === "permission", `★ **권한이 먼저** (${first.kind})`);
-    ok(first.items.length === 1 && first.left === 2,
-       `★ 그 종류만, 나머지는 left 로 (${first.items.length}개 · left ${first.left})`);
+    ok(first.kind === "permission" && first.left === 2,
+       `★ **권한이 먼저**, 나머지는 left 로 (${first.kind} · left ${first.left})`);
     ok(first.answer_with === "verdict",
        `★ **뭐로 답할지 같이 준다** (${first.answer_with}) — 설명은 한 번 읽고 잊는다`);
 
-    const only = first.items[0];
+    const only = first.item;
     ok(only?.kind === "permission" && only.command === "rm -rf build/",
        "★ **무엇을 하려는지 그대로** (D1) — 제목만 넘기면 `rm -rf /` 와 `ls` 가 똑같이 보인다");
 
@@ -84,8 +86,8 @@ function main(): void {
     const then = q.view("베타")!;
     ok(then.kind === "message" && then.answer_with === "say",
        `★ 권한이 빠지면 메시지 차례 (${then.kind} · ${then.answer_with})`);
-    ok(then.items.length === 2 && then.left === 0,
-       `★ 남은 것이 다 나오고 left 는 0 (${then.items.length}개 · left ${then.left})`);
+    ok(then.left === 1,
+       `★ **그것도 하나씩** — 하나 보이고 하나 남는다 (left ${then.left})`);
   }
 
   console.log(`${NL}[★ 꺼낸다고 빠지지 않는다 — 빠지는 것은 답이다]`);
@@ -100,7 +102,7 @@ function main(): void {
     q.view("베타");
     q.view("베타");
     ok(q.pending("베타").length === 1, "★ **두 번 봐도 그대로 있다**");
-    ok(q.view("베타")?.items.length === 1, "★ 다시 꺼내도 같은 것이 나온다");
+    ok(q.view("베타")?.item !== undefined, "★ 다시 꺼내도 같은 것이 나온다");
   }
 
   console.log(`${NL}[★ 남의 것은 못 뺀다 — 소유자 검사]`);
@@ -125,12 +127,12 @@ function main(): void {
     q.put(msg("베타", "베타 것"));
     q.put(msg("감마", "감마 것"));
     q.startTurn("베타");
-    ok(q.view("베타")?.items.length === 1, "베타 몫은 하나");
+    ok(q.view("베타")?.left === 0, "베타 몫은 하나");
     ok(q.view("감마") === null, "★ **감마는 제 턴이 시작돼야 본다** — 몫은 봇마다다");
     q.startTurn("감마");
     const got = q.view("감마")!;
-    ok(got.items.length === 1 && got.items[0]?.kind === "message"
-       && got.items[0].text === "감마 것", "★ 그리고 제 것만 본다");
+    ok(got.item.kind === "message" && got.item.text === "감마 것",
+       "★ 그리고 제 것만 본다");
   }
 
   console.log(`${NL}[★ 비우면 뺀 것을 돌려준다 — 권한은 답해줘야 한다]`);

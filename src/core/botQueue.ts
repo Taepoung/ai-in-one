@@ -77,7 +77,7 @@ export interface QueueMessage extends Common {
   about?: string;
 }
 
-/** `check_queue()` 가 돌려주는 것 — **한 번에 한 종류만** */
+/** `check_queue()` 가 돌려주는 것 — **한 번에 하나** */
 export interface QueueView {
   kind: "permission" | "message";
   /**
@@ -93,9 +93,10 @@ export interface QueueView {
    * 빼고 도구 이름만** 싣는다. 「얼어 있다」는 권한 항목 쪽에 적을 일이다.
    */
   answer_with: "verdict" | "say";
-  items: QueueItem[];
+  /** ★ **하나**다. 다음 것은 이걸 답하고 또 꺼내면 온다 */
+  item: QueueItem;
   /**
-   * 이 몫에서 **아직 안 보여준** 수. 0 이 되면 이번 턴은 끝이다.
+   * 이 몫에서 **이것 말고 남은** 수. 0 이 되면 이번 턴은 끝이다.
    *
    * ⚠️ **`say_left`(앞으로 몇 번 더 보낼 수 있나)와 다른 물건이다.** 하나는
    * «나에게 온 것», 하나는 «내가 쓸 수 있는 것» — 그래서 나가는 이름이
@@ -174,10 +175,18 @@ export class BotQueue {
   }
 
   /**
-   * ★ **이번 몫을 보여준다** — 한 번에 한 종류만, **권한 먼저**.
+   * ★ **이번 몫에서 하나를 보여준다** — **권한 먼저**, 그 안에서는 온 순서.
    *
-   * 🔴 섞어 주면 모델이 **한 번에 두 가지 도구를 써야 한다**. 한 종류씩
-   * 주면 «이번엔 verdict» 로 끝난다 — 그래서 `answer_with` 를 같이 싣는다.
+   * ⏪ 한때 **같은 종류를 통째로** 내보냈다. 근거가 *"묶어 주면 얼어 있던
+   * 셋이 한 턴에 풀린다"* 였는데 — **그 이득은 모델이 다 답할 때만 생긴다.**
+   * 셋을 주면 하나 답하고 나머지를 잊는 일이 생기고, 그러면 **잊힌 쪽은 더
+   * 오래 얼어 있는다.** 왕복 몇 번보다 그쪽이 비싸다.
+   *
+   * 🔴 **그리고 순서가 흔들린다.** 여럿을 한꺼번에 주면 어느 것부터 답할지는
+   * 모델이 정한다 — 같은 가닥 안에서 «아까 그거»가 가리키는 것이 달라진다.
+   * 하나씩 주면 **우리가 정한 순서**가 그대로 지켜진다.
+   *
+   * 섞이지 않으니 «이번엔 verdict» 로 끝난다 — 그래서 `answer_with` 를 같이 싣는다.
    *
    * 🔴 **권한이 먼저인 이유**: 권한을 기다리는 봇은 **턴이 얼어 있다**.
    * 메시지를 기다리는 쪽은 안 그렇다 — 급한 쪽이 먼저다.
@@ -188,14 +197,12 @@ export class BotQueue {
   view(owner: string): QueueView | null {
     const share = this.lane(owner).share;
     if (share.length === 0) return null;
-    const kind: "permission" | "message" =
-      share.some((i) => i.kind === "permission") ? "permission" : "message";
-    const items = share.filter((i) => i.kind === kind);
+    const item = share.find((i) => i.kind === "permission") ?? share[0]!;
     return {
-      kind,
-      answer_with: kind === "permission" ? "verdict" : "say",
-      items,
-      left: share.length - items.length,
+      kind: item.kind,
+      answer_with: item.kind === "permission" ? "verdict" : "say",
+      item,
+      left: share.length - 1,
     };
   }
 
