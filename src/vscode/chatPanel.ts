@@ -424,6 +424,9 @@ export class ChatPanel implements AskTarget {
         case "setRole":
           await this.rooms.setRole(m.roomId, m.rolePrompt, m.botId);
           break;
+        case "setBlurb":
+          await this.rooms.setBlurb(m.roomId, m.blurb, m.botId);
+          break;
         case "sendCompose":
           await this.rooms.sendCompose(
             m.roomId,

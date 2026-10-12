@@ -300,6 +300,14 @@ export type FromWebview =
   | { t: "rename"; roomId: string; title: string }
   | { t: "setRole"; roomId: string; rolePrompt: string; botId?: string }
   /**
+   * ★ **한 줄 소개를 고친다** (v3.0 4-K).
+   *
+   * 역할과 **다른 물건**이다 — 역할은 그 봇에게 주는 지시고, 이건 **남에게
+   * 보이는 소개**다. 봇 명단 표에 그대로 적히므로 고치면 그 방 전원의 다음
+   * 프리앰블이 달라진다.
+   */
+  | { t: "setBlurb"; roomId: string; blurb: string; botId?: string }
+  /**
    * 봇 이름 바꾸기 (v2.2 준비).
    *
    * 이름이 곧 멘션 이름이라 방 안에서 유일해야 한다 — 겹치면 코어가 뒤에

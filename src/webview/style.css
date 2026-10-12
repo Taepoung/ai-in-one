@@ -3596,3 +3596,18 @@ fieldset.bot .bot-drop.danger:hover {
   opacity: 0.5;
   cursor: default;
 }
+
+/* 봇의 «하는 일» 한 줄 — 역할(여러 줄) 바로 위 (v3.0 4-K) */
+.blurb-row {
+  gap: 8px;
+}
+.blurb-row input.blurb {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 3px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+}

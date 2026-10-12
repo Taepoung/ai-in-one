@@ -363,6 +363,21 @@ export interface BotInstance {
    */
   rolePrompt?: string;
   /**
+   * ★ **남에게 보이는 한 줄 소개** (v3.0 4-K).
+   *
+   * 🔴 **역할 글로 때울 수 없다.** 역할은 **봇에게 주는 지시**지 소개가 아니다 —
+   * *"코드를 쓴 뒤 반드시 리뷰어를 호출해라"* 의 첫 줄은 설명이 아니고, 끌어다
+   * 쓰는 것은 **우리가 넘겨짚는 것**이다.
+   *
+   * 🔴 **이름만으로는 «누구에게 넘길까»를 못 고른다.** 「리뷰어」는 우연히
+   * 역할을 말해주지만 「알파·베타」로 지었으면 아무것도 안 알려준다. 그런데
+   * 릴레이의 요점이 *"봇이 스스로 «이건 리뷰어에게 넘겨야겠다»고 판단하는 것"*
+   * 이다 — 판단할 재료가 없으면 시작을 안 한다.
+   *
+   * 비면 **표에서 칸을 비운다**. «(설명 없음)» 같은 글자를 안 쓴다.
+   */
+  blurb?: string;
+  /**
    * 이 봇의 권한 모드 — **에이전트가 주는 값 그대로** (D2).
    *
    * 우리가 사다리를 따로 만들지 않는다. 에이전트마다 `mode` 선택지와 설명이
@@ -1587,6 +1602,56 @@ export function baseName(p: string): string {
 }
 
 /**
+ * ★ **이 방에서 부를 수 있는 봇** — 프리앰블 (v3.0 4-K).
+ *
+ * **규칙은 도구 설명에, 상태는 프리앰블에.** 설명은 세션이 열릴 때 한 번 굳지만
+ * 명단은 바뀐다 — 그래서 자리가 둘로 갈린다.
+ *
+ * ```
+ * 자기는 뺀다     목록이 곧 답이다. 전에는 전원을 늘어놓고 «그중 당신은 리뷰어» 라
+ *                해서 모델이 «그럼 나는 빼고» 를 **추론**해야 했다
+ * 자기 이름은 남는다  문장 속 «@리뷰어» 를 알아보려고 (§4.1.2) — 칩은 **글자로 남는다**
+ * 비면 안 보낸다    봇이 하나뿐인 방은 목록이 빈다 → **1:1 은 릴레이를 켜도 0 토큰**
+ * ```
+ *
+ * ★ **표로 둔다 — 구조가 보이면 모델이 덜 헷갈린다.** 값은 머리·구분선에 열댓
+ * 토큰, 봇당 네댓인데 **바뀔 때만 나간다.**
+ *
+ * **깨질 걱정이 없다 — 우리가 되읽지 않는다.** 설명에 `|` 가 섞여도 파싱할
+ * 사람이 없다.
+ *
+ * @returns 보낼 글. **빈 문자열이면 보낼 것이 없다**
+ */
+export function rosterText(room: Room, me: BotInstance): string {
+  const others = room.participants.filter((b) => b.id !== me.id);
+  // 혼자인 방 — 부를 사람이 없으면 **아무 말도 안 한다**
+  if (others.length === 0) return "";
+  if ((room.relay ?? DEFAULT_RELAY) === "off") return ROSTER_OFF;
+
+  const rows = others.map((b) => `| ${b.name} | ${(b.blurb ?? "").trim()} |`);
+  return [
+    "[이 방에서 부를 수 있는 봇]",
+    "",
+    "| 이름 | 하는 일 |",
+    "|---|---|",
+    ...rows,
+    "",
+    `당신은 이 방에서 «${me.name}» 입니다. say 로 위 봇들에게 말을 걸 수 있습니다.`,
+  ].join("\n");
+}
+
+/**
+ * ★ **켜져 있다가 꺼졌을 때만 보낸다** (4-K).
+ *
+ * 켜져 있던 방이면 봇 맥락에 **명단이 이미 들어가 있어서** 끈 뒤에도 부르려
+ * 한다. 거절로 수습은 되지만 **왕복 한 번이 헛돈다.**
+ *
+ * 반대로 **처음부터 꺼진 방에는 아무것도 안 보낸다** — 봇은 누가 있는지도
+ * 모른다. 그래서 이 글은 `rosterText` 가 아니라 **보내는 쪽**이 가른다.
+ */
+export const ROSTER_OFF = "[지금은 이 방에서 봇끼리 말을 걸 수 없습니다.]";
+
+/**
  * 상대 경로면 방의 작업 폴더를 앞에 붙인다 (E9).
  *
  * 구분자는 «/» 로 잇는다 — Windows 도 섞인 구분자를 받는다.
@@ -1696,6 +1761,8 @@ export function createBotInstance(
     /** 그 위의 글자색. 색을 골랐을 때만 뜻이 있다 */
     ink?: "black" | "white";
     rolePrompt?: string;
+    /** 남에게 보이는 한 줄 소개 (v3.0 4-K) */
+    blurb?: string;
     agentMode?: string;
     approver?: Approver;
     answerPolicy?: AnswerPolicy;
@@ -1717,6 +1784,7 @@ export function createBotInstance(
     approver: opts.approver ?? ASK_USER,
     answerPolicy: opts.answerPolicy ?? DEFAULT_ANSWER_POLICY,
     ...(opts.rolePrompt ? { rolePrompt: opts.rolePrompt } : {}),
+    ...(opts.blurb?.trim() ? { blurb: opts.blurb.trim() } : {}),
     // 안 고르면 필드가 아예 없다 — 말풍선은 테마 그대로다
     ...(opts.color?.trim() ? { color: opts.color.trim() } : {}),
     ...(opts.ink ? { ink: opts.ink } : {}),

@@ -5681,6 +5681,42 @@ function closeModal(): void {
 }
 
 /**
+ * ★ **한 줄 소개 — «하는 일»** (v3.0 4-K).
+ *
+ * 다른 봇들이 받는 명단 표의 한 칸이다. 비면 **칸이 빈다** — «(설명 없음)»
+ * 같은 글자를 안 쓴다. 표에서는 빈 칸이 «없다»를 이미 말해준다.
+ *
+ * 🔴 **이름만으로는 «누구에게 넘길까»를 못 고른다.** 「리뷰어」는 우연히 역할을
+ * 말해주지만 「알파·베타」로 지었으면 아무것도 안 알려준다.
+ *
+ * 저장은 **포커스를 뗄 때**다. 한 줄짜리라 단추를 하나 더 두면 그 단추가 글보다
+ * 크다 — 역할이 단추를 갖는 것은 **여러 줄이고 길게 고치는 것**이기 때문이다.
+ */
+function blurbRow(r: Room, bot: BotInstance): HTMLElement {
+  const box = el("input", {
+    type: "text",
+    class: "blurb",
+    value: bot.blurb ?? "",
+    placeholder: "예: 코드를 쓰고 고친다 — 다른 봇에게 이렇게 보입니다",
+    title: "이 방의 다른 봇들이 받는 명단에 그대로 적힙니다.",
+  }) as HTMLInputElement;
+  const commit = () => {
+    if ((bot.blurb ?? "") === box.value.trim()) return;
+    post({ t: "setBlurb", roomId: r.id, blurb: box.value.trim(), botId: bot.id });
+  };
+  box.addEventListener("blur", commit);
+  box.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") box.blur();
+  });
+  return el(
+    "div",
+    { class: "info-row blurb-row" },
+    el("span", { class: "dim", text: "하는 일" }),
+    box,
+  );
+}
+
+/**
  * 역할 편집기 — **봇마다**.
  *
  * 역할은 첫 프롬프트 앞에 붙는 프리픽스라(B3) 세션에 갇힌다 — 즉 **봇의
@@ -6851,6 +6887,20 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
     );
   }
 
+  /*
+   * ★ **«하는 일»이 역할 바로 위** (v3.0 4-K).
+   *
+   * 🔴 **둘은 다른 물건이고, 그 차이가 눈에 보여야 한다:**
+   *
+   * ```
+   * 하는 일   남에게 보이는 소개  — 다른 봇의 명단 표에 그대로 적힌다
+   * 역할      이 봇에게 주는 지시  — 남은 못 본다
+   * ```
+   *
+   * 역할 글을 소개로 끌어다 쓰지 않는 이유가 여기 있다 — *"코드를 쓴 뒤 반드시
+   * 리뷰어를 호출해라"* 의 첫 줄은 설명이 아니다. **우리가 넘겨짚는 것**이다.
+   */
+  rows.push(blurbRow(r, bot));
   rows.push(el("div", { class: "info-row" }, el("span", { class: "dim", text: "역할" })));
   rows.push(roleEditor(r, bot, acts));
 

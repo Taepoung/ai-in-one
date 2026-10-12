@@ -46,6 +46,8 @@ import {
   type SearchHit,
   type Staged,
   DEFAULT_RELAY,
+  rosterText,
+  ROSTER_OFF,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
 
@@ -82,6 +84,8 @@ export interface RoomManagerOptions {
 export interface BotSpec {
   agentId: string;
   rolePrompt?: string;
+  /** 남에게 보이는 한 줄 소개 (v3.0 4-K) */
+  blurb?: string;
   agentMode?: string;
   answerPolicy?: AnswerPolicy;
   /** 그 봇의 세션에 적용할 설정 — 모델·추론 강도 (B15) */
@@ -162,6 +166,18 @@ interface BotRuntime {
   sessionId?: string;
   /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
   roleInjected: boolean;
+  /**
+   * ★ **마지막으로 보낸 명단 글** (v3.0 4-K).
+   *
+   * 🔴 **«언제 다시 보내나» 를 목록으로 관리하지 않는다.** 이름 · 설명 ·
+   * 구성 · 릴레이 토글 — 무효화할 자리를 하나씩 적어두면 **새로 생기는 자리를
+   * 반드시 빠뜨린다.** 대신 **지은 글을 그대로 들고** 있다가 달라졌을 때만
+   * 보낸다. «표에 적히는 것이 바뀌면 다시» 가 저절로 지켜진다.
+   *
+   * `undefined` 는 **한 번도 안 보냈다**는 뜻이고, 그 구별이 필요하다 —
+   * 처음부터 꺼진 방에는 «못 겁니다» 조차 안 보낸다(봇은 누가 있는지도 모른다).
+   */
+  rosterSent?: string;
   /** 그 **세션이** 광고한 슬래시 명령. 압축(C11) 버튼을 여기서 찾는다 */
   commands: string[];
   /** 스트리밍 중 emit을 솎아내기 위한 마지막 발행 시각 */
@@ -942,6 +958,7 @@ export class RoomManager extends EventEmitter<Events> {
         ...(spec.color?.trim() ? { color: spec.color.trim() } : {}),
         ...(spec.ink ? { ink: spec.ink } : {}),
         ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
+        ...(spec.blurb ? { blurb: spec.blurb } : {}),
         ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
         ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
       });
@@ -1035,6 +1052,7 @@ export class RoomManager extends EventEmitter<Events> {
     bt.sessionId = sessionId;
     this.pointAt(bot, sessionId);
     bt.roleInjected = false;
+    delete bt.rosterSent;
     // 세션을 연 **직후부터** 듣는다 — 명령 목록이 여기서 온다 (A11)
     this.watchIdle(room, bot, sessionId);
     // 세션이 들고 있는 값이 답이다 — 사용자가 안 골랐으면 에이전트 기본값이 온다
@@ -1081,6 +1099,30 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   /**
+   * ★ **한 줄 소개를 고친다** (v3.0 4-K).
+   *
+   * 🔴 **역할과 다른 물건이다.** 역할은 그 봇에게 주는 지시라 **그 봇의 세션
+   * 에만** 다시 넣으면 되는데, 소개는 **표에 적히는 것**이라 그 방 **전원**의
+   * 명단이 바뀐다. 한 봇만 거두면 나머지는 **낡은 표**를 들고 있다.
+   *
+   * 거두는 코드는 따로 없다 — 명단은 **지은 글을 비교**해서 나가므로
+   * (`rosterSent`) 다음 턴에 저절로 달라진다. 여기서는 값만 고친다.
+   */
+  async setBlurb(roomId: string, blurb: string, botId?: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
+    if (!bot) return;
+
+    const next = blurb.trim();
+    if ((bot.blurb ?? "") === next) return;
+    if (next) bot.blurb = next;
+    else delete bot.blurb;
+
+    await this.saveProps(room, { participants: room.participants });
+    this.emit("room", room);
+  }
+
+  /**
    * 봇의 역할을 고친다 (B3·B12).
    *
    * 이미 대화 중이면 이번 세션에 **다시 주입해야** 반영된다 —
@@ -1122,6 +1164,7 @@ export class RoomManager extends EventEmitter<Events> {
       ...(spec.color?.trim() ? { color: spec.color.trim() } : {}),
       ...(spec.ink ? { ink: spec.ink } : {}),
       ...(spec.rolePrompt ? { rolePrompt: spec.rolePrompt } : {}),
+      ...(spec.blurb ? { blurb: spec.blurb } : {}),
       ...(spec.agentMode ? { agentMode: spec.agentMode } : {}),
       ...(spec.answerPolicy ? { answerPolicy: spec.answerPolicy } : {}),
     });
@@ -1379,6 +1422,7 @@ export class RoomManager extends EventEmitter<Events> {
     bt.sessionId = undefined;
     bt.commands = [];
     bt.roleInjected = false;
+    delete bt.rosterSent;
     delete bt.turn;
 
     bot.agentId = agentId;
@@ -2857,7 +2901,10 @@ export class RoomManager extends EventEmitter<Events> {
     if (!cmd) throw new Error(`${bot.name}은(는) 압축을 지원하지 않습니다.`);
     await this.send(roomId, `/${cmd}`, undefined, bot.id);
     // 압축되면 역할이 요약에 안 남을 수 있다. 다음 턴에 다시 주입한다 (B3).
-    this.botRuntime(room.id, bot.id).roleInjected = false;
+    const after = this.botRuntime(room.id, bot.id);
+    after.roleInjected = false;
+    // 명단도 요약에 안 남는다 — 같은 이유로 같이 거둔다 (4-K)
+    delete after.rosterSent;
   }
 
   /**
@@ -4107,6 +4154,29 @@ export class RoomManager extends EventEmitter<Events> {
       parts.push(bot.rolePrompt.trim(), "---");
       bt.roleInjected = true;
     }
+    /*
+     * ★ **명단은 «표에 적히는 것이 바뀌면» 다시 나간다** (v3.0 4-K).
+     *
+     * 지은 글을 그대로 비교한다 — 이름 · 설명 · 구성 · 릴레이 토글 중 무엇이
+     * 바뀌어도 글이 달라지고, 안 바뀌면 **아무것도 안 나간다.**
+     *
+     * 🔴 **차분을 보내지 않는다.** «베타가 나갔습니다» 한 줄은 싸 보이지만
+     * 모델이 머릿속에서 합쳐야 하고, **틀려도 우리가 못 본다.** 전체를 다시
+     * 보내면 마지막 글이 곧 지금 상태다.
+     *
+     * 🔴 **역할보다 뒤**다. 역할은 «너는 누구인가»고 명단은 «방이 어떻게
+     * 생겼나»라, 순서가 뒤집히면 지시가 상태에 묻힌다.
+     */
+    const roster = rosterText(room, bot);
+    if (roster !== (bt.rosterSent ?? undefined)) {
+      /*
+       * **처음부터 꺼진 방에는 아무것도 안 보낸다** — 봇은 누가 있는지도
+       * 모른다(§7). «못 겁니다»는 **켜져 있다가 꺼졌을 때만** 뜻이 있다.
+       */
+      const first = bt.rosterSent === undefined;
+      if (roster && !(first && roster === ROSTER_OFF)) parts.push(roster);
+      bt.rosterSent = roster;
+    }
     // 끊긴 맥락을 되먹인다 (F7). **역할보다 뒤, 실제 요청보다 앞.**
     if (bot.refeedPending) {
       const history = transcriptText(room, bot, batch, bot.refeedKind);
@@ -4370,6 +4440,7 @@ export class RoomManager extends EventEmitter<Events> {
     this.pointAt(bot, sessionId);
     // 세션이 새로 열렸으므로 역할을 다시 넣어야 한다
     bt.roleInjected = false;
+    delete bt.rosterSent;
     // 새 세션이면 에이전트 기본값으로 시작한다 — 고른 것들을 다시 넣어준다
     if (configOptions.length > 0) await this.restoreChoices(room, bot, sessionId, configOptions);
     this.watchIdle(room, bot, sessionId);
@@ -4807,6 +4878,7 @@ export class RoomManager extends EventEmitter<Events> {
         if (!bt) continue;
         bt.sessionId = undefined;
         bt.roleInjected = false;
+    delete bt.rosterSent;
       }
       const hit = room.participants.filter((b) => b.agentId === agentId);
       // ★ **그 에이전트를 쓰는 봇만** 오류다 — 같은 방의 다른 봇은 멀줦하다
