@@ -174,16 +174,20 @@ interface BotRuntime {
    *
    * 사용자가 연 턴은 `0`. 이 봇이 이 턴에 거는 말은 전부 `depth + 1` 이다.
    *
-   * 🔴 **두 가지를 한 칸이 한다:**
-   *
-   * ```
-   * 상한      say 의 깊이 = depth + 1 이 상한을 넘으면 거절
-   * id "0"    «사용자가 방금 한 말 때문에» → **depth === 0 일 때만** 참이다
-   * ```
-   *
    * **턴에 붙는 값**이라 `say` 의 인자로는 못 흔든다. 그게 요점이다.
    */
   depth?: number;
+  /**
+   * ★ **이 턴을 사용자가 열었나** (v3.0 4-L) — `say(id: "0")` 이 여기에 걸린다.
+   *
+   * ⏪ 한때 `depth === 0` 으로 갈음했다. **깨졌다** — 사용자가 끼어들면 밀린
+   * 항목들의 깊이를 0 으로 되돌리는데(`resetDepth`), 그러면 **봇이 깨운 턴도**
+   * 깊이 0 이 되어 «사용자가 열었다»로 읽힌다. 그 길로 사슬 깊은 데 있는 봇이
+   * 새 가닥을 시작할 수 있다.
+   *
+   * **둘은 다른 질문이다** — «얼마나 멀리 왔나»와 «누가 열었나».
+   */
+  fromUser?: boolean;
   /**
    * ★ **마지막으로 보낸 명단 글** (v3.0 4-K).
    *
@@ -2333,6 +2337,19 @@ export class RoomManager extends EventEmitter<Events> {
       return;
     }
 
+    /*
+     * ★ **사용자가 말을 걸면 거리가 0 부터 다시** (v3.0 4-L).
+     *
+     * 상한이 세는 것은 «사람이 **안 보는** 구간»이다. 말을 거는 것이 곧
+     * «이제 내가 본다»이니, **그 순간 구간이 새로 시작된다.**
+     *
+     * 🔴 **밀린 항목까지 되돌려야 한다.** 턴의 깊이는 큐에 실린 것에서
+     * 나오므로, 항목에 8 이 적힌 채로 두면 **끼어들어도 다음 턴이 또 8 에서**
+     * 시작한다. 그리고 항목은 **답해야** 빠지므로, 아무도 답 안 한 옛 항목
+     * 하나가 그 봇의 깊이를 **영구히** 올려놓는다.
+     */
+    this.queue.resetDepth(room.participants.map((b) => b.id));
+
     // 보냈으니 초안은 비운다
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -2432,6 +2449,19 @@ export class RoomManager extends EventEmitter<Events> {
       await this.holdBack(room, tokens, attachments, busy);
       return parsed;
     }
+
+    /*
+     * ★ **사용자가 말을 걸면 거리가 0 부터 다시** (v3.0 4-L).
+     *
+     * 상한이 세는 것은 «사람이 **안 보는** 구간»이다. 말을 거는 것이 곧
+     * «이제 내가 본다»이니, **그 순간 구간이 새로 시작된다.**
+     *
+     * 🔴 **밀린 항목까지 되돌려야 한다.** 턴의 깊이는 큐에 실린 것에서
+     * 나오므로, 항목에 8 이 적힌 채로 두면 **끼어들어도 다음 턴이 또 8 에서**
+     * 시작한다. 그리고 항목은 **답해야** 빠지므로, 아무도 답 안 한 옛 항목
+     * 하나가 그 봇의 깊이를 **영구히** 올려놓는다.
+     */
+    this.queue.resetDepth(room.participants.map((b) => b.id));
 
     room.draft = undefined;
     clearTimeout(this.draftTimer);
@@ -3288,7 +3318,8 @@ export class RoomManager extends EventEmitter<Events> {
      * 🔴 **인자가 아니라 턴에 붙인다.** 모델이 «사용자 때문»이라고 적는 것을
      * 믿으면 그 한 줄로 규칙이 통째로 빠져나간다. 우리가 아는 것을 쓴다.
      */
-    bt.depth = batch.some((m) => m.role === "user")
+    bt.fromUser = batch.some((m) => m.role === "user");
+    bt.depth = bt.fromUser
       ? 0
       : Math.max(0, ...this.queue.pending(bot.id).map((i) => (i.kind === "message" ? i.depth : 0)));
 
@@ -5264,7 +5295,7 @@ export class RoomManager extends EventEmitter<Events> {
        * 는다. 그리고 이 판단은 **우리가 아는 것**으로 한다 — 모델이 «사용자
        * 때문»이라고 적는 것을 믿으면 그 한 줄로 규칙이 빠져나간다.
        */
-      if (bt.depth !== 0) {
+      if (!bt.fromUser) {
         return no(
           "«0» 은 사용자가 방금 한 말에 대한 반응일 때만 씁니다. " +
             "지금 턴은 다른 봇이 열었습니다 — check_queue 로 받은 id 를 쓰세요.",

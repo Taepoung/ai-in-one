@@ -197,6 +197,34 @@ export class BotQueue {
     return undefined;
   }
 
+  /**
+   * ★ **사용자가 말을 걸었다 — 지금까지의 거리를 0 으로 되돌린다** (v3.0 4-L).
+   *
+   * 🔴 **안 되돌리면 두 가지가 깨진다:**
+   *
+   * ```
+   * ① 끼어들어도 안 풀린다   8다리째에서 사용자가 말을 걸어도 항목에 8 이
+   *                        적혀 있어 다음 턴이 또 8 에서 시작한다
+   * ② 답 안 한 것이 영영 남는다  항목은 **답해야** 빠지는데, 아무도 답 안 한
+   *                        옛 항목 하나가 그 봇의 깊이를 **영구히** 올려놓는다
+   * ```
+   *
+   * ②가 특히 고약하다 — 한 번 깊어진 방은 **새 대화를 시작해도** 상한 근처에서
+   * 출발한다. 사용자 눈에는 «갑자기 봇들이 말을 못 건다» 로만 보인다.
+   *
+   * **버리지 않고 0 으로 만든다.** 할 말은 그대로 두고 **거리만** 되돌린다 —
+   * 세는 것이 «사람이 안 보는 구간»이고, 지금 사람이 왔기 때문이다.
+   */
+  resetDepth(owners: string[]): void {
+    for (const owner of owners) {
+      const lane = this.lanes.get(owner);
+      if (!lane) continue;
+      for (const list of [lane.share, lane.next]) {
+        for (const item of list) if (item.kind === "message") item.depth = 0;
+      }
+    }
+  }
+
   /** 그 봇이 아직 답 안 한 것들 — 이번 몫과 다음 몫을 합쳐서 */
   pending(owner: string): QueueItem[] {
     const lane = this.lanes.get(owner);

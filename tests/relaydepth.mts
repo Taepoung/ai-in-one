@@ -80,7 +80,7 @@ async function make(cap: number) {
   const [a, b] = room.participants as [typeof room.participants[0], typeof room.participants[0]];
   const inner = mgr as unknown as {
     queue: BotQueue;
-    botRuntime(roomId: string, botId: string): { depth?: number };
+    botRuntime(roomId: string, botId: string): { depth?: number; fromUser?: boolean };
   };
 
   const settle = async () => {
@@ -103,7 +103,10 @@ async function make(cap: number) {
   };
   /** 「이 봇은 지금 N다리째 턴을 돌고 있다」를 세워둔다 — 진짜로는 `runQueue` 가 한다 */
   const standAt = (bot: { id: string }, depth: number) => {
-    inner.botRuntime(room.id, bot.id).depth = depth;
+    const bt = inner.botRuntime(room.id, bot.id);
+    bt.depth = depth;
+    // «누가 열었나»는 «얼마나 멀리»와 **다른 질문**이다 — 0 이면 사용자가 연 턴
+    bt.fromUser = depth === 0;
   };
   /**
    * 그 봇의 큐에 항목 하나를 심는다 — **깊은 데서 걸려면 받은 id 가 있어야** 한다.
@@ -256,6 +259,59 @@ async function main(): Promise<void> {
     const on = await t.say(t.b, "구현", "그 부분 네가 짰지?", first.id);
     ok(on.ok, `★ **받은 id 를 들고는 걸 수 있다** (${JSON.stringify(on)})`);
     ok(t.depthOf(t.a.id, on.id!) === 2, `★ 그래도 깊이는 는다 (${t.depthOf(t.a.id, on.id!)})`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[🔴 사용자가 끼어들면 거리가 0 부터 다시 — 밀린 것까지]`);
+  {
+    /*
+     * 🔴 **두 가지가 여기서 깨졌었다:**
+     *
+     * ```
+     * ① 8다리째에서 사용자가 말을 걸어도 **항목에 8 이 적혀 있어** 다음 턴이
+     *    또 8 에서 시작한다 — 끼어들어도 안 풀린다
+     * ② 항목은 **답해야** 빠지는데, 아무도 답 안 한 옛 항목 하나가 그 봇의
+     *    깊이를 **영구히** 올려놓는다 → 한 번 깊어진 방은 새 대화도 상한
+     *    근처에서 출발한다
+     * ```
+     *
+     * ②는 사용자 눈에 «갑자기 봇들이 말을 못 건다» 로만 보인다.
+     */
+    const t = await make(3); dirs.push(t.dir);
+    // 아무도 답 안 한 옛 항목 — 깊이 8
+    t.plant(t.b, t.a, 8);
+    ok(t.inner.queue.pending(t.b.id).length === 1, "★ 전제: 답 안 한 옛 항목이 하나 있다");
+
+    await t.mgr.send(t.room.id, "그거 말고 이거 해줘", undefined, t.b.id);
+    await t.settle();
+
+    const still = t.inner.queue.pending(t.b.id)
+      .map((i) => (i.kind === "message" ? i.depth : -1));
+    ok(still.every((d) => d === 0),
+       `★ **밀린 항목의 거리도 0 이 된다** (${JSON.stringify(still)}) — 할 말은 그대로 두고 거리만`);
+
+    // 그러니 리뷰어는 다시 1다리째부터 걸 수 있다
+    const out = await t.say(t.b, "구현", "이제 물어볼게");
+    ok(out.ok, `★ **끼어든 뒤에는 다시 간다** (${JSON.stringify(out)})`);
+    ok(t.depthOf(t.a.id, out.id!) === 1, `★ 1다리째부터 (${t.depthOf(t.a.id, out.id!)})`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[🔴 거리가 0 이어도 «봇이 연 턴»은 여전히 «0» 을 못 쓴다]`);
+  {
+    /*
+     * 🔴 `depth === 0` 으로 «사용자가 열었나»를 갈음하면 **위 고침이 구멍을
+     * 뚫는다** — 끼어들어 거리를 0 으로 되돌린 뒤, 봇이 깨운 턴도 깊이 0 이
+     * 되어 «사용자가 열었다»로 읽힌다. 둘은 다른 질문이다.
+     */
+    const t = await make(12); dirs.push(t.dir);
+    const bt = t.inner.botRuntime(t.room.id, t.a.id);
+    bt.depth = 0;
+    bt.fromUser = false;   // 거리는 0 인데 **봇이 연 턴**이다
+
+    const out = await t.say(t.a, "리뷰어", "새 가닥인 척");
+    ok(!out.ok && (out.reason ?? "").includes("0"),
+       `★ **그래도 막힌다** (${out.reason}) — «얼마나 멀리»와 «누가 열었나»는 다른 칸이다`);
     t.mgr.dispose();
   }
 
