@@ -212,6 +212,12 @@ async function main() {
        `★ **왜 안 되는지 말해준다** (${errors[0] ?? "(없음)"})`);
     ok(errors.some((m) => m.includes("Ctrl+R")),
        "★ **무엇을 해보면 되는지도** — 창을 다시 불러오면 대개 풀린다");
+    /*
+     * ★ **사람에게 시키기 전에 우리가 먼저 해본다** — 때를 타는 실패였으므로
+     * (F5, 2026-10-13: 한 번 안 켜졌고 창을 다시 불러오니 풀렸다).
+     */
+    ok(errors.some((m) => m.includes("3번")),
+       `★ **세 번 해보고 말한다** (${errors.find((m) => m.includes("3번")) ?? "(없음)"})`);
     fs.rmSync(bad, { force: true });
   }
 

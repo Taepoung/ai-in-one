@@ -25,54 +25,112 @@ import { VscodeHost } from "./vscodeHost.js";
  */
 const SLOW_ACTIVATE_MS = 1000;
 
+/** 켜기를 몇 번까지 다시 해보나 — 때를 타는 실패가 있어서 (2026-10-13) */
+const BOOT_TRIES = 3;
+
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const began = Date.now();
   const out = vscode.window.createOutputChannel("AI in One");
   ctx.subscriptions.push(out);
 
   /*
-   * ★ **명령부터 등록한다** (2026-10-13).
+   * ★ **켜는 중 · 됐다 · 터졌다 — 셋을 가른다** (2026-10-13).
    *
-   * 🔴 여태 `activate` 의 **맨 끝**에서 등록했다. 그 앞에 `store.init()` ·
-   * MCP 서버 · 방 락 · 방 매니저가 다 있어서, **어느 하나가 터지면 명령이
-   * 아예 안 생긴다.** 사용자 눈에 남는 것은 `command 'aiInOne.open' not
-   * found` 뿐이다 — **왜 안 되는지가 한 글자도 없다.**
+   * 🔴 여태 `activate` 의 **맨 끝**에서 명령을 등록했다. 그 앞에 `store.init()` ·
+   * MCP 서버 · 방 락 · 방 매니저가 다 있어서, **어느 하나가 터지거나 느리면
+   * 명령이 아예 안 생긴다.** 사용자 눈에 남는 것은 `command 'aiInOne.open'
+   * not found` 뿐이고 **왜 안 되는지가 한 글자도 없다.**
    *
-   * 실제로 한 번 그랬고(F5, 2026-10-13), 창을 다시 불러오니 풀렸다. **때를
-   * 타는 실패**라 스택도 안 남았다. 다음에 또 나면 **그때는 보이게** 한다.
+   * 그런데 명령만 앞으로 옮기면 **켜는 중에 누른 경우**가 새로 생긴다 —
+   * 아직 안 끝난 것을 «못 켰다»로 말하면 그것도 거짓말이다. 그래서 셋이다:
    *
-   * ⚠️ 아래 본문에서는 이 둘을 **다시 등록하지 않는다** — 같은 이름을 두 번
-   * 등록하면 VSCode 가 거기서 또 터진다.
+   * ```
+   * 켜는 중   눌러둔 것을 **기억했다가** 끝나면 그때 연다
+   * 됐다      진짜 창
+   * 터졌다    왜인지 + «창을 다시 불러오세요»
+   * ```
    */
+  let phase: "booting" | "ready" | "failed" = "booting";
   let bootError: unknown;
-  /** 켜기가 끝나면 진짜 창을 여는 것으로 갈린다 */
-  let open: (screen?: "new") => void = () => {
+  let show: ((screen?: "new") => void) | undefined;
+  /** 켜는 중에 눌러둔 것 — `false` 는 «안 눌렀다» */
+  let wanted: "new" | undefined | false = false;
+
+  /*
+   * ★ **켜는 중인 것이 보여야 한다** (2026-10-13).
+   *
+   * 사용자: *"창이 안뜨니까 너무 답답해"*. 상태 표시줄은 **켜기 전에** 만들어
+   * 돌려두고, 켜지면 방 매니저가 이어받아 안 읽은 수를 그린다.
+   */
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  status.command = "aiInOne.open";
+  status.text = "$(sync~spin) AI";
+  status.tooltip = "AI in One 을 켜는 중입니다…";
+  status.show();
+  ctx.subscriptions.push(status);
+
+  const open = (screen?: "new"): void => {
+    if (phase === "ready" && show) { show(screen); return; }
+    if (phase === "booting") {
+      // **누른 것을 안 버린다** — 끝나면 그때 연다. 기다리라고만 하면 또 누른다
+      wanted = screen;
+      void vscode.window.showInformationMessage(
+        "AI in One 을 켜는 중입니다 — 준비되면 바로 엽니다.",
+      );
+      return;
+    }
     out.show(true);
     void vscode.window.showErrorMessage(
       `AI in One 을 켜지 못했습니다: ${describeBoot(bootError)} — ` +
-        "창을 다시 불러오면(Ctrl+R) 대개 풀립니다.",
+        "창을 다시 불러오세요(Ctrl+R).",
     );
   };
+
+  /*
+   * ⚠️ 아래 본문에서는 이 둘을 **다시 등록하지 않는다** — 같은 이름을 두 번
+   * 등록하면 VSCode 가 거기서 또 터진다.
+   */
   ctx.subscriptions.push(
     vscode.commands.registerCommand("aiInOne.open", () => open()),
     vscode.commands.registerCommand("aiInOne.newRoom", () => open("new")),
   );
 
-  try {
-    await boot(ctx, out, began, (real) => { open = real; });
-  } catch (err) {
-    bootError = err;
-    /*
-     * 🔴 **조용히 넘어가면 안 된다.** 이 줄이 없으면 다음에 또 날 때도
-     * 스택이 안 남고, 우리는 또 «한 번 그랬다» 만 듣는다.
-     */
-    out.appendLine(`🔴 켜기 실패: ${describeBoot(err)}`);
-    if (err instanceof Error && err.stack) out.appendLine(err.stack);
-    out.show(true);
-    void vscode.window.showErrorMessage(
-      `AI in One 을 켜지 못했습니다: ${describeBoot(err)} — 출력 창에 자세한 것이 있습니다.`,
-    );
+  /*
+   * ★ **세 번까지 다시 해본다** (2026-10-13).
+   *
+   * 실제로 한 번 안 켜졌고 **창을 다시 불러오니 풀렸다** — 때를 타는 실패다.
+   * 사람에게 «다시 불러오세요» 를 시키기 전에 **우리가 먼저 해본다.**
+   *
+   * 🔴 **반쯤 만든 것은 `boot` 가 치우고 올린다.** 안 치우면 다시 할 때마다
+   * 포트와 프로세스가 샌다.
+   */
+  for (let tries = 1; tries <= BOOT_TRIES; tries++) {
+    try {
+      show = await boot(ctx, out, began, status);
+      phase = "ready";
+      break;
+    } catch (err) {
+      bootError = err;
+      out.appendLine(`🔴 켜기 ${tries}/${BOOT_TRIES} 실패: ${describeBoot(err)}`);
+      if (err instanceof Error && err.stack) out.appendLine(err.stack);
+      if (tries < BOOT_TRIES) {
+        // 조금 쉬었다 다시 — 디스크가 바쁘거나 옆 창과 부딪힌 것일 수 있다
+        await new Promise((r) => setTimeout(r, 300 * tries));
+        continue;
+      }
+      phase = "failed";
+      status.text = "$(error) AI";
+      status.tooltip = `AI in One 을 켜지 못했습니다: ${describeBoot(err)}`;
+      out.show(true);
+      void vscode.window.showErrorMessage(
+        `AI in One 을 ${BOOT_TRIES}번 켜봤지만 안 됐습니다: ${describeBoot(err)} — ` +
+          "창을 다시 불러오세요(Ctrl+R). 자세한 것은 출력 창에 있습니다.",
+      );
+    }
   }
+
+  // ★ **켜는 중에 눌러둔 것을 이제 연다** — 기다린 사람을 또 누르게 하지 않는다
+  if (phase === "ready" && wanted !== false) open(wanted);
 }
 
 /** 오류를 사람이 읽을 한 줄로 — 메시지가 비면 통째로 적는다 */
@@ -86,8 +144,8 @@ async function boot(
   ctx: vscode.ExtensionContext,
   out: vscode.OutputChannel,
   began: number,
-  ready: (open: (screen?: "new") => void) => void,
-): Promise<void> {
+  status: vscode.StatusBarItem,
+): Promise<(screen?: "new") => void> {
   const host = new VscodeHost(out);
 
   // `globalState`는 용량 제한이 있어 쓰지 않는다. 대화는 파일로 남긴다 (F5).
@@ -117,7 +175,22 @@ async function boot(
    * ⚠️ **도구와 부르는 길은 방 매니저가 안다.** 서버는 통로일 뿐이다 —
    * 큐도 방도 저쪽에 있다. 그래서 늦게 묶는다(아래 `setHandlers`).
    */
+  /*
+   * ★ **반쯤 만든 것은 치우고 올린다** (2026-10-13).
+   *
+   * 🔴 켜기를 **다시 해보기** 때문이다. 포트를 잡고(MCP) 자리를 잡고(락)
+   * CLI 를 띄우는(방 매니저) 것들이라, 안 치우고 다시 만들면 **판마다
+   * 샌다** — 세 번 하면 세 벌이 뜬 채로 남는다.
+   */
+  const madeHere: Array<() => void> = [];
+  const undoAll = () => {
+    for (const undo of madeHere.reverse()) {
+      try { undo(); } catch { /* 치우다 터져도 나머지는 치운다 */ }
+    }
+  };
+  try {
   const mcp = new McpServer({ log: (m) => host.log(m) });
+  madeHere.push(() => mcp.close());
 
   // 권한은 **봇에 붙는다**(D2). 전역 설정이 없으므로 여기서 넘길 것도 없다 —
   // 방을 만들 때 봇마다 정하고, 그 뒤엔 권한 설정 시트나 참여자 서랍에서 바꾼다.
@@ -135,16 +208,21 @@ async function boot(
     vscode.workspace.workspaceFolders?.[0]?.name ?? "다른 창",
     (m) => host.log(m),
   );
+  madeHere.push(() => locks.releaseAll());
 
   const rooms = new RoomManager({ host, store, agents, mcp, locks });
+  madeHere.push(() => rooms.dispose());
   // 도구를 건다 — 서버가 만들어진 **뒤**라야 방 매니저가 있다
   mcp.setHandlers(rooms.mcpTools(), (owner, tool, args) => rooms.mcpCall(owner, tool, args));
   // 세우는 것은 방 매니저를 거친다 — 그래야 결과가 화면까지 같은 길로 간다
   void rooms.startMcp();
 
-  // ── 상태 표시줄 — 앱 아이콘이자 배지 (F1·F8) ─────────────────────────
-  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  status.command = "aiInOne.open";
+  /*
+   * ── 상태 표시줄 — 앱 아이콘이자 배지 (F1·F8)
+   *
+   * **만드는 것은 `activate` 가 한다** — 켜는 동안 돌아가는 표시를 보여줘야
+   * 해서다. 여기서는 **이어받아** 안 읽은 수를 그린다.
+   */
   status.tooltip = "AI in One 채팅 열기";
   const paint = () => {
     const unread = rooms.totalUnread();
@@ -234,11 +312,7 @@ async function boot(
       screen,
     );
 
-  // ★ **여기부터 진짜 창이 열린다** — 위에서 임시로 걸어둔 오류 안내를 갈아끼운다
-  ready(show);
-
   ctx.subscriptions.push(
-    status,
     // 변경 전/후를 디스크 없이 보여주기 위한 가상 문서 (E3)
     vscode.workspace.registerTextDocumentContentProvider(
       BLOB_SCHEME,
@@ -279,6 +353,16 @@ async function boot(
     out.appendLine(
       `⚠ 활성화가 느렸습니다. 디스크가 바쁘거나 기록이 많을 수 있습니다.`,
     );
+  }
+  /*
+   * ★ **여기까지 왔으면 치울 일이 없다.** 아래부터는 `ctx.subscriptions` 가
+   * 들고 있으므로 창이 닫힐 때 같이 내려간다.
+   */
+  madeHere.length = 0;
+  return show;
+  } catch (err) {
+    undoAll();
+    throw err;
   }
 }
 
