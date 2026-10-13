@@ -147,6 +147,44 @@ async function main(): Promise<void> {
     bye(t);
   }
 
+  console.log(`${NL}[★ 「봇끼리 부르기 — 끔」이어도 심사는 돈다]`);
+  {
+    /*
+     * 🔴 **두 축이다.** 「끔」이 막는 것은 `say` 고, 심사는 `check_queue` ·
+     * `verdict` 로 돈다 — `relay` 를 보는 곳은 `relaySay` 하나뿐이다.
+     *
+     * 섞이면 «대화를 껐으니 심사도 꺼졌겠지» 가 되고, 반대로 **심사를 쓰려고
+     * 봇끼리 대화를 열어야** 하는 꼴이 된다. 둘이 같이 묶이는 것은 **MCP
+     * 서버 하나**뿐이다.
+     */
+    const t = await make(40);
+    await t.mgr.setRelay(t.room.id, "off");
+    await t.mgr.send(t.room.id, "안녕", undefined, t.judge.id);
+    await t.settle();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+
+    // 전제 — 이 방에서 say 는 정말로 막혀 있다
+    const blocked = await t.mgr.mcpCall(
+      `${t.room.id}:${t.asker.id}`, "say", { to: [t.judge.name], text: "들려?", id: "0" },
+    );
+    if (!blocked.text.includes('"ok":false')) {
+      throw new Error("FAIL: 전제가 안 섰다 — 「끔」인데 say 가 나갔다");
+    }
+
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ("꺼져 있어도"));
+    await t.until(() => t.inner.queue.pending(t.judge.id).length === 1,
+                  "「끔」이라고 심사가 큐에 안 들어갔다");
+    ok(t.userAsks() === 0, "★ **사람에게 안 넘긴다** — 끄기는 say 만 막는다");
+
+    const got = await t.check();
+    ok(got.item !== null, "★ **심사 봇은 그대로 꺼내 본다** — check_queue 는 relay 와 무관하다");
+    await t.verdict(got.item!.id, true);
+    const out = await pending;
+    ok(out.outcome === "selected",
+       `★ **판정도 그대로 돌아간다** (${JSON.stringify(out)}) — 두 축이 독립이다`);
+    bye(t);
+  }
+
   console.log(`${NL}[★ 기다리는 동안 화면에 보인다]`);
   {
     /*

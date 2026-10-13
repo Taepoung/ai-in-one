@@ -5513,6 +5513,13 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
    * 🔴 **길이 안 서면 새로 고르지 못하게 한다.** 심사는 심사 봇의 **큐**로
    * 가고 큐를 읽는 길은 MCP 서버다. 서버가 없으면 고를 수는 있는데 매 요청이
    * 조용히 사용자에게 되돌아온다 — **고른 적 없는 설정이 켜진 것처럼** 보인다.
+   *
+   * 🔴 **그런데 「봇끼리 부르기」가 꺼진 것과는 다르다.** 「끔」은 `say` 만
+   * 막는다 — `relay` 를 보는 곳은 `relaySay` 하나뿐이고, `check_queue` 도
+   * `verdict` 도 깨우기도 그대로 돈다. **말을 걸 수 있느냐와 권한을 누가
+   * 보느냐는 다른 축**이고, 둘이 같이 묶이는 것은 **MCP 서버 하나**다.
+   * 그래서 여기서 보는 것도 `mcpAt` 이지 `r.relay` 가 아니다 — 문구도
+   * 저 토글의 이름(«봇끼리 부르기»)을 빌려 쓰면 안 된다.
    */
   const mates = r.participants.filter((b) => b.id !== bot.id);
   const mcpUp = mcpAt.at === "ready";
@@ -5545,7 +5552,7 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
   const whyWho = mates.length === 0
     ? "물어봐야 할 때 누가 답하나. 이 방엔 다른 봇이 없습니다."
     : !mcpUp
-      ? "봇끼리 부르는 길이 안 서서, 지금은 사용자에게만 물어볼 수 있습니다."
+      ? "봇이 큐를 읽을 길이 아직 안 서서, 지금은 사용자에게만 물어볼 수 있습니다."
       : judge
         ? `${judge.name}의 큐로 갑니다. 넘기는 것은 «이번만»뿐이고 «항상»은 사용자 몫입니다.`
         : "물어봐야 할 때 누가 답하나. 봇에게 맡기면 그 봇의 큐로 갑니다.";

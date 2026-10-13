@@ -770,6 +770,16 @@ function main() {
     t.send({ t: "mcp", state: { at: "failed", why: "닿지 않습니다" } });
     t.$(".composer .perm").click();
 
+    /*
+     * 🔴 **「봇끼리 부르기」의 이름을 빌려 쓰면 안 된다.** 저 토글의 「끔」은
+     * `say` 만 막고 심사는 그대로 돈다 — 두 축이 섞여 보이면 «대화를 껐으니
+     * 심사도 꺼졌겠지» 가 된다.
+     */
+    const whoField = [...t.$$("#screen-perm .sheet-bot:not(.relay) .field")]
+      .find((f) => f.querySelector("label")?.textContent === "승인 주체");
+    ok(!whoField.textContent.includes("봇끼리 부르"),
+       `★ **relay 토글의 이름을 안 빌린다** (${whoField.querySelector(".bad")?.textContent})`);
+
     const box = t.$$("#screen-perm .sheet-bot:not(.relay)")[1];
     const who = [...box.querySelectorAll(".field")]
       .find((f) => f.querySelector("label")?.textContent === "승인 주체")
