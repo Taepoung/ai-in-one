@@ -4738,6 +4738,9 @@ export class RoomManager extends EventEmitter<Events> {
       bot.sessionId = null;
     }
 
+    /** 이어받기가 실패했을 때 들고 있는 줄 — **새 세션이 열려야** 적는다 */
+    let lostNote: string | undefined;
+
     if (bot.sessionId) {
       const resumed = await conn.resumeSession(bot.sessionId, room.cwd, this.mcpFor(room, bot));
       if (resumed.ok) {
@@ -4775,12 +4778,23 @@ export class RoomManager extends EventEmitter<Events> {
             lostSessionId: room.lostSessionId,
             refeedPending: room.refeedPending,
           });
-          this.noteRoom(
-            room,
+          /*
+           * ★ **기록에 안 남긴다** (2026-10-13).
+           *
+           * 여기가 `noteRoom` 이었다 — 디스크에 적히는 **진짜 메시지**라 다음에
+           * 열어도 그 자리에 있다. 그런데 **다시 붙은 것은 일이 아니다** —
+           * 원래대로 돌아갔다는 말일 뿐이고, 남겨두면 나중에 읽는 사람은
+           * «무슨 일이 있었나» 가 된다. 배너가 사라지는 것이 이미 답이다.
+           *
+           * 사용자: *"완전 모델 변경, 에이전트 변경, 이름 변경, 완전 새 세션,
+           * 봇 추가 이런거 아니면 안나와도 될듯, fix에서 인지 가능하니까"*.
+           */
+          this.emit(
+            "notice",
+            room.id,
             promised
               ? "이전 세션에 다시 붙었습니다 — 대화를 글로 옮길 필요가 없어졌습니다."
               : "이전 세션에 다시 붙었습니다.",
-            "info",
           );
           this.emit("room", room);
         }
@@ -4800,17 +4814,26 @@ export class RoomManager extends EventEmitter<Events> {
         const head = gone
           ? "이전 세션이 에이전트에서 사라졌습니다."
           : "이전 세션을 이어받지 못했습니다.";
-        const note: Message = {
-          id: messageId(),
-          role: "system",
-          // 🔴 **왜인지도 같이 적는다** (§0 원칙). 이유가 출력 채널에만 있으면
-          // 대부분은 안 열어보고, 그러면 «우리가 끊었나»로 남는다.
-          text: `${head} 여기서부터는 새 세션입니다. — ${resumed.reason}`,
-          deliveredTo: [],
-          createdAt: Date.now(),
-        };
-        this.append(room, note);
-        void this.saveNewMessage(room, note);
+        /*
+         * ★ **못 이어받은 자리에서는 안 적는다** (2026-10-13).
+         *
+         * 🔴 여기서 바로 기록에 박았다. 그런데 바로 아래 `newSession` 이
+         * **같은 까닭으로 또 실패할 때** — 로그인이 풀렸으면 둘 다 안 된다 —
+         * **새 세션도 없는데 「여기서부터는 새 세션입니다」 가 쌓인다.** 방을
+         * 열 때마다 한 줄씩 늘어난다. 실제로 다섯 줄을 받았다:
+         *
+         * ```
+         * 이전 세션을 이어받지 못했습니다. … — Authentication required
+         * 이전 세션을 이어받지 못했습니다. … — Authentication required
+         * …
+         * ```
+         *
+         * **붙다가 걸린 것은 화면이 말한다** — 붙는 화면과 `fix` 가 «로그인이
+         * 필요합니다» 를 봇마다 세워준다(4.5-T). 기록에 남길 것은 **정말로
+         * 바뀐 것**뿐이다. 그래서 여기서는 **들고만 있고**, 아래에서 새 세션이
+         * 진짜로 열렸을 때 한 번 적는다 — 그때서야 「새 세션」 이 참말이 된다.
+         */
+        lostNote = `${head} 여기서부터는 새 세션입니다. — ${resumed.reason}`;
 
         // **화면과 에이전트가 어긋났다.** 사용자가 고를 때까지 들고 있는다.
         bot.contextLost = true;
@@ -4833,6 +4856,28 @@ export class RoomManager extends EventEmitter<Events> {
     );
     bt.sessionId = sessionId;
     this.pointAt(bot, sessionId);
+    /*
+     * ★ **여기가 「새 세션」 이 참말이 되는 자리다** (2026-10-13).
+     *
+     * 위에서 이어받기가 실패했고, 그 뒤 `newSession` 이 **정말로 열렸을 때**만
+     * 한 번 적는다. 중간에 터졌으면 이 줄은 안 쌓인다 — 거기까지 오지도 않고
+     * `joinFail` 로 빠지므로 화면이 대신 말한다.
+     *
+     * 🔴 **왜인지도 같이 적는다** (§0 원칙). 이유가 출력 채널에만 있으면
+     * 대부분은 안 열어보고, 그러면 «우리가 끊었나»로 남는다.
+     */
+    if (lostNote) {
+      const note: Message = {
+        id: messageId(),
+        role: "system",
+        text: lostNote,
+        deliveredTo: [],
+        createdAt: Date.now(),
+      };
+      this.append(room, note);
+      void this.saveNewMessage(room, note);
+      this.emit("room", room);
+    }
     // 세션이 새로 열렸으므로 역할을 다시 넣어야 한다
     bt.roleInjected = false;
     delete bt.rosterSent;

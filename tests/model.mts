@@ -653,6 +653,52 @@ async function main() {
     m10.dispose();
   }
 
+  console.log("\n[★ 못 붙으면 **기록에 안 적는다** — 새 세션이 진짜 열려야 적는다 (2026-10-13)]");
+  {
+    /*
+     * 🔴 이어받기가 실패한 **그 자리에서** 바로 기록에 박고 있었다. 그런데 바로
+     * 뒤의 `newSession` 이 **같은 까닭으로 또 실패할 때** — 로그인이 풀렸으면
+     * 둘 다 안 된다 — **새 세션도 없는데 「여기서부터는 새 세션입니다」 가
+     * 쌓인다.** 방을 열 때마다 한 줄씩. 사용자가 실제로 다섯 줄을 받았다.
+     */
+    const m11 = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
+    m11.on("roomError", () => {});
+    const r17 = await m11.createRoom({ agentId: "fake", title: "로그인 풀림" });
+    await m11.send(r17.id, "하던 얘기");
+    const before = (await m11.openRoom(r17.id)).messages.filter((m) => m.role === "system").length;
+    const botId = (await m11.openRoom(r17.id)).participants[0]!.id;
+    m11.dispose();
+
+    /* 로그인이 풀린 뒤 — 이어받기도, 새 세션도 안 된다 */
+    const out = { ...agent, env: { AIO_FAKE_STATE: state, AIO_FAKE_NO_RESUME: "1", AIO_FAKE_AUTH: "1" } };
+    const m12 = new RoomManager({ host, store, agents: [out], configProbeMs: 20000 });
+    m12.on("roomError", () => {});
+    const fails: string[] = [];
+    m12.on("joinFail", (_r, _b, kind) => fails.push(kind));
+    await m12.retryJoin(r17.id, botId);
+
+    ok(fails.length === 1 && fails[0] === "auth",
+       `★ **화면이 말한다** — 붙는 화면·fix 가 봇마다 세워준다 (${fails.join(",")})`);
+    const after = (await m12.openRoom(r17.id)).messages.filter((m) => m.role === "system");
+    ok(after.length === before,
+       `★ **기록은 그대로다** — 새 세션이 안 열렸는데 「새 세션입니다」 를 적으면 거짓말이다 (${after.length} vs ${before})`);
+    ok(!after.some((m) => m.text.includes("새 세션입니다")),
+       "★ 그 줄이 아예 없다");
+    ok((await m12.openRoom(r17.id)).contextLost === true,
+       "★ 다만 **어긋났다는 사실은 들고 있는다** — 적는 것과 아는 것은 다르다");
+    m12.dispose();
+
+    /* 다시 로그인한 셈 치고 — 이번엔 새 세션이 **진짜로** 열린다 */
+    const back = { ...agent, env: { AIO_FAKE_STATE: state, AIO_FAKE_NO_RESUME: "1" } };
+    const m13 = new RoomManager({ host, store, agents: [back], configProbeMs: 20000 });
+    m13.on("roomError", () => {});
+    await m13.retryJoin(r17.id, botId);
+    const last = (await m13.openRoom(r17.id)).messages.filter((m) => m.role === "system");
+    ok(last.filter((m) => m.text.includes("새 세션입니다")).length === 1,
+       `★ **그때 한 번 적는다** — 여기서야 「새 세션」 이 참말이다 (${last.length - before}줄)`);
+    m13.dispose();
+  }
+
   mgr.dispose();
   await new Promise((r) => setTimeout(r, 150));
   // 가짜 에이전트가 완전히 죽기 전이면 Windows가 폴더를 붙잡고 있다 — 청소 실패는 실패가 아니다

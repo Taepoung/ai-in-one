@@ -25,6 +25,27 @@ const AGENTS = [
   { id: "codex", label: "Codex", description: "OpenAI Codex CLI", color: "#10a37f" },
 ];
 
+/**
+ * 호스트가 내려보내는 에이전트 목록.
+ *
+ * 로그인이 끝났다는 소식은 **따로 오는 게 아니라** 이걸 다시 내려보내는
+ * 것으로 온다(`state: "ready"`) — 그래서 로그인 흐름을 재려면 이게 필요하다.
+ */
+const agentsMsg = (over = {}) => ({
+  t: "agents",
+  list: AGENTS.map((a) => ({
+    id: a.id,
+    label: a.label,
+    managed: true,
+    available: true,
+    state: "ready",
+    loggedIn: true,
+    canLogout: true,
+    size: 1024 * 1024,
+    ...(over[a.id] ?? {}),
+  })),
+});
+
 const boot = (rooms = [], screen = "list") => ({
   rooms,
   agents: AGENTS,
@@ -327,11 +348,15 @@ function main() {
        "★ 그리고 **기다리는 자리로 돌아간다** — 세워두면 아무 일도 안 일어난 것 같다");
   }
 
-  console.log("\n[★ 로그인이 풀린 봇은 **[로그인] 이 먼저다**]");
+  console.log("\n[★ 로그인이 풀린 봇 — **그 자리에서 띄우고, 마치면 저절로 붙는다** (4.5-U)]");
   {
     /*
-     * 자격은 **우리 것이 아니다**(P3) — 우리가 할 수 있는 것은 로봇 화면으로
-     * 보내는 것뿐이고, 거기서 공식 CLI 가 로그인을 받는다.
+     * 자격은 **우리 것이 아니다**(P3). 진짜 로그인은 VS Code 가 띄우는
+     * 터미널(또는 ACP 가 여는 브라우저)에서 일어난다 — 우리 창 밖이다.
+     *
+     * 🔴 그래서 처음엔 로봇 화면으로 **보냈다.** 그러면 같은 단추를 **한 번 더**
+     * 눌러야 했고, 그 사이 로봇 화면이 보여주는 것은 없었다. 사용자:
+     * *"그자리에서 로그인 되면서 에이전트 화면에도 업데이트 되면 좋겠는데"*.
      */
     const t = mount(boot([meta()]));
     t.$(".room").click();
@@ -340,13 +365,79 @@ function main() {
     t.send({ t: "joinDone", roomId: "r1" });
 
     const fix = t.$("#screen-fix");
+    const btn = (name) =>
+      [...fix.querySelectorAll(".fix-bot button")].find((b) => b.textContent === name);
     const btns = [...fix.querySelectorAll(".fix-bot button")].map((b) => b.textContent);
     ok(btns.join() === "로그인,다시 확인,내보내기",
        `★ **줄이 까닭마다 갈린다** — 여기만 [로그인] 이 선다 (${btns.join(",")})`);
 
-    [...fix.querySelectorAll(".fix-bot button")].find((b) => b.textContent === "로그인").click();
+    btn("로그인").click();
+    const did = t.sent.filter((m) => m.t === "agentDo").pop();
+    ok(did?.what === "login" && did.agentId === "claude",
+       `★ **그 자리에서 쏜다** — 로봇 화면의 그 단추와 같은 것이다 (${JSON.stringify(did)})`);
+    ok(fix.classList.contains("active"),
+       "★ 화면은 **그대로다** — 어차피 포커스는 터미널로 간다");
+    ok(fix.textContent.includes("저절로 다시 붙습니다"),
+       "★ **다음에 무슨 일이 일어나는지 적는다** — 돌아왔을 때 아무 말도 없으면 «눌린 건가» 가 된다");
+    ok(btn("로그인").disabled, "★ 두 번 띄우지 않는다");
+
+    /*
+     * 로그인이 끝났다는 소식은 **목록으로** 온다 — 호스트가 터미널이 닫히면
+     * 바로, 안 닫으면 20초 뒤에 다시 내려보낸다.
+     */
+    t.send(agentsMsg());
+    const again = t.sent.filter((m) => m.t === "retryJoin").pop();
+    ok(again?.botId === "b1",
+       `★ **저절로 다시 붙는다** — [다시 확인] 을 또 누르게 하지 않는다 (${JSON.stringify(again)})`);
+    ok(t.$("#screen-joining").classList.contains("active"),
+       "★ 그리고 **기다리는 자리로** — 다시 붙는 데 길면 수십 초다");
+  }
+
+  console.log("\n[★ 보던 중에 끊겨도 **보인다** (4.5-V, 2026-10-13)]");
+  {
+    /*
+     * 🔴 한 번 들어간 방은 다시 들어갈 때 **붙는 화면을 안 지난다**(`joined`) —
+     * 바로 채팅이다. 그런데 호스트는 그동안 세션을 다시 붙이고 있고, **그게
+     * 실패하면 아무 데도 안 보였다.** 잘 되면 상태 줄로 지나가지만 실패는
+     * 지나갈 자리가 없다.
+     */
+    const t = enter(mount(boot([meta()])));
+    ok(t.screenOf() === "chat", "들어와 있다");
+
+    t.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "other", why: "세션을 열지 못했습니다" });
+    const scr = t.$("#screen-joining");
+    ok(scr.classList.contains("active") && scr.textContent.includes("세션을 열지 못했습니다"),
+       "★ **끊긴 것이 화면으로 올라온다** — 전에는 아무 데도 안 보였다");
+
+    t.key("Escape");
+    ok(t.screenOf() === "chat",
+       "★ **얹은 것이다** — 뒤로 누르면 보던 채팅이 그대로 있다");
+  }
+
+  console.log("\n[★ 로봇 화면에서는 **끌어내지 않는다**]");
+  {
+    /*
+     * 🔴 목록이 올 때마다 막힌 방이 있으면 `go(\"fix\")` 를 했다. 그런데
+     * 로그인·받기·지우기는 **거기서 하는 일**이라, 하던 중에 화면이
+     * 갈아끼워지면 일이 날아간다. 대신 **뒤에 깔린 자리를 바꿔둔다.**
+     */
+    const t = mount(boot([meta()]));
+    t.$(".room").click();
+    t.send({ t: "room", room: room(), compactable: false });
+    t.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "auth", why: "로그인이 필요합니다" });
+    t.send({ t: "joinDone", roomId: "r1" });
+    t.send({ t: "nav", screen: "agents" });
+
+    /* 아직 로그인 전이다 — 목록이 와도 그대로 둔다 */
+    t.send(agentsMsg({ claude: { state: "needLogin", loggedIn: false } }));
     ok(t.$$(".screen.active").map((x) => x.id).includes("screen-agents"),
-       "★ **로그인은 로봇 화면에서** — 우리는 자격을 안 만진다 (P3)");
+       "★ **하던 일이 안 날아간다**");
+    ok(!t.sent.some((m) => m.t === "retryJoin"),
+       "★ 아직 로그인이 안 됐으면 **다시 붙이지도 않는다** — ready 만 본다");
+
+    t.key("Escape");
+    ok(t.$("#screen-fix").classList.contains("active"),
+       "★ 뒤로 가면 **그때 맞는 화면**이 나온다 — 비워둔 화면으로 돌아가지 않는다");
   }
 
   console.log("\n[★ 기록만 읽기 — **붙이지 않고** 연다]");

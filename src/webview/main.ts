@@ -1731,6 +1731,14 @@ function mb(n: number): string {
 let joinFails = new Map<string, { kind: JoinFail; why: string }>();
 /** 그 봇이 **어느 칸**에 있나 — 없으면 아직 시작도 안 했거나 이미 붙어 있다 */
 let joinSteps = new Map<string, JoinStep>();
+/**
+ * 카드에서 로그인을 **띄워준** 에이전트들.
+ *
+ * 호스트는 로그인에 `busy` 를 안 단다 — 일이 **우리 밖**(터미널·브라우저)에서
+ * 일어나서 언제 끝나는지 모르기 때문이다. 그래서 「띄웠다」만 우리가 적어두고,
+ * 목록이 «이제 로그인됨» 으로 바뀌면 지운다.
+ */
+const loginAsked = new Set<string>();
 /** 붙는 화면을 지나왔나 — 한 번 들어간 방은 다시 안 세운다 */
 const joined = new Set<string>();
 
@@ -2017,6 +2025,87 @@ function swapRow(was: string, pick: HTMLElement): HTMLElement {
 }
 
 /**
+ * ★ **방 화면 셋 중 어디인지를 한 자리에서 정한다** (2026-10-13).
+ *
+ * 채팅·붙는 중·고치기는 **같은 자리의 세 얼굴**이다. 셋을 `go`·`push` 로
+ * 따로 밀면 스택이 엉킨다 — 비워둔 `fix` 가 아래 깔려 있다가 **빈 화면**으로
+ * 돌아오거나, 보던 채팅이 스택에서 **지워진다**(`go` 는 늘 갈아끼운다).
+ *
+ * 두 가지를 지킨다:
+ *
+ * ```
+ * 보던 채팅은 아래에 남긴다   뒤로 누르면 거기로 돌아간다
+ * 위에 얹힌 것은 그대로 둔다   🔴 로봇 화면에서 **끌어내지 않는다** —
+ *                             로그인·받기는 거기서 하는 일이라 갈아끼우면
+ *                             하던 일이 날아간다. 뒤로 가면 맞는 화면이 있다
+ * ```
+ */
+function roomGo(to: "chat" | "joining" | "fix"): void {
+  const faces = new Set<ScreenName>(["chat", "joining", "fix"]);
+  const next: ScreenName[] = ["list"];
+  if (to !== "chat" && stack.includes("chat")) next.push("chat");
+  next.push(to);
+  // 위에 얹혀 있던 것들(로봇·권한·참여자…)은 순서대로 그대로
+  for (const s of stack) if (s !== "list" && !faces.has(s)) next.push(s);
+  stack = next;
+  paintScreens();
+}
+
+/** 막을 것이 생겼나 없어졌나에 맞춰 화면을 돌린다 — 한 자리에서 가른다 */
+function repaintBlock(r: Room): void {
+  const top = stack[stack.length - 1];
+  /* 아직 붙는 중이면 그 화면을 지킨다 — 끝나면 `joinDone` 이 가른다 */
+  const waiting = top === "joining" && !joined.has(r.id);
+  if (waiting) return;
+  if (needsModel(r).length > 0) {
+    renderFix(r);
+    roomGo("fix");
+  } else {
+    /*
+     * 막을 것이 없으면 **비워둔다.** 화면이 안 보인다고 남겨두면, 다음에
+     * 다른 방이 걸렸을 때 **앞 방의 봇 이름이 한 순간 스친다** — 설정이
+     * 늦게 와서 다시 그리기 전까지.
+     */
+    screens.fix.replaceChildren();
+    if (stack.includes("fix") || stack.includes("joining")) roomGo("chat");
+  }
+}
+
+/**
+ * ★ **로그인을 마치면 저절로 다시 붙는다** (4.5-U, 2026-10-13).
+ *
+ * 새 메시지가 필요 없다. 로그인이 끝나면 호스트가 **에이전트 목록을 다시
+ * 내려보내고**(터미널이 닫히면 즉시, 안 닫으면 20초 뒤 한 번 더), 거기에
+ * 「이제 로그인됨」(`state: "ready"`) 이 실려 온다. 그걸 보고 움직인다.
+ *
+ * **그 에이전트로 막힌 봇 전부**를 다시 붙인다 — 한 에이전트에 봇이 여럿일 수
+ * 있고, 로그인은 그 봇들에게 한꺼번에 통한다. 다른 까닭(`other`)으로 막힌
+ * 봇은 안 건드린다. 로그인과 무관하다.
+ *
+ * ★ [다시 확인] 은 그래도 남긴다 — 저쪽이 늦게 끝나거나 우리가 못 알아챘을
+ * 때의 보험이다. 하나는 알아서, 하나는 손으로.
+ */
+function retryAfterLogin(r: Room): boolean {
+  let any = false;
+  for (const [botId, bad] of [...joinFails]) {
+    if (bad.kind !== "auth") continue;
+    const bot = r.participants.find((b) => b.id === botId);
+    if (!bot || agentRows.find((a) => a.id === bot.agentId)?.state !== "ready") continue;
+    fireRetry(r, botId);
+    any = true;
+  }
+  return any;
+}
+
+/** 다시 붙여달라고만 한다 — 화면은 부르는 쪽이 정한다 */
+function fireRetry(r: Room, botId: string): void {
+  const bot = r.participants.find((b) => b.id === botId);
+  if (bot) loginAsked.delete(bot.agentId);
+  joinFails.delete(botId);
+  post({ t: "retryJoin", roomId: r.id, botId });
+}
+
+/**
  * 다시 붙여본다 — **기다리는 자리로 데려가면서.**
  *
  * 🔴 그 자리에 세워두면 **아무 일도 안 일어난 것처럼 보인다.** 다시 붙는 데는
@@ -2025,10 +2114,9 @@ function swapRow(was: string, pick: HTMLElement): HTMLElement {
  * 되면 채팅, 또 걸리면 여기로 돌아온다(`room` 이 올 때 한 군데서 가른다).
  */
 function retryJoin(r: Room, botId: string): void {
-  joinFails.delete(botId);
-  post({ t: "retryJoin", roomId: r.id, botId });
+  fireRetry(r, botId);
   renderJoining(r);
-  go("joining");
+  roomGo("joining");
 }
 
 /**
@@ -2037,7 +2125,7 @@ function retryJoin(r: Room, botId: string): void {
  * 줄이 **까닭마다 갈린다**:
  *
  * ```
- * auth   [로그인] [다시 확인]   로그인이 풀렸다. 로봇 화면으로 보낸다
+ * auth   [로그인] [다시 확인]   로그인이 풀렸다
  * other  [다시 시도]            망·시간 초과. 대개 이걸로 풀린다
  * gone   ─                      여기 안 온다 (고르개 카드가 받는다)
  * ```
@@ -2045,17 +2133,36 @@ function retryJoin(r: Room, botId: string): void {
  * 어느 쪽이든 **[내보내기]가 같이 있다** — 사용자: *"그냥 들어가기는 없어,
  * 봇 제거는 있어도"*. 반쯤 깨진 봇을 달고 들어가면 멘션은 되는데 답이 안 오고
  * 그 까닭이 어디에도 없다. 답은 둘뿐이다: **고치거나, 내보내거나.**
+ *
+ * ★ **[로그인] 은 그 자리에서 쏜다** (2026-10-13).
+ *
+ * 🔴 처음엔 로봇 화면으로 **보냈다.** 그러면 거기서 같은 단추를 **한 번 더**
+ * 눌러야 했는데, 그 사이에 로봇 화면이 보여주는 것이 없다 — 진짜 로그인은
+ * 어차피 **우리 창 밖**(터미널·브라우저)에서 일어나고 포커스도 그리로 간다.
+ * 사용자: *"그자리에서 로그인 되면서 에이전트 화면에도 업데이트 되면 좋겠는데"*.
+ * 로봇 화면은 `agents` 가 올 때마다 **안 보여도 다시 그려지므로**(`renderAgents`)
+ * 거기 가 보면 이미 맞춰져 있다.
  */
 function stuckCard(r: Room, bot: BotInstance, bad: { kind: JoinFail; why: string }): HTMLElement {
   const who = agentById.get(bot.agentId);
+  const row = agentRows.find((a) => a.id === bot.agentId);
+  /** 호스트가 무언가 하는 중이면(받기·지우기) 로그인을 겹쳐 쏘지 않는다 */
+  const busy = row?.busy;
+  const asked = loginAsked.has(bot.agentId);
   const acts = el("div", { class: "fix-acts" });
 
   if (bad.kind === "auth") {
-    acts.append(el("button", {
+    const open = el("button", {
       class: "agent-go", type: "button", text: "로그인",
-      title: `${who?.label ?? bot.agentId} 에 다시 로그인합니다`,
-      onclick: () => { post({ t: "agentsAsk" }); renderAgents(); push("agents"); },
-    }));
+      title: `${who?.label ?? bot.agentId} 로그인을 띄웁니다`,
+      onclick: () => {
+        loginAsked.add(bot.agentId);
+        post({ t: "agentDo", agentId: bot.agentId, what: "login" });
+        renderFix(r);
+      },
+    }) as HTMLButtonElement;
+    open.disabled = asked || busy !== undefined;
+    acts.append(open);
   }
   acts.append(el("button", {
     /* 로그인 쪽은 **[로그인]이 먼저**다 — 두 개를 다 강조하면 어느 쪽이 답인지 흐려진다 */
@@ -2068,6 +2175,15 @@ function stuckCard(r: Room, bot: BotInstance, bad: { kind: JoinFail; why: string
     onclick: () => { fixPick.delete(bot.id); post({ t: "removeBot", roomId: r.id, botId: bot.id }); },
   }));
 
+  /*
+   * **띄운 뒤엔 무슨 일이 일어나는지 적는다.** 터미널이 뜨면서 포커스가
+   * 그리로 가므로, 돌아왔을 때 이 카드가 아무 말도 안 하면 «눌린 건가» 가
+   * 된다. 끝나면 저절로 다시 붙는다는 것도 여기서만 말할 수 있다.
+   */
+  const say = busy ?? (asked
+    ? "로그인 창을 띄웠습니다. 마치면 저절로 다시 붙습니다."
+    : undefined);
+
   return el("div", { class: "fix-bot" },
     el("div", { class: "fix-name" },
       el("span", { class: "dot", style: { background: botColor(bot) } }),
@@ -2075,6 +2191,7 @@ function stuckCard(r: Room, bot: BotInstance, bad: { kind: JoinFail; why: string
       el("span", { class: "dim", text: who?.label ?? bot.agentId }),
     ),
     el("p", { class: "fix-stuck", text: bad.why }),
+    say !== undefined && el("p", { class: "agent-busy dim", text: say }),
     acts,
   );
 }
@@ -7649,20 +7766,8 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
         if (!joined.has(m.room.id)) { renderJoining(m.room); break; }
       }
 
-      if (needsModel(m.room).length > 0) {
-        renderFix(m.room);
-        if (stack[stack.length - 1] !== "fix") go("fix");
-      } else {
-        /*
-         * 막을 것이 없으면 **비워둔다.** 화면이 안 보인다고 남겨두면, 다음에
-         * 다른 방이 걸렸을 때 **앞 방의 봇 이름이 한 순간 스친다** — 설정이
-         * 늦게 와서 다시 그리기 전까지.
-         */
-        screens.fix.replaceChildren();
-        /* 붙는 화면에서도 여기로 빠진다 — 다 붙었고 막을 것도 없으면 채팅이다 */
-        const top = stack[stack.length - 1];
-        if (top === "fix" || top === "joining") go("chat");
-      }
+      /* 붙는 화면에서도 여기로 빠진다 — 다 붙었고 막을 것도 없으면 채팅이다 */
+      repaintBlock(m.room);
 
       // **방을 만들었으면 바로 들어간다.**
       // 생성 응답은 방 데이터만 주므로, 화면 전환은 여기서 해야 한다 —
@@ -7761,9 +7866,20 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
        */
       agentAvail.clear();
       for (const a of m.list) if (a.available) agentAvail.add(a.id);
+      /* 로그인이 끝난 에이전트는 **띄웠다는 표시**를 지운다 — 단추가 다시 산다 */
+      for (const a of m.list) if (a.state === "ready") loginAsked.delete(a.id);
       renderAgents();
       if (stack[stack.length - 1] === "new") renderNew();
-      if (room && needsModel(room).length > 0) { renderFix(room); go("fix"); }
+      if (room) {
+        /* ★ 로그인이 풀렸던 봇은 **저절로** 다시 붙는다 (4.5-U) */
+        if (retryAfterLogin(room)) {
+          renderJoining(room);
+          /* 로봇 화면 위에서 눌렀으면 거기 그대로 — 뒤로 누르면 이 화면이다 */
+          roomGo("joining");
+          break;
+        }
+        repaintBlock(room);
+      }
       break;
     }
 
@@ -7843,7 +7959,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
          * 한 번만 넘어가면 — 걸린 봇이 한꺼번에 카드로 서고, 그 화면은
          * 기다리기만 하면 된다. `needsModel` 이 이제 걸린 봇도 센다.
          */
-        if (needsModel(room).length > 0) { renderFix(room); go("fix"); } else go("chat");
+        repaintBlock(room);
       }
       break;
     }
@@ -7862,6 +7978,20 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (top === "joining") renderJoining(room);
       // 카드가 서 있는 동안 **다른 봇이 또 걸릴 수 있다** — 그 자리에 더 그린다
       else if (top === "fix") renderFix(room);
+      else if (top === "chat") {
+        /*
+         * ★ **채팅을 보던 중에 끊겨도 보인다** (4.5-V, 2026-10-13).
+         *
+         * 🔴 한 번 들어간 방은 다시 들어갈 때 **붙는 화면을 안 지난다**
+         * (`joined`) — 바로 채팅이다. 그런데 호스트는 그동안 세션을 다시
+         * 붙이고 있고, **그게 실패하면 아무 데도 안 보였다.** 잘 되면 상태
+         * 줄로 지나가지만 실패는 지나갈 자리가 없다.
+         *
+         * **얹는다**(push) — 뒤로 누르면 보던 채팅이 그대로 있다.
+         */
+        renderJoining(room);
+        roomGo("joining");
+      }
       break;
     }
 
