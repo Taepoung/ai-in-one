@@ -113,11 +113,27 @@ async function main(): Promise<void> {
    * relaySay → 큐에 넣기 → 말풍선 → maybeWake → 진짜 Antigravity 에게 프롬프트.
    */
   console.log(`${NL}── 구현 → 리뷰어 ─────────────`);
+  /*
+   * 구현은 가짜라 **사용자가 연 턴**을 손으로 세워준다 — 진짜로는 `runQueue`
+   * 가 박는 값이다. `id: "0"` 은 그 턴에서만 통한다.
+   */
+  (mgr as unknown as { botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean } })
+    .botRuntime(room.id, impl.id).fromUser = true;
   const sent = await mgr.mcpCall(`${room.id}:${impl.id}`, "say", {
-    to: "리뷰어",
+    to: ["리뷰어"],
     text: "로그인 핸들러에서 토큰 만료를 안 보고 있는 것 같은데, 맞아?",
+    id: "0",
   });
   console.log(`  say 결과: ${sent.text}`);
+  /*
+   * 🔴 **번호는 지금 집어야 한다.** `say` 는 번호를 안 돌려주고(보낸 쪽이 쓸
+   * 데가 없어서), 저쪽이 **반응하면 그 항목은 큐에서 사라진다** — 끝나고 집으면
+   * 언제나 `undefined` 다. 2026-10-13 에 그래서 한 번 헛돌았다.
+   */
+  const myId = (mgr as unknown as {
+    queue: { pending(id: string): Array<{ id: string }> };
+  }).queue.pending(judge.id).at(-1)?.id;
+  console.log(`  리뷰어 큐에 들어간 번호: ${myId}`);
 
   console.log(`${NL}── 리뷰어(Antigravity)가 깨어난다 ─────────────`);
   for (let i = 0; i < 2400; i++) {
@@ -128,8 +144,11 @@ async function main(): Promise<void> {
 
   // ── 무엇이 나갔나 ────────────────────────────────────────────
   const prompts = room.messages.filter((m) => m.role === "agent" && m.authorBotId === judge.id);
-  const back = calls.filter((c) => c.tool === "say").map((c) => c.args as { to?: string; id?: string });
-  const myId = (sent.text.match(/"id":"([^"]+)"/) ?? [])[1];
+  /** 저쪽이 보낸 `to` — 목록이 와야 맞지만 **글자 하나로 와도 받아준다** */
+  const toNames = (a: { to?: unknown }): string[] =>
+    typeof a.to === "string" ? [a.to] : Array.isArray(a.to) ? a.to.map(String) : [];
+  const back = calls.filter((c) => c.tool === "say").map((c) => c.args as { to?: unknown; id?: string });
+
 
   console.log(`${NL}── 결과 ──────────────────────`);
   console.log(`  도구 호출       : ${calls.map((c) => c.tool).join(" · ") || "(없음)"}`);
@@ -140,8 +159,10 @@ async function main(): Promise<void> {
     ok(calls.some((c) => c.tool === "check_queue"),
        "★ ③ «큐에 1개» 한 줄만 받고 **check_queue 를 부른다**"),
     ok(back.length > 0, "★ ① **say 를 부른다** — 인자 셋을 채워서"),
-    ok(back.some((a) => a.to === "구현"),
+    ok(back.some((a) => toNames(a).includes("구현")),
        `★ ② **명단 표에서 이름을 골랐다** (to=${JSON.stringify(back.map((a) => a.to))})`),
+    ok(back.every((a) => Array.isArray(a.to)),
+       "★ ②-2 **to 를 목록으로 준다** — 글자 하나로 와도 받지만, 스키마대로 오나"),
     ok(back.some((a) => a.id === myId),
        `★ ④ **받은 id 를 그대로 돌려준다** (${myId} ← ${JSON.stringify(back.map((a) => a.id))})`),
     ok(askedOurs.length === 0,

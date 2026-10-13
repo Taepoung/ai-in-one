@@ -80,8 +80,9 @@ async function main(): Promise<void> {
   const back: string[] = [];
   mcp.setHandlers(mgr.mcpTools(), async (owner, tool, args) => {
     if (tool === "say") {
-      const a = args as { to?: string; text?: string };
-      if (a.to === "구현") back.push(a.text ?? "");
+      const a = args as { to?: unknown; text?: string };
+      const to = typeof a.to === "string" ? [a.to] : Array.isArray(a.to) ? a.to.map(String) : [];
+      if (to.includes("구현")) back.push(a.text ?? "");
     }
     return await mgr.mcpCall(owner, tool, args);
   });
@@ -106,11 +107,23 @@ async function main(): Promise<void> {
       await nap(25);
     }
   };
-  /** 구현이 리뷰어에게 건다. 리뷰어가 보낸 것에 답하는 것이면 그 `id` 를 들고 */
+  /**
+   * 구현이 리뷰어에게 건다.
+   *
+   * `replyTo` 가 없으면 «사용자가 방금 한 말 때문»(`"0"`)이고, 그건 **사용자가
+   * 연 턴에서만** 통하므로 전제를 같이 세운다 — 진짜로는 `runQueue` 가 박는다.
+   * 🔴 그리고 `"0"` 은 **같은 봇에게 한 턴에 한 번**이라, 매번 턴을 새로
+   * 연 것처럼 비워준다.
+   */
   const ask = async (text: string, replyTo?: string): Promise<string> => {
     const seen = back.length;
+    const bt = (mgr as unknown as {
+      botRuntime(r: string, b: string): { fromUser?: boolean; saidZero?: Set<string> };
+    }).botRuntime(room.id, impl.id);
+    bt.fromUser = true;
+    bt.saidZero = new Set<string>();
     const out = await mgr.mcpCall(`${room.id}:${impl.id}`, "say", {
-      to: "리뷰어", text, ...(replyTo ? { id: replyTo } : {}),
+      to: ["리뷰어"], text, id: replyTo ?? "0",
     });
     if (out.isError) { console.log(`  🔴 say 실패: ${out.text}`); return ""; }
     await quiet();
@@ -119,7 +132,7 @@ async function main(): Promise<void> {
     console.log(`  ◀ ${JSON.stringify(got.slice(0, 400))}`);
     return got;
   };
-  /** 리뷰어가 구현에게 보내둔 가장 최근 항목 — 거기에 답하면 가닥이 이어진다 */
+  /** 리뷰어가 구현에게 보내둔 가장 최근 항목 — 거기에 반응하면 가닥이 이어진다 */
   const lastFromJudge = (): string | undefined => {
     const q = (mgr as unknown as {
       queue: { pending(id: string): Array<{ id: string; kind: string; fromId?: string }> };
@@ -131,7 +144,7 @@ async function main(): Promise<void> {
   console.log(`${NL}── ① 진짜로 읽나 (정답: A 가 버그) ─────────────`);
   const a1 = await ask(
     [
-      "둘 중 하나에만 버그가 있어. 어느 쪽이고 왜야? 짧게.",
+      "둘 중 하나에만 버그가 있어. **첫 글자로 A 또는 B 만 쓰고** 줄을 바꿔 이유를 적어.",
       "",
       "  A:  function expired(tok) { return tok.exp < Date.now(); }",
       "  B:  function expired(tok) { return tok.exp * 1000 < Date.now(); }",
@@ -165,16 +178,21 @@ async function main(): Promise<void> {
   // ── 결과 ─────────────────────────────────────────────────────
   console.log(`${NL}── 결과 ──────────────────────`);
   /*
-   * 🔴 **처음 쓴 식이 맞는 답을 떨어뜨렸다** (2026-10-12).
+   * 🔴 **검사식을 두 번 고쳤다** (2026-10-12 · 13). 둘 다 **맞는 답을
+   * 떨어뜨렸다:**
    *
-   *   /\bB\b.*버그|버그.*\bB\b/     ← `|` 가 제일 약해서 통째로 둘로 갈린다
+   * ```
+   * /\bB\b.*버그|버그.*\bB\b/    `|` 가 제일 약해 통째로 둘로 갈린다
+   * /A[^B]{0,12}(버그|…)/         «A입니다. … 잘못 판단합니다» 는 12자를 넘는다
+   * ```
    *
-   * «A에 버그가 있습니다 … B처럼 1000을 곱해야» 는 **맞는 답**인데 뒤쪽
-   * 갈래(`버그.*B`)에 걸렸다. **글자가 나왔나**가 아니라 **무엇 옆에 나왔나**를
-   * 봐야 한다 — 「버그」와 **붙어 있는 쪽**이 짚은 쪽이다.
+   * **글의 모양을 맞히려 들면 계속 진다.** 그래서 **답의 모양을 물을 때
+   * 정했다** — «첫 글자로 A 또는 B 만». 재는 것이 한 글자가 된다.
+   *
+   * ⚠️ 봐주는 것이 아니다. 재려는 것은 **어느 쪽인지 고르는 것**이지 한국어
+   * 문장을 짓는 법이 아니다.
    */
-  const saidA = /A[^B]{0,12}(버그|문제|틀|잘못)/.test(a1)
-    && !/B[^A]{0,12}(버그|문제|틀|잘못)/.test(a1);
+  const saidA = /^\s*[«"'*`]*A\b/.test(a1);
   const saidUnit = /초|밀리|ms|1000|millisec|second/i.test(a1);
 
   const results = [
