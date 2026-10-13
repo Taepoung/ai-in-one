@@ -1,6 +1,27 @@
-import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
+import { promisify } from "node:util";
+
+/**
+ * ★ **푸는 일을 우리 가닥에서 내린다** (2026-10-13).
+ *
+ * 🔴 여기가 통째로 동기였다. 확장 호스트는 **설치된 모든 확장이 나눠 쓰는 한
+ * 가닥**이라, 푸는 내내 그 가닥이 우리에게 묶인다 — git 표시도 자동완성도
+ * 다른 확장의 명령도 **차례가 안 온다.**
+ *
+ * ```
+ * 실측   푼 뒤 150MB · 310ms · 그동안 타이머 **0번** (20ms 마다 돌 예정이었다)
+ *        398MB 로 치면 대략 0.8초
+ * ```
+ *
+ * ⚠️ **`async` 를 붙인다고 풀리지 않는다.** 푸는 것은 **우리 코드**라, 그냥
+ * 비동기로 선언해도 그 일을 하는 동안은 똑같이 가닥을 쥔다. 풀리는 까닭은
+ * `zlib` · `fs` 의 **비동기 판이 libuv 스레드풀에서 돌기** 때문이다 — 일을
+ * 진짜로 **남에게 넘긴다.** 그리고 항목마다 `await` 가 걸리므로 그 틈에
+ * 밀린 것들이 끼어든다.
+ */
+const inflateRaw = promisify(zlib.inflateRaw);
 
 /**
  * **zip 을 Node 안에서 푼다** (2026-10-06).
@@ -54,8 +75,8 @@ function findEnd(buf: Buffer): { count: number; at: number } {
  *
  * 디렉터리 항목(이름이 `/` 로 끝나는 것)은 만들기만 하고 세지 않는다.
  */
-export function unzip(zip: string, into: string): number {
-  const buf = fs.readFileSync(zip);
+export async function unzip(zip: string, into: string): Promise<number> {
+  const buf = await fsp.readFile(zip);
   const end = findEnd(buf);
   let at = end.at;
   let made = 0;
@@ -93,7 +114,7 @@ export function unzip(zip: string, into: string): number {
       throw new Error(`압축파일이 바깥을 가리킵니다: ${name}`);
     }
 
-    if (name.endsWith("/")) { fs.mkdirSync(out, { recursive: true }); continue; }
+    if (name.endsWith("/")) { await fsp.mkdir(out, { recursive: true }); continue; }
 
     /* 지역 머리말에서 진짜 데이터 자리를 센다 — 이름·덧붙임 길이가 여기선 다를 수 있다 */
     if (buf.readUInt32LE(localAt) !== LOC) throw new Error(`zip 항목이 깨졌습니다: ${name}`);
@@ -102,17 +123,17 @@ export function unzip(zip: string, into: string): number {
 
     let body: Buffer;
     if (method === 0) body = Buffer.from(raw);
-    else if (method === 8) body = zlib.inflateRawSync(raw);
+    else if (method === 8) body = await inflateRaw(raw);
     else throw new Error(`모르는 압축 방식 ${method}: ${name}`);
 
     if (body.length !== sizeU) {
       throw new Error(`푼 크기가 안 맞습니다: ${name} (${body.length} ≠ ${sizeU})`);
     }
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.writeFileSync(out, body);
+    await fsp.mkdir(path.dirname(out), { recursive: true });
+    await fsp.writeFile(out, body);
     /* 3 = 유닉스에서 만든 zip 일 때만 권한이 들어 있다 */
     const mode = modeIn(madeOn, outer);
-    if (process.platform !== "win32" && mode !== null) fs.chmodSync(out, mode);
+    if (process.platform !== "win32" && mode !== null) await fsp.chmod(out, mode);
     made += 1;
   }
   return made;

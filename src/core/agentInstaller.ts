@@ -1,7 +1,9 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
-import { spawn, spawnSync } from "node:child_process";
+/* 🔴 **`spawnSync` 를 안 들여온다** — 확장 호스트는 한 가닥이고, 여기 있던
+ * 동기 호출 넷이 전부 그 가닥을 붙잡고 있었다 (2026-10-13). */
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { unzip } from "./unzip.js";
 import { NODE_PIN } from "./agentCatalog.js";
@@ -124,7 +126,7 @@ export async function fetchBinary(
     await fsp.writeFile(zipAt, buf);
     onLine?.(`${(buf.length / 1048576).toFixed(0)}MB 받았습니다 — 푸는 중…`);
 
-    const n = unzip(zipAt, dir);
+    const n = await unzip(zipAt, dir);
     await fsp.rm(zipAt, { force: true });
 
     const exe = path.join(dir, at.cmd);
@@ -219,11 +221,11 @@ export async function fetchExtra(
        * 그래서 풀 자리를 cwd 로 주고 이름만 넘긴다. 콜론이 없으면
        * GNU 든 bsdtar 든 똑같이 도는다.
        */
-      const r = spawnSync("tar", ["-xzf", "_extra.tar.gz"], { cwd: into, encoding: "utf8" });
+      const why = await untar("_extra.tar.gz", into);
       await fsp.rm(tmp, { force: true });
-      if (r.status !== 0) {
+      if (why !== undefined) {
         await fsp.rm(into, { recursive: true, force: true }).catch(() => undefined);
-        return { ok: false, say: `푸는 데 실패했습니다 — ${r.stderr ?? ""}` };
+        return { ok: false, say: `푸는 데 실패했습니다 — ${why}` };
       }
       const inside = await fsp.readdir(into, { withFileTypes: true });
       const files = inside.filter((e) => e.isFile());
@@ -493,6 +495,52 @@ export function authStatus(
 
 const NEWLINE = String.fromCharCode(10);
 
+/**
+ * ★ **`tar` 로 푸는 것도 비동기로** (2026-10-13).
+ *
+ * 🔴 여기가 `spawnSync` 였다. **윈도우에서는 영영 안 타는 길**이라
+ * (`.zip` 은 우리 `unzip` 이 푼다) 개발 기계에서 **한 번도 안 드러난다** —
+ * 그런데 mac·linux 에서는 「설치하기」의 **진짜 경로**다. Node 를 그렇게
+ * 푼다. P6 이 못으로 박는 바로 그 모양이다: *한쪽만 보고 넘어가면 다른 쪽
+ * 사람들만 멈추고, 우리는 그걸 볼 길이 없다.*
+ *
+ * `unzip` 과 달리 일을 **남의 프로세스가** 하므로 `spawn` 으로 족하다 —
+ * 안을 다시 짤 것이 없다.
+ *
+ * @returns 됐으면 `undefined`, 아니면 사람에게 보일 한 줄
+ */
+function untar(file: string, cwd: string): Promise<string | undefined> {
+  return new Promise((done) => {
+    let err = "";
+    let settled = false;
+    const give = (why: string | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done(why);
+    };
+    let child: ReturnType<typeof spawn>;
+    /* 늦으면 포기한다 — 멎은 `tar` 를 영영 기다리면 받기가 통째로 걸린다 */
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* 이미 갔으면 그만 */ }
+      give("푸는 데 너무 오래 걸립니다");
+    }, UNTAR_MS);
+    try {
+      /* 🔴 절대경로를 넘기지 않는다 — 아래 호출부의 주석(§G5) */
+      child = spawn("tar", ["-xzf", file], { cwd, windowsHide: true });
+    } catch (e) { give(describeErr(e)); return; }
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (c: string) => { err += c; });
+    child.on("error", (e) => give(describeErr(e)));
+    child.on("close", (code) => give(code === 0 ? undefined : err.trim() || `tar 가 ${code} 로 끝났습니다`));
+  });
+}
+
+/** 푸는 데 이보다 오래 걸리면 뭔가 잘못된 것이다 */
+const UNTAR_MS = 180_000;
+
+const describeErr = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
 /** `npm` 한 번 — 밖에서 갈아끼울 수 있게 빼둔다 */
 // ── Node ─────────────────────────────────────────────────────────────────
 
@@ -586,11 +634,11 @@ export async function ensureNode(
     const tmp = path.join(base, isZip ? "_node.zip" : "_node.tar.gz");
     await fsp.writeFile(tmp, buf);
     if (isZip) {
-      unzip(tmp, base);
+      await unzip(tmp, base);
     } else {
       /* 절대경로를 넘기면 GNU tar 가 콜론을 원격 호스트로 읽는다 (§G5) */
-      const r = spawnSync("tar", ["-xzf", path.basename(tmp)], { cwd: base, encoding: "utf8" });
-      if (r.status !== 0) { onLine?.(`Node 를 풀지 못했습니다 — ${r.stderr ?? ""}`); return false; }
+      const why = await untar(path.basename(tmp), base);
+      if (why !== undefined) { onLine?.(`Node 를 풀지 못했습니다 — ${why}`); return false; }
     }
     await fsp.rm(tmp, { force: true });
 

@@ -83,7 +83,7 @@ async function main(): Promise<void> {
       { name: "deep/", body: "" },
       { name: "deep/inside.txt", body: "x".repeat(5000) },
     ]));
-    const n = unzip(zipAt, out);
+    const n = await unzip(zipAt, out);
     console.log(`   푼 파일 ${n}개`);
     ok(n === 3, `★ 폴더 항목은 안 센다 (${n})`);
     ok(fs.readFileSync(path.join(out, "bin", "agy_acp_server.exe"), "utf8") === "실행파일인 척",
@@ -94,12 +94,39 @@ async function main(): Promise<void> {
        "★ 눌린 항목이 원래 크기로 돌아온다");
   }
 
+  console.log("\n[★ 푸는 동안 **가닥을 안 쥔다**]");
+  {
+    /*
+     * 🔴 여기가 통째로 동기였다. 확장 호스트는 **모든 확장이 나눠 쓰는 한
+     * 가닥**이라 푸는 내내 git 표시도 자동완성도 다른 확장의 명령도 **차례가
+     * 안 온다.** 실측: 푼 뒤 150MB 에 310ms, 그동안 타이머 **0번**.
+     *
+     * ⚠️ **`async` 를 붙인다고 풀리지 않는다** — 푸는 것은 우리 코드다.
+     * 풀리는 까닭은 `zlib`·`fs` 의 비동기 판이 **libuv 스레드풀에서 돌기**
+     * 때문이다. 그래서 재는 것도 속도가 아니라 **타이머가 도는가**다.
+     */
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      name: `big/f${i}.bin`, body: "가".repeat(20000),
+    }));
+    fs.writeFileSync(zipAt, makeZip(many));
+    const where = path.join(dir, "beat");
+
+    let beats = 0;
+    const heart = setInterval(() => { beats++; }, 5);
+    const n = await unzip(zipAt, where);
+    clearInterval(heart);
+
+    ok(n === 40, `푼 파일 ${n}개`);
+    ok(beats > 0,
+       `★ **푸는 동안 타이머가 돌았다** (${beats}번) — 동기면 0 이다`);
+  }
+
   console.log("\n[★ 바깥을 가리키면 거절한다 — zip-slip]");
   {
     for (const bad of ["../밖에.txt", "a/../../밖에.txt"]) {
       fs.writeFileSync(zipAt, makeZip([{ name: bad, body: "나쁜 것" }]));
       let said = "";
-      try { unzip(zipAt, path.join(dir, "guard")); } catch (e) { said = (e as Error).message; }
+      try { await unzip(zipAt, path.join(dir, "guard")); } catch (e) { said = (e as Error).message; }
       console.log(`   ${bad} → ${said || "(안 막혔다)"}`);
       ok(said.includes("바깥"), `★ **${bad} 를 막는다** — 안 막으면 우리 자리 밖에 쓴다`);
     }
@@ -110,7 +137,7 @@ async function main(): Promise<void> {
   {
     fs.writeFileSync(zipAt, Buffer.from("zip 이 아니다"));
     let said = "";
-    try { unzip(zipAt, out); } catch (e) { said = (e as Error).message; }
+    try { await unzip(zipAt, out); } catch (e) { said = (e as Error).message; }
     ok(said.includes("zip 이 아닙니다"), `★ 조용히 빈 손으로 끝내지 않는다 (${said})`);
 
     /* 크기가 안 맞으면 — 받다 만 파일이 이 꼴이다 */
@@ -120,7 +147,7 @@ async function main(): Promise<void> {
     good.writeUInt32LE(99999, dirAt + 24);
     fs.writeFileSync(zipAt, good);
     said = "";
-    try { unzip(zipAt, path.join(dir, "o2")); } catch (e) { said = (e as Error).message; }
+    try { await unzip(zipAt, path.join(dir, "o2")); } catch (e) { said = (e as Error).message; }
     ok(said.includes("크기"), `★ **푼 크기가 다르면 멈춘다** — 받다 만 것을 성공으로 치면 안 된다 (${said})`);
   }
 
