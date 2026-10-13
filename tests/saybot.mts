@@ -230,6 +230,110 @@ async function main(): Promise<void> {
     const got = await t.check(t.a);
     ok(got.item?.about === "«빌드 왜 깨졌어?»",
        `★ **무엇에 대한 답인지 실린다** (${got.item?.about}) — 알파 제 질문이라 새는 것이 없다`);
+
+    /*
+     * ★ **답장이 그 말풍선에 걸린다** (2026-10-13).
+     *
+     * 🔴 `id` 를 여태 **쓰고 버렸다** — 상한 계산과 «닫기»에만 썼다. 그래서
+     * 모든 `say` 말풍선이 `replyToIds` 가 빈 채였고, 화면은 그걸 «봇이 먼저
+     * 보냈습니다» 로 읽었다. **사용자가 시켜서 보낸 것까지** 그렇게 적혔다.
+     *
+     * 걸어두면 화면이 ««빌드 왜 깨졌어?»에 답합니다» 로 잇고 누르면 그 자리로
+     * 간다 — 그 기계(`answerNote`)는 이미 있었고 **이을 값이 없었을 뿐**이다.
+     */
+    const ask = bubbles(t.room, t.a.id, t.b.id).at(-1)!;
+    const back2 = bubbles(t.room, t.b.id, t.a.id).at(-1)!;
+    ok(back2.replyToIds?.length === 1 && back2.replyToIds[0] === ask.id,
+       `★ **답장이 그 말풍선에 걸린다** (${JSON.stringify(back2.replyToIds)})`);
+    /*
+     * ★ **«0» 도 걸린다** — 사용자가 방금 한 말 때문에 보낸 것이므로, 그
+     * 말풍선에 건다. 그래야 «봇이 먼저 보냈습니다» 가 **진짜로 먼저 보낸
+     * 것에만** 남는다.
+     */
+    const said = t.room.messages.find((m) => m.role === "user" && m.text === "안녕")!;
+    ok(ask.replyToIds?.length === 1 && ask.replyToIds[0] === said.id,
+       `★ **«0» 은 사용자 말풍선에 걸린다** (${JSON.stringify(ask.replyToIds)})`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 꺼내 봤으면 **턴이 끝날 때 닫힌다** (2026-10-13)]`);
+  {
+    /*
+     * 🔴 항목을 빼는 길이 `say`·`verdict` **하나뿐**이었다. 그런데 깨어난 봇이
+     * **사용자에게만 답하는** 경우가 흔하다 — 사용자: *"봇이 반응을 나한테 할때,
+     * say를 안쓰니까 큐에서 안빠지는 문제가 있네"*. 그러면 그 항목이 영영 몫에
+     * 남아 매 턴 «queue: 1 · do: check_queue» 로 찌르고, check_queue 는 **이미
+     * 처리한 것**을 또 꺼내준다.
+     *
+     * 전달이 약속이고 **답장은 약속이 아니다**(단방향 전송). «읽었다» 가 곧
+     * 전달이 끝난 것이다.
+     */
+    const t = await make(); dirs.push(t.dir);
+    const first = t.say(t.a, "베타", "이거 봐줄래?");
+    await t.answerCard(true);
+    await first;
+    await t.settle();
+
+    const mine = await t.check(t.b);
+    ok(mine.item !== null, "전제 — 베타 몫에 있다");
+    ok(t.inner.queue.shareLeft(t.b.id) === 1,
+       "★ **꺼냈다고 빠지지는 않는다** — 답 못 하고 턴이 끊겨도 잃지 않으려고");
+
+    // 베타가 `say` 를 안 쓰고 **사용자에게만** 답하는 턴
+    await t.mgr.send(t.room.id, "베타야 고마워", undefined, t.b.id);
+    await t.settle();
+    ok(t.inner.queue.shareLeft(t.b.id) === 0,
+       "★ **턴이 끝나면 닫힌다** — 안 닫으면 매 턴 같은 것을 다시 찌른다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 답할 것이 아니면 **넘긴다** — to: null (2026-10-13)]`);
+  {
+    /*
+     * 🔴 항목을 빼는 길이 «답하기» 하나뿐이면 **답할 것이 아닌 말에 억지로
+     * 답하게** 된다. 턴 끝 자동 닫기가 받쳐주지만 그건 조용해서, 사용자는
+     * «봤는데 안 한 것»과 «못 본 것»을 구별할 수 없다.
+     *
+     * 사용자: *"say에 대상에 null을 적으면 제거되게하는거지 근데 text를
+     * reason처럼 적어서 제거한 이유를 적게하고 활동에 표시하는건?"*
+     */
+    const t = await make(); dirs.push(t.dir);
+    const first = t.say(t.a, "베타", "이 로그 좀 봐줄래?");
+    await t.answerCard(true);
+    await first;
+    await t.settle();
+
+    const mine = await t.check(t.b);
+    const id = mine.item!.id;
+
+    /* 넘기는 줄이 붙을 **턴**을 세워준다 — 진짜로는 `runQueue` 가 깔아둔다 */
+    const bt = (t.mgr as unknown as {
+      botRuntime(r: string, b: string): { turn?: { tools?: Array<{ title: string; output?: string }> } };
+    }).botRuntime(t.room.id, t.b.id);
+    const turn = t.room.messages.filter((m) => m.authorBotId === t.b.id).at(-1)!;
+    bt.turn = turn as unknown as { tools?: Array<{ title: string; output?: string }> };
+
+    /* 🔴 **빠뜨린 것과 구별한다** — `null` 을 적어야 넘김이다 */
+    const missed = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { text: "뭔가", id });
+    ok(missed.isError === true && missed.text.includes("`null`"),
+       `★ **to 를 빠뜨리면 오류다** — 한 번의 빠뜨림이 조용한 삭제가 되면 안 된다`);
+
+    const out = await t.mgr.mcpCall(
+      `${t.room.id}:${t.b.id}`, "say", { to: null, text: "제 일이 아닙니다", id },
+    );
+    const body = JSON.parse(out.text) as { ok: boolean; skipped?: string; queue_left: number };
+    ok(body.ok === true && body.skipped === id, `★ 넘겼다고 답한다 (${out.text})`);
+    ok(t.inner.queue.find(t.b.id, id) === undefined, "★ **그 항목이 닫힌다**");
+    ok(bubbles(t.room, t.b.id, t.a.id).length === 0,
+       "★ **말풍선은 안 생긴다** — 대화가 «넘겼습니다» 로 덮이면 안 된다 (되먹임에도 안 실린다)");
+
+    const row = turn.tools?.at(-1);
+    ok(row?.title.includes("넘김") === true && row?.output === "제 일이 아닙니다",
+       `★ **활동 한 줄로 남는다 — 이유까지** (${row?.title} · ${row?.output})`);
+
+    /* 이유를 안 적으면 안 받는다 — 사용자가 읽을 줄이다 */
+    const bare = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { to: null, text: "  ", id });
+    ok(bare.isError === true, "★ **이유 없이는 못 넘긴다**");
     t.mgr.dispose();
   }
 

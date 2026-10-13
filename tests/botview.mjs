@@ -334,7 +334,7 @@ console.log("\n[★ 상태줄도 그 봇 것만 — 중단도 그 봇만]");
    */
   const bar = t.$("#screen-chat .status").textContent;
   ok(!/Codex/.test(bar), `★ **남의 턴 이야기가 안 뜬다** (${bar})`);
-  ok(!t.$("#screen-chat .status .stop"),
+  ok(t.$("#screen-chat .stop-row .stop").hidden,
      "★ **중단도 안 뜬다** — 그 봇은 놀고 있다");
 
   /*
@@ -350,7 +350,12 @@ console.log("\n[★ 상태줄도 그 봇 것만 — 중단도 그 봇만]");
    */
   t.send({ t: "status", roomId: "r1", status: "streaming",
            bots: { b1: "streaming", b2: "streaming" } });
-  const stopBtn = t.$("#screen-chat .status .stop");
+  /*
+   * ★ **대화 위에 떠 있는다** (2026-10-13) — 말풍선 아래(밀려 내려간다)도,
+   * 입력줄 안(너비가 움직인다)도 아니다.
+   */
+  const stopBtn = t.$("#screen-chat .stop-row .stop");
+  ok(!stopBtn.hidden, "★ 그 봇이 도는 중이면 **뜬다**");
   ok(stopBtn.textContent === "전부 중단",
      `★ **글자가 하는 일을 말한다** (${stopBtn.textContent}) — 뷰 안에서 「중단」은 «이 봇만»으로 읽힌다`);
   stopBtn.click();

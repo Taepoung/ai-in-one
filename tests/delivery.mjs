@@ -251,24 +251,38 @@ console.log("\n[★ 말풍선 아래 띠가 통째로 사라졌다 (v3.0 1-E)]")
   ok(t.$("#screen-chat .delivery") === null, "★ **띠가 없다** — 말풍선이 있으면 간 것이다");
 }
 
-console.log("\n[★ 말풍선의 중단도 같은 아이콘 — 그리고 방 전체를 멈춘다]");
+console.log("\n[★ 중단은 **대화 위에 떠 있는 한 자리** — 그리고 방 전체를 멈춘다]");
 {
   /*
-   * 🔴 **«■» 흉내는 걷어냈다.** 말풍선의 중단은 `::before` 로 ■ 를 그렸는데,
-   * 위 상태줄의 «중단»과 **같은 일인데 모양이 달랐다.**
+   * ⏪ **말풍선 아래에서 걷었다** (2026-10-13). 사용자: *"전부 중단 버튼이
+   * 말풍선 아래있는게 맘에 안듬, 전송버튼 왼쪽에 있게 하자"*.
+   *
+   * 🔴 말풍선마다 달리면 **답이 길어질수록 아래로 밀려 내려가고** 스크롤하면
+   * 사라진다. 그래서 상태 줄에도 같은 단추를 두고 있었는데 — **같은 일을
+   * 하는 단추가 둘**이었다. 이제 안 움직이는 한 자리다.
    *
    * ⏪ 그리고 이제 «이 봇만»이 아니다 — 봇이 여럿이어도 **방이 통째로**
-   * 멈춘다. 자리는 그대로 두고 **글자가 하는 일을 말한다**: 「이 봇만」이
-   * 남아 있으면 거짓말이 된다.
+   * 멈춘다(v3.0 1-D). 아이콘만 서므로 하는 일은 **툴팁이 말한다.**
    */
   const t = mount();
   open(t, room(BOTH, [{ id: "s1", role: "agent", text: "쓰는 중", authorBotId: "b1",
                         deliveredTo: ["b1"], streaming: true, createdAt: 5 }]));
-  const stopBot = t.$$("#screen-chat .stop-bot")[0];
+  ok(t.$("#screen-chat .msg .stop-bot") === null,
+     "★ **말풍선 아래에는 없다** — 밀려 내려가는 자리였다");
+
+  const stopBot = t.$("#screen-chat .stop-row .stop");
   ok(stopBot?.querySelector("i.codicon-debug-stop") != null,
-     "★ 말풍선의 «중단»도 **같은 아이콘** — ■ 흉내가 아니라 `debug-stop`");
+     "★ 떠 있는 단추로 선다 — 아이콘은 `debug-stop`");
   ok(stopBot.textContent === "전부 중단",
      `★ **글자가 하는 일을 말한다** (${stopBot.textContent}) — 「이 봇만」이면 거짓말이다`);
+  /*
+   * 🔴 **자리를 안 먹어야 한다.** 입력줄 안에 뒀더니 뜨고 질 때마다 입력창
+   * 너비가 움직여서 **타이핑하던 글자가 밀렸다.** 받침 줄은 높이가 0 이다.
+   */
+  ok(t.$("#screen-chat .composer .stop") === null,
+     "★ **입력줄 안이 아니다** — 뜨고 질 때 입력창이 밀리면 안 된다");
+  ok(t.$("#screen-chat .stop-row").nextElementSibling.classList.contains("composer"),
+     "★ **입력창 바로 위**에 받침이 선다");
 
   stopBot.click();
   const sent = t.sent.find((m) => m.t === "stopAll");

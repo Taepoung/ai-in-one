@@ -297,6 +297,29 @@ function main() {
        "★ **다음 칸으로 넘어간다**");
   }
 
+  console.log("\n[★ 「응답이 중단되었습니다」 를 **두 번 말하지 않는다** (2026-10-13)]");
+  {
+    /*
+     * 🔴 사용자가 받은 것: 똑같은 줄이 **두 번.**
+     *
+     * 끊긴 답이 **빈 답**이면 `healAfterCrash` 가 둘을 같이 세운다 —
+     * `truncated` 와 `error = "응답이 중단되었습니다."`. 말풍선이 통째로
+     * 비는 것보다는 낫기 때문인데, 그 둘의 **글자까지 똑같아서** 나란히 떴다.
+     */
+    const dead = msg({ id: "a1", text: "", truncated: true, error: "응답이 중단되었습니다." });
+    const t = enter(mount(boot([meta()])), { messages: [dead] });
+    const says = t.$$("#screen-chat .meta")
+      .map((e) => e.textContent)
+      .filter((x) => x.includes("응답이 중단되었습니다"));
+    ok(says.length === 1, `★ **한 번만 말한다** (${says.length}번)`);
+
+    /* 글이 있으면 «여기서 잘렸다» 는 따로 뜻이 있다 — 그건 그대로 뜬다 */
+    const cut = msg({ id: "a2", text: "여기까지 쓰다가", truncated: true });
+    const t2 = enter(mount(boot([meta()])), { messages: [cut] });
+    ok(t2.$$("#screen-chat .meta").some((e) => e.textContent.includes("응답이 중단되었습니다")),
+       "★ **자를 글이 있으면 말한다** — 「잘렸다」 는 글이 있어야 하는 말이다");
+  }
+
   console.log("\n[★ 못 붙은 봇 — **붙는 화면은 기다리고, fix 가 정한다** (2026-10-13)]");
   {
     /*

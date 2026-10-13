@@ -171,6 +171,35 @@ function main(): void {
     ok(ids.every((id) => /^[px]\d+$/.test(id)), "★ 앞글자 + 1 부터 — 그 둘이 보장의 전부다");
   }
 
+  console.log(`${NL}[★ 꺼내 본 **메시지만** 닫는다 — 권한은 안 닫는다 (2026-10-13)]`);
+  {
+    const q = new BotQueue();
+    q.put({ kind: "message", to: "b", from: "알파", fromId: "a", text: "봐줄래", depth: 1 });
+    q.put({ kind: "permission", to: "b", from: "알파", fromId: "a", title: "파일 고치기", readOnly: false });
+    q.startTurn("b");
+
+    /* 권한이 먼저 나온다 — 그쪽만 꺼내 본 셈이 된다 */
+    const first = q.view("b");
+    ok(first?.kind === "permission", "전제 — 권한이 먼저 나온다");
+    ok(q.closeSeen("b") === 0,
+       "★ **권한은 안 닫는다** — 요청한 봇이 얼어 있다. 조용히 닫으면 영영 멈춘다");
+    ok(q.shareLeft("b") === 2, "둘 다 그대로다");
+
+    /* 권한을 답하면 메시지가 나온다 */
+    q.answer("b", first!.item.id);
+    const second = q.view("b");
+    ok(second?.kind === "message", "전제 — 이번엔 메시지다");
+    ok(q.shareLeft("b") === 1, "★ 꺼냈다고 빠지지는 않는다");
+    ok(q.closeSeen("b") === 1 && q.shareLeft("b") === 0,
+       "★ **턴이 끝나면 꺼내 본 메시지는 닫힌다**");
+
+    /* 안 꺼낸 것은 안 닫힌다 */
+    q.put({ kind: "message", to: "b", from: "알파", fromId: "a", text: "또", depth: 1 });
+    q.startTurn("b");
+    ok(q.closeSeen("b") === 0 && q.shareLeft("b") === 1,
+       "★ **안 꺼냈으면 안 닫는다** — 본 적도 없는 것을 버리면 잃는 것이다");
+  }
+
   console.log(`${NL}전부 통과`);
 }
 

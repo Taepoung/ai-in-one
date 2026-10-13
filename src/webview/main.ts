@@ -2454,6 +2454,8 @@ interface ChatEls {
   chips: HTMLElement;
   box: HTMLTextAreaElement;
   perm: HTMLElement;
+  /** 중단 — 보내기 바로 왼쪽. 턴이 도는 동안에만 보인다 (2026-10-13) */
+  stop: HTMLButtonElement;
   /** 단체방의 «누구에게 가나» 줄 (v2.0). 1:1에서는 숨어 있다 */
   compose: HTMLElement;
   /**
@@ -3126,6 +3128,25 @@ function mountChat(r: Room): void {
     ? makeChipBox()
     : el("textarea", { rows: 1, placeholder: "메시지 입력…" })) as HTMLTextAreaElement;
   const perm = el("button", { class: "icon perm" }, icon("shield"));
+  /*
+   * ★ **중단 — 입력창 바로 위, 오른쪽에 떠 있는다** (2026-10-13).
+   *
+   * 사용자: *"중단을 입력창 바로위 오른쪽에 붙이는건 어때? 필요할때만 나오는
+   * 방식?"* / *"빨간색 버튼으로"* / *"스크롤 왼쪽"*.
+   *
+   * ⏪ 말풍선 아래였다 — 답이 길어질수록 **밀려 내려가고** 스크롤하면 사라진다.
+   * ⏪ 입력줄 안에도 넣어봤다 — 뜨고 질 때마다 **입력창 너비가 38px 씩 움직여서**
+   *    타이핑하던 글자가 밀린다.
+   *
+   * 그래서 **자리를 안 먹게 띄운다**(`.stop-row` 는 높이 0). 나타나도 아무것도
+   * 안 밀리고, 대화의 오른쪽 아래 — 스크롤바 왼쪽 — 에 떠 있는다.
+   * 도는 동안에만 보인다: `paintStatus` 가 켜고 끈다.
+   */
+  const stop = el("button", {
+    class: "stop", hidden: true,
+    onclick: () => post({ t: "stopAll", roomId: r.id }),
+  }, icon("debug-stop"), el("span", { class: "stop-say" })) as HTMLButtonElement;
+  const stopRow = el("div", { class: "stop-row" }, stop);
   const chips = el("div", { class: "chips", hidden: true });
   const compose = el("div", { class: "compose-note", hidden: true });
   const staged = el("div", { class: "staged-row", hidden: true });
@@ -3300,6 +3321,8 @@ function mountChat(r: Room): void {
     compose,
     staged,
     chips,
+    /* 높이 0 — **자리를 안 먹는다.** 떠 있는 단추만 대화 위로 올라온다 */
+    stopRow,
     el(
       "div",
       { class: "composer" },
@@ -3314,7 +3337,7 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, queue, clash, list, back, status, chips, box, perm, compose, staged };
+  chat = { roomId: r.id, head, queue, clash, list, back, status, chips, box, perm, compose, staged, stop };
   // 방을 갈아타면 돌아갈 자리도 사라진다 — 남의 방 스크롤 값이다
   backTo = undefined;
   pending = [];
@@ -4088,30 +4111,32 @@ function paintStatus(bar: HTMLElement, r: Room, status: RoomStatus): void {
           .join(" · ")
       : statusText(at);
 
-  const kids: Node[] = [
+  bar.replaceChildren(
     el("span", { class: "typing" }, el("i"), el("i"), el("i")),
     el("span", { text }),
-  ];
-  // 중단은 턴이 도는 동안에만 의미가 있다
-  if (at === "streaming" || at === "tool" || at === "waiting") {
-    kids.push(
-      el(
-        "button",
-        {
-          class: "stop",
-          // 봇을 안 지목한다 — 중지는 **방이 통째로** 하나다 (v3.0 1-D)
-          onclick: () => post({ t: "stopAll", roomId: r.id }),
-          ...(r.participants.length > 1
-            ? { title: "이 방에서 도는 것을 전부 멈춥니다. 줄 서 있던 말도 안 갑니다." }
-            : {}),
-        },
-        icon("debug-stop"),
-        // 봇이 하나면 «전부»가 군더더기다 — 멈출 것이 어차피 하나뿐이다
-        r.participants.length > 1 ? "전부 중단" : "중단",
-      ),
-    );
-  }
-  bar.replaceChildren(...kids);
+  );
+
+  /*
+   * ★ **중단은 대화 위에 떠 있는 한 자리** (2026-10-13).
+   *
+   * 여기(상태 줄)와 말풍선 아래, **둘**에 있었다. 같은 일을 하는 단추가 둘이면
+   * 어느 쪽이 무엇을 멈추는지부터 헷갈린다 — 실제로 한쪽은 «이 봇만» 이던
+   * 시절의 자국이었다. 이제 한 자리다.
+   *
+   * 턴이 도는 동안에만 뜬다 — 멈출 것이 없을 때 서 있으면 누를 수 있는 줄 안다.
+   * 뷰에서는 **그 봇의** 상태를 본다(`at`), 멈추기는 방 전체다(v3.0 1-D) —
+   * 그래서 봇이 여럿이면 말이 «전부»로 바뀐다. 「중단」이라고만 두면 **이 봇만
+   * 멈추는 줄 알고 누른다.**
+   */
+  if (!chat || chat.roomId !== r.id) return;
+  const live = at === "streaming" || at === "tool" || at === "waiting";
+  chat.stop.hidden = !live;
+  const all = many || r.participants.length > 1;
+  const say = chat.stop.querySelector(".stop-say");
+  if (say) say.textContent = all ? "전부 중단" : "중단";
+  chat.stop.title = all
+    ? "이 방에서 도는 것을 전부 멈춥니다. 줄 서 있던 말도 안 갑니다."
+    : "지금 답하는 것을 끊습니다";
 }
 
 /**
@@ -4428,27 +4453,17 @@ function messageNode(
    * 말풍선은 스크롤하면 사라지므로 **위의 «중단»을 없애지 않는다** — 그건
    * 언제나 닿을 수 있는 자리다.
    */
-  if (m.streaming && m.authorBotId) {
-    node.append(
-      el(
-        "div",
-        { class: "meta" },
-        el(
-          "button",
-          {
-            class: "link stop-bot",
-            title: manyBots()
-              ? "이 방에서 도는 것을 전부 멈춥니다. 줄 서 있던 말도 안 갑니다."
-              : "지금 답하는 것을 끊습니다",
-            onclick: () => room && post({ t: "stopAll", roomId: room.id }),
-          },
-          // 여태 `::before` 의 «■» 였다 — 위의 «중단»과 **같은 일인데 모양이 달랐다**
-          icon("debug-stop"),
-          manyBots() ? "전부 중단" : "중단",
-        ),
-      ),
-    );
-  }
+  /*
+   * ⏪ **말풍선 아래에서 걷었다** (2026-10-13).
+   *
+   * 사용자: *"전부 중단 버튼이 말풍선 아래있는게 맘에 안듬, 전송버튼 왼쪽에
+   * 있게 하자"*.
+   *
+   * 말풍선마다 달리면 **답이 길어질수록 아래로 밀려 내려가고**, 스크롤하면
+   * 사라진다. 그래서 위 상태 줄에도 같은 단추를 두고 있었는데 — 같은 일을
+   * 하는 단추가 둘이었다. 이제 **입력줄 왼쪽 한 자리**다: 거긴 안 움직이고,
+   * 멈추고 다시 쓰는 손이 이미 가 있는 자리다.
+   */
 
   // 생각은 기본 접힘 — 읽고 싶을 때만 편다 (C2)
   if (m.thought) {
@@ -4479,7 +4494,22 @@ function messageNode(
   if (m.attachments?.length) node.append(attachmentsNode(m));
   if (m.files?.length) node.append(filesNode(m));
 
-  if (m.truncated) node.append(el("div", { class: "meta", text: "응답이 중단되었습니다." }));
+  /*
+   * ★ **같은 말을 두 번 하지 않는다** (2026-10-13).
+   *
+   * 🔴 사용자가 받은 것: 「응답이 중단되었습니다.」 가 **두 줄.**
+   *
+   * 끊긴 답이 **빈 답**이면 `healAfterCrash` 가 둘을 같이 세운다 —
+   * `truncated` 와 `error = "응답이 중단되었습니다."`. 말풍선이 통째로 비면
+   * 아무 말도 없는 것보다는 낫기 때문인데, 그 둘이 **글자까지 똑같아서**
+   * 나란히 두 번 떴다.
+   *
+   * 「잘렸다」 는 **자를 글이 있을 때** 하는 말이다. 글이 없으면 자를 것도
+   * 없고, 그 자리는 `error` 한 줄이 맡는다.
+   */
+  if (m.truncated && m.text) {
+    node.append(el("div", { class: "meta", text: "응답이 중단되었습니다." }));
+  }
   if (m.error) node.append(el("div", { class: "meta error", text: m.error }));
 
   if (m.sendFailed) {

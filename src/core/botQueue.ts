@@ -75,6 +75,16 @@ export interface QueueMessage extends Common {
   depth: number;
   /** 답이면 **무엇에 대한 답인지** — 봇이 여럿에게 물었을 때 짝을 찾는다 */
   about?: string;
+  /**
+   * ★ **이 말이 적힌 말풍선 id** (2026-10-13).
+   *
+   * 나중에 이 항목에 반응해서 보내는 말풍선이 **여기에 걸린다** —
+   * 화면이 ««…»에 답합니다» 로 잇고, 누르면 그 자리로 간다.
+   *
+   * 🔴 **모델에게는 안 보낸다**(`wireItem` 이 흰 목록이다). 쓸 수 없는 번호를
+   * 보여주면 **써본다** — 그 한 번이 왕복 하나다.
+   */
+  srcId?: string;
 }
 
 /** `check_queue()` 가 돌려주는 것 — **한 번에 하나** */
@@ -110,6 +120,13 @@ interface Lane {
   share: QueueItem[];
   /** 턴 도중에 들어온 것 — **다음 몫**이다 */
   next: QueueItem[];
+  /**
+   * ★ **이 턴에 꺼내 본 것** (2026-10-13) — `closeSeen` 이 닫는다.
+   *
+   * 항목에 안 달고 레인에 둔다 — 항목은 도구 결과로 나가는 물건이라
+   * 우리 장부를 거기 얹으면 **모델이 읽는다.**
+   */
+  seen: Set<string>;
 }
 
 export class BotQueue {
@@ -118,7 +135,7 @@ export class BotQueue {
 
   private lane(owner: string): Lane {
     let lane = this.lanes.get(owner);
-    if (!lane) { lane = { share: [], next: [] }; this.lanes.set(owner, lane); }
+    if (!lane) { lane = { share: [], next: [], seen: new Set() }; this.lanes.set(owner, lane); }
     return lane;
   }
 
@@ -195,9 +212,12 @@ export class BotQueue {
    * 답을 못 한 채 턴이 끝나도 **잃지 않는다.**
    */
   view(owner: string): QueueView | null {
-    const share = this.lane(owner).share;
+    const lane = this.lane(owner);
+    const share = lane.share;
     if (share.length === 0) return null;
     const item = share.find((i) => i.kind === "permission") ?? share[0]!;
+    // **꺼내 봤다고 적어둔다** — 턴이 끝날 때 닫는 기준이다 (`closeSeen`)
+    lane.seen.add(item.id);
     return {
       kind: item.kind,
       answer_with: item.kind === "permission" ? "verdict" : "say",
@@ -223,6 +243,38 @@ export class BotQueue {
       if (at >= 0) return list.splice(at, 1)[0];
     }
     return undefined;
+  }
+
+  /**
+   * ★ **턴이 끝났다 — 꺼내 본 메시지는 닫는다** (2026-10-13).
+   *
+   * 🔴 여태 항목을 빼는 길은 `say`·`verdict` **하나뿐**이었다. 그런데 깨어난
+   * 봇이 **사용자에게만 답하는** 경우가 흔하다 — 그것도 반응인데 장부에는
+   * 안 빠진다. 그러면 그 항목이 **영영 몫에 남아**:
+   *
+   * ```
+   * 매 턴 프롬프트가   queue: 1 · do: check_queue   라고 찌르고
+   * check_queue 는     같은 것을 또 꺼내주고
+   * 모델은             이미 처리한 것을 다시 본다
+   * ```
+   *
+   * 전달이 약속이고 **답장은 약속이 아니다**(단방향 전송). 그러니 «읽었다» 가
+   * 곧 전달이 끝난 것이고, 거기서 닫는 것이 맞다.
+   *
+   * 🔴 **권한은 안 닫는다.** 요청한 봇이 `request_permission` 에 **얼어 있어**
+   * 누군가는 답해야 풀린다 — 조용히 닫으면 그 봇이 영영 멈춘다.
+   *
+   * @returns 닫은 수
+   */
+  closeSeen(owner: string): number {
+    const lane = this.lanes.get(owner);
+    if (!lane) return 0;
+    const before = lane.share.length;
+    lane.share = lane.share.filter(
+      (i) => !(i.kind === "message" && lane.seen.has(i.id)),
+    );
+    lane.seen.clear();
+    return before - lane.share.length;
   }
 
   /** 그 봇이 아직 답 안 한 것들 — 이번 몫과 다음 몫을 합쳐서 */

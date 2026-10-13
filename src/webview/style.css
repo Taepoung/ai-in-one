@@ -1197,19 +1197,57 @@ button.ghost:hover {
   }
 }
 
-.status .stop {
-  margin-left: auto;
+/*
+ * ★ **중단 — 대화 위에 떠 있는다** (2026-10-13).
+ *
+ * 자리를 세 번 옮겼고, 옮긴 까닭이 다 다르다:
+ *
+ * ```
+ * 말풍선 아래   답이 길어질수록 **밀려 내려가고** 스크롤하면 사라진다
+ * 상태 줄       말풍선 것과 **같은 일을 하는 단추가 둘**이었다
+ * 입력줄 안     뜨고 질 때마다 **입력창 너비가 38px 씩 움직인다** — 글자가 밀린다
+ * 떠 있기       ← 여기. 자리를 안 먹으니 아무것도 안 밀리고, 늘 같은 자리다
+ * ```
+ *
+ * 사용자: *"중단을 입력창 바로위 오른쪽에 붙이는건 어때? 필요할때만 나오는
+ * 방식?"* / *"빨간색 버튼으로"* / *"스크롤 왼쪽"* / *"말풍선 나오는 화면에
+ * 호버링으로 나오는 느낌"*.
+ *
+ * 🔴 **줄은 높이가 0 이다.** 단추를 띄워 올리는 받침일 뿐이라, 뜨든 지든
+ * 입력창도 대화도 한 픽셀도 안 움직인다.
+ */
+.stop-row {
+  position: relative;
+  height: 0;
+}
+
+.stop-row .stop {
+  position: absolute;
+  right: 18px;   /* 🔴 스크롤바 왼쪽 — 대화 목록의 막대와 안 겹치게 */
+  bottom: 8px;
+  z-index: 5;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--chat-fg);
+  gap: 5px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 14px;
+  /* 멈추라는 단추다 — **빨간색**으로 (사용자) */
+  background: var(--danger);
+  color: var(--vscode-button-foreground, #fff);
   font: inherit;
   font-size: var(--fs-11);
-  padding: 1px 9px;
+  /* 대화 **위에 떠 있는** 느낌은 그림자가 만든다 — 없으면 글에 박혀 보인다 */
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
   cursor: pointer;
+}
+
+.stop-row .stop:hover {
+  filter: brightness(1.12);
+}
+
+.stop-row .stop .codicon {
+  font-size: var(--fs-12);
 }
 
 /* ── 물어보는 카드 — 권한(D1)과 질문(D4)이 UI를 공유한다 ─────────────── */
@@ -1262,10 +1300,30 @@ button.ghost:hover {
 .composer {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-end;
+  /*
+   * ★ **가운데를 맞춘다** (2026-10-13).
+   *
+   * 🔴 `flex-end` 였다. 그러면 **바닥만 맞고 가운데가 어긋난다** — 입력창은
+   * 한 줄이어도 34~37px(글줄+안쪽여백+테두리)인데 단추는 28px 이라, 아이콘이
+   * 입력창 한가운데보다 **3~4px 위에** 떠 있었다. 사용자: *"입력창이랑 다른
+   * 아이콘들이랑 수평 정렬 안맞는거 불편해"*.
+   *
+   * 높이를 맞추는 길도 있지만 **입력창 높이는 글꼴이 정한다** — 칩 상자는
+   * 또 다르다(칩이 줄을 키운다). 가운데 정렬은 그 셈을 안 해도 늘 맞는다.
+   *
+   * ⚠️ 입력창이 여러 줄로 자라면 단추도 **가운데**에 선다. 바닥에 붙는 쪽이
+   * 익숙하긴 한데, 둘 중 **늘 맞는 쪽**을 고른다 — 한 줄이 거의 전부다.
+   */
+  align-items: center;
   gap: 6px;
   padding: 8px;
   border-top: 1px solid var(--line);
+}
+
+/* 입력창과 **같은 덩치**로 — 28px 은 옆에 두면 작아 보인다 */
+.composer button.icon {
+  width: 32px;
+  height: 32px;
 }
 
 .composer textarea {
@@ -2015,10 +2073,6 @@ button.link:hover {
  * 둔다 — 거들기만 하면 되므로.
  */
 button.link .codicon,
-.status .stop .codicon {
-  font-size: var(--fs-12);
-}
-
 .room-sub .elsewhere {
   color: var(--vscode-editorWarning-foreground, var(--chat-dim));
 }
@@ -2455,34 +2509,6 @@ details.advanced[open] > summary .codicon-chevron-right {
   margin-left: 6px;
 }
 
-
-/*
- * 흐르는 말풍선의 «중단».
- *
- * 밑줄 링크로 두었더니 10px 글씨가 활동 목록에 묻혀 **어디 있는지 물어보게**
- * 됐다. 멈추려는 사람은 급한 사람이므로 한눈에 잡혀야 한다 — 테두리를 주되
- * 색은 죽여, 눌러야 할 것처럼 보이되 대화를 가리지는 않게 한다.
- */
-.stop-bot.link {
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--chat-bg);
-  color: var(--chat-fg);
-  font-size: var(--fs-11);
-  text-decoration: none;
-}
-
-/*
- * 🔴 여기엔 `::before { content: "■" }` 가 있었다 — **아이콘 흉내**다. 위
- * 상태줄의 «중단»과 **같은 일인데 모양이 달랐고**, 글꼴에 따라 ■ 의 크기와
- * 밑선이 제각각이라 알약 안에서 떠 보였다. 이제 둘 다 `debug-stop` 이다.
- */
-
-.stop-bot.link:hover {
-  border-color: var(--vscode-errorForeground, #f14c4c);
-  color: var(--vscode-errorForeground, #f14c4c);
-}
 
 /* 방 정보의 분기 목록 — 여러 개면 줄바꿈해서 쌓인다 */
 .info-row .forks {
