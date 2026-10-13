@@ -5290,8 +5290,20 @@ export class RoomManager extends EventEmitter<Events> {
        */
       if (hit.some((b) => this.statusOf(roomId, b.id) !== "idle")) {
         for (const b of hit) this.setStatus(roomId, "error", b.id);
-        this.noteRoom(
-          room,
+        /*
+         * ★ **기록에 안 남긴다** (2026-10-13).
+         *
+         * 🔴 여기가 `noteRoom` 이었다 — 디스크에 적히는 **진짜 메시지**라
+         * 다음에 열어도 그 자리에 있다. 그런데 프로세스가 죽은 것은 **우리
+         * 사정**이지 대화가 아니다. 붙는 일을 기록에서 뺀 것과 같은 규칙이다.
+         *
+         * 그리고 지금은 말할 것이 **하나 더 있다** — 점이 상태를 따라가므로
+         * (`error` 면 멈춘다) 말풍선이 거기서 멈춘 것이 **보인다.** 글이
+         * 잘린 것도 보이고. 그러니 이 줄은 «왜» 만 한 번 말하면 된다.
+         */
+        this.emit(
+          "notice",
+          roomId,
           `${this.agentOrThrow(agentId).label} 프로세스가 종료되어 ` +
             `답변이 끊겼습니다 (${reason}). 다시 보내면 이어서 합니다.`,
         );

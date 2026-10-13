@@ -4163,12 +4163,29 @@ function messageNode(
     /*
      * 타이핑 표시와 시각은 **마지막 조각에만** — 중간에 붙으면 말이 끝난 것처럼 보인다.
      *
-     * 🔴 **멈춰 있으면 점도 멈춘다.** 승인을 기다리는 동안 그 턴은 정말로
-     * 멈춰 있는데(블로킹 요청이다), 점이 계속 돌면 «쓰고 있다»는 거짓말이
-     * 된다 — 사용자는 **자기를 기다리는 줄 모르고** 기다리게 된다.
+     * ★ **점은 «글자가 오나» 가 아니라 «턴을 쥐고 있나» 다** (2026-10-13).
+     *
+     * 🔴 여기가 `m.streaming` 만 보고 있었다. 그런데 그 칸은 **턴이 정상으로
+     * 끝날 때에만** 내려간다(`reply.streaming = false`). CLI 가 중간에 죽으면
+     * 아무도 안 내리므로 — 상태는 `error` 가 되고 「프로세스가 종료되어…」
+     * 까지 뜨는데 — **그 바로 위에서 점이 계속 돈다.**
+     *
+     * 멈추는 조건을 하나씩 더하는 대신 **묻는 것을 바꾼다.** 쥐고 있는 칸은
+     * 셋이다:
+     *
+     * ```
+     * waiting    보냈고 첫 글자를 기다린다
+     * streaming  글자가 오는 중
+     * tool       도구를 돌리는 중 — **글자는 안 오지만 일하고 있다**
+     * ```
+     *
+     * 나머지는 전부 멈춘다. `permission` 도 그렇다 — 그 턴은 정말로 멈춰
+     * 있고(블로킹 요청이다) 점이 돌면 **사용자는 자기를 기다리는 줄 모른다.**
+     * 여태 그것만 특수 처리(`stalled`)했는데, 이제 규칙 하나에 들어간다.
      */
-    const stalled = m.authorBotId !== undefined && botStatus[m.authorBotId] === "permission";
-    if (m.streaming && part.last && !stalled) {
+    const at = m.authorBotId !== undefined ? botStatus[m.authorBotId] : undefined;
+    const holding = at === "waiting" || at === "streaming" || at === "tool";
+    if (m.streaming && part.last && holding) {
       bubble.append(el("span", { class: "typing" }, el("i"), el("i"), el("i")));
     }
     node.append(

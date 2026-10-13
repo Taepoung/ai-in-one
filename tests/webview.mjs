@@ -221,6 +221,38 @@ function main() {
        "★ **끝났다고 해야 넘어간다** — «다 붙었다» 를 화면이 추론하지 않는다");
   }
 
+  console.log("\n[★ 점은 «글자가 오나» 가 아니라 **«턴을 쥐고 있나»** 다 (2026-10-13)]");
+  {
+    /*
+     * 🔴 점을 그리는 조건이 `m.streaming` 이었다. 그 칸은 **턴이 정상으로
+     * 끝날 때에만** 내려가므로, CLI 가 중간에 죽으면 아무도 안 내린다 —
+     * 상태는 `error` 가 되고 「프로세스가 종료되어…」 까지 뜨는데 **그 바로
+     * 위에서 점이 돈다.** 그냥 고장이다.
+     *
+     * 멈추는 조건을 하나씩 더하는 대신 **묻는 것을 바꿨다.**
+     */
+    const live = msg({ id: "a1", streaming: true, authorBotId: "b1" });
+    const t = enter(mount(boot([meta()])), { messages: [live] });
+
+    /* 🔴 상태 줄에도 같은 class 의 점이 있다 — **말풍선 안쪽**만 센다 */
+    const dots = () => t.$$("#screen-chat .bubble .typing").length;
+
+    t.send({ t: "status", roomId: "r1", status: "streaming", bots: { b1: "streaming" } });
+    ok(dots() > 0, "글자가 오는 중 — 점이 돈다");
+
+    t.send({ t: "status", roomId: "r1", status: "tool", bots: { b1: "tool" } });
+    ok(dots() > 0,
+       "★ **도구를 돌리는 중에도 돈다** — 글자는 안 오지만 일하고 있다");
+
+    t.send({ t: "status", roomId: "r1", status: "permission", bots: { b1: "permission" } });
+    ok(dots() === 0,
+       "★ **승인을 기다리면 멈춘다** — 점이 돌면 자기를 기다리는 줄 모른다");
+
+    t.send({ t: "status", roomId: "r1", status: "error", bots: { b1: "error" } });
+    ok(dots() === 0,
+       "★ **CLI 가 죽어도 멈춘다** — 여기가 고장나 있던 자리다 (streaming 은 true 인 채다)");
+  }
+
   console.log("\n[★ 붙는 일은 **두 칸**이다 — 띄우기와 세션 (2026-10-13)]");
   {
     /*
