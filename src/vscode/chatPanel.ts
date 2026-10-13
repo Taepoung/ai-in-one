@@ -121,6 +121,11 @@ export class ChatPanel implements AskTarget {
      */
     ChatPanel.current.askAuth();
     /*
+     * 확인 화면을 **안 세웠으면** 그쪽에서 보낼 일이 없다 — 여기서 본다.
+     * 🔴 웹뷰가 아직 안 떴을 수 있으므로 `ready` 가 와도 한 번 더 본다.
+     */
+    if (!ChatPanel.current.authShown) ChatPanel.current.navIfStale();
+    /*
      * 🔴 **열자마자 지금 상태를 보낸다** (2026-10-02).
      *
      * `boot` 은 HTML 에 한 번 실려 나가고 그 뒤로 안 바뀐다. 그래서 받아두고도
@@ -807,6 +812,31 @@ export class ChatPanel implements AskTarget {
   /** 확인 화면을 **세웠나.** 안 세웠으면 보낼 것도 되돌릴 것도 없다 */
   private authShown = false;
 
+  /**
+   * ★ **낡은 것이 있으면 로봇 화면으로 보낸다** (2026-10-13).
+   *
+   * 🔴 여태 낡았다는 것을 **그 화면 안에서만** 말했다 — 띠도 뱃지도 알림도
+   * 없다. 안 열어보면 영영 모르고, 그동안 **옛 어댑터가 멀쩡히 돈다.** 핀을
+   * 올리는 까닭은 **새 모델**인데 사용자는 옛 모델에 묶인 채 알아챌 방법이
+   * 없다(`docs/PIN.md` — «핀이 곧 모델 판»).
+   *
+   * ★ **막지는 않는다.** 모델이 없어진 것(`fix`)과 달리 **앱은 멀쩡히 돈다** —
+   * 급한 사람에게 398MB 받기를 강요할 일이 아니다. 단추는 그 화면에 이미
+   * 있으니 **띄워주는 것까지**만 하고, 뒤로 가면 그만이다.
+   *
+   * 보는 것은 파일뿐이라(`stateOf`) **CLI 를 안 띄운다.**
+   */
+  private staleAgent(): boolean {
+    const root = this.ctx.globalStorageUri.fsPath;
+    const home = os.homedir();
+    return this.agents().some((a) => stateOf(a, root, home).state === "stale");
+  }
+
+  /** 확인이 끝났을 때 **어디로 보낼까** — 낡은 것이 있으면 그 화면이 먼저다 */
+  private landing(): "list" | "new" | "agents" {
+    return this.staleAgent() ? "agents" : this.authAfter;
+  }
+
   /** 확인할 줄 — **에이전트 목록에서 저절로** 나온다 (`authPlan`) */
   private authSeed(): AuthRow[] {
     return authPlan(this.agents(), this.ctx.globalStorageUri.fsPath, os.homedir()).map(
@@ -865,7 +895,7 @@ export class ChatPanel implements AskTarget {
     this.authTimer = undefined;
     this.postAuth(false);
     this.sendAgents();
-    this.post({ t: "nav", screen: this.authAfter });
+    this.post({ t: "nav", screen: this.landing() });
   }
 
   private postAuth(stuck: boolean): void {
@@ -881,11 +911,17 @@ export class ChatPanel implements AskTarget {
    * 영영 갇힌다. 첫 그림(`Boot`)이 `screen` 을 싣는 것과 같은 구멍이고,
    * 이쪽은 **끝나는 시각이 경주**라 첫 그림으로는 못 막는다.
    */
+  /** 확인 화면이 없을 때의 길 — 낡았으면 로봇 화면으로 */
+  navIfStale(): void {
+    if (this.staleAgent()) this.post({ t: "nav", screen: "agents" });
+  }
+
   private onReady(): void {
-    // 🔴 **안 세웠으면 아무것도 안 한다** — 여기서 `nav` 를 보내면 «새 대화방»
-    // 으로 연 사람의 만들기 화면이 **다시 열리면서 적던 것이 날아간다**
-    if (!this.authShown) return;
-    if (this.authDone) this.post({ t: "nav", screen: this.authAfter });
+    // 🔴 **안 세웠으면 `authAfter` 로 안 되돌린다** — 여기서 그걸 보내면
+    // «새 대화방» 으로 연 사람의 만들기 화면이 **다시 열리면서 적던 것이
+    // 날아간다.** 낡음 안내는 얹는 것이라(`push`) 적던 것을 안 건드린다.
+    if (!this.authShown) { this.navIfStale(); return; }
+    if (this.authDone) this.post({ t: "nav", screen: this.landing() });
     else this.postAuth(this.authStuck);
   }
 

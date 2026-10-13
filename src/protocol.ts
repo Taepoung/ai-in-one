@@ -239,7 +239,16 @@ export type ToWebview =
     }
   | { t: "ask"; card: AskCard }
   | { t: "askResolved"; id: string }
-  | { t: "nav"; screen: "list" | "new" }
+  /**
+   * `agents` 는 **낡은 에이전트가 있을 때** 창을 열면서 간다 (2026-10-13).
+   *
+   * 🔴 여태 낡았다는 것을 **로봇 화면 안에서만** 말했다. 안 열어보면 영영
+   * 모르고, 그동안 **옛 어댑터가 계속 돈다** — 핀을 올린 까닭이 새 모델인데
+   * 사용자는 옛 모델에 묶인 채 **알아챌 방법이 없다**(`docs/PIN.md`).
+   *
+   * 강제는 아니다. 단추가 이미 거기 있으니 **화면을 띄워주는 것까지**만 한다.
+   */
+  | { t: "nav"; screen: "list" | "new" | "agents" }
   | { t: "cwdPicked"; path: string }
   /** 첨부가 저장되어 보낼 준비가 됐다. `rejected`는 크기·종류로 거리된 것 */
   | { t: "attached"; roomId: string; attachments: Attachment[]; rejected?: string[] }

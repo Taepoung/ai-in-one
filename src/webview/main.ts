@@ -7523,7 +7523,12 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
 
     case "nav":
       if (m.screen === "new") openNewRoom();
-      else go("list");
+      else if (m.screen === "agents") {
+        // 로봇 화면은 **목록 위에 얹는다** — 뒤로 하나면 목록으로 돌아간다
+        post({ t: "agentsAsk" });
+        renderAgents();
+        push("agents");
+      } else go("list");
       break;
 
     case "attached":
