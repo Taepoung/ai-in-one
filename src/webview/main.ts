@@ -5403,7 +5403,10 @@ function capRow(r: Room): HTMLElement {
     min: "0",
     max: "999",
     value: String(r.depthCap ?? 12),
-    title: "사용자에게서 이만큼 멀어지면 say 가 거절됩니다. 0 이면 제한 없음.",
+    title:
+      "사용자 말이 깊이 0 입니다. 거기 반응해 거는 말이 1, 그 말에 반응해 거는 " +
+      "말이 2 — **답도 반응이라 한 칸 늘어납니다.** 이만큼을 넘으면 say 가 " +
+      "거절됩니다. 0 이면 제한 없음.",
   }) as HTMLInputElement;
   if (!live) box.disabled = true;
   const commit = () => {
@@ -5415,16 +5418,21 @@ function capRow(r: Room): HTMLElement {
   return el(
     "div",
     { class: live ? "policy cap-row" : "policy cap-row off" },
-    el("span", { class: "dim", text: "사용자에게서" }),
+    /*
+     * ⏪ «사용자에게서 N 다리까지» 였다. **「다리」는 우리끼리 쓰던 말**이고
+     * 화면 어디에도 풀어둔 데가 없었다 — 숫자를 고치는 사람이 **무엇을 고치는지
+     * 모른다.** 설계가 내내 부르던 이름(«깊이»)을 그대로 쓴다.
+     */
+    el("span", { class: "dim", text: "봇끼리 이어지는 깊이" }),
     box,
     el("span", {
       class: "dim",
       // **0 이 무슨 뜻인지 그 자리에 적는다** — 숫자만 두면 «0 = 아예 못 한다» 로 읽는다
       text: !live
-        ? "다리까지 — «무조건 허용» 에서만 걸립니다."
+        ? "까지 — «무조건 허용» 에서만 걸립니다."
         : (r.depthCap ?? 12) === 0
-          ? "다리 — 제한 없음."
-          : "다리까지. 넘으면 그 호출이 거절됩니다.",
+          ? "— 제한 없음."
+          : "까지. 넘으면 그 호출이 거절됩니다.",
     }),
   );
 }

@@ -658,24 +658,62 @@ export function straysIn(rows: ProcRow[], root: string): number[] {
 }
 
 /** 지금 도는 것들을 긁는다. 못 긁으면 빈 배열 — 치우기가 일을 막으면 안 된다 */
-function procRows(): ProcRow[] {
-  try {
-    if (process.platform === "win32") {
-      const ps =
-        "Get-CimInstance Win32_Process | " +
-        "Where-Object { $_.ExecutablePath } | " +
-        "ForEach-Object { $_.ProcessId.ToString() + '|' + $_.ParentProcessId.ToString() + '|' + $_.ExecutablePath }";
-      const r = spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", ps], {
-        encoding: "utf8", timeout: 30000, windowsHide: true,
-      });
-      return parseRows(r.stdout ?? "", "|");
-    }
-    const r = spawnSync("ps", ["-eo", "pid=,ppid=,args="], { encoding: "utf8", timeout: 30000 });
-    return (r.stdout ?? "").split(NEWLINE).flatMap((line) => {
-      const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
-      return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), path: m[3]! }] : [];
-    });
-  } catch { return []; }
+/**
+ * 🔴 **동기로 돌리면 확장 호스트가 통째로 선다** (2026-10-13 실측).
+ *
+ * ```
+ * powershell -Command 1                  3,658ms   ← 아무것도 안 해도
+ * Get-CimInstance Win32_Process         40,000ms   ← 타임아웃에 걸린다
+ * sweepStrays() 한 판                23,000~30,000ms
+ * ```
+ *
+ * 이게 `activate` 길 위에서 `spawnSync` 로 돌고 있었다. 창이 안 뜨고,
+ * 명령이 «없는 명령» 이 되고, **옆 확장까지 같이 선다** — 확장 호스트는
+ * 한 가닥이기 때문이다.
+ *
+ * 그래서 **비동기로 바꾸고**, 부르는 쪽은 **켜기 길에서 비켰다**.
+ * 기다리는 시간도 줄였다 — 이건 **청소**지 켜기의 조건이 아니다.
+ */
+const PROC_LIST_MS = 10_000;
+
+function procRows(): Promise<ProcRow[]> {
+  const win = process.platform === "win32";
+  const cmd = win ? "powershell" : "ps";
+  const args = win
+    ? ["-NoProfile", "-NonInteractive", "-Command",
+       "Get-CimInstance Win32_Process | " +
+       "Where-Object { $_.ExecutablePath } | " +
+       "ForEach-Object { $_.ProcessId.ToString() + '|' + $_.ParentProcessId.ToString() + '|' + $_.ExecutablePath }"]
+    : ["-eo", "pid=,ppid=,args="];
+
+  return new Promise<ProcRow[]>((done) => {
+    let out = "";
+    let settled = false;
+    /** 늦으면 **그냥 포기한다** — 못 쓸어담아도 나머지는 돌아가야 한다 */
+    const give = (rows: ProcRow[]) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done(rows);
+    };
+    let child: ReturnType<typeof spawn>;
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* 이미 죽었으면 그만 */ }
+      give([]);
+    }, PROC_LIST_MS);
+    try {
+      child = spawn(cmd, args, { windowsHide: true });
+    } catch { give([]); return; }
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (c: string) => { out += c; });
+    child.on("error", () => give([]));
+    child.on("close", () => give(win
+      ? parseRows(out, "|")
+      : out.split(NEWLINE).flatMap((line) => {
+          const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+          return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), path: m[3]! }] : [];
+        })));
+  });
 }
 
 function parseRows(out: string, sep: string): ProcRow[] {
@@ -710,9 +748,9 @@ function killPid(pid: number): void {
  * 여기서는 **부모가 살아 있든 말든** 그 자리에서 나온 것을 전부 내린다 —
  * 지우려는 자리라 살려둘 까닭이 없다.
  */
-export function killUnder(dir: string): number {
+export async function killUnder(dir: string): Promise<number> {
   const at = path.resolve(dir).toLowerCase();
-  const hit = procRows().filter((r) => r.path.toLowerCase().startsWith(at));
+  const hit = (await procRows()).filter((r) => r.path.toLowerCase().startsWith(at));
   for (const r of hit) killPid(r.pid);
   return hit.length;
 }
@@ -723,9 +761,9 @@ export function killUnder(dir: string): number {
  * 받는 것은 **globalStorage 자리**다 — 그 안의 `agents/` 는 여기서 찾는다.
  * 자리 모양을 아는 것은 `dirFor` 와 같은 한 집이어야 한다.
  */
-export function sweepStrays(root: string): number {
+export async function sweepStrays(root: string): Promise<number> {
   const at = path.join(path.resolve(root), "agents");
-  const pids = straysIn(procRows(), at);
+  const pids = straysIn(await procRows(), at);
   for (const pid of pids) killPid(pid);
   return pids.length;
 }
@@ -756,7 +794,7 @@ export async function remove(dir: string): Promise<void> {
    * 안되나? kill 때리고 하는 느낌"*. 맞다 — 지우겠다고 누른 사람에게
    * «그 CLI 를 끄고 다시 해보세요» 는 할 일을 떠넘기는 것이다.
    */
-  const downed = killUnder(dir);
+  const downed = await killUnder(dir);
   if (downed > 0) await new Promise((r) => setTimeout(r, 300));
 
   let last: unknown;

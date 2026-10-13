@@ -861,6 +861,13 @@ function main() {
 
     const cap = row.querySelector("input.cap");
     ok(cap?.value === "12", `★ **깊이 상한이 같은 자리에 보인다** (${cap?.value})`);
+    /*
+     * 🔴 «다리» 는 **우리끼리 쓰던 말**이었다 — 화면 어디에도 풀어둔 데가 없어
+     * 숫자를 고치는 사람이 **무엇을 고치는지 몰랐다.** 설계가 내내 부르던
+     * 이름(«깊이»)이 그 자리에 있어야 한다.
+     */
+    ok(row.textContent.includes("깊이") && !row.textContent.includes("다리"),
+       `★ **«깊이» 라고 적혀 있다** (${row.querySelector(".cap-row")?.textContent})`);
     cap.value = "30";
     cap.dispatchEvent(new t.w.Event("change"));
     const capped = t.sent.filter((m) => m.t === "setRelayDepth").pop();

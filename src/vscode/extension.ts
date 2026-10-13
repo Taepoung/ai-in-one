@@ -28,6 +28,66 @@ const SLOW_ACTIVATE_MS = 1000;
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const began = Date.now();
   const out = vscode.window.createOutputChannel("AI in One");
+  ctx.subscriptions.push(out);
+
+  /*
+   * ★ **명령부터 등록한다** (2026-10-13).
+   *
+   * 🔴 여태 `activate` 의 **맨 끝**에서 등록했다. 그 앞에 `store.init()` ·
+   * MCP 서버 · 방 락 · 방 매니저가 다 있어서, **어느 하나가 터지면 명령이
+   * 아예 안 생긴다.** 사용자 눈에 남는 것은 `command 'aiInOne.open' not
+   * found` 뿐이다 — **왜 안 되는지가 한 글자도 없다.**
+   *
+   * 실제로 한 번 그랬고(F5, 2026-10-13), 창을 다시 불러오니 풀렸다. **때를
+   * 타는 실패**라 스택도 안 남았다. 다음에 또 나면 **그때는 보이게** 한다.
+   *
+   * ⚠️ 아래 본문에서는 이 둘을 **다시 등록하지 않는다** — 같은 이름을 두 번
+   * 등록하면 VSCode 가 거기서 또 터진다.
+   */
+  let bootError: unknown;
+  /** 켜기가 끝나면 진짜 창을 여는 것으로 갈린다 */
+  let open: (screen?: "new") => void = () => {
+    out.show(true);
+    void vscode.window.showErrorMessage(
+      `AI in One 을 켜지 못했습니다: ${describeBoot(bootError)} — ` +
+        "창을 다시 불러오면(Ctrl+R) 대개 풀립니다.",
+    );
+  };
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand("aiInOne.open", () => open()),
+    vscode.commands.registerCommand("aiInOne.newRoom", () => open("new")),
+  );
+
+  try {
+    await boot(ctx, out, began, (real) => { open = real; });
+  } catch (err) {
+    bootError = err;
+    /*
+     * 🔴 **조용히 넘어가면 안 된다.** 이 줄이 없으면 다음에 또 날 때도
+     * 스택이 안 남고, 우리는 또 «한 번 그랬다» 만 듣는다.
+     */
+    out.appendLine(`🔴 켜기 실패: ${describeBoot(err)}`);
+    if (err instanceof Error && err.stack) out.appendLine(err.stack);
+    out.show(true);
+    void vscode.window.showErrorMessage(
+      `AI in One 을 켜지 못했습니다: ${describeBoot(err)} — 출력 창에 자세한 것이 있습니다.`,
+    );
+  }
+}
+
+/** 오류를 사람이 읽을 한 줄로 — 메시지가 비면 통째로 적는다 */
+function describeBoot(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name;
+  return String(err);
+}
+
+/** 실제로 켜는 일 — 터지면 위에서 받아 **보여준다** */
+async function boot(
+  ctx: vscode.ExtensionContext,
+  out: vscode.OutputChannel,
+  began: number,
+  ready: (open: (screen?: "new") => void) => void,
+): Promise<void> {
   const host = new VscodeHost(out);
 
   // `globalState`는 용량 제한이 있어 쓰지 않는다. 대화는 파일로 남긴다 (F5).
@@ -95,41 +155,49 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   rooms.on("metas", paint);
 
   /*
-   * 🔴 **버려진 것을 쓸어담는다** (2026-10-07).
+   * 🔴 **버려진 것을 쓸어담는다** (2026-10-07) — 그런데 **켜기 길에서 비켰다**
+   * (2026-10-13).
    *
    * F5 나 창 닫기로 확장 호스트가 죽으면 `dispose` 가 못 돈다. Claude·Codex
    * 는 stdin 이 닫히면 알아서 끝나는데 **Antigravity 의 파이썬 서버는
    * 안 끝난다.** 그래서 그쪽만 27개·581MB 가 쌓였다(실측).
    *
-   * ⚠️ 기준은 «우리 자리에서 나왔나» 가 아니라 **«부모가 죽었나»** 다 —
-   * globalStorage 는 창끼리 나눠 쓰므로 전부 죽이면 **옆 창이 쓰는 것까지
-   * 죽인다.** 옆 창의 것은 그 창의 호스트가 부모로 살아 있다.
+   * 🔴 **그런데 그 청소가 창을 막고 있었다.** 프로세스 목록을 얻으려고
+   * PowerShell 을 **동기로** 돌리는데, 이 기계에서 재보니:
    *
-   * 막지는 않는다 — 못 쓸어담아도 나머지는 돌아가야 한다.
+   * ```
+   * powershell -Command 1          3,658ms   ← 아무것도 안 해도
+   * Get-CimInstance Win32_Process  40,000ms  ← 타임아웃
+   * sweepStrays() 한 판        23,000~30,000ms
+   * ```
+   *
+   * 확장 호스트는 **한 가닥**이라 그동안 창도 안 뜨고 명령도 안 생기고
+   * **옆 확장까지 같이 선다.** 사용자가 본 `command 'aiInOne.open' not
+   * found` 가 그것이다.
+   *
+   * ★ **청소는 켜기의 조건이 아니다.** 창이 먼저 뜨고, 청소는 **뒤에서**
+   * 한다. 못 치워도 다음에 켤 때 또 한다.
+   *
+   * ⚠️ **순서는 지킨다** — 지우는 길이 없는 에이전트는 우리가 파일을
+   * 지우는데(`purgeFiles`), 저쪽 프로세스가 들고 있으면 `EPERM` 이다.
+   * **버려진 것을 내린 다음**이라야 지울 수 있다.
    */
-  try {
-    const swept = sweepStrays(agentRoot);
-    if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
-  } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
-
-  /*
-   * ★ **치우다 만 세션 파일을 여기서 치운다** (2026-10-12 실측).
-   *
-   * 🔴 **바로 위 줄 다음이라야 한다.** 지우는 길이 없는 에이전트는 우리가
-   * 파일을 지우는데(`purgeFiles`), 방을 나가는 그 순간에는 **저쪽 프로세스가
-   * 아직 들고 있어** `EPERM` 이다 — `close` 뒤에도, 우리가 내린 뒤에도.
-   *
-   * 까닭은 바로 위가 말하고 있다: **그 파이썬 서버는 안 끝난다.** 그래서
-   * 그걸 죽인 **다음**이라야 지울 수 있다.
-   */
-  try {
-    const left = store.getAppState().purgeBacklog ?? [];
-    if (left.length > 0) {
-      const { done, keep } = sweepBacklog(left, agents, (m) => out.appendLine(m));
-      if (done > 0) out.appendLine(`밀려 있던 세션 ${done}개의 파일을 치웠습니다.`);
-      if (keep.length !== left.length) void store.patchAppState({ purgeBacklog: keep });
-    }
-  } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
+  const housekeeping = (async () => {
+    try {
+      const swept = await sweepStrays(agentRoot);
+      if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
+    } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
+    try {
+      const left = store.getAppState().purgeBacklog ?? [];
+      if (left.length > 0) {
+        const { done, keep } = sweepBacklog(left, agents, (m) => out.appendLine(m));
+        if (done > 0) out.appendLine(`밀려 있던 세션 ${done}개의 파일을 치웠습니다.`);
+        if (keep.length !== left.length) void store.patchAppState({ purgeBacklog: keep });
+      }
+    } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
+  })();
+  // 창이 닫혀도 돌던 청소는 끝까지 간다 — 다만 **아무도 안 기다린다**
+  void housekeeping;
 
   /*
    * ★ **창이 여럿이어도 같이 움직인다** (2026-10-07).
@@ -166,8 +234,10 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       screen,
     );
 
+  // ★ **여기부터 진짜 창이 열린다** — 위에서 임시로 걸어둔 오류 안내를 갈아끼운다
+  ready(show);
+
   ctx.subscriptions.push(
-    out,
     status,
     // 변경 전/후를 디스크 없이 보여주기 위한 가상 문서 (E3)
     vscode.workspace.registerTextDocumentContentProvider(
@@ -179,8 +249,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     { dispose: () => mcp.close() },
     // 들고 있던 자리를 놓는다 — 안 놓으면 다음에 열 때 **내 죽은 pid** 가 막는다
     { dispose: () => locks.releaseAll() },
-    vscode.commands.registerCommand("aiInOne.open", () => show()),
-    vscode.commands.registerCommand("aiInOne.newRoom", () => show("new")),
+    // `aiInOne.open`·`newRoom` 은 **맨 위에서 이미 등록했다** — 여기서 또 하면 터진다
     // v2.0 선결 과제를 재는 시험판 — 답이 나오면 지운다
     vscode.commands.registerCommand("aiInOne.imeProbe", () => openImeProbe(ctx)),
     vscode.commands.registerCommand("aiInOne.attachSelection", async () => {

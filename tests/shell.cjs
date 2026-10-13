@@ -67,7 +67,16 @@ const fakeVscode = {
     }
   },
   window: {
-    createOutputChannel: () => ({ appendLine: () => {}, dispose: () => {} }),
+    /*
+     * 🔴 **진짜 API 에 있는 것을 빠뜨리면 거기서 터진다.** `show` 가 없어서
+     * 켜기 실패 안내가 통째로 깨졌다(2026-10-13) — 머리말이 경고한 바로 그
+     * 부류다. 쓰는 것만 넣지 말고 **쓸 법한 것**을 넣어둔다.
+     */
+    createOutputChannel: () => ({
+      appendLine: () => {}, append: () => {},
+      show: () => {}, hide: () => {}, clear: () => {},
+      replace: () => {}, dispose: () => {},
+    }),
     createStatusBarItem: () => ({
       show: () => {},
       dispose: () => {},
@@ -101,7 +110,7 @@ const fakeVscode = {
         set iconPath(v) {},
       };
     },
-    showErrorMessage: () => Promise.resolve(undefined),
+    showErrorMessage: (m) => (errors.push(String(m)), Promise.resolve(undefined)),
     showWarningMessage: () => Promise.resolve(undefined),
     showInformationMessage: () => Promise.resolve(undefined),
     showOpenDialog: () => Promise.resolve(undefined),
@@ -158,6 +167,9 @@ async function waitFor(pick, ms = 5000) {
   }
 }
 
+/** 켜기가 터졌을 때 사용자에게 간 글 */
+const errors = [];
+
 async function main() {
   const storage = fs.mkdtempSync(path.join(os.tmpdir(), "aio-shell-"));
   const ext = require(path.join(ROOT, "dist", "extension.js"));
@@ -173,6 +185,43 @@ async function main() {
   ok(subs.length > 0, "정리 대상이 등록됨");
   ok(registered.has("aiInOne.open"), "aiInOne.open 등록됨");
   ok(registered.has("aiInOne.newRoom"), "aiInOne.newRoom 등록됨");
+
+  console.log("\n[🔴 켜기가 터져도 명령은 있다 — «없는 명령» 으로 끝나지 않는다]");
+  {
+    /*
+     * 🔴 여태 `activate` 의 **맨 끝**에서 명령을 등록했다. 그 앞이 하나라도
+     * 터지면 사용자에게 남는 것은 `command 'aiInOne.open' not found` 뿐이고,
+     * **왜 안 되는지가 한 글자도 없다.** 실제로 한 번 그랬다(F5, 2026-10-13).
+     *
+     * 여기서는 **저장 자리에 파일을 놓아** 진짜로 터뜨린다 — 흉내가 아니라
+     * 같은 고장이어야 «그래도 명령이 사나» 를 잴 수 있다.
+     */
+    const bad = path.join(os.tmpdir(), `aio-shell-bad-${Date.now()}`);
+    fs.writeFileSync(bad, "나는 폴더가 아니다");
+    registered.clear();
+    errors.length = 0;
+    await ext.activate({
+      globalStorageUri: { fsPath: bad },
+      extensionUri: { fsPath: ROOT },
+      subscriptions: [],
+    });
+    ok(registered.has("aiInOne.open"),
+       "★ **터져도 aiInOne.open 은 있다** — 명령부터 등록하기 때문");
+    registered.get("aiInOne.open")();
+    ok(errors.some((m) => m.includes("켜지 못했습니다")),
+       `★ **왜 안 되는지 말해준다** (${errors[0] ?? "(없음)"})`);
+    ok(errors.some((m) => m.includes("Ctrl+R")),
+       "★ **무엇을 해보면 되는지도** — 창을 다시 불러오면 대개 풀린다");
+    fs.rmSync(bad, { force: true });
+  }
+
+  // 그 뒤의 검사들은 **멀쩡히 켜진 판**을 본다 — 다시 켠다
+  registered.clear();
+  await ext.activate({
+    globalStorageUri: { fsPath: storage },
+    extensionUri: { fsPath: ROOT },
+    subscriptions: subs,
+  });
 
   console.log("\n[채팅을 열면 패널이 하나 뜬다]");
   registered.get("aiInOne.open")();
