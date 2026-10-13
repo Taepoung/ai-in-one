@@ -291,13 +291,19 @@ async function boot(
    */
   const housekeeping = (async () => {
     /*
-     * ★ **뒷정리는 몇 초씩 걸린다** — 프로세스 목록을 얻는 데만 이 기계에서
-     * 6초다. 창은 이미 떠 있으므로 **막지는 않지만**, 돌고 있다는 것은
-     * 보여야 한다. 안 그러면 «뭔가 느린데 뭔지 모르겠다» 가 된다.
+     * ★ **출력 창에만 적는다 — 사용자에게는 안 알린다** (2026-10-13).
+     *
+     * 뒷정리는 몇 초씩 걸리지만 **사용자가 할 일이 없다** — 막지도 않고
+     * 고를 것도 없다. 보이는 자리(툴팁·알림)는 **기다리는 사람**을 위한
+     * 것이지, 뒤에서 도는 집안일을 중계하는 자리가 아니다. 한때 툴팁을
+     * «뒷정리 중» 으로 덮었는데, 그동안 «채팅 열기» 가 안 보였다.
+     *
+     * 출력 창은 다르다 — **고장 났을 때 읽는 자리**다. 시작과 끝을 적어두면
+     * «시작만 있고 끝이 없다» 로 멈춘 것을 알 수 있고, 걸린 시각이 남는다.
+     * 오늘 23초를 먹은 것을 못 찾은 까닭이 그 줄이 없어서였다.
      */
     const tidyBegan = Date.now();
-    status.tooltip = "AI in One — 뒷정리 중(쓰던 것은 그대로 쓸 수 있습니다)";
-    out.appendLine("뒷정리를 시작합니다 — 버려진 에이전트와 밀린 파일.");
+    out.appendLine("뒷정리 시작 — 버려진 에이전트와 밀린 파일.");
     try {
       const swept = await sweepStrays(agentRoot);
       if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
@@ -310,8 +316,7 @@ async function boot(
         if (keep.length !== left.length) void store.patchAppState({ purgeBacklog: keep });
       }
     } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
-    out.appendLine(`뒷정리를 마쳤습니다 (${Date.now() - tidyBegan}ms).`);
-    status.tooltip = "AI in One 채팅 열기";
+    out.appendLine(`뒷정리 끝 (${Date.now() - tidyBegan}ms).`);
   })();
   // 창이 닫혀도 돌던 청소는 끝까지 간다 — 다만 **아무도 안 기다린다**
   void housekeeping;
