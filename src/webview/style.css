@@ -3435,6 +3435,72 @@ fieldset.bot .bot-drop.danger:hover {
  * 참여자 서랍·권한 화면과 **같은 상자**다. 셋 다 «봇/에이전트 하나당 한 칸»
  * 이라 모양이 다르면 같은 것인지 다른 것인지 헷갈린다.
  */
+/* ── 로그인 확인 화면 (2026-10-13) ─────────────────────────────────────
+ *
+ * 🔴 **가운데 세로로 모은다.** 여긴 할 일이 없는 화면이라 — 읽고 기다리는
+ * 자리다 — 목록처럼 위에서부터 쌓으면 «뭘 해야 하나» 를 찾게 된다.
+ */
+.auth-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: auto;
+  padding: 24px 16px;
+  max-width: 360px;
+  width: 100%;
+}
+
+#screen-auth {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-head {
+  margin: 0 0 6px;
+  font-size: var(--fs-13);
+}
+
+.auth-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* 표시는 **글자 폭을 고정**한다 — 줄마다 이름 시작점이 어긋나면 훑기 어렵다 */
+.auth-mark {
+  flex: 0 0 auto;
+  width: 12px;
+  text-align: center;
+  font-size: var(--fs-12);
+}
+
+/* 쓰던 초록을 그대로 쓴다 — 색을 하나 더 만들면 테마마다 어긋난다 */
+.auth-row.yes .auth-mark { color: var(--vscode-charts-green, #3fb950); }
+.auth-row.failed .auth-mark { color: var(--danger); }
+
+.auth-name {
+  font-size: var(--fs-13);
+}
+
+/* 상태는 오른쪽 끝으로 — 이름이 먼저 읽혀야 한다 (.agent-facts 와 같은 규칙) */
+.auth-say {
+  margin-left: auto;
+  font-size: var(--fs-11);
+}
+
+.auth-stuck {
+  margin: 8px 0 0;
+  font-size: var(--fs-12);
+}
+
+.auth-acts {
+  display: flex;
+  gap: 6px;
+}
+
 .agent-card {
   display: flex;
   flex-direction: column;

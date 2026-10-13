@@ -57,7 +57,14 @@ export interface Boot {
    * `nav` 메시지로는 부족하다 — 패널이 꺼져 있다가 «새 대화방»으로
    * 열릴 때는 웹뷰 스크립트가 뜨기 전이라 **보낸 메시지가 그냥 사라진다.**
    */
-  screen: "list" | "new";
+  screen: "list" | "new" | "auth";
+  /**
+   * ★ **로그인 확인 — 창이 뜨는 첫 화면** (2026-10-13).
+   *
+   * 🔴 **첫 그림에 실어 보낸다.** 스크립트가 돌고 나서 그리면 목록이
+   * 한 번 번쩍했다가 확인 화면으로 덮인다 — 사용자 눈엔 **버벅인 것**이다.
+   */
+  auth?: AuthRow[];
   /** 현재 워크스페이스 루트. 다른 프로젝트의 방을 구별하는 데 쓴다 (B5) */
   cwd: string;
   /**
@@ -74,6 +81,26 @@ export interface Boot {
   reducedMotion: boolean;
 }
 
+/**
+ * ★ **로그인 확인 한 줄** (2026-10-13).
+ *
+ * ```
+ * asking  CLI 에게 묻는 중
+ * yes/no  답을 받았다
+ * failed  **못 물어봤다** — 시간 안에 답이 없었다
+ * ```
+ *
+ * 🔴 `guessed` 는 «물어본 게 아니라 **파일만 봤다**» 는 뜻이다. 확신의 급이
+ * 다르므로 화면도 다르게 적어야 한다 — 같이 그리면 «확인했다» 는 거짓말이
+ * 된다. Antigravity 가 그렇다(로그인 상태를 알려주는 명령이 없다).
+ */
+export interface AuthRow {
+  id: string;
+  label: string;
+  at: "asking" | "yes" | "no" | "failed";
+  guessed?: boolean;
+}
+
 /** 답을 기다리는 카드 하나 (D1·D4). 둘이 UI 인프라를 공유한다 */
 export type AskCard =
   | { id: string; kind: "permission"; roomId: string; req: PermissionRequest }
@@ -84,6 +111,14 @@ export type AskAnswer =
   ;
 
 export type ToWebview =
+  /**
+   * 로그인 확인이 어디까지 왔나 (2026-10-13).
+   *
+   * `stuck` 은 **기한을 넘겼다** 는 뜻이다 — 그때는 화면이 사람에게 묻는다
+   * (다시 해볼까, 그냥 들어갈까). 조용히 넘어가면 «왜 로그인하라 그러지»
+   * 가 나중에 터지고, 그때는 왜인지 알 길이 없다.
+   */
+  | { t: "auth"; list: AuthRow[]; stuck: boolean }
   /**
    * ★ **에이전트마다 지금 어느 칸에 있나** (2026-10-01).
    *
@@ -224,6 +259,22 @@ export type ToWebview =
   | { t: "createFailed"; message: string };
 
 export type FromWebview =
+  /**
+   * ★ **웹뷰가 떴다** (2026-10-13).
+   *
+   * 🔴 **스크립트가 돌기 전에 보낸 것은 사라진다.** `Boot.screen` 이 있는
+   * 까닭이 그거다(*"«새 대화방»으로 열릴 때는 … 보낸 메시지가 그냥
+   * 사라진다"*). 로그인 확인은 **0.1초에 끝날 수도** 있어서 `auth` 와
+   * `nav` 가 통째로 그 구멍에 빠질 수 있다 — 그러면 사용자는 **확인
+   * 화면에 영영 갇힌다.**
+   *
+   * 그래서 **받을 사람이 생겼다고 말하고, 호스트가 그때 다시 보낸다.**
+   */
+  | { t: "ready" }
+  /** 확인 화면에서 [다시 시도] — **못 물어본 것만** 다시 묻는다 */
+  | { t: "authRetry" }
+  /** 확인 화면에서 [그냥 들어가기] — 파일 짐작으로 간다 */
+  | { t: "authSkip" }
   | { t: "open"; roomId: string }
   | { t: "back" }
   | {

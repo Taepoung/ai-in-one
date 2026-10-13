@@ -85,6 +85,49 @@ npm 꼴 (Claude · Codex)          zip 꼴 (Antigravity)
 «지웠다» 고 하면 다음에 «받아져 있다» 고 잘못 읽는다.
 
 
+## 🔴 새 에이전트를 더할 때 — **채워야 하는 칸** (P6)
+
+> 사용자: *"기능을 추가하거나 관리할게 추가될때 모든 에이전트에 대해 점검해야
+> 된다는 거였어"* · *"에이전트 추가할때마다 저 것들을 따라서 추가해야될거고"*
+
+**«우리가 관리하는 것» 하나하나에 대해, 그 에이전트는 어떻게 하는지를 적는다.**
+빈칸으로 두면 **조용히 빠진다** — 빠진 줄은 아무도 못 본다. 안 되는 칸은
+**«안 된다»가 답**이고, 그러면 화면이 그걸 말해야 한다.
+
+| 관리하는 것 | 칸 | Claude | Codex | Antigravity |
+|---|---|---|---|---|
+| 받기 | `spec` / `binary` | npm | npm | **zip** (플랫폼별) |
+| 엔진 판 누르기 | `overrides` | — | `@openai/codex` | — |
+| 엔진 가리키기 | `exeEnv` | — (품은 exe 가 기본) | 🔴 `CODEX_PATH` | — |
+| 로그인 하기 | `auth.login` / `auth.acp` | 터미널 | 터미널 | **ACP `authenticate`** |
+| 로그아웃 | `auth.logout` / `auth.acp` | 터미널 | 터미널 | **ACP** |
+| 로그인됐나 — 짐작 | `auth.file` | `.claude/.credentials.json` | `.codex/auth.json` | `.gemini/antigravity-acp/acp_token.json` |
+| 로그인됐나 — 물어보기 | `auth.status` | `auth status` | `login status` 🔴 **stderr** | **없다** → 파일만 본다 |
+| 세션 지우기 | `purge` | — (ACP 로 충분) | 🔴 `delete --force` (sqlite 가 남는다) | — |
+| 남는 파일 치우기 | `purgeFiles` | — | — | 🔴 집 아래를 우리가 지운다 |
+
+**칸마다 걸렸던 것**(왜 빈칸으로 두면 안 되는지):
+
+```
+exeEnv       안 박으면 사용자 기계의 codex 가 걸린다 — 오류도 안 나고 딴 판이 돈다
+auth.status  Antigravity 는 없다. 「없음」이라고 **적었기에** 화면이
+             «파일로만 확인» 이라고 말할 수 있다 — 빼버렸으면 아무도 모른다
+             Codex 는 **stderr** 로 답한다. stdout 만 읽으면 «로그인 안 됨» 이 된다
+auth.file    Antigravity 는 **한 번 틀린 집을 봤다** — 서버를 띄우기만 해도
+             생기는 파일이라 «로그인한 적 없어도 되어 있다» 가 됐다
+purge        Codex 는 파일과 sqlite 둘에 두는데 ACP 는 파일만 지운다
+auth.acp     `agy` CLI 로 로그인해도 세션은 안 붙었다 — 둘이 다른 집을 본다
+```
+
+★ **코드에 에이전트 이름을 박지 않는다.** 여기 표가 는다는 것은 **카탈로그가
+는다**는 뜻이어야 한다. `agentInstaller.authPlan` 이 본보기다 — 「`auth.status`
+가 있으면 물어보고, 없으면 파일만 본다」로만 적혀 있어서, 새 에이전트를 더하면
+**코드를 한 글자도 안 고쳐도** 로그인 확인에 저절로 낀다. `tests/installer.mts`
+가 **지어낸 에이전트를 넣어** 그걸 고정한다.
+
+★ **OS 도 같이 본다** (P6). `process.platform` 분기는 세 갈래를 다 적고, 안
+타는 쪽도 왜 안 타는지 적는다. 못 재는 칸은 **「안 쟀다」고 적는다.**
+
 ## 무엇을 적어두나 — `AgentDef.pkg`
 
 ```ts

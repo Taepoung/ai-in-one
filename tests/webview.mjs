@@ -1226,6 +1226,76 @@ function main() {
     ok(t.$(".chips").hidden === true, "빼면 칩 줄이 사라짐");
   }
 
+  console.log("\n[★ 창이 뜨면 **로그인부터 확인한다** (2026-10-13)]");
+  {
+    /*
+     * 🔴 우리 짐작은 «자격 파일이 있나» 뿐이라 **만료 · 다른 데서 로그아웃 ·
+     * 철회**를 하나도 못 본다. 그걸 모른 채 들어가면 긴 글을 다 쓰고 **보낼
+     * 때** 막히고, 그때 뜨는 것은 CLI 원문이다.
+     */
+    const t = mount({ ...boot([], "auth"), auth: [
+      { id: "claude", label: "Claude", at: "asking" },
+      { id: "agy", label: "Antigravity", at: "yes", guessed: true },
+    ]});
+    const scr = t.$("#screen-auth");
+    ok(scr.classList.contains("active"), "★ **첫 화면이 확인 화면이다**");
+    ok(!t.$("#screen-list").classList.contains("active"),
+       "★ 목록이 안 보인다 — 번쩍했다 덮이면 사용자 눈엔 **버벅인 것**이다");
+    ok(scr.textContent.includes("확인 중"), "묻는 중이라고 말한다");
+    ok(scr.textContent.includes("파일로만 확인"),
+       "★ **물어본 것과 파일만 본 것을 가른다** — 같이 적으면 «확인했다» 가 거짓말이 된다");
+
+    t.send({ t: "auth", stuck: false, list: [
+      { id: "claude", label: "Claude", at: "yes" },
+      { id: "agy", label: "Antigravity", at: "yes", guessed: true },
+    ]});
+    ok(!t.$("#screen-auth").textContent.includes("확인 중"), "답이 오면 걷힌다");
+
+    t.send({ t: "nav", screen: "list" });
+    ok(t.$("#screen-list").classList.contains("active"), "★ 끝나면 원래 가려던 화면으로");
+  }
+
+  console.log("\n[★ 다 떴다고 알린다 — **먼저 보낸 것이 사라지므로**]");
+  {
+    /*
+     * 🔴 호스트와 웹뷰는 **다른 프로세스**다. 웹뷰는 HTML 을 받고 스크립트를
+     * 돌려야 받을 사람이 생기는데, 그 전에 던진 것은 **그냥 사라진다.**
+     * (`Boot.screen` 이 있는 까닭이 그거다.)
+     *
+     * 로그인 확인은 **0.1초에 끝날 수도 있다** — Codex 만 깔려 있으면 그렇다.
+     * 그러면 `auth(끝)` 과 `nav` 가 통째로 그 구멍에 빠지고 사용자는 **확인
+     * 화면에 영영 갇힌다.** 「다시 시도」도 안 나온다 — 호스트는 기한을 안
+     * 넘겼다고 믿으니까.
+     *
+     * ⚠️ **빠를수록 터진다.** 평소엔 멀쩡하다가 잘 돌아갈 때 갇히는 모양이라
+     * 재현이 어렵다. 그래서 «늦게라도 알린다» 를 여기서 못으로 박는다.
+     */
+    const t = mount(boot());
+    ok(t.sent.some((m) => m.t === "ready"),
+       "★ **스크립트가 다 돌면 알린다** — 호스트가 들고 있던 것을 그때 다시 준다");
+  }
+
+  console.log("\n[★ 기한을 넘기면 **사람에게 묻는다**]");
+  {
+    /*
+     * 🔴 **조용히 넘어가지 않는다.** 그러면 «로그인했는데 왜 안 되지» 가
+     * 나중에 터지고, 그때는 왜인지 알 길이 없다.
+     */
+    const t = mount({ ...boot([], "auth"), auth: [{ id: "codex", label: "Codex", at: "asking" }]});
+    t.send({ t: "auth", stuck: true, list: [{ id: "codex", label: "Codex", at: "asking" }]});
+    const scr = t.$("#screen-auth");
+    ok(scr.textContent.includes("답이 없습니다"), "★ **답이 없다고 말한다**");
+    ok(scr.textContent.includes("Codex"), "★ 누가 안 답했는지 **이름으로**");
+
+    const btns = [...scr.querySelectorAll(".auth-acts button")];
+    ok(btns.map((b) => b.textContent).join(",") === "다시 시도,그냥 들어가기",
+       `★ 고를 수 있다 (${btns.map((b) => b.textContent).join(",")})`);
+    btns[0].click();
+    ok(t.sent.some((m) => m.t === "authRetry"), "★ [다시 시도] 가 간다");
+    btns[1].click();
+    ok(t.sent.some((m) => m.t === "authSkip"), "★ [그냥 들어가기] 도 간다");
+  }
+
   console.log("\n전부 통과\n");
 }
 

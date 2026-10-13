@@ -376,6 +376,55 @@ export function cmdPath(
 const AUTH_MS = 20_000;
 
 /**
+ * ★ **켤 때 확인할 줄을 짠다 — 목록에서 저절로** (2026-10-13).
+ *
+ * 🔴 **손으로 적지 않는다.** 여기에 «claude, codex» 를 박아두면 에이전트를
+ * 하나 더할 때마다 **두 군데**를 고쳐야 하고, 한쪽만 고치면 새 에이전트가
+ * 조용히 확인에서 빠진다 — 빠진 줄은 **아무도 못 본다.**
+ *
+ * 그래서 판단은 **에이전트가 들고 있는 것**으로만 한다:
+ *
+ * ```
+ * 안 받았다            줄이 없다. 로그인할 것도 없다
+ * auth 가 없다          줄이 없다. 사용자가 직접 적은 에이전트다
+ * auth.status 가 있다   **물어본다** — ask
+ * auth.file 뿐          **파일만 본다** — 즉시 결판난다 (Antigravity)
+ * ```
+ *
+ * 카탈로그에 `auth.status` 를 단 에이전트를 더하면 **여기도 저절로 는다.**
+ */
+export interface AuthPlan {
+  id: string;
+  label: string;
+  /** `ask` 는 CLI 에게 묻는다. `file` 은 물어볼 길이 없어 파일만 본다 */
+  how: "ask" | "file";
+  /** `file` 일 때의 답 — 물어볼 것이 없으니 여기서 이미 끝난다 */
+  guess: boolean;
+}
+
+export function authPlan(agents: AgentDef[], root: string, home: string): AuthPlan[] {
+  const out: AuthPlan[] = [];
+  for (const a of agents) {
+    const auth = a.pkg?.auth;
+    // 사용자가 `aiInOne.agents` 로 적은 것은 우리가 받지도, 로그인시키지도 않는다
+    if (!auth) continue;
+    // 안 받은 것은 로그인할 것이 없다 — 「설치하기」가 먼저다
+    if (stateOf(a, root, home).state === "none") continue;
+    out.push(
+      auth.status
+        ? { id: a.id, label: a.label, how: "ask", guess: false }
+        : {
+            id: a.id,
+            label: a.label,
+            how: "file",
+            guess: fs.existsSync(path.join(home, auth.file)),
+          },
+    );
+  }
+  return out;
+}
+
+/**
  * ★ **로그인됐나를 CLI 에게 묻는다** (2026-10-02).
  *
  * 파일이 있나로 보는 것은 어림짐작이다 — 만료된 자격도 파일은 남고,

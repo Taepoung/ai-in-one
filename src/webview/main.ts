@@ -27,6 +27,7 @@ import {
 import type {
   AgentBrief,
   AskCard,
+  AuthRow,
   Boot,
   ConfigOptionBrief,
   FromWebview,
@@ -207,7 +208,10 @@ function agentGone(b: BotInstance): boolean {
 
 // ── 화면 전환 (F8) ──────────────────────────────────────────────────────
 
-type ScreenName = "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents";
+type ScreenName =
+  | "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents"
+  /** 창이 뜨자마자 로그인을 확인하는 자리 (2026-10-13) */
+  | "auth";
 
 /**
  * 화면 칸을 찾는다. **없으면 만든다.**
@@ -264,6 +268,14 @@ const screens: Record<ScreenName, HTMLElement> = {
    * 돌아오고, 거기 새 봇이 늘어 있다 — 온 길과 돌아가는 길이 같다.
    */
   invite: screenEl("screen-invite"),
+  /**
+   * ★ **로그인 확인 — 창이 뜨는 첫 화면** (2026-10-13).
+   *
+   * 🔴 우리 짐작은 «자격 파일이 있나» 뿐이라 **만료 · 다른 데서 로그아웃 ·
+   * 철회**를 하나도 못 본다. 그걸 모른 채 들어가면 긴 글을 다 쓰고 **보낼
+   * 때** 막히고, 그때 뜨는 것은 CLI 원문이다.
+   */
+  auth: screenEl("screen-auth"),
 };
 let stack: ScreenName[] = ["list"];
 
@@ -311,7 +323,9 @@ function paintScreens(): void {
     el.classList.toggle("behind", name !== top && stack.includes(name));
   }
   // 첫 페인트에 심어둔 표시를 걷어낸다 — 이제 클래스가 위치를 정한다.
+  // 🔴 **둘 다 걷는다** — 확인 화면으로 열릴 때는 그쪽에 붙어 있다
   screens.list.removeAttribute("data-active");
+  screens.auth.removeAttribute("data-active");
 }
 
 // 첫 페인트는 HTML의 `data-active`가 잡고 있었다. 이제 스택이 이어받는다.
@@ -1633,6 +1647,85 @@ function mb(n: number): string {
  * 거긴 우리 자리가 아니다. 그래서 둘이 **다른 단추**여야 한다 — 하나로
  * 묶으면 «앱을 지웠더니 로그인도 날아갔다» 가 된다.
  */
+/** 지금 그리고 있는 확인 줄 — 호스트가 보낼 때마다 갈린다 */
+let authList: AuthRow[] = boot.auth ?? [];
+let authStuck = false;
+
+/**
+ * ★ **로그인 확인 화면** (2026-10-13).
+ *
+ * ```
+ * 확인 중…        CLI 에게 물어보는 중
+ * 로그인됨 / 안 됨  답을 받았다
+ * 파일로만 확인     물어볼 길이 없어 자격 파일만 봤다 (Antigravity)
+ * 못 물어봤습니다   기한을 넘겼다
+ * ```
+ *
+ * 🔴 **기한을 넘기면 사람에게 묻는다.** 조용히 넘어가면 «로그인했는데 왜
+ * 안 되지» 가 나중에 터지고, 그때는 왜인지 알 길이 없다.
+ */
+function renderAuth(): void {
+  const host = screens.auth;
+  host.replaceChildren();
+  host.append(el("header", { class: "bar" }, el("h1", { text: "AI in One" })));
+
+  const box = el("div", { class: "auth-box" });
+  const asking = authList.some((r) => r.at === "asking");
+  box.append(
+    el("p", {
+      class: "auth-head",
+      text: asking ? "로그인을 확인하는 중입니다…" : "로그인 확인",
+    }),
+  );
+
+  for (const row of authList) {
+    const say = row.at === "asking"
+      ? "확인 중…"
+      : row.at === "failed"
+        ? "못 물어봤습니다"
+        : row.guessed
+          ? (row.at === "yes" ? "로그인됨 (파일로만 확인)" : "로그인 안 됨 (파일로만 확인)")
+          : (row.at === "yes" ? "로그인됨" : "로그인 안 됨");
+    box.append(
+      el(
+        "div",
+        { class: `auth-row ${row.at}` },
+        el("span", {
+          class: "auth-mark",
+          text: row.at === "asking" ? "…" : row.at === "yes" ? "✓" : row.at === "no" ? "·" : "!",
+        }),
+        el("span", { class: "auth-name", text: row.label }),
+        el("span", {
+          class: row.at === "failed" ? "auth-say bad" : "auth-say dim",
+          text: say,
+        }),
+      ),
+    );
+  }
+
+  if (authStuck) {
+    const stuck = authList.filter((r) => r.at === "asking" || r.at === "failed");
+    box.append(
+      el("p", {
+        class: "auth-stuck bad",
+        text: `${stuck.map((r) => r.label).join("·")}에서 답이 없습니다.`,
+      }),
+      el(
+        "div",
+        { class: "auth-acts" },
+        el("button", {
+          class: "agent-go", text: "다시 시도", onclick: () => post({ t: "authRetry" }),
+        }),
+        el("button", {
+          class: "agent-btn", text: "그냥 들어가기", onclick: () => post({ t: "authSkip" }),
+        }),
+      ),
+    );
+  }
+
+  host.append(box);
+}
+
 function renderAgents(): void {
   const host = screens.agents;
   host.replaceChildren();
@@ -7422,6 +7515,12 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (dropCard(m.id) && room) renderChat();
       break;
 
+    case "auth":
+      authList = m.list;
+      authStuck = m.stuck;
+      renderAuth();
+      break;
+
     case "nav":
       if (m.screen === "new") openNewRoom();
       else go("list");
@@ -7614,3 +7713,16 @@ renderList();
 // «새 대화방»으로 열렸으면 바로 만들기 화면으로. 패널이 꺼져 있던 상태에서는 `nav`가
 // 이 스크립트보다 먼저 도착해 사라지므로, 부트 상태에서 받는다.
 if (boot.screen === "new") openNewRoom();
+/*
+ * 🔴 **확인 화면은 HTML 이 이미 띄워뒀다** — 여기서는 스택만 맞춰준다.
+ * 안 맞추면 `paintScreens` 가 목록을 켜면서 **확인 화면을 덮는다.**
+ */
+if (boot.screen === "auth") { stack = ["auth"]; paintScreens(); renderAuth(); }
+
+/*
+ * ★ **다 떴다고 알린다 — 맨 마지막 줄이어야 한다** (2026-10-13).
+ *
+ * 🔴 이 앞에 보낸 것은 호스트가 **우리가 뜨기 전에** 보냈을 수 있고, 그건
+ * 그냥 사라진다. 여기서 한 번 알리면 호스트가 **들고 있던 것을 다시** 준다.
+ */
+post({ t: "ready" });

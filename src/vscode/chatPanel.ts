@@ -2,7 +2,7 @@
 import * as os from "node:os";
 import * as vscode from "vscode";
 import {
-  authStatus, cmdPath, dirFor, install, realNpm, remove, stateOf,
+  authPlan, authStatus, cmdPath, dirFor, install, realNpm, remove, stateOf,
 } from "../core/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
@@ -21,6 +21,7 @@ import type {
   AgentBrief,
   AskAnswer,
   AskCard,
+  AuthRow,
   Boot,
   ConfigOptionBrief,
   FromWebview,
@@ -34,6 +35,16 @@ import { roomListHtml } from "../protocol.js";
  * **패널은 항상 하나다** (F8). 아이콘을 두 번 눌러도 앱이 두 개 뜨지 않도록
  * 이미 있으면 `reveal`만 한다.
  */
+/**
+ * 확인 화면에 사람을 앉혀둘 **최대 시간** (2026-10-13).
+ *
+ * 실측이 claude 0.3~0.4초 · codex 0.1초라 **열 배 넘는 여유**다. 넘겼다는
+ * 것은 그 자체로 «뭔가 잘못됐다» 는 신호고, 그때는 조용히 넘어가지 않고
+ * **사람에게 묻는다.** `authStatus` 의 20초를 그대로 쓰면 확인 화면에
+ * 20초를 앉아 있게 된다 — 그건 창을 막는 것과 다를 바 없다.
+ */
+const AUTH_WAIT_MS = 5_000;
+
 export class ChatPanel implements AskTarget {
   private static current: ChatPanel | undefined;
 
@@ -99,6 +110,17 @@ export class ChatPanel implements AskTarget {
     ChatPanel.current = new ChatPanel(
       ctx, panel, rooms, store, agents, refreshAgents, onTarget, screen ?? "list");
     /*
+     * ★ **창이 뜨면 로그인부터 확인한다** (2026-10-13).
+     *
+     * 🔴 **알던 값으로 그냥 들어가지 않는다.** 우리 짐작은 «자격 파일이
+     * 있나» 뿐이라 **만료 · 다른 데서 로그아웃 · 철회**를 하나도 못 본다.
+     * 그걸 모른 채 들어가면 긴 글을 다 쓰고 보낼 때 막히고, 그때 뜨는 것은
+     * CLI 원문이다.
+     *
+     * 확인하는 동안은 **확인 화면**이 서 있고, 기한을 넘기면 사람에게 묻는다.
+     */
+    ChatPanel.current.askAuth();
+    /*
      * 🔴 **열자마자 지금 상태를 보낸다** (2026-10-02).
      *
      * `boot` 은 HTML 에 한 번 실려 나가고 그 뒤로 안 바뀐다. 그래서 받아두고도
@@ -126,7 +148,21 @@ export class ChatPanel implements AskTarget {
     screen: "list" | "new" = "list",
   ) {
     panel.iconPath = new vscode.ThemeIcon("comment-discussion");
-    panel.webview.html = this.html(screen);
+    /*
+     * 🔴 **첫 그림이 곧 확인 화면이어야 한다.** 스크립트가 돈 다음에 덮으면
+     * 방 목록이 한 번 번쩍한다 — 사용자 눈엔 버벅인 것이다.
+     */
+    this.authRows = this.authSeed();
+    this.authAfter = screen;
+    /*
+     * 🔴 **물어볼 것이 하나라도 있을 때만 세운다.** 파일로 이미 결판난
+     * 줄(Antigravity)만 있으면 **기다릴 것이 없다** — 그런데도 화면을
+     * 세우면 한 프레임 번쩍했다 사라진다. «뭔가 지나갔는데 못 읽었다» 는
+     * 아무것도 안 보여준 것보다 나쁘다.
+     */
+    this.authShown = this.authRows.some((r) => r.at === "asking");
+    this.authDone = !this.authShown;
+    panel.webview.html = this.html(this.authShown ? "auth" : screen);
     onTarget(this);
 
     /*
@@ -508,6 +544,16 @@ export class ChatPanel implements AskTarget {
         case "agentsAsk":
           this.sendAgents();
           break;
+        // **못 물어본 것만** 다시 — 이미 답한 줄을 또 묻지 않는다
+        case "ready":
+          this.onReady();
+          break;
+        case "authRetry":
+          this.askAuth();
+          break;
+        case "authSkip":
+          this.authFinish();
+          break;
         case "agentDo":
           await this.agentDo(m.agentId, m.what);
           break;
@@ -744,6 +790,105 @@ export class ChatPanel implements AskTarget {
   private readonly authAt = new Map<string, { at: number; loggedIn: boolean }>();
   private authBusy = new Set<string>();
 
+  /*
+   * ★ **창을 열 때 한 번, 무조건 묻는다** (2026-10-13) — 아래 `askAuth`.
+   *
+   * 기한을 두는 까닭은 **꼬리** 다. `AUTH_MS`(20초) 를 그대로 쓰면 CLI 가
+   * 멎었을 때 확인 화면에 20초를 앉아 있게 된다. 실측이 claude 0.3~0.4초 ·
+   * codex 0.1초 라 **5초면 열 배 넘게 여유**고, 넘겼다는 것은 그 자체로
+   * «뭔가 잘못됐다» 는 신호다 — 그때는 조용히 넘어가지 않고 **사람에게 묻는다.**
+   */
+  private authRows: AuthRow[] = [];
+  private authAfter: "list" | "new" = "list";
+  private authTimer: ReturnType<typeof setTimeout> | undefined;
+  private authDone = false;
+  /** 기한을 넘긴 채로 서 있나 — 웹뷰가 늦게 떴을 때 그대로 다시 보낸다 */
+  private authStuck = false;
+  /** 확인 화면을 **세웠나.** 안 세웠으면 보낼 것도 되돌릴 것도 없다 */
+  private authShown = false;
+
+  /** 확인할 줄 — **에이전트 목록에서 저절로** 나온다 (`authPlan`) */
+  private authSeed(): AuthRow[] {
+    return authPlan(this.agents(), this.ctx.globalStorageUri.fsPath, os.homedir()).map(
+      (p): AuthRow =>
+        p.how === "ask"
+          ? { id: p.id, label: p.label, at: "asking" }
+          : { id: p.id, label: p.label, at: p.guess ? "yes" : "no", guessed: true },
+    );
+  }
+
+  /**
+   * ★ **물어본다 — 못 물어본 것만 다시** (2026-10-13).
+   *
+   * 🔴 **나란히 묻는다.** 차례로 물으면 에이전트가 늘수록 기한에 가까워진다.
+   */
+  askAuth(): void {
+    if (this.authDone || this.authRows.length === 0) return;
+    clearTimeout(this.authTimer);
+    const todo = this.authRows.filter((r) => r.at === "asking" || r.at === "failed");
+    if (todo.length === 0) { this.authFinish(); return; }
+    for (const r of todo) r.at = "asking";
+    this.postAuth(false);
+
+    const root = this.ctx.globalStorageUri.fsPath;
+    for (const row of todo) {
+      const cmd = this.agents().find((a) => a.id === row.id)?.pkg?.auth?.status;
+      if (!cmd) { row.at = "failed"; continue; }
+      void authStatus(dirFor(root, row.id), cmd)
+        .catch(() => undefined)
+        .then((got) => {
+          if (this.authDone) return;
+          row.at = got ? (got.loggedIn ? "yes" : "no") : "failed";
+          // 받은 답은 **캐시에도 넣는다** — 곧 그릴 목록이 다시 묻지 않게
+          if (got) this.authAt.set(row.id, { at: Date.now(), loggedIn: got.loggedIn });
+          if (this.authRows.every((r) => r.at !== "asking")) this.authFinish();
+          else this.postAuth(false);
+        });
+    }
+    // 아직 물어볼 것이 남았으면 기한을 건다
+    if (this.authRows.some((r) => r.at === "asking")) {
+      this.authTimer = setTimeout(() => {
+        if (this.authDone) return;
+        // **조용히 안 넘어간다** — 다시 해볼지 들어갈지는 사람이 고른다
+        this.postAuth(true);
+      }, AUTH_WAIT_MS);
+    } else {
+      this.authFinish();
+    }
+  }
+
+  /** 확인이 끝났다 — **진짜 값으로** 목록을 보내고 원래 가려던 화면으로 */
+  private authFinish(): void {
+    if (this.authDone) return;
+    this.authDone = true;
+    clearTimeout(this.authTimer);
+    this.authTimer = undefined;
+    this.postAuth(false);
+    this.sendAgents();
+    this.post({ t: "nav", screen: this.authAfter });
+  }
+
+  private postAuth(stuck: boolean): void {
+    this.authStuck = stuck;
+    this.post({ t: "auth", list: this.authRows.map((r) => ({ ...r })), stuck });
+  }
+
+  /**
+   * ★ **웹뷰가 떴다 — 들고 있던 것을 다시 준다** (2026-10-13).
+   *
+   * 🔴 확인이 **0.1초에 끝날 수도** 있다. 그러면 `auth` 와 `nav` 가 웹뷰
+   * 스크립트보다 먼저 나가고 **그냥 사라진다** — 사용자는 확인 화면에
+   * 영영 갇힌다. 첫 그림(`Boot`)이 `screen` 을 싣는 것과 같은 구멍이고,
+   * 이쪽은 **끝나는 시각이 경주**라 첫 그림으로는 못 막는다.
+   */
+  private onReady(): void {
+    // 🔴 **안 세웠으면 아무것도 안 한다** — 여기서 `nav` 를 보내면 «새 대화방»
+    // 으로 연 사람의 만들기 화면이 **다시 열리면서 적던 것이 날아간다**
+    if (!this.authShown) return;
+    if (this.authDone) this.post({ t: "nav", screen: this.authAfter });
+    else this.postAuth(this.authStuck);
+  }
+
   private authOf(a: AgentDef): { loggedIn: boolean } | undefined {
     const cmd = a.pkg?.auth?.status;
     if (!cmd) return undefined;
@@ -767,8 +912,28 @@ export class ChatPanel implements AskTarget {
     return got ? { loggedIn: got.loggedIn } : undefined;
   }
 
-  /** 받기가 도는 중인 에이전트와 그 마지막 줄 */
-  private readonly busy = new Map<string, string>();
+  /**
+   * ★ **받기·지우기·로그인이 도는 중인 에이전트와 그 마지막 줄** —
+   * 패널이 아니라 **확장에** 둔다 (2026-10-13).
+   *
+   * 🔴 여기가 패널 객체에 붙어 있었다. 그런데 **탭을 닫아도 npm 은 계속
+   * 돈다** — 아무도 안 멈추니까. 다시 열면 새 패널의 이 칸이 **비어 있어서**:
+   *
+   * ```
+   * 실제   npm 이 돌고 있다
+   * 화면   「설치하기」 단추      ← 아직 안 깔렸으니까
+   * ```
+   *
+   * 그리고 그걸 누르면 **두 번 받는다.** 중복을 막는 빗장이 바로 이 칸인데
+   * (`busy.has`) 새 패널에선 안 걸린다 — 같은 자리에 `npm install` 이 둘
+   * 돌면 `node_modules` 가 깨진다.
+   *
+   * **살아 있어야 할 것은 「일」과 같은 수명**이어야 한다. 보는 창이 아니라.
+   *
+   * ⚠️ 창을 다시 불러오면(Ctrl+R) 확장이 통째로 새로 뜨므로 거기까진 못
+   * 지킨다 — 그건 따로 볼 문제다.
+   */
+  private static readonly busy = new Map<string, string>();
 
   /**
    * ★ **에이전트마다 지금 어느 칸에 있나** (2026-10-01).
@@ -783,7 +948,7 @@ export class ChatPanel implements AskTarget {
       t: "agents",
       list: this.agents().map((a) => {
         const st = stateOf(a, root, home);
-        const busy = this.busy.get(a.id);
+        const busy = ChatPanel.busy.get(a.id);
         /* CLI 가 말해주면 그걸 쓴다 — 파일 존재보다 참말이다 */
         const auth = st.state === "none" ? undefined : this.authOf(a);
         const loggedIn = auth ? auth.loggedIn : st.loggedIn;
@@ -826,16 +991,16 @@ export class ChatPanel implements AskTarget {
     const dir = dirFor(root, agent.id);
 
     if (what === "install") {
-      if (this.busy.has(agent.id)) return;
-      this.busy.set(agent.id, "준비하는 중…");
-      this.sendAgents();
+      if (ChatPanel.busy.has(agent.id)) return;
+      ChatPanel.busy.set(agent.id, "준비하는 중…");
+      ChatPanel.repaintAgents();
       const r = await install(dir, agent.pkg, realNpm, (line: string) => {
-        this.busy.set(agent.id, line.slice(0, 120));
-        this.sendAgents();
+        ChatPanel.busy.set(agent.id, line.slice(0, 120));
+        ChatPanel.repaintAgents();
       });
-      this.busy.delete(agent.id);
+      ChatPanel.busy.delete(agent.id);
       this.refreshAgents();
-      this.sendAgents();
+      ChatPanel.repaintAgents();
       if (!r.ok) {
         void vscode.window.showErrorMessage(
           `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}`);
@@ -853,7 +1018,7 @@ export class ChatPanel implements AskTarget {
        *
        * 로그아웃과 같은 이유다 — 지우는 것과 도는 것은 같이 못 있는다.
        */
-      if (this.busy.has(agent.id)) return;
+      if (ChatPanel.busy.has(agent.id)) return;
       /*
        * ★ **지우는 동안에도 보여준다** (2026-10-06).
        *
@@ -864,8 +1029,8 @@ export class ChatPanel implements AskTarget {
        * 몇 번 기다렸다 다시 해본다. 그 사이 화면이 아무 말도 안 하면
        * **누른 것이 먹혔나** 싶어 또 누르게 된다 — 들어오자마자 막는다.
        */
-      this.busy.set(agent.id, "지우는 중…");
-      this.sendAgents();
+      ChatPanel.busy.set(agent.id, "지우는 중…");
+      ChatPanel.repaintAgents();
       this.rooms.dropConnection(agent.id);
       try {
         await remove(dir);
@@ -874,9 +1039,9 @@ export class ChatPanel implements AskTarget {
         void vscode.window.showErrorMessage(
           `${agent.label}을(를) ${err instanceof Error ? err.message : String(err)}`);
       }
-      this.busy.delete(agent.id);
+      ChatPanel.busy.delete(agent.id);
       this.refreshAgents();
-      this.sendAgents();
+      ChatPanel.repaintAgents();
       return;
     }
 
@@ -929,14 +1094,14 @@ export class ChatPanel implements AskTarget {
       if (t !== term) return;
       done.dispose();
       this.authAt.delete(agent.id);
-      this.sendAgents();
+      ChatPanel.repaintAgents();
     });
     /*
      * 끝난 줄 모르므로 잠시 뒤에 한 번 더 본다. 자격 파일이 생기면 단추가
      * 알아서 바뀐다 — 사용자가 화면을 다시 열지 않아도 된다.
      */
     /* 닫지 않고 내버려두는 사람도 있다 — 한 번은 스스로 다시 본다 */
-    setTimeout(() => { this.authAt.delete(agent.id); this.sendAgents(); }, 20000);
+    setTimeout(() => { this.authAt.delete(agent.id); ChatPanel.repaintAgents(); }, 20000);
   }
 
   /**
@@ -951,11 +1116,11 @@ export class ChatPanel implements AskTarget {
    * stderr 에만 있으면 사람은 «멈켔4다» 고만 본다.
    */
   private async authViaAcp(agent: AgentDef, what: "login" | "logout"): Promise<void> {
-    if (this.busy.has(agent.id)) return;
+    if (ChatPanel.busy.has(agent.id)) return;
     try {
       if (what === "logout") {
-        this.busy.set(agent.id, "로그아웃하는 중…");
-        this.sendAgents();
+        ChatPanel.busy.set(agent.id, "로그아웃하는 중…");
+        ChatPanel.repaintAgents();
         const did = await this.rooms.logOutOf(agent.id);
         if (!did) {
           void vscode.window.showWarningMessage(
@@ -975,8 +1140,8 @@ export class ChatPanel implements AskTarget {
        * 더 걸린다). 그 사이 화면은 아무 말도 안 했다 — 사용자:
        * *"창이 뜨기까지 시간이 걸리는데 되고있는건지 잘 모르겠네"*.
        */
-      this.busy.set(agent.id, "로그인 길을 물어보는 중…");
-      this.sendAgents();
+      ChatPanel.busy.set(agent.id, "로그인 길을 물어보는 중…");
+      ChatPanel.repaintAgents();
       const ways = await this.rooms.authOptionsOf(agent.id);
       if (ways.length === 0) {
         void vscode.window.showErrorMessage(
@@ -994,8 +1159,8 @@ export class ChatPanel implements AskTarget {
         way = ways.find((m) => m.id === chosen.id)!;
       }
 
-      this.busy.set(agent.id, `${way.name} — 브라우저를 기다리는 중…`);
-      this.sendAgents();
+      ChatPanel.busy.set(agent.id, `${way.name} — 브라우저를 기다리는 중…`);
+      ChatPanel.repaintAgents();
       await this.rooms.authenticateAs(agent.id, way.id, (line) => {
         const at = /https?:\/\/\S+/.exec(line);
         if (!at) return;
@@ -1015,9 +1180,9 @@ export class ChatPanel implements AskTarget {
         `${agent.label} ${what === "login" ? "로그인" : "로그아웃"}에 실패했습니다 — ` +
           `${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      this.busy.delete(agent.id);
+      ChatPanel.busy.delete(agent.id);
       this.authAt.delete(agent.id);
-      this.sendAgents();
+      ChatPanel.repaintAgents();
     }
   }
 
@@ -1098,13 +1263,14 @@ export class ChatPanel implements AskTarget {
    * 웹뷰가 뜬 뒤에 `postMessage`로 목록을 요청하면 그 왕복 동안 빈 화면이
    * 한 프레임 보인다. `rooms.json`은 이미 메모리에 있으므로 기다릴 이유가 없다.
    */
-  private html(screen: "list" | "new"): string {
+  private html(screen: "list" | "new" | "auth"): string {
     const w = this.panel.webview;
     const asset = (...parts: string[]) =>
       w.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, ...parts));
 
     const boot: Boot = {
       rooms: this.rooms.listMetas(),
+      ...(screen === "auth" ? { auth: this.authRows.map((r) => ({ ...r })) } : {}),
       agents: this.agents().map(
         (a): AgentBrief => ({
           id: a.id,
@@ -1140,7 +1306,7 @@ export class ChatPanel implements AskTarget {
 </head>
 <body>
 <div id="app">
-  <section class="screen" id="screen-list" data-active>
+  <section class="screen" id="screen-list"${screen === "auth" ? "" : " data-active"}>
     <header class="bar">
       <h1>AI in One</h1>
       <button class="icon" id="btn-agents" title="에이전트 설정"><i class="codicon codicon-robot"></i></button>
@@ -1154,6 +1320,8 @@ export class ChatPanel implements AskTarget {
   <section class="screen" id="screen-chat"></section>
   <section class="screen" id="screen-fix"></section>
   <section class="screen" id="screen-agents"></section>
+  <!-- 🔴 **첫 그림이 곧 확인 화면**이어야 한다 — 스크립트가 돈 뒤에 덮으면 번쩍인다 -->
+  <section class="screen" id="screen-auth"${screen === "auth" ? " data-active" : ""}></section>
 </div>
 <script type="application/json" id="boot" nonce="${nonce}">${jsonForHtml(boot)}</script>
 <script nonce="${nonce}" src="${asset("dist", "webview.js")}"></script>
@@ -1163,6 +1331,9 @@ export class ChatPanel implements AskTarget {
 
   private dispose(): void {
     ChatPanel.current = undefined;
+    // 창이 닫힌 뒤에 깨어나 죽은 웹뷰에 쓰면 안 된다
+    clearTimeout(this.authTimer);
+    this.authDone = true;
     this.onTarget(null);
 
     // **기다리던 카드를 방치하면 에이전트가 영원히 멈춘다.** 취소로 풀어준다.

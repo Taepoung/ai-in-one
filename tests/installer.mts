@@ -30,7 +30,7 @@ import { spawnSync } from "node:child_process";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
   install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn,
-  haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, type Run,
+  haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, authPlan, type Run,
 } from "../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS, NODE_PIN } from "../src/core/agentCatalog.js";
 import type { AgentDef } from "../src/core/types.js";
@@ -382,6 +382,62 @@ async function main(): Promise<void> {
        "★ **`agents/` 안에 안 둔다** — 에이전트가 아니고 여럿이 같이 쓴다");
 
     await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  console.log("\n[★ 확인할 줄은 **에이전트 목록에서 저절로** 나온다]");
+  {
+    /*
+     * 🔴 **손으로 적으면 안 된다.** 여기에 «claude, codex» 를 박아두면
+     * 에이전트를 하나 더할 때마다 두 군데를 고쳐야 하고, 한쪽만 고치면
+     * 새 에이전트가 **조용히 확인에서 빠진다** — 빠진 줄은 아무도 못 본다.
+     *
+     * 그래서 이 검사는 **없는 에이전트를 지어내서** 넣어본다. `authPlan`
+     * 안을 고치지 않았는데 줄이 늘어야 한다.
+     */
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "aio-plan-"));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "aio-home-"));
+
+    ok(authPlan([claude, codex], root, home).length === 0,
+       "★ **안 받은 것은 줄이 없다** — 로그인할 것이 없고 「설치하기」가 먼저다");
+
+    fakeTree(dirFor(root, "claude"), claude, splitSpec(claude.pkg!.spec).version);
+    fakeTree(dirFor(root, "codex"), codex, splitSpec(codex.pkg!.spec).version);
+    const two = authPlan([claude, codex], root, home);
+    ok(two.map((p) => p.id).join(",") === "claude,codex",
+       `★ 받은 것이 줄이 된다 (${two.map((p) => p.id).join(",")})`);
+    ok(two.every((p) => p.how === "ask"), "★ 둘 다 **물어본다** — status 명령이 있다");
+
+    /* ★ 지어낸 에이전트 — `authPlan` 은 한 글자도 안 고쳤다 */
+    const made: AgentDef = {
+      ...claude, id: "새것", label: "새 에이전트",
+      pkg: { ...claude.pkg!, auth: { ...claude.pkg!.auth!, file: path.join("새집", "t.json") } },
+    };
+    fakeTree(dirFor(root, "새것"), made, splitSpec(made.pkg!.spec).version);
+    const three = authPlan([claude, codex, made], root, home);
+    ok(three.length === 3 && three[2]!.id === "새것",
+       `★ **더하면 저절로 는다** (${three.map((p) => p.label).join(" · ")})`);
+
+    /* ★ 물어볼 길이 없는 것 — Antigravity 가 그렇다. 파일만 본다 */
+    const noAsk: AgentDef = {
+      ...made, id: "파일뿐", label: "파일뿐",
+      pkg: { ...made.pkg!, auth: { file: path.join("집", "tok.json") } },
+    };
+    fakeTree(dirFor(root, "파일뿐"), noAsk, splitSpec(noAsk.pkg!.spec).version);
+    const off = authPlan([noAsk], root, home);
+    ok(off[0]?.how === "file" && off[0].guess === false,
+       `★ **물어볼 길이 없으면 파일만 본다** (${JSON.stringify(off[0])})`);
+    fs.mkdirSync(path.join(home, "집"), { recursive: true });
+    fs.writeFileSync(path.join(home, "집", "tok.json"), "{}");
+    ok(authPlan([noAsk], root, home)[0]?.guess === true,
+       "★ 자격 파일이 생기면 그 줄만 바뀐다");
+
+    /* 🔴 사용자가 직접 적은 에이전트는 우리가 로그인시키지 않는다 */
+    const mine: AgentDef = { id: "직접", label: "직접", command: "x", args: [] };
+    ok(authPlan([mine], root, home).length === 0,
+       "★ **`pkg` 가 없으면 줄이 없다** — 우리가 받은 것이 아니다");
+
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
   }
 
   console.log("\n[★ 로그인 묻기가 **가닥을 안 막는다**]");
