@@ -372,6 +372,9 @@ export function cmdPath(
   return undefined;
 }
 
+/** 답이 안 오면 여기서 포기한다 — 그동안 화면은 **알던 값**을 그대로 쓴다 */
+const AUTH_MS = 20_000;
+
 /**
  * ★ **로그인됐나를 CLI 에게 묻는다** (2026-10-02).
  *
@@ -381,21 +384,62 @@ export function cmdPath(
  * 🔴 **두 흘림을 다 받는다.** `codex login status` 는 stderr 로 쓴다 —
  * stdout 만 읽으면 빈 글이 와서 **로그인된 사람을 아니라고** 하게 된다.
  * 한 번 그렇게 잎었다(`probes/logindoor.mts`).
+ *
+ * ★ **기다리지 않는다 — 오면 알려달라고 한다** (2026-10-13).
+ *
+ * 🔴 여기가 `spawnSync` 였다. 부르는 쪽(`ChatPanel.authOf`)은 `setTimeout(…, 0)`
+ * 으로 감싸두고 주석에 *"뒤에서 갱신한다"* 라고 적어뒀는데, **그건 이 스택에서
+ * 비키는 것뿐**이다 — 콜백이 돌 때 `spawnSync` 가 **확장 호스트의 한 가닥을
+ * 통째로 붙잡는다.** 그동안 우리 창도 git 도 명령 팔레트도 안 움직인다.
+ *
+ * ```
+ * 이 기계 실측   claude 307~411ms · codex 70~125ms  (win32 는 cmd.exe 한 장 포함)
+ * 최악           둘이 각각 AUTH_MS 를 다 쓰면 **직렬로 40초**
+ * 닿는 길        창 열기 · 15초마다 · 로그인 직후 — 전부 사용자가 누르는 길
+ * ```
+ *
+ * 평소 0.5초라 티가 안 나는 것이 더 나쁘다 — **안 될 때만** 40초가 된다.
+ * 같은 날 `sweepStrays`(23~30초)를 고치고도 이쪽을 두면 반만 고친 것이다.
  */
 export function authStatus(
   dir: string,
   cmd: AgentCmd & { yes: string },
-): { loggedIn: boolean } | undefined {
+): Promise<{ loggedIn: boolean } | undefined> {
   const found = cmdPath(dir, cmd);
-  if (!found) return undefined;
-  const r = spawnSync(found.exe, found.args, {
-    encoding: "utf8",
-    shell: process.platform === "win32",
-    timeout: 20000,
+  if (!found) return Promise.resolve(undefined);
+
+  return new Promise((done) => {
+    let out = ""; let err = "";
+    let settled = false;
+    /** 늦으면 **그냥 포기한다** — `undefined` 는 «못 물어봤다» 라 쓰던 값이 남는다 */
+    const give = (r: { loggedIn: boolean } | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done(r);
+    };
+    let child: ReturnType<typeof spawn>;
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* 이미 죽었으면 그만 */ }
+      give(undefined);
+    }, AUTH_MS);
+    try {
+      child = spawn(found.exe, found.args, {
+        shell: process.platform === "win32",
+        windowsHide: true,
+      });
+    } catch { give(undefined); return; }
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (c: string) => { out += c; });
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (c: string) => { err += c; });
+    child.on("error", () => give(undefined));
+    child.on("close", () => {
+      // **모아서 한 번에 본다** — 두 흘림이 섞여 들어오면 표시가 갈릴 수 있다
+      const said = `${out}${NEWLINE}${err}`;
+      give(said.trim() ? { loggedIn: said.includes(cmd.yes) } : undefined);
+    });
   });
-  const said = `${r.stdout ?? ""}${NEWLINE}${r.stderr ?? ""}`;
-  if (!said.trim()) return undefined;
-  return { loggedIn: said.includes(cmd.yes) };
 }
 
 const NEWLINE = String.fromCharCode(10);

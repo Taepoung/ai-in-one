@@ -735,6 +735,11 @@ export class ChatPanel implements AskTarget {
    *
    * 그래서 **알던 값을 먼저 주고 뒤에서 갱신한다.** 갱신이 끝나면 목록을
    * 한 번 더 보낸다 — 화면은 잠깐 사이에 저절로 바뀜다.
+   *
+   * 🔴 **이제 진짜로 뒤에서 한다** (2026-10-13). 여기는 `setTimeout(…, 0)`
+   * 안에서 `spawnSync` 를 돌리고 있었다 — 주석만 «뒤에서» 였지 콜백이 돌
+   * 때 **확장 호스트의 한 가닥이 통째로 멈췄다.** 적어놓은 것과 하는 일이
+   * 달라서 읽는 사람은 **이미 고쳐진 줄** 알았다.
    */
   private readonly authAt = new Map<string, { at: number; loggedIn: boolean }>();
   private authBusy = new Set<string>();
@@ -747,14 +752,17 @@ export class ChatPanel implements AskTarget {
     if (stale && !this.authBusy.has(a.id)) {
       this.authBusy.add(a.id);
       const dir = dirFor(this.ctx.globalStorageUri.fsPath, a.id);
-      setTimeout(() => {
-        const r = authStatus(dir, cmd);
-        this.authBusy.delete(a.id);
-        if (!r) return;
-        const was = this.authAt.get(a.id);
-        this.authAt.set(a.id, { at: Date.now(), ...r });
-        if (!was || was.loggedIn !== r.loggedIn) this.sendAgents();
-      }, 0);
+      // 🔴 **`catch` 를 앞에 둔다** — 여기서 새면 `authBusy` 가 영영 안 풀려
+      // 로그인 표시가 **그 창이 닫힐 때까지** 굳는다
+      void authStatus(dir, cmd)
+        .catch(() => undefined)
+        .then((r) => {
+          this.authBusy.delete(a.id);
+          if (!r) return;
+          const was = this.authAt.get(a.id);
+          this.authAt.set(a.id, { at: Date.now(), ...r });
+          if (!was || was.loggedIn !== r.loggedIn) this.sendAgents();
+        });
     }
     return got ? { loggedIn: got.loggedIn } : undefined;
   }

@@ -30,13 +30,14 @@ import { spawnSync } from "node:child_process";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
   install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn,
-  haveNode, nodeBinDir, nodeEnv, nodeHome, type Run,
+  haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, type Run,
 } from "../src/core/agentInstaller.js";
 import { DEFAULT_AGENTS, NODE_PIN } from "../src/core/agentCatalog.js";
 import type { AgentDef } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const WIN = process.platform === "win32";
+const NL = String.fromCharCode(10);
 const claude = DEFAULT_AGENTS.find((a) => a.id === "claude")!;
 const codex = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
 
@@ -381,6 +382,55 @@ async function main(): Promise<void> {
        "★ **`agents/` 안에 안 둔다** — 에이전트가 아니고 여럿이 같이 쓴다");
 
     await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
+  }
+
+  console.log("\n[★ 로그인 묻기가 **가닥을 안 막는다**]");
+  {
+    /*
+     * 🔴 여기가 `spawnSync` 였다. 부르는 쪽은 `setTimeout(…, 0)` 으로 감싸두고
+     * *"뒤에서 갱신한다"* 라고 적어뒀는데, 그건 **이 스택에서 비키는 것뿐**이다 —
+     * 콜백이 돌 때 확장 호스트의 **한 가닥이 통째로 멈춘다.** 평소 0.5초라 티가
+     * 안 나고, **안 될 때만** 타임아웃 20초씩 두 번이 된다.
+     *
+     * 그래서 재는 것은 속도가 아니라 **가닥이 도는가**다 — 묻는 동안 타이머가
+     * 몇 번 도는지. `spawnSync` 면 **한 번도 안 돈다.**
+     */
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aio-auth-"));
+    const bin = path.join(dir, "node_modules", ".bin");
+    fs.mkdirSync(bin, { recursive: true });
+
+    /** 느릿한 가짜 CLI — 300ms 뒤에 대답한다 */
+    const slow = (name: string, where: "out" | "err") => {
+      const js = `setTimeout(function(){process.std${where}.write('Logged in')},300)`;
+      if (WIN) {
+        fs.writeFileSync(path.join(bin, name + ".cmd"), `@echo off${NL}node -e "${js}"${NL}`);
+      } else {
+        fs.writeFileSync(path.join(bin, name), `#!/bin/sh${NL}exec node -e "${js}"${NL}`, { mode: 0o755 });
+      }
+    };
+    slow("slowout", "out");
+    slow("slowerr", "err");
+
+    let beats = 0;
+    const heart = setInterval(() => { beats++; }, 20);
+    const began = Date.now();
+    const got = await authStatus(dir, { bin: "slowout", args: [], yes: "Logged in" });
+    const took = Date.now() - began;
+    clearInterval(heart);
+
+    if (took < 250) throw new Error(`FAIL: 전제가 안 선다 — 가짜가 안 느리다 (${took}ms)`);
+    ok(got?.loggedIn === true, `★ 답을 읽는다 (${JSON.stringify(got)})`);
+    ok(beats >= 5,
+       `★ **묻는 동안 가닥이 돌았다** (${took}ms 에 ${beats}번) — spawnSync 면 0 이다`);
+
+    const viaErr = await authStatus(dir, { bin: "slowerr", args: [], yes: "Logged in" });
+    ok(viaErr?.loggedIn === true,
+       "★ **stderr 로 써도 읽는다** — codex 가 그쪽으로 쓴다");
+
+    const none = await authStatus(dir, { bin: "없는것", args: [], yes: "Logged in" });
+    ok(none === undefined, "★ 없는 것을 물으면 undefined — 단추를 안 보여준다");
+
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   console.log("\n전부 통과");
