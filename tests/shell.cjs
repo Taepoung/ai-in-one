@@ -177,12 +177,27 @@ async function main() {
   console.log("\n[번들이 로드되고 activate가 돈다]");
   ok(typeof ext.activate === "function", "activate를 내보낸다");
   const subs = [];
+  const bootBegan = Date.now();
   await ext.activate({
     globalStorageUri: { fsPath: storage },
     extensionUri: { fsPath: ROOT },
     subscriptions: subs,
   });
+  const bootMs = Date.now() - bootBegan;
+  console.log(`   켜는 데 ${bootMs}ms (빈 저장소)`);
   ok(subs.length > 0, "정리 대상이 등록됨");
+  /*
+   * 🔴 **켜기가 창을 막으면 안 된다** (2026-10-13).
+   *
+   * 버려진 에이전트를 쓸어담느라 PowerShell 을 **동기로** 돌리고 있었고,
+   * 그게 이 기계에서 **23~30초**였다. 확장 호스트는 한 가닥이라 그동안
+   * 창도 안 뜨고 명령도 안 생겼다 — 사용자가 본 «command not found» 다.
+   *
+   * 비키고 나니 **40ms** 다. 넉넉히 잡아 **3초**를 금으로 둔다 — 또 누가
+   * 무거운 것을 이 길에 올리면 **여기서 걸린다.** 숫자를 재는 것이 아니라
+   * **길에 뭘 올렸나**를 재는 것이라 느슨해도 된다.
+   */
+  ok(bootMs < 3000, `★ **켜기가 창을 안 막는다** (${bootMs}ms) — 무거운 것은 뒤로 빼야 한다`);
   ok(registered.has("aiInOne.open"), "aiInOne.open 등록됨");
   ok(registered.has("aiInOne.newRoom"), "aiInOne.newRoom 등록됨");
 
