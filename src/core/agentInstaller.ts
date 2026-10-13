@@ -727,14 +727,43 @@ function parseRows(out: string, sep: string): ProcRow[] {
 }
 
 /** 그 나무를 통째로 내린다 */
-function killPid(pid: number): void {
-  try {
-    if (process.platform === "win32") {
-      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { timeout: 15000, windowsHide: true });
-    } else {
-      process.kill(pid, "SIGKILL");
-    }
-  } catch { /* 이미 죽었으면 말고 */ }
+/**
+ * 🔴 **이것도 동기였다** (2026-10-13).
+ *
+ * 목록 뜨는 것만 비동기로 바꿔놓고 **죽이는 쪽을 두면 반만 고친 것**이다 —
+ * 2026-10-07 에는 버려진 것이 **27개**였고, 그러면 `taskkill` 을 **스물일곱
+ * 번 동기로** 띄운다. 한 번에 수백 ms 씩만 잡아도 확장 호스트가 몇 초를
+ * 선다. 창을 막던 것을 뒤로 옮겨놓고 **거기서 똑같이 막는** 꼴이다.
+ *
+ * ⚠️ **기다리기는 한다.** 부르는 쪽(`remove`)이 **죽은 다음에** 파일을
+ * 지우기 때문이다 — 안 기다리면 아직 붙들고 있는 파일을 지우려다 `EBUSY` 다.
+ */
+const KILL_MS = 15_000;
+
+function killPid(pid: number): Promise<void> {
+  if (process.platform !== "win32") {
+    try { process.kill(pid, "SIGKILL"); } catch { /* 이미 죽었으면 말고 */ }
+    return Promise.resolve();
+  }
+  return new Promise<void>((done) => {
+    let settled = false;
+    const give = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done();
+    };
+    let child: ReturnType<typeof spawn>;
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* 이미 갔으면 말고 */ }
+      give();
+    }, KILL_MS);
+    try {
+      child = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+    } catch { give(); return; }
+    child.on("error", give);
+    child.on("close", give);
+  });
 }
 
 /**
@@ -751,7 +780,8 @@ function killPid(pid: number): void {
 export async function killUnder(dir: string): Promise<number> {
   const at = path.resolve(dir).toLowerCase();
   const hit = (await procRows()).filter((r) => r.path.toLowerCase().startsWith(at));
-  for (const r of hit) killPid(r.pid);
+  // **한꺼번에 내린다** — 하나씩 기다리면 스물일곱 번이 줄줄이 더해진다
+  await Promise.all(hit.map((r) => killPid(r.pid)));
   return hit.length;
 }
 
@@ -764,7 +794,8 @@ export async function killUnder(dir: string): Promise<number> {
 export async function sweepStrays(root: string): Promise<number> {
   const at = path.join(path.resolve(root), "agents");
   const pids = straysIn(await procRows(), at);
-  for (const pid of pids) killPid(pid);
+  // **한꺼번에 내린다** — 하나씩 기다리면 스물일곱 번이 줄줄이 더해진다
+  await Promise.all(pids.map((pid) => killPid(pid)));
   return pids.length;
 }
 
