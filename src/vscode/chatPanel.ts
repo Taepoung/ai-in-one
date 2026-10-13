@@ -2,7 +2,7 @@
 import * as os from "node:os";
 import * as vscode from "vscode";
 import {
-  authPlan, authStatus, cmdPath, dirFor, install, realNpm, remove, stateOf,
+  authPlan, authStatus, cmdPath, dirFor, dropOptions, install, realNpm, remove, stateOf,
 } from "../core/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
@@ -1080,6 +1080,19 @@ export class ChatPanel implements AskTarget {
       ChatPanel.repaintAgents();
       return;
     }
+
+    /*
+     * ★ **로그인이 바뀌면 적어둔 모델 목록을 버린다** (2026-10-13).
+     *
+     * 🔴 목록이 **계정에 따라 다를 수 있다** — 안 쟀다. 판만 열쇠로 쓰면
+     * 계정을 바꿨을 때 낡은 목록이 남는다. 자격 파일의 시각은 **토큰이
+     * 갱신될 때마다 바뀌어서**(실측) 열쇠로 못 쓰고, 계정 이름은 Codex 가
+     * 안 준다. 그러니 **우리가 아는 사건**에 묶는다 — 여기가 그 자리다.
+     *
+     * 터미널에서 몰래 바꾸는 것은 못 잡지만, 그때도 방 세션이 진짜 목록을
+     * 주고(`noteRoomConfig`) 없는 모델을 골랐으면 `fix` 가 막아선다.
+     */
+    void dropOptions(dir);
 
     /* 터미널로 띄울 게 아니라 **저쪽에게 시키는** 에이전트가 있다 */
     if (agent.pkg.auth?.acp) { await this.authViaAcp(agent, what); return; }

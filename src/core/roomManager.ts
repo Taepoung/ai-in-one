@@ -8,6 +8,7 @@ import {
   describe,
   OUR_MCP_NAME,
 } from "./acpConnection.js";
+import { cachedOptions, dirFor, keepOptions } from "./agentInstaller.js";
 import type { McpResult, McpServer, McpState, McpTool } from "./mcpServer.js";
 import type { RoomLocks } from "./roomLock.js";
 import { BotQueue, type QueueItem } from "./botQueue.js";
@@ -60,6 +61,14 @@ export interface RoomManagerOptions {
   agents: AgentDef[];
   /** 설정 조회를 포기하는 시간. 테스트에서만 줄인다 */
   configProbeMs?: number;
+  /**
+   * 에이전트를 받아둔 자리 (`<globalStorage>`).
+   *
+   * 모델 목록을 **그 에이전트 폴더 옆에** 적어두려고 받는다(`keepOptions`).
+   * 없으면 적지도 꺼내지도 않는다 — 검사처럼 받아둔 것이 없는 자리에서는
+   * 쓸 일이 없다.
+   */
+  agentRoot?: string;
   /**
    * ★ **방 자리 — 같은 방은 한 창에서만** (v3.0 2-G).
    *
@@ -3259,6 +3268,23 @@ export class RoomManager extends EventEmitter<Events> {
       void this.refreshConfigOptions(agentId).catch(() => {});
       return cached;
     }
+
+    /*
+     * ★ **디스크에 적어둔 것이 있으면 CLI 를 안 띄운다** (2026-10-13).
+     *
+     * 🔴 여기가 **18.6초**짜리 자리다(Antigravity 실측: 띄우기 12.5 + 세션 5).
+     * 목록을 알려면 세션을 열어야 하고, 세션을 열려면 CLI 를 띄워야 하니까.
+     * 그런데 캐시가 메모리에만 있어서 **창을 열 때마다** 다시 냈다.
+     *
+     * ⚠️ **뒤에서 갱신도 안 한다.** 갱신하려면 결국 띄워야 해서, 그러면
+     * 아낀 것이 없다. 진짜 목록은 **방에 들어갈 때** 세션이 준다 —
+     * 거기서 이 값이 덮인다.
+     */
+    const kept = this.keptOptions(agentId);
+    if (kept) {
+      this.configCache.set(agentId, kept);
+      return kept;
+    }
     // **같은 에이전트를 동시에 두 번 띄우지 않는다.** 방에 들어오면서 한 번,
     // 권한 시트를 열면서 또 한 번 부르는 게 정상 경로다.
     const flight = this.configFlight.get(agentId);
@@ -3269,6 +3295,24 @@ export class RoomManager extends EventEmitter<Events> {
     );
     this.configFlight.set(agentId, started);
     return started;
+  }
+
+  /** 받아둔 자리 옆의 캐시 — `agentRoot` 가 없으면 안 쓴다 */
+  private keptOptions(agentId: string): acp.SessionConfigOption[] | undefined {
+    const root = this.opts.agentRoot;
+    const pkg = this.opts.agents.find((a) => a.id === agentId)?.pkg;
+    if (!root || !pkg) return undefined;
+    return cachedOptions<acp.SessionConfigOption>(dirFor(root, agentId), pkg);
+  }
+
+  private async keepConfigOptions(
+    agentId: string,
+    options: acp.SessionConfigOption[],
+  ): Promise<void> {
+    const root = this.opts.agentRoot;
+    const pkg = this.opts.agents.find((a) => a.id === agentId)?.pkg;
+    if (!root || !pkg) return;
+    await keepOptions(dirFor(root, agentId), pkg, options);
   }
 
   private async refreshConfigOptions(agentId: string): Promise<acp.SessionConfigOption[]> {
@@ -3294,6 +3338,7 @@ export class RoomManager extends EventEmitter<Events> {
           `한 번 실행해 로그인을 마쳤는지 확인하세요.`,
       );
       this.configCache.set(agentId, options);
+      void this.keepConfigOptions(agentId, options);
       return options;
     } catch (err) {
       this.opts.host.log(`[${agentId}] 설정 조회 실패: ${describe(err)}`);
@@ -4932,6 +4977,11 @@ export class RoomManager extends EventEmitter<Events> {
     this.roomConfigs.set(configKeyOf(room.id, bot.id), options);
     // 만들기 화면의 기본값으로도 쓴다 — 최소한 최근에 본 목록이다
     this.configCache.set(bot.agentId, options);
+    /*
+     * ★ **방 세션이 준 것이 제일 참이다** — 그러니 이것도 적어둔다.
+     * 조회용 세션을 따로 안 열고도 디스크 캐시가 저절로 최신이 된다.
+     */
+    void this.keepConfigOptions(bot.agentId, options);
     const model = noteModel(bot, options);
     if (model.changed) this.emitMetas();
     if (model.renamed !== undefined) {

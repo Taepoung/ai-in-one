@@ -541,6 +541,56 @@ const UNTAR_MS = 180_000;
 
 const describeErr = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** 받아둔 자리 옆에 적어두는 **설정 목록** — 판이 열쇠다 */
+const MODELS = "aio-models.json";
+
+/**
+ * ★ **모델 목록을 판을 열쇠로 디스크에 박는다** (2026-10-13).
+ *
+ * 🔴 목록을 알려면 **세션을 한 번 열어야** 하고, 세션을 열려면 **CLI 를
+ * 띄워야** 한다. 실측으로 Antigravity 가 **18.6초**다(띄우기 12.5 + 세션 5).
+ * 그런데 캐시가 **메모리에만** 있어서 **창을 열 때마다** 그 값을 다시 낸다.
+ *
+ * 목록이 바뀌는 때는 **판이 바뀔 때**이고, 판은 우리가 박아두고 있다
+ * (`spec`·`archive`). 그러니 판을 열쇠로 적어두면 **다음 창부터는 공짜**다.
+ *
+ * ⚠️ **방 안에서는 이 값을 안 쓴다.** 방 세션을 여는 응답에 **진짜 목록**이
+ * 실려 오므로(`noteRoomConfig`), 거기가 늘 최종 판정이다. 이 캐시는 **방도
+ * 세션도 없는 자리**(방 만들기 화면) 몫이다. 그래서 낡아도 방 안에서는
+ * 아무 영향이 없고, 거기서 없는 모델을 골랐더라도 들어가는 순간 걸린다.
+ *
+ * ⚠️ 계정을 바꾸면 목록이 달라질 수 있다 — **안 쟀다.** 우리 화면에서
+ * 로그인·로그아웃하면 버리고, 나머지는 위 두 겹이 받는다.
+ */
+export function cachedOptions<T>(dir: string, pkg: AgentPackage): T[] | undefined {
+  const st = statusOf(dir, pkg);
+  if (!st.installed || !st.version) return undefined;
+  try {
+    const got = JSON.parse(fs.readFileSync(path.join(dir, MODELS), "utf8")) as {
+      key?: string;
+      options?: T[];
+    };
+    // **판이 다르면 버린다** — 올린 까닭이 새 모델인데 옛 목록을 쥐면 뜻이 없다
+    if (got.key !== st.version) return undefined;
+    return Array.isArray(got.options) && got.options.length > 0 ? got.options : undefined;
+  } catch { return undefined; }
+}
+
+/** 진짜 목록을 알게 됐으면 **어디서 알았든** 적어둔다 */
+export async function keepOptions<T>(dir: string, pkg: AgentPackage, options: T[]): Promise<void> {
+  const st = statusOf(dir, pkg);
+  // 🔴 **빈 목록을 안 적는다** — 그걸 적으면 «모델이 없는 에이전트» 가 된다
+  if (!st.installed || !st.version || options.length === 0) return;
+  await fsp
+    .writeFile(path.join(dir, MODELS), JSON.stringify({ key: st.version, options }), "utf8")
+    .catch(() => undefined);
+}
+
+/** 계정이 바뀌었을 수 있다 — 적어둔 것을 버린다 */
+export async function dropOptions(dir: string): Promise<void> {
+  await fsp.rm(path.join(dir, MODELS), { force: true }).catch(() => undefined);
+}
+
 /** `npm` 한 번 — 밖에서 갈아끼울 수 있게 빼둔다 */
 // ── Node ─────────────────────────────────────────────────────────────────
 

@@ -239,7 +239,7 @@ async function boot(
   madeHere.push(() => locks.releaseAll());
 
   step("방을 여는 중");
-  const rooms = new RoomManager({ host, store, agents, mcp, locks });
+  const rooms = new RoomManager({ host, store, agents, mcp, locks, agentRoot });
   madeHere.push(() => rooms.dispose());
   // 도구를 건다 — 서버가 만들어진 **뒤**라야 방 매니저가 있다
   mcp.setHandlers(rooms.mcpTools(), (owner, tool, args) => rooms.mcpCall(owner, tool, args));
