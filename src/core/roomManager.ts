@@ -1339,7 +1339,27 @@ export class RoomManager extends EventEmitter<Events> {
     (room.left ??= []).push({ id: bot.id, name: bot.name, at: Date.now() });
     rt?.bots.delete(botId);
 
+    /*
+     * ★ **그 봇을 심사자로 두고 있던 봇을 풀어준다** (v3.0 3-P).
+     *
+     * 🔴 안 풀어도 **안전하기는 하다** — `askBotApprover` 가 «심사를 맡긴
+     * 봇이 방에 없어» 로 사용자에게 되돌린다. 그런데 **설정 화면은 여전히
+     * 나간 봇을 가리키고**, 매 요청마다 같은 알림이 한 줄씩 쌓인다.
+     * 고칠 데를 아는 쪽이 고친다 — 사용자가 짐작할 일이 아니다.
+     */
+    const orphans = room.participants.filter(
+      (b) => b.approver?.kind === "bot" && b.approver.botId === botId,
+    );
+    for (const o of orphans) o.approver = ASK_USER;
+
     this.noteRoom(room, `${bot.name}을(를) 내보냈습니다. 지금까지의 대화는 그대로 남습니다.`, "info");
+    if (orphans.length > 0) {
+      this.noteRoom(
+        room,
+        `${orphans.map((b) => b.name).join("·")}의 승인 주체를 사용자로 되돌렸습니다.`,
+        "info",
+      );
+    }
     await this.saveProps(room, { participants: room.participants, left: room.left });
     this.emit("room", room);
     this.emitMetas();
@@ -2021,6 +2041,24 @@ export class RoomManager extends EventEmitter<Events> {
       createdAt: now,
       lastActivityAt: now,
     };
+
+    /*
+     * ★ **심사자 지목도 새 id 로 옮긴다** (v3.0 3-P).
+     *
+     * 🔴 봇은 전부 **새 것**인데 `structuredClone` 은 `approver.botId` 까지
+     * 그대로 베낀다 — 가리키는 곳이 **부모 방의 봇**이라 분기한 방에서는
+     * 심사가 통째로 안 듣는다. 조용히 사용자에게 되돌아오므로 **화면만
+     * 보고는 모른다.**
+     *
+     * 봇 하나만 가른 경우에는 지목한 상대가 새 방에 아예 없다 — 그때는
+     * 사용자로 되돌린다.
+     */
+    const moved = new Map(forks.map(({ bot }, n) => [bot.id, room.participants[n]!.id]));
+    for (const b of room.participants) {
+      if (b.approver?.kind !== "bot") continue;
+      const landed = moved.get(b.approver.botId);
+      b.approver = landed ? { kind: "bot", botId: landed } : ASK_USER;
+    }
 
     await this.opts.store.createRoom(room);
     this.open.set(room.id, room);

@@ -233,6 +233,55 @@ async function main(): Promise<void> {
        "★ **디스크에도 남는다** — 다시 열었을 때 익명이 되면 뜻이 없다");
   }
 
+  console.log(`${NL}[★ 분기하면 **심사자 지목도 새 id 로** 옮겨간다]`);
+  {
+    /*
+     * 🔴 봇은 전부 **새 것**인데 `structuredClone` 은 `approver.botId` 까지
+     * 그대로 베낀다 — 가리키는 곳이 **부모 방의 봇**이라 분기한 방에서는
+     * 심사가 통째로 안 듣는다. 그리고 조용히 사용자에게 되돌아온다.
+     */
+    const { dir, mgr, settle } = await make(); dirs.push(dir);
+    const room = await mgr.createRoom({
+      title: "분기 심사", bots: [{ agentId: "alpha", name: "구현" }, { agentId: "beta", name: "리뷰어" }],
+    });
+    const [a, b] = room.participants;
+    await mgr.setPolicy(room.id, { approver: { kind: "bot", botId: b!.id } }, a!.id);
+    await mgr.sendCompose(room.id, [at(a!.id), txt(" "), at(b!.id), txt(`${NL}둘 다 기억해`)]);
+    await settle(room.id);
+
+    const child = await mgr.forkRoom(room.id, { title: "갈래" });
+    const kid = child.participants.find((p) => p.name === "구현")!;
+    const judge = child.participants.find((p) => p.name === "리뷰어")!;
+    ok(kid.approver.kind === "bot" && kid.approver.botId === judge.id,
+       "★ **새 방의 리뷰어를 가리킨다** — 부모 방 id 를 들고 가면 조용히 안 듣는다");
+    ok(kid.approver.kind === "bot" && kid.approver.botId !== b!.id, "★ 베낀 id 가 아니다");
+    mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 내보내면 그 봇에게 맡긴 **심사도 풀린다**]`);
+  {
+    /*
+     * 🔴 안 풀어도 **안전하기는 하다** — `askBotApprover` 가 «심사를 맡긴 봇이
+     * 방에 없어» 로 사용자에게 되돌린다. 그런데 설정 화면은 여전히 **나간
+     * 봇을 가리키고**, 매 요청마다 같은 알림이 한 줄씩 쌓인다. 고칠 데를
+     * 아는 쪽이 고친다 — 사용자가 짐작할 일이 아니다.
+     */
+    const { dir, mgr } = await make(); dirs.push(dir);
+    const room = await mgr.createRoom({
+      title: "심사", bots: [{ agentId: "alpha", name: "구현" }, { agentId: "beta", name: "리뷰어" }],
+    });
+    const [a, b] = room.participants;
+    await mgr.setPolicy(room.id, { approver: { kind: "bot", botId: b!.id } }, a!.id);
+    if (a!.approver.kind !== "bot") throw new Error("FAIL: 전제가 안 섰다 — 심사를 못 맡겼다");
+
+    await mgr.removeBot(room.id, b!.id);
+    ok(a!.approver.kind === "user",
+       `★ **사용자로 되돌아온다** (${a!.approver.kind}) — 안 그러면 고친 적 없는 설정이 조용히 안 듣는다`);
+    ok(notes(room).some((t) => t.includes("승인 주체")),
+       "★ 그리고 **우리가 고쳤다고 말한다** — 사용자가 안 건드린 칸이 바뀌었다");
+    mgr.dispose();
+  }
+
   console.log(`${NL}전부 통과`);
 }
 

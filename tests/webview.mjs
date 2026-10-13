@@ -687,12 +687,106 @@ function main() {
     const who = selects[0];
     ok([...who.options].map((o) => o.textContent).join(",") === "사용자",
        "1:1이라 승인 주체는 사용자뿐");
+    /*
+     * ⏪ 여기 *"다른 봇에게 맡기는 것은 v3.0에서"* 가 붙어 있었다. **지금이
+     * v3.0이다** — 낡은 안내는 «기능이 없다»고 거짓말을 한다.
+     */
+    ok(!t.$("#screen-perm").textContent.includes("v3.0에서"),
+       "★ **«v3.0에서» 라는 낡은 안내가 없다** — 그 v3.0 이 지금이다");
 
     const ask = selects[1];
     ask.value = "auto";
     ask.dispatchEvent(new t.w.Event("change"));
     const sent = t.sent.find((m) => m.t === "setPolicy");
     ok(sent.answerPolicy === "auto" && sent.botId !== undefined, "봇을 지목해서 보낸다");
+  }
+
+  console.log("\n[★ 승인 주체 — 방에 있는 봇이 그대로 선택지다 (v3.0 3-P)]");
+  {
+    /*
+     * 🔴 코어(`askBotApprover`)·큐·`verdict`·가로채기가 다 서 있는데 **화면이
+     * 안 닿아서** 아무도 못 켜고 있었다. 목록은 방의 참여자 그 자체다 —
+     * 따로 들고 있으면 봇을 부르고 내보낼 때마다 **방과 어긋난다.**
+     */
+    const three = [
+      { id: "b1", agentId: "claude", name: "Claude", sessionId: "s1",
+        approver: { kind: "user" }, answerPolicy: "ask" },
+      { id: "b2", agentId: "claude", name: "리뷰어", sessionId: "s2",
+        approver: { kind: "user" }, answerPolicy: "ask" },
+      { id: "b3", agentId: "claude", name: "테스터", sessionId: "s3",
+        approver: { kind: "user" }, answerPolicy: "ask" },
+    ];
+    /** 봇 칸에서 **승인 주체** 줄만 — 권한 모드 줄은 설정이 와야 `select` 가 된다 */
+    const whoOf = (box) =>
+      [...box.querySelectorAll(".field")]
+        .find((f) => f.querySelector("label")?.textContent === "승인 주체")
+        ?.querySelector("select");
+
+    const t = enter(mount(boot([meta()])), { participants: three });
+    t.send({ t: "mcp", state: { at: "ready", url: "http://127.0.0.1:1/mcp" } });
+    t.$(".composer .perm").click();
+
+    const boxes = t.$$("#screen-perm .sheet-bot:not(.relay)");
+    ok(boxes.length === 3, `세 봇이 다 그려진다 (${boxes.length})`);
+
+    const who = whoOf(boxes[0]);
+    ok([...who.options].map((o) => o.textContent).join(",") === "사용자,리뷰어,테스터",
+       `★ **방의 다른 봇이 그대로 선택지다** (${[...who.options].map((o) => o.textContent).join(",")})`);
+    ok(![...who.options].some((o) => o.value === "b1"),
+       "★ **자기는 빠진다** — 같은 맥락이 «해도 된다»고 하는 건 심사가 아니라 메아리다");
+
+    who.value = "b2";
+    who.dispatchEvent(new t.w.Event("change"));
+    const sent = t.sent.filter((m) => m.t === "setPolicy").pop();
+    ok(sent.botId === "b1" && sent.approver.kind === "bot" && sent.approver.botId === "b2",
+       `★ **누구의 설정을 누구에게** 둘 다 실린다 (${JSON.stringify(sent)})`);
+
+    // 저장된 값이 다시 내려오면 그대로 골라져 있다
+    const t2 = enter(mount(boot([meta()])), {
+      participants: [{ ...three[0], approver: { kind: "bot", botId: "b3" } }, three[1], three[2]],
+    });
+    t2.send({ t: "mcp", state: { at: "ready", url: "http://127.0.0.1:1/mcp" } });
+    t2.$(".composer .perm").click();
+    const back = whoOf(t2.$$("#screen-perm .sheet-bot:not(.relay)")[0]);
+    ok(back.value === "b3", `★ **저장된 것이 골라져 있다** (${back.value})`);
+    ok(t2.$("#screen-perm").textContent.includes("테스터의 큐로"),
+       "★ 그리고 **무슨 일이 벌어지는지** 적는다 — 규칙이 아니라 결과를");
+  }
+
+  console.log("\n[★ 승인 주체 — 길이 안 서면 새로 고르지 못한다 (v3.0 3-P)]");
+  {
+    /*
+     * 🔴 심사는 심사 봇의 **큐**로 가고, 큐를 읽는 길은 MCP 서버다. 서버가
+     * 없으면 고를 수는 있는데 매 요청이 조용히 사용자에게 되돌아온다 —
+     * **고른 적 없는 설정이 켜져 있는 것**처럼 보인다.
+     */
+    const two = [
+      { id: "b1", agentId: "claude", name: "Claude", sessionId: "s1",
+        approver: { kind: "bot", botId: "b2" }, answerPolicy: "ask" },
+      { id: "b2", agentId: "claude", name: "리뷰어", sessionId: "s2",
+        approver: { kind: "user" }, answerPolicy: "ask" },
+    ];
+    const t = enter(mount(boot([meta()])), { participants: two });
+    t.send({ t: "mcp", state: { at: "failed", why: "닿지 않습니다" } });
+    t.$(".composer .perm").click();
+
+    const box = t.$$("#screen-perm .sheet-bot:not(.relay)")[1];
+    const who = [...box.querySelectorAll(".field")]
+      .find((f) => f.querySelector("label")?.textContent === "승인 주체")
+      .querySelector("select");
+    const claude = [...who.options].find((o) => o.value === "b1");
+    ok(claude.disabled === true,
+       "★ **길이 안 서면 새로 못 고른다** — 골라도 매번 조용히 사용자에게 되돌아온다");
+    ok(box.querySelector(".field .bad") !== null,
+       "★ 그리고 **왜 안 되는지** 그 줄에서 말한다");
+
+    // 이미 골라둔 쪽은 막지 않는다 — 막으면 화면이 «사용자»라고 거짓말한다
+    const mine = t.$$("#screen-perm .sheet-bot:not(.relay)")[0];
+    const kept = [...mine.querySelectorAll(".field")]
+      .find((f) => f.querySelector("label")?.textContent === "승인 주체")
+      .querySelector("select");
+    ok(kept.value === "b2",
+       `★ **이미 골라둔 것은 그대로 보인다** (${kept.value}) — 숨기면 화면이 거짓말한다`);
   }
 
   console.log("\n[맥락이 끊겼으면 화면이 말해준다 (F7)]");

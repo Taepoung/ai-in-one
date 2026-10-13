@@ -5496,20 +5496,41 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
   /*
    * ── 승인 주체 — 물어봐야 할 때 누구에게
    *
-   * 🔴 **v2.0에서는 «사용자»뿐이다.** 봇에게 맡기는 길(§4.2.2의 심사)은
-   * 코어·테스트까지 다 있지만 **v3.0으로 미뤘다.**
+   * ★ **방에 있는 다른 봇이 그대로 선택지가 된다** (v3.0 3-P).
    *
-   * 심사는 «봇이 봇에게 물어보는 것»이라 **v3.0의 정의 그 자체**고
-   * («봇끼리 멘션해 주고받는다»), 붙을 배선도 §7이 v3.0으로 잡아둔 같은
-   * MCP 서버다. 무엇보다 §4.1.1이 *"v2.0을 작게 유지해 빨리 내고"* 라고
-   * 적어뒀는데, **제품에서 제일 위험한 면**(프롬프트 인젝션·상관된 실수)을
-   * 첫 다중봇 릴리스에 실을 이유가 없다.
+   * ⏪ 여기는 오래 «사용자» 한 칸이었고 *"다른 봇에게 맡기는 것은 v3.0에서"*
+   * 라고 적혀 있었다. **지금이 v3.0이다.** 심사(§4.2.2)는 큐·`verdict`·
+   * 가로채기·기록까지 다 서 있고 검사도 붙어 있었다 — **켤 길만 없었다.**
+   * 코어가 다 돌아가는데 화면이 안 닿는 것은 «아직»이 아니라 **구멍**이다.
    *
-   * 칸은 남긴다 — «대상»이라는 축이 있다는 것 자체가 D2의 모델이고,
-   * 없애면 v3.0에서 다시 설명해야 한다.
+   * 🔴 **목록을 손으로 관리하지 않는다.** 방의 참여자가 곧 목록이라 봇을
+   * 부르면 그 자리에서 선택지가 되고 내보내면 사라진다. 따로 적어두면
+   * 「추가」 버튼이 하나 생기고, 그 목록은 **방과 어긋나기 시작한다.**
+   *
+   * 🔴 **자기 자신은 뺀다.** 같은 맥락에 있는 쪽이 «해도 된다»고 답하는 것은
+   * 심사가 아니라 메아리다 — 코어도 같은 이유로 막는다(`askBotApprover`).
+   *
+   * 🔴 **길이 안 서면 새로 고르지 못하게 한다.** 심사는 심사 봇의 **큐**로
+   * 가고 큐를 읽는 길은 MCP 서버다. 서버가 없으면 고를 수는 있는데 매 요청이
+   * 조용히 사용자에게 되돌아온다 — **고른 적 없는 설정이 켜진 것처럼** 보인다.
    */
+  const mates = r.participants.filter((b) => b.id !== bot.id);
+  const mcpUp = mcpAt.at === "ready";
+  const picked = bot.approver?.kind === "bot" ? bot.approver.botId : "user";
+
   const who = el("select") as HTMLSelectElement;
-  who.append(el("option", { value: "user", text: "사용자", selected: true }));
+  who.append(el("option", { value: "user", text: "사용자", selected: picked === "user" }));
+  for (const mate of mates) {
+    who.append(
+      el("option", {
+        value: mate.id,
+        text: mate.name,
+        selected: picked === mate.id,
+        // **이미 골라둔 것은 안 막는다** — 막으면 화면이 «사용자»라고 거짓말한다
+        disabled: !mcpUp && picked !== mate.id,
+      }),
+    );
+  }
   who.addEventListener("change", () =>
     post({
       t: "setPolicy",
@@ -5518,6 +5539,16 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       approver: who.value === "user" ? { kind: "user" } : { kind: "bot", botId: who.value },
     }),
   );
+
+  /** 고른 것에 따라 **무슨 일이 벌어지는지**를 적는다 — 규칙이 아니라 결과를 */
+  const judge = mates.find((b) => b.id === picked);
+  const whyWho = mates.length === 0
+    ? "물어봐야 할 때 누가 답하나. 이 방엔 다른 봇이 없습니다."
+    : !mcpUp
+      ? "봇끼리 부르는 길이 안 서서, 지금은 사용자에게만 물어볼 수 있습니다."
+      : judge
+        ? `${judge.name}의 큐로 갑니다. 넘기는 것은 «이번만»뿐이고 «항상»은 사용자 몫입니다.`
+        : "물어봐야 할 때 누가 답하나. 봇에게 맡기면 그 봇의 큐로 갑니다.";
   rows.push(
     el(
       "div",
@@ -5525,10 +5556,10 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       el("label", { text: "승인 주체" }),
       who,
       el("span", {
-        class: "dim",
-        text: "다른 봇에게 맡기는 것은 v3.0에서.",
+        class: !mcpUp && mates.length > 0 ? "bad" : "dim",
+        text: whyWho,
         // 🔴 툴팁은 **보이는 글을 품어야** 한다 — 한 줄로 잘리기 때문이다
-        title: "다른 봇에게 맡기는 것은 v3.0에서. 봇이 봇의 승인을 심사하는 것은 «봇 간 대화»에 속합니다.",
+        title: whyWho,
       }),
     ),
   );
