@@ -26,6 +26,7 @@ import {
   type ReviewWait,
   type Approver,
   type JoinFail,
+  type JoinStep,
   ASK_USER,
   type BotInstance,
   type ForkFallback,
@@ -332,6 +333,30 @@ const SAVE_INTERVAL_MS = 2000;
  * 처음 받는 npm 패키지를 감안해 넉넉히 주되, **끝은 있다.**
  */
 const CONFIG_PROBE_MS = 90_000;
+
+/**
+ * ★ **붙는 데 걸 한도 — 둘로 가른다** (2026-10-13).
+ *
+ * 🔴 **여태 하나도 없었다.** `ensureStarted` 도 `newSession` 도 끝을 안 둬서,
+ * 저쪽이 답을 안 하면 **영영 기다린다** — 붙는 화면에 「여는 중…」이 선 채로
+ * 멈추고, 실패 신호가 안 오니 [다시 시도] 도 안 생긴다. 오늘 다섯 자리에서
+ * 고친 것과 같은 종류다: *끝이 안 난다.*
+ *
+ * 둘을 따로 재는 까닭은 **단위가 다르기 때문**이다 — CLI 는 **에이전트마다
+ * 하나**고 같은 에이전트의 봇들이 그 하나를 같이 쓴다. 세션은 봇마다다.
+ *
+ * ```
+ * 실측            띄우기            세션
+ * Claude            375ms           962ms
+ * Codex             585ms         1,662ms
+ * Antigravity    12,505ms         5,056ms   ← 398MB 네이티브 서버
+ * ```
+ *
+ * 제일 느린 것에 서너 배 여유를 뒀다. 넘겼다는 것은 그 자체로 «뭔가
+ * 잘못됐다» 는 신호고, 그때는 **다시 해볼 길**을 주는 것이 할 일이다.
+ */
+const START_MS = 60_000;
+const SESSION_MS = 30_000;
 
 /**
  * 턴 밖 발화를 **한 덩어리로 볼** 시간.
@@ -774,6 +799,8 @@ type Events = {
    * 받고 있었다 — 봇 셋 중 누가 못 붙었는지가 거기서 사라진다.
    */
   joinFail: [string, string, JoinFail, string];
+  /** 그 봇이 **어느 칸**에 있나 — (roomId, botId, 칸) */
+  joinStep: [string, string, JoinStep];
   /**
    * ★ **붙이는 일이 끝났다** — (roomId) (2026-10-13).
    *
@@ -1127,6 +1154,36 @@ export class RoomManager extends EventEmitter<Events> {
    * **첫 프롬프트 전이라 모델 변경 비용이 0이다** — 그래서 사용자 입장에서는
    * "만들 때 고른 것"과 같다 (B15).
    */
+  /**
+   * ★ **CLI 가 떠 있나 — 띄워야 하면 띄운다** (2026-10-13).
+   *
+   * `newSession` 안에서 같이 일어나던 것을 **앞으로 뺀다.** 둘을 가르는
+   * 까닭은 둘이고, 둘 다 사용자가 보는 것에 관한 것이다:
+   *
+   * ```
+   * 단위가 다르다   CLI 는 **에이전트마다** 하나 — 같은 에이전트의 봇들이 공유한다
+   * 걸리는 데가 다르다  Antigravity 는 띄우는 데 12.5초, 세션은 5초다
+   * ```
+   *
+   * 합쳐두면 화면이 「여는 중…」 한 줄밖에 못 말한다. 갈라두면 **어디서
+   * 걸렸는지** 보이고, 다시 해볼 때도 **필요한 쪽만** 다시 한다.
+   *
+   * ⚠️ **겹쳐 불러도 공짜다.** `ensureStarted` 가 이미 «떠 있으면 바로
+   * 돌아오고, 뜨는 중이면 그 약속을 같이 기다린다» 로 되어 있다 — 봇 셋이
+   * 다 Antigravity 라도 **CLI 는 하나만 뜬다.**
+   */
+  private async startAgent(room: Room, bot: BotInstance): Promise<void> {
+    const label = this.agentOrThrow(bot.agentId).label;
+    await withTimeout(
+      this.connection(bot.agentId).ensureStarted(() =>
+        // `npx`로 CLI를 처음 받으면 수십 초가 걸린다. 멈춘 줄 알지 않게 알린다.
+        this.emit("notice", room.id, `${label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`),
+      ),
+      START_MS,
+      `${label}이(가) ${Math.round(START_MS / 1000)}초 안에 뜨지 않았습니다.`,
+    );
+  }
+
   private async openSession(
     room: Room,
     bot: BotInstance,
@@ -2390,7 +2447,20 @@ export class RoomManager extends EventEmitter<Events> {
    * 종류마다 다르기 때문이다(`JoinFail`).
    */
   private async joinOne(room: Room, bot: BotInstance): Promise<void> {
+    const bt = this.botRuntime(room.id, bot.id);
     try {
+      /*
+       * ★ **두 칸을 따로 밟는다** (2026-10-13).
+       *
+       * 이미 붙어 있으면 둘 다 건너뛴다 — `ensureSession` 첫 줄이 그렇고,
+       * `ensureStarted` 도 «떠 있으면 바로 돌아온다». 그래서 **두 번째 방부터는
+       * ① 이 그냥 지나가고**, 화면도 그걸 그대로 보여준다.
+       */
+      if (!bt.sessionId) {
+        this.emit("joinStep", room.id, bot.id, "start");
+        await this.startAgent(room, bot);
+        this.emit("joinStep", room.id, bot.id, "session");
+      }
       await this.ensureSession(room, bot);
       this.setStatus(room.id, "idle", bot.id);
     } catch (err) {
@@ -4751,13 +4821,15 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
 
-    const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
-      // `npx`로 CLI를 처음 받으면 수십 초가 걸린다. 멈춘 줄 알지 않게 알린다.
-      this.emit(
-        "notice",
-        room.id,
-        `${this.agentOrThrow(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
-      ),
+    /*
+     * 🔴 **한도를 건다** — 안 그러면 저쪽이 답을 안 할 때 영영 기다린다.
+     * 띄우는 값은 `startAgent` 가 이미 치렀으므로 여기는 **세션만** 잰다.
+     */
+    const { sessionId, configOptions } = await withTimeout(
+      conn.newSession(room.cwd, this.mcpFor(room, bot)),
+      SESSION_MS,
+      `${this.agentOrThrow(bot.agentId).label}의 세션이 ` +
+        `${Math.round(SESSION_MS / 1000)}초 안에 열리지 않았습니다.`,
     );
     bt.sessionId = sessionId;
     this.pointAt(bot, sessionId);

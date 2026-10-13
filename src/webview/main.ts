@@ -24,6 +24,7 @@ import {
   BOT_COLORS,
   USER_CHIP,
   type JoinFail,
+  type JoinStep,
 } from "../core/types.js";
 import type {
   AgentBrief,
@@ -1615,6 +1616,7 @@ function openRoom(roomId: string): void {
   // 뷰는 **그 방 안의 상태**다 — 다른 방에 들고 가면 엉뚱한 봇을 가리킨다
   viewBotId = null;
   joinFails = new Map();
+  joinSteps = new Map();
   post({ t: "open", roomId });
   /*
    * ★ **붙는 동안은 붙는 화면에 선다** (2026-10-13).
@@ -1711,6 +1713,8 @@ function mb(n: number): string {
  */
 /** 붙다가 못 붙은 봇 — 방을 나가면 비운다 */
 let joinFails = new Map<string, { kind: JoinFail; why: string }>();
+/** 그 봇이 **어느 칸**에 있나 — 없으면 아직 시작도 안 했거나 이미 붙어 있다 */
+let joinSteps = new Map<string, JoinStep>();
 /** 붙는 화면을 지나왔나 — 한 번 들어간 방은 다시 안 세운다 */
 const joined = new Set<string>();
 
@@ -1846,7 +1850,16 @@ function renderJoining(r: Room): void {
       el("span", { class: "auth-mark", text: bad ? "!" : "…" }),
       el("span", { class: "auth-name", text: bot.name }),
       el("span", { class: bad ? "auth-say bad" : "auth-say dim",
-        text: bad ? bad.why : "여는 중…" }),
+        /*
+         * ★ **어느 칸인지 말한다** (2026-10-13). 「여는 중…」 한 줄이면
+         * Antigravity 의 17.5초가 **통째로 한 덩어리**로 보인다 — 12.5초는
+         * 띄우는 데 쓰고 5초는 세션에 쓰는데, 그걸 모르면 멈춘 것 같다.
+         */
+        text: bad
+          ? bad.why
+          : joinSteps.get(bot.id) === "start"
+            ? `${agentById.get(bot.agentId)?.label ?? bot.agentId} 를 띄우는 중…`
+            : "세션을 여는 중…" }),
     );
     if (bad) {
       const act = el("div", { class: "auth-acts" });
@@ -7713,6 +7726,13 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (stack[stack.length - 1] === "joining") {
         go(needsModel(room).length > 0 ? "fix" : "chat");
       }
+      break;
+    }
+
+    case "joinStep": {
+      if (room?.id !== m.roomId) break;
+      joinSteps.set(m.botId, m.step);
+      if (stack[stack.length - 1] === "joining") renderJoining(room);
       break;
     }
 

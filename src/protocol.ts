@@ -8,6 +8,7 @@ import type {
   SearchHit,
   ForkFallback,
   JoinFail,
+  JoinStep,
   Message,
   PermissionRequest,
   Room,
@@ -201,6 +202,8 @@ export type ToWebview =
    *
    * `kind` 로 **달 단추가 갈린다** — 로그인 / 고치기 / 다시 시도.
    */
+  /** 그 봇이 **어느 칸**에 있나 — 띄우는 중인지 세션을 여는 중인지 */
+  | { t: "joinStep"; roomId: string; botId: string; step: JoinStep }
   | { t: "joinFail"; roomId: string; botId: string; kind: JoinFail; why: string }
   /**
    * 붙이는 일이 끝났다 — 못 붙은 봇이 있어도 온다.

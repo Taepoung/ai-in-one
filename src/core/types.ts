@@ -1361,6 +1361,17 @@ export function isBusy(status: RoomStatus): boolean {
  */
 export type JoinFail = "auth" | "gone" | "other";
 
+/**
+ * ★ **붙는 일은 두 칸이다** (2026-10-13).
+ *
+ * 단위가 다르다 — CLI 는 **에이전트마다** 하나고 같은 에이전트의 봇들이 그
+ * 하나를 같이 쓴다. 세션은 **봇마다**다. 그리고 걸리는 데도 다르다
+ * (실측: Antigravity 는 띄우는 데 12.5초, 세션은 5초).
+ *
+ * 합쳐두면 화면이 「여는 중…」 한 줄밖에 못 말한다.
+ */
+export type JoinStep = "start" | "session";
+
 export type Approver =
   | { kind: "user" }
   /** 같은 방의 다른 봇 (v2.0). 자기 자신은 지정할 수 없다 */

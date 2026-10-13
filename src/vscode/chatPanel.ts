@@ -244,6 +244,8 @@ export class ChatPanel implements AskTarget {
     on("joinFail", ((roomId: string, botId: string, kind: never, why: string) =>
       this.post({ t: "joinFail", roomId, botId, kind, why })) as never);
     on("joinDone", ((roomId: string) => this.post({ t: "joinDone", roomId })) as never);
+    on("joinStep", ((roomId: string, botId: string, step: never) =>
+      this.post({ t: "joinStep", roomId, botId, step })) as never);
     on("clashes", ((roomId: string, list: never) =>
       this.post({ t: "clashes", roomId, list })) as never);
     on("roomError", ((roomId: string, message: string) =>

@@ -221,6 +221,29 @@ function main() {
        "★ **끝났다고 해야 넘어간다** — «다 붙었다» 를 화면이 추론하지 않는다");
   }
 
+  console.log("\n[★ 붙는 일은 **두 칸**이다 — 띄우기와 세션 (2026-10-13)]");
+  {
+    /*
+     * 🔴 「여는 중…」 한 줄이면 Antigravity 의 17.5초가 **통째로 한 덩어리**로
+     * 보인다 — 12.5초는 띄우는 데, 5초는 세션에 쓰는데 그걸 모르면 멈춘 것
+     * 같다. 단위도 다르다: CLI 는 **에이전트마다** 하나고, 세션은 봇마다다.
+     */
+    const t = mount(boot([meta()]));
+    t.$(".room").click();
+    t.send({ t: "room", room: room(), compactable: false });
+
+    t.send({ t: "joinStep", roomId: "r1", botId: "b1", step: "start" });
+    ok(t.$("#screen-joining").textContent.includes("띄우는 중"),
+       "★ **띄우는 칸이 보인다** — 여기가 12.5초짜리다");
+    ok(t.$("#screen-joining").textContent.includes("Claude"),
+       "★ 어느 **에이전트**를 띄우는지 적는다 — 봇 이름이 아니다");
+
+    t.send({ t: "joinStep", roomId: "r1", botId: "b1", step: "session" });
+    const say = t.$("#screen-joining").textContent;
+    ok(say.includes("세션을 여는 중") && !say.includes("띄우는 중"),
+       "★ **다음 칸으로 넘어간다**");
+  }
+
   console.log("\n[★ 못 붙은 봇은 **그 줄에서** 다시 해본다]");
   {
     /*
