@@ -322,14 +322,14 @@ async function main(): Promise<void> {
 
     await t.say(t.a, "베타", "일어나 봐");
     await t.until(
-      async () => (await t.prompts()).some((p) => p.includes("check_queue 로 꺼내세요")),
+      async () => (await t.prompts()).some((p) => p.includes('"do":"check_queue"')),
       "놀고 있는 봇이 안 깨어났다",
     );
     await t.settle();
 
-    const woke = (await t.prompts()).filter((p) => p.includes("check_queue 로 꺼내세요"));
+    const woke = (await t.prompts()).filter((p) => p.includes('"do":"check_queue"'));
     ok(woke.length >= 1, `★ **놀고 있으면 그 자리에서 프롬프트가 나간다** (${woke.length}번)`);
-    ok(woke.some((p) => /큐에 \d+개/.test(p)),
+    ok(woke.some((p) => /"queue":[1-9]/.test(p)),
        "★ **몇 개인지 같이 센다** — 몫을 떼어낸 직후라 낡은 값이 아니다");
     /*
      * ⏪ 여기 «메시지는 say, 권한은 verdict» 와 «몇 다리 더» 도 실려 있었다.
@@ -337,9 +337,9 @@ async function main(): Promise<void> {
      * 수는 **보내기 직전의 참**이고, 프롬프트에 적은 것은 턴이 열릴 때 찍은
      * 값이라 그 턴 안에서 낡는다. 같은 말을 두 번 하면서 한쪽이 틀리는 것이다.
      */
-    ok(woke.every((p) => !p.includes("다리 더") && !p.includes("verdict 로 답합니다")),
-       "★ **깨우는 줄은 «할 일»만** — 자세한 것은 도구 결과가 든다");
-    ok(woke.every((p) => p.includes("ai-in-one:")),
+    ok(woke.every((p) => p.includes('"say_id_0":"invalid"')),
+       "★ **쓸 수 있나를 그대로 적는다** — 규칙을 안 외워도 된다");
+    ok(woke.every((p) => p.includes("[ai-in-one] {")),
        "★ **누가 하는 말인지 이름을 댄다** — 안 대면 모델에게는 사용자 말로 보인다");
     ok(!woke.some((p) => p.includes("일어나 봐")),
        "★ 🔴 **말을 프롬프트로 안 밀어 넣는다** — 그건 check_queue 로 꺼내는 것이다");

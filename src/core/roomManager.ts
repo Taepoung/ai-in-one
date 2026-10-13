@@ -50,7 +50,6 @@ import {
   DEFAULT_DEPTH_CAP,
   USER_TURN_ID,
   rosterText,
-  ROSTER_OFF,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
 
@@ -4305,7 +4304,9 @@ export class RoomManager extends EventEmitter<Events> {
        * 모른다(§7). «못 겁니다»는 **켜져 있다가 꺼졌을 때만** 뜻이 있다.
        */
       const first = bt.rosterSent === undefined;
-      if (roster && !(first && roster === ROSTER_OFF)) parts.push(roster);
+      // 꺼진 방의 명단은 `"relay":"off"` 를 달고 온다 — 그게 «못 겁니다» 다
+      const isOff = roster.includes('"relay":"off"');
+      if (roster && !(first && isOff)) parts.push(roster);
       bt.rosterSent = roster;
     }
     // 끊긴 맥락을 되먹인다 (F7). **역할보다 뒤, 실제 요청보다 앞.**
@@ -4361,34 +4362,36 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const others = room.participants.some((b) => b.id !== bot.id);
     const relayOn = others && (room.relay ?? DEFAULT_RELAY) !== "off";
-    const bits: string[] = [];
-
-    /*
-     * ★ **깃발 하나.** 길게 쓰면 **사용자 말처럼 읽힌다** — 막으려던 바로
-     * 그것이다. 짧은 표식은 사람 말로 안 읽히고, 뜻은 도구 설명이 들고 있다.
-     *
-     * ★ **있을 때만 적는다** — «없으면 못 쓴다»는 **안 적는다.**
-     *
-     * 🔴 도구 설명에 «프롬프트에 이 글자가 있을 때만» 이라고 쓰면 **설명이
-     * 이 줄의 생김새에 묶인다.** 설명은 세션에 굳으므로(`mcplist.cjs` 실측),
-     * 나중에 이 줄을 고치는 날 **열린 세션들은 틀린 지시를 영영 들고 있다.**
-     * 설명에는 «사용자가 방금 한 말 때문이면» 만 적는다 — 그건 언제나 참이다.
-     *
-     * 틀리게 써도 거절 글이 **그 자리에서** 바로잡아 준다.
-     */
-    if (relayOn && bt.fromUser) bits.push('say id="0" 가능');
-
-    /*
-     * ★ **깨우는 줄은 «할 일»만.** 어느 도구로 답하는지도, 몇 다리 더 갈 수
-     * 있는지도 **`check_queue` 결과가 들고 온다**(`use`·`depth_left`) — 거기
-     * 수는 **보내기 직전의 참**이고, 여기 적은 것은 턴이 열릴 때 찍은 값이라
-     * 그 턴 안에서 이미 낡는다. 같은 말을 두 번 하면서 한쪽이 틀리는 것이다.
-     */
     const waiting = this.queue.shareLeft(bot.id);
-    if (waiting > 0) bits.push(`큐에 ${waiting}개 — check_queue 로 꺼내세요`);
 
-    // 가운뎃점으로 가른다 — 공백만으로는 **앞 줄 끝과 뒷 줄 머리가 붙어 읽힌다**
-    if (bits.length > 0) parts.push(`[${OUR_MCP_NAME}: ${bits.join(" · ")}]`);
+    /*
+     * ★ **구조로 적는다 — 산문이 아니라** (2026-10-13).
+     *
+     * 🔴 **프롬프트에 섞여 들어가는 산문의 기본값은 «사용자가 한 말»이다.**
+     * 길게 쓸수록 그렇게 읽힌다 — 막으려던 바로 그것이다. JSON 은 **우리
+     * 도구 결과와 같은 말투**라(`{"kind":…,"use":…}`) 같은 데서 온 것으로
+     * 읽히고, 사람 말로는 안 읽힌다.
+     *
+     * ★ **빈 것도 모양이 같다** — `do` 는 할 일이 없으면 `null` 이다.
+     * 칸이 사라지면 «빠뜨린 건가»가 생기고, 그건 `check_queue` 의 `use`·
+     * `item` 을 `null` 로 남긴 것과 같은 줄이다.
+     *
+     * ★ **«쓸 수 있나»를 그대로 적는다.** 전에는 «가능» 만 적고 «없으면 못
+     * 쓴다»를 도구 설명에 규칙으로 박았는데, **적혀 있으면 규칙을 안 외워도
+     * 된다.** 그리고 이 줄은 매 턴 새로 나가므로 설명처럼 굳지 않는다.
+     *
+     * 🔴 **`do` 는 남긴다.** 깨우는 줄이 행동을 끌어내는 것은 **실측으로
+     * 확인된 부분**이다(`probes/agysay.mts`). 순수 데이터로만 두면 읽고
+     * 아무것도 안 할 수 있고, 그건 안 재봤다.
+     */
+    const flag: Record<string, unknown> = {};
+    // 릴레이가 꺼진 방에서는 `say` 자체가 없는 일이라 **그 칸을 안 만든다**
+    if (relayOn) flag["say_id_0"] = bt.fromUser ? "valid" : "invalid";
+    if (relayOn || waiting > 0) {
+      flag["queue"] = waiting;
+      flag["do"] = waiting > 0 ? "check_queue" : null;
+      parts.push(`[${OUR_MCP_NAME}] ${JSON.stringify(flag)}`);
+    }
 
     // 알림만으로 깨어난 턴에는 **사용자의 말이 없다** — 빈 줄을 안 밀어 넣는다
     if (body) parts.push(body);
@@ -5075,7 +5078,8 @@ export class RoomManager extends EventEmitter<Events> {
         "네 일을 계속하거나 사용자에게 말해라.\n" +
         "★ **할 말은 반드시 `text` 에 넣어라** — 산문에만 쓰면 상대에게 안 간다.\n" +
         "`id` 에는 **무엇에 반응해서 보내는지**를 적는다. 빠뜨릴 수 없다:\n" +
-        "  · 사용자가 방금 한 말 때문이면 \"0\" — 같은 봇에게는 한 턴에 한 번만\n" +
+        "  · 사용자가 방금 한 말 때문이면 \"0\" — 같은 봇에게는 한 턴에 한 번만. " +
+        "프롬프트의 `say_id_0` 이 쓸 수 있는지 말해준다\n" +
         "  · 다른 봇의 말 때문이면 check_queue 가 준 id 를 그대로\n" +
         "★ **반응하면 그 항목은 닫힌다** — 받는 이가 누구든. 들고 있어도 " +
         "그 턴에서 더 할 수 있는 것이 없다.\n" +

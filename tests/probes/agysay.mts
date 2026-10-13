@@ -157,10 +157,10 @@ async function main(): Promise<void> {
 
   const results = [
     ok(calls.some((c) => c.tool === "check_queue"),
-       "★ ③ «큐에 1개» 한 줄만 받고 **check_queue 를 부른다**"),
+       '★ ③ `{"do":"check_queue"}` 만 받고 **그대로 한다**'),
     ok(back.length > 0, "★ ① **say 를 부른다** — 인자 셋을 채워서"),
     ok(back.some((a) => toNames(a).includes("구현")),
-       `★ ② **명단 표에서 이름을 골랐다** (to=${JSON.stringify(back.map((a) => a.to))})`),
+       `★ ② **JSON 명단에서 이름을 골랐다** (to=${JSON.stringify(back.map((a) => a.to))})`),
     ok(back.every((a) => Array.isArray(a.to)),
        "★ ②-2 **to 를 목록으로 준다** — 글자 하나로 와도 받지만, 스키마대로 오나"),
     ok(back.some((a) => a.id === myId),
