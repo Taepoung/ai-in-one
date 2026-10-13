@@ -4413,12 +4413,18 @@ function messageNode(
      * tool       도구를 돌리는 중 — **글자는 안 오지만 일하고 있다**
      * ```
      *
-     * 나머지는 전부 멈춘다. `permission` 도 그렇다 — 그 턴은 정말로 멈춰
-     * 있고(블로킹 요청이다) 점이 돌면 **사용자는 자기를 기다리는 줄 모른다.**
-     * 여태 그것만 특수 처리(`stalled`)했는데, 이제 규칙 하나에 들어간다.
+     * ⏪ **승인 대기도 쥐고 있다** (2026-10-13 정정). 하루 전엔 여기서
+     * 멈췄다 — *"점이 돌면 사용자는 자기를 기다리는 줄 모른다"*. 그런데 그
+     * 말은 **점이 그 역할을 한다**는 전제였고, 실제로 그 역할은 **승인 카드**가
+     * 한다(큐 자리에 붙박이로 뜬다). 점까지 그 일을 하려 들면 규칙이 둘이 된다.
+     *
+     * 그리고 «멈췄다»는 것도 **우리 눈에만** 그렇다 — 저쪽 턴은 `prompt` 안에서
+     * **열린 채 살아 있다.** 점이 꺼지면 사용자는 «끝났거나 죽었다»로 읽는데,
+     * 답을 주면 바로 이어진다. 사용자: *"승인 대기 상태에서도 ...이 나와야함"*.
      */
     const at = m.authorBotId !== undefined ? botStatus[m.authorBotId] : undefined;
-    const holding = at === "waiting" || at === "streaming" || at === "tool";
+    const holding = at === "waiting" || at === "streaming" || at === "tool"
+      || at === "permission";
     if (m.streaming && part.last && holding) {
       bubble.append(el("span", { class: "typing" }, el("i"), el("i"), el("i")));
     }
@@ -4731,9 +4737,16 @@ function toolsNode(list: ToolActivity[]): HTMLElement {
     const seal = t.decision
       ? el("span", {
           class: `seal ${t.decision.mark === "✓" ? "ok" : t.decision.mark === "✕" ? "no" : ""}`,
-          text: `${t.decision.mark} ${t.decision.label}${t.decision.by ? ` · ${t.decision.by}` : ""}`,
+          /*
+           * ★ **까닭까지 여기 붙는다** (2026-10-13). 봇이 막았으면 왜인지
+           * 모르는 채로는 사용자가 다시 묻거나 그냥 열어주게 된다 — 둘 다
+           * 심사를 한 보람이 없다. 그 글이 대화에 줄로 쌓이던 것을 여기로 옮겼다.
+           */
+          text: `${t.decision.mark} ${t.decision.label}`
+            + (t.decision.by ? ` · ${t.decision.by}` : "")
+            + (t.decision.why ? ` · ${t.decision.why}` : ""),
           title: t.decision.by
-            ? `${t.decision.by}이(가) 정했습니다`
+            ? `${t.decision.by}이(가) 정했습니다${t.decision.why ? ` — ${t.decision.why}` : ""}`
             : "사용자가 정했습니다",
         })
       : null;

@@ -150,6 +150,8 @@ export interface DecisionNote {
   label: string;
   /** 사람이 아니라 봇이 정했으면 그 이름 (§4.2.2) */
   by?: string;
+  /** 봇이 적은 **그렇게 판단한 까닭** — 활동에 접어 넣는다 (2026-10-13) */
+  why?: string;
 }
 
 export class AcpConnection {

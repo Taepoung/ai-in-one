@@ -162,7 +162,33 @@ async function main(): Promise<void> {
     bye(t);
   }
 
-  console.log(`${NL}[★ 누가 정했고 왜 그랬는지 남는다 (D3)]`);
+  console.log(`${NL}[★ 붙일 활동이 있으면 **대화에는 안 쌓인다** (2026-10-13)]`);
+  {
+    /*
+     * 🔴 승인 결과(`decision`)는 진작 **활동으로** 옮겼는데 **이유만 대화에
+     * 줄로** 남고 있었다. 봇이 스무 번 물으면 그 줄로 덮이는 것은 똑같다
+     * (§4.2.2). 사용자: *"승인, 거절 이유는 활동에 적으면 될듯, 굳이 채팅창에
+     * 남길 필요 없음"*.
+     *
+     * 접어 넣을 자리는 **그 도구 활동**이고, 이어주는 끈이 `toolCallId` 다.
+     */
+    const t = await make();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ({ toolCallId: "tc-1" }));
+    await t.untilQueued();
+    const got = await t.check();
+    await t.verdict(got.item!.id, false, "비밀번호가 들어 있습니다.");
+    await pending;
+
+    ok(systemTexts(t.room).every((x) => !x.includes("막았습니다")),
+       "★ **대화에는 안 쌓인다** — 「심사봇이 막았습니다」 가 줄로 쌓이던 자리다");
+    const held = (t.mgr as unknown as { verdictWhy: Map<string, string> }).verdictWhy;
+    ok(held.get("tc-1") === "비밀번호가 들어 있습니다.",
+       `★ **까닭은 들고 있다** — 그 활동이 돌아올 때 접어 넣는다 (${held.get("tc-1")})`);
+    bye(t);
+  }
+
+  console.log(`${NL}[★ 누가 정했고 왜 그랬는지 남는다 (D3) — **붙일 활동이 없을 때**]`);
   {
     const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
@@ -175,7 +201,8 @@ async function main(): Promise<void> {
     ok(out.outcome === "selected" && out.optionId === "n", "★ 막으면 거절로 답한다");
     const said = systemTexts(t.room).find((x) => x.includes("막았습니다"));
     console.log(`   ${said}`);
-    ok(said !== undefined, "★ **사용자에게 보인다** — 봇이 막은 것을 모르고 지나가면 안 된다");
+    ok(said !== undefined,
+       "★ **버리지는 않는다**(§0) — `toolCallId` 가 없으면 접어 넣을 자리가 없다. 그때는 한 줄로");
     ok(said!.includes(t.judge.name), "★ 누가 정했는지");
     ok(said!.includes("되돌릴 수 없는"), "★ **왜 그랬는지도** — 이유를 모르면 그냥 열어주게 된다");
     bye(t);

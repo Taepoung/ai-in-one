@@ -971,7 +971,19 @@ export class RoomManager extends EventEmitter<Events> {
     allowId: string;
     rejectId: string;
     roomId: string;
+    /** 그 활동에 판정 까닭을 접어 넣을 때 쓴다 (2026-10-13) */
+    toolCallId?: string;
   }>();
+
+  /**
+   * 봇이 적은 판정 까닭 — `toolCallId` → 글.
+   *
+   * `giveVerdict` 가 적어두면 **조금 뒤에** `recordDecision` 이 그 활동에
+   * 접어 넣는다. 둘이 한 줄에서 못 만나는 까닭은, 판정을 푸는 것과 그 결과가
+   * 활동으로 돌아오는 것이 **다른 가닥**이기 때문이다(저쪽이 답을 받고 나서
+   * 우리에게 알려준다).
+   */
+  private readonly verdictWhy = new Map<string, string>();
 
   /** 내린 뒤인가 — 그러면 예약을 더 안 내보낸다 (`dispose`) */
   private down = false;
@@ -3135,31 +3147,37 @@ export class RoomManager extends EventEmitter<Events> {
     });
 
     /*
-     * ★ **누가 정했는지 기록에 남긴다** (D3).
+     * ★ **까닭은 «활동»에 접어 넣는다** (2026-10-13).
      *
-     * 사람의 결정과 **구분되어야** 한다. 나중에 «왜 이게 통과했지» 를 물을 때
-     * 답할 수 있어야 하고, 봇이 막았으면 그건 더더욱 보여야 한다 —
-     * **봇의 거부는 언제나 존중하되, 사용자가 모르고 지나가면 안 된다.**
+     * 🔴 여기가 **대화에 시스템 줄**을 쌓고 있었다 — 「심사봇이 막았습니다 —
+     * «…» · 이유」. 승인 결과(`decision`)는 이미 활동으로 옮겨놨는데
+     * **이유만 밖에 나와 있었다.** 봇이 스무 번 물으면 그 줄로 덮이는 것은
+     * 똑같다(§4.2.2). 사용자: *"승인, 거절 이유는 활동에 적으면 될듯, 굳이
+     * 채팅창에 남길 필요 없음"*.
      *
-     * 🔴 **이유도 적는다.** 봇이 왜 막았는지 모르면 사용자는 다시 묻거나
-     * 그냥 열어주게 된다 — 둘 다 심사를 한 보람이 없다.
+     * 🔴 **버리는 것이 아니다**(§0). 적어뒀다가 `recordDecision` 이 그 활동에
+     * 넣는다 — 누가(`by`)·무엇을(`title`)·어떻게(`label`) 옆에 **왜**가 붙는다.
+     * 붙일 활동이 없으면 거기서 예전처럼 한 줄로 남는다.
      */
-    const room = this.open.get(held.roomId);
-    if (room) {
-      const judge = room.participants.find((b) => b.id === botId);
-      const why = reason.trim().replace(/\s+/g, " ").slice(0, 200);
-      const note: Message = {
-        id: messageId(),
-        role: "system",
-        text:
+    const why = reason.trim().replace(/\s+/g, " ").slice(0, 200);
+    if (held.toolCallId) {
+      if (why) this.verdictWhy.set(held.toolCallId, why);
+    } else {
+      /*
+       * 🔴 **붙일 활동이 없으면 버리지 않는다** (§0). `toolCallId` 가 없는
+       * 요청이 있다 — 그때는 접어 넣을 자리가 아예 없으므로 **예전처럼 한
+       * 줄로** 남긴다. `recordDecision` 의 받침과 같은 규칙이다.
+       */
+      const room = this.open.get(held.roomId);
+      if (room) {
+        const judge = room.participants.find((b) => b.id === botId);
+        this.noteRoom(
+          room,
           `${judge?.name ?? "심사 봇"}이(가) ${allow ? "승인했습니다" : "막았습니다"} — ` +
-          `«${item.title}»${why ? ` · ${why}` : ""}`,
-        deliveredTo: [],
-        createdAt: Date.now(),
-        ...(allow ? {} : { mark: "error" as const }),
-      };
-      this.append(room, note);
-      await this.saveNewMessage(room, note);
+            `«${item.title}»${why ? ` · ${why}` : ""}`,
+          allow ? "info" : "error",
+        );
+      }
     }
     /*
      * ★ **도구 결과마다 `left` 를 싣는다** (v3.0 2-H).
@@ -5300,11 +5318,17 @@ export class RoomManager extends EventEmitter<Events> {
       ? (turn?.tools ?? []).find((t) => t.id === note.toolCallId)
       : undefined;
 
+    /* 봇이 적어둔 까닭을 여기서 집어 든다 — 한 번 쓰고 버린다 */
+    const why = note.why
+      ?? (note.toolCallId ? this.verdictWhy.get(note.toolCallId) : undefined);
+    if (note.toolCallId) this.verdictWhy.delete(note.toolCallId);
+
     if (hit && turn) {
       hit.decision = {
         mark: note.mark,
         label: note.label,
         ...(note.by ? { by: note.by } : {}),
+        ...(why ? { why } : {}),
       };
       void this.saveMessage(room, turn);
       this.emit("message", room.id, turn);
@@ -5314,7 +5338,10 @@ export class RoomManager extends EventEmitter<Events> {
     const msg: Message = {
       id: messageId(),
       role: "system",
-      text: `${note.mark} ${note.title} — ${note.label}`,
+      // 붙일 활동이 없을 때뿐이다 — 그때는 까닭도 여기 같이 적는다(§0)
+      text: `${note.mark} ${note.title} — ${note.label}`
+        + (note.by ? ` · ${note.by}` : "")
+        + (why ? ` · ${why}` : ""),
       deliveredTo: [],
       createdAt: Date.now(),
     };
@@ -6562,6 +6589,7 @@ export class RoomManager extends EventEmitter<Events> {
         allowId: allow.optionId,
         rejectId: reject.optionId,
         roomId: room.id,
+        ...(req.toolCallId ? { toolCallId: req.toolCallId } : {}),
       });
     });
   }
