@@ -105,8 +105,20 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
    * 포트와 프로세스가 샌다.
    */
   for (let tries = 1; tries <= BOOT_TRIES; tries++) {
+    /*
+     * ★ **다시 해보는 중인 것도 보인다** — 상태 표시줄에 «2/3».
+     *
+     * 안 보이면 사용자는 **같은 자리에 멈춰 있는 줄 안다.** 뭔가 하고 있고
+     * 몇 번째인지가 보이면 기다릴 수 있다.
+     */
+    const nth = tries > 1 ? ` ${tries}/${BOOT_TRIES}` : "";
+    status.text = `$(sync~spin) AI${nth}`;
+    const step = (what: string) => {
+      status.tooltip = `AI in One — ${what}…${nth ? ` (${tries}번째)` : ""}`;
+      out.appendLine(`  ${String(Date.now() - began).padStart(5)}ms  ${what}`);
+    };
     try {
-      show = await boot(ctx, out, began, status);
+      show = await boot(ctx, out, began, status, step);
       phase = "ready";
       break;
     } catch (err) {
@@ -115,6 +127,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       if (err instanceof Error && err.stack) out.appendLine(err.stack);
       if (tries < BOOT_TRIES) {
         // 조금 쉬었다 다시 — 디스크가 바쁘거나 옆 창과 부딪힌 것일 수 있다
+        status.tooltip = `AI in One — 다시 켜봅니다 (${tries + 1}/${BOOT_TRIES})…`;
         await new Promise((r) => setTimeout(r, 300 * tries));
         continue;
       }
@@ -145,16 +158,30 @@ async function boot(
   out: vscode.OutputChannel,
   began: number,
   status: vscode.StatusBarItem,
+  /**
+   * ★ **지금 어느 칸인지 알린다** (2026-10-13).
+   *
+   * 사용자: *"어느 단계가 진행중인지, 잘 되고 있는지, 재시도가 되는지 이게
+   * 사용자에게 보였으면 해서, 그럼 기다리기 편하잖아"*.
+   *
+   * 평소엔 40ms 라 스쳐 지나간다. **느려졌을 때가 이게 있을 자리다** —
+   * 어디서 걸렸는지가 툴팁과 출력 창에 남아, «왜 안 뜨지» 가 «기록 읽는
+   * 데서 걸렸구나» 가 된다. 오늘 23초를 먹은 것도 **그 칸 이름이 있었으면**
+   * 바로 보였을 것이다.
+   */
+  step: (what: string) => void,
 ): Promise<(screen?: "new") => void> {
   const host = new VscodeHost(out);
 
   // `globalState`는 용량 제한이 있어 쓰지 않는다. 대화는 파일로 남긴다 (F5).
   const store = new RoomStore(ctx.globalStorageUri.fsPath);
   const storeBegan = Date.now();
+  step("기록 읽는 중");
   await store.init();
   const storeTook = Date.now() - storeBegan;
 
   const agentRoot = ctx.globalStorageUri.fsPath;
+  step("에이전트 목록 읽는 중");
   let agents = readAgents(agentRoot);
 
   /*
@@ -189,6 +216,7 @@ async function boot(
     }
   };
   try {
+  step("봇끼리 부르는 길 세우는 중");
   const mcp = new McpServer({ log: (m) => host.log(m) });
   madeHere.push(() => mcp.close());
 
@@ -210,6 +238,7 @@ async function boot(
   );
   madeHere.push(() => locks.releaseAll());
 
+  step("방을 여는 중");
   const rooms = new RoomManager({ host, store, agents, mcp, locks });
   madeHere.push(() => rooms.dispose());
   // 도구를 건다 — 서버가 만들어진 **뒤**라야 방 매니저가 있다
@@ -261,6 +290,14 @@ async function boot(
    * **버려진 것을 내린 다음**이라야 지울 수 있다.
    */
   const housekeeping = (async () => {
+    /*
+     * ★ **뒷정리는 몇 초씩 걸린다** — 프로세스 목록을 얻는 데만 이 기계에서
+     * 6초다. 창은 이미 떠 있으므로 **막지는 않지만**, 돌고 있다는 것은
+     * 보여야 한다. 안 그러면 «뭔가 느린데 뭔지 모르겠다» 가 된다.
+     */
+    const tidyBegan = Date.now();
+    status.tooltip = "AI in One — 뒷정리 중(쓰던 것은 그대로 쓸 수 있습니다)";
+    out.appendLine("뒷정리를 시작합니다 — 버려진 에이전트와 밀린 파일.");
     try {
       const swept = await sweepStrays(agentRoot);
       if (swept > 0) out.appendLine(`버려진 에이전트 ${swept}개를 내렸습니다.`);
@@ -273,6 +310,8 @@ async function boot(
         if (keep.length !== left.length) void store.patchAppState({ purgeBacklog: keep });
       }
     } catch { /* 치우기가 켜기를 막으면 안 된다 */ }
+    out.appendLine(`뒷정리를 마쳤습니다 (${Date.now() - tidyBegan}ms).`);
+    status.tooltip = "AI in One 채팅 열기";
   })();
   // 창이 닫혀도 돌던 청소는 끝까지 간다 — 다만 **아무도 안 기다린다**
   void housekeeping;

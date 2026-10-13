@@ -73,7 +73,7 @@ const fakeVscode = {
      * 부류다. 쓰는 것만 넣지 말고 **쓸 법한 것**을 넣어둔다.
      */
     createOutputChannel: () => ({
-      appendLine: () => {}, append: () => {},
+      appendLine: (m) => { logged.push(String(m)); }, append: () => {},
       show: () => {}, hide: () => {}, clear: () => {},
       replace: () => {}, dispose: () => {},
     }),
@@ -169,6 +169,8 @@ async function waitFor(pick, ms = 5000) {
 
 /** 켜기가 터졌을 때 사용자에게 간 글 */
 const errors = [];
+/** 출력 창에 적힌 줄 — «어느 칸에서 걸렸나» 가 여기 남는다 */
+const logged = [];
 
 async function main() {
   const storage = fs.mkdtempSync(path.join(os.tmpdir(), "aio-shell-"));
@@ -198,6 +200,16 @@ async function main() {
    * **길에 뭘 올렸나**를 재는 것이라 느슨해도 된다.
    */
   ok(bootMs < 3000, `★ **켜기가 창을 안 막는다** (${bootMs}ms) — 무거운 것은 뒤로 빼야 한다`);
+  /*
+   * ★ **어느 칸에서 걸렸는지가 남아야 한다** (2026-10-13).
+   *
+   * 평소엔 40ms 라 스쳐 지나가지만, 느려졌을 때 **«왜 안 뜨지» 가 «기록
+   * 읽는 데서 걸렸구나» 가 되는** 자리다. 오늘 23초를 먹은 것도 칸 이름이
+   * 있었으면 바로 보였다.
+   */
+  for (const what of ["기록 읽는 중", "에이전트 목록", "봇끼리 부르는 길", "방을 여는 중"]) {
+    ok(logged.some((l) => l.includes(what)), `★ 칸이 남는다 — «${what}»`);
+  }
   ok(registered.has("aiInOne.open"), "aiInOne.open 등록됨");
   ok(registered.has("aiInOne.newRoom"), "aiInOne.newRoom 등록됨");
 
