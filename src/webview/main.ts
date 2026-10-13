@@ -1661,16 +1661,32 @@ function leaveChat(): void {
 
 /* ── 모델이 없어졌다 — 고르기 전에는 못 쓴다 ─────────────────────────── */
 
-/** 고른 모델이 없어진 봇들. 비어 있으면 평소 방이다 */
+/** 이 방을 지금 못 쓰게 만드는 봇들. 비어 있으면 평소 방이다 */
 function needsModel(r: Room): BotInstance[] {
   /*
-   * ★ **두 가지를 같은 문으로 받는다** (2026-10-01).
+   * ★ **네 가지를 같은 문으로 받는다** (2026-10-01 둘, 2026-10-13 둘).
    *
    * «고른 모델이 없어졌다» 와 «그 에이전트를 안 받았다» 는 사용자
    * 입장에서 같다 — **이 방은 지금 못 쓴다.** 고치는 길도 같다:
    * 다른 걸 고르거나 봇을 내보낸다. 그래서 한 화면에서 처리한다.
+   *
+   * ★ **붙다가 걸린 것도 여기로 온다** (2026-10-13). 로그인이 풀렸거나
+   * 아예 못 열렸거나 — 사용자 입장에서 **똑같이 이 방을 못 쓴다.** 단추를
+   * 붙는 화면에도 달면 **단추가 두 화면에 흩어진다.** 붙는 화면은
+   * **기다리는 자리**, 여기가 **결정하는 자리**로 나눈다.
    */
-  return r.participants.filter((b) => b.modelGone || agentGone(b));
+  return r.participants.filter((b) => b.modelGone || agentGone(b) || joinFails.has(b.id));
+}
+
+/**
+ * **붙다가만** 걸린 봇 — 고르개가 아니라 다른 줄이 필요하다.
+ *
+ * 모델·에이전트가 같이 비어 있으면 그쪽이 먼저다. 고르개가 곧 답이고,
+ * 고르고 나면 붙는 것도 다시 하게 된다 — 「다시 시도」를 따로 누를 일이 없다.
+ */
+function joinStuck(b: BotInstance): { kind: JoinFail; why: string } | undefined {
+  if (b.modelGone || agentGone(b)) return undefined;
+  return joinFails.get(b.id);
 }
 
 /**
@@ -1804,13 +1820,13 @@ function renderAuth(): void {
  * 열려도 나머지는 산다»). 끝난 봇은 **사라지지 않고 체크로 줄어든다**:
  * 사라지면 «몇 명이었더라» 가 된다.
  *
- * 달 단추가 **까닭마다 다르다**:
+ * ★ **여기는 기다리는 자리다** (2026-10-13). 걸린 줄에 다는 단추는
+ * **[다시 시도] 하나**뿐이다 — 그 자리에서 바로 다시 해보는 것.
  *
- * ```
- * other  [다시 시도]   망·시간 초과. 대개 이걸로 풀린다
- * auth   [로그인]      로봇 화면으로
- * gone   [고치기]      fix 화면으로 — 고르개가 거기 있다
- * ```
+ * 🔴 한때 까닭마다 단추가 달랐다([로그인]·[고치기]). 그러면 **단추가 두
+ * 화면에 흩어진다** — 아직 붙는 중인 봇 옆에서 결정을 내리게 되고, 돌아와
+ * 보면 그 사이에 다른 봇도 걸려 있다. 다 끝난 뒤에 `fix` 에서 한 번에
+ * 정한다(`joinDone`).
  */
 function renderJoining(r: Room): void {
   const host = screens.joining;
@@ -1862,23 +1878,16 @@ function renderJoining(r: Room): void {
             : "세션을 여는 중…" }),
     );
     if (bad) {
-      const act = el("div", { class: "auth-acts" });
-      if (bad.kind === "auth") {
-        act.append(el("button", { class: "agent-go", text: "로그인",
-          onclick: () => { post({ t: "agentsAsk" }); renderAgents(); push("agents"); } }));
-      } else if (bad.kind === "gone") {
-        act.append(el("button", { class: "agent-go", text: "고치기",
-          onclick: () => { renderFix(r); push("fix"); } }));
-      }
-      act.append(el("button", {
-        class: bad.kind === "other" ? "agent-go" : "agent-btn", text: "다시 시도",
-        onclick: () => {
-          joinFails.delete(bot.id);
-          post({ t: "retryJoin", roomId: r.id, botId: bot.id });
-          renderJoining(r);
-        },
-      }));
-      row.append(act);
+      row.append(el("div", { class: "auth-acts" },
+        el("button", {
+          class: "agent-go", text: "다시 시도",
+          onclick: () => {
+            joinFails.delete(bot.id);
+            post({ t: "retryJoin", roomId: r.id, botId: bot.id });
+            renderJoining(r);
+          },
+        }),
+      ));
     }
     box.append(row);
   }
@@ -2007,6 +2016,69 @@ function swapRow(was: string, pick: HTMLElement): HTMLElement {
   );
 }
 
+/**
+ * 다시 붙여본다 — **기다리는 자리로 데려가면서.**
+ *
+ * 🔴 그 자리에 세워두면 **아무 일도 안 일어난 것처럼 보인다.** 다시 붙는 데는
+ * 길면 수십 초가 걸리는데(Antigravity 12.5초 + 5초), 칸이 어디까지 갔는지
+ * 보여주는 화면은 붙는 화면뿐이다. 끝나면 거기서 알아서 갈린다 —
+ * 되면 채팅, 또 걸리면 여기로 돌아온다(`room` 이 올 때 한 군데서 가른다).
+ */
+function retryJoin(r: Room, botId: string): void {
+  joinFails.delete(botId);
+  post({ t: "retryJoin", roomId: r.id, botId });
+  renderJoining(r);
+  go("joining");
+}
+
+/**
+ * ★ **붙다가 걸린 봇의 카드** (2026-10-13) — `fix` 화면.
+ *
+ * 줄이 **까닭마다 갈린다**:
+ *
+ * ```
+ * auth   [로그인] [다시 확인]   로그인이 풀렸다. 로봇 화면으로 보낸다
+ * other  [다시 시도]            망·시간 초과. 대개 이걸로 풀린다
+ * gone   ─                      여기 안 온다 (고르개 카드가 받는다)
+ * ```
+ *
+ * 어느 쪽이든 **[내보내기]가 같이 있다** — 사용자: *"그냥 들어가기는 없어,
+ * 봇 제거는 있어도"*. 반쯤 깨진 봇을 달고 들어가면 멘션은 되는데 답이 안 오고
+ * 그 까닭이 어디에도 없다. 답은 둘뿐이다: **고치거나, 내보내거나.**
+ */
+function stuckCard(r: Room, bot: BotInstance, bad: { kind: JoinFail; why: string }): HTMLElement {
+  const who = agentById.get(bot.agentId);
+  const acts = el("div", { class: "fix-acts" });
+
+  if (bad.kind === "auth") {
+    acts.append(el("button", {
+      class: "agent-go", type: "button", text: "로그인",
+      title: `${who?.label ?? bot.agentId} 에 다시 로그인합니다`,
+      onclick: () => { post({ t: "agentsAsk" }); renderAgents(); push("agents"); },
+    }));
+  }
+  acts.append(el("button", {
+    /* 로그인 쪽은 **[로그인]이 먼저**다 — 두 개를 다 강조하면 어느 쪽이 답인지 흐려진다 */
+    class: bad.kind === "auth" ? "agent-btn" : "agent-go", type: "button",
+    text: bad.kind === "auth" ? "다시 확인" : "다시 시도",
+    onclick: () => { retryJoin(r, bot.id); },
+  }));
+  acts.append(el("button", {
+    class: "ghost danger", type: "button", text: "내보내기",
+    onclick: () => { fixPick.delete(bot.id); post({ t: "removeBot", roomId: r.id, botId: bot.id }); },
+  }));
+
+  return el("div", { class: "fix-bot" },
+    el("div", { class: "fix-name" },
+      el("span", { class: "dot", style: { background: botColor(bot) } }),
+      el("strong", { text: bot.name }),
+      el("span", { class: "dim", text: who?.label ?? bot.agentId }),
+    ),
+    el("p", { class: "fix-stuck", text: bad.why }),
+    acts,
+  );
+}
+
 function renderFix(r: Room): void {
   const hit = needsModel(r);
   /** 한 봇이라도 «에이전트가 없다» 면 글이 달라진다 — 모델 이야기만 하면 틀린 말이 된다 */
@@ -2014,6 +2086,28 @@ function renderFix(r: Room): void {
   const host = screens.fix;
   host.replaceChildren();
   if (hit.length === 0) return;
+
+  /*
+   * **왜 막는지**를 적는다. 안 적으면 «그냥 쓰면 되지 왜 막아» 가 된다.
+   *
+   * ★ **까닭마다 한 줄씩 쌓는다** (2026-10-13). 예전엔 «에이전트가 없다»
+   * 아니면 «모델이 없다» 둘 중 하나만 골라 적었는데, 이제 한 방에 **네 가지가
+   * 섞여 올 수 있다.** 하나만 적으면 **나머지 봇의 까닭이 어디에도 없다.**
+   */
+  const says: string[] = [];
+  if (anyAgent) {
+    says.push("받지 않은 에이전트는 부를 수 없습니다. 로봇 아이콘에서 받아두거나, " +
+      "여기서 다른 에이전트로 바꾸거나 봇을 내보내면 됩니다.");
+  }
+  if (hit.some((b) => b.modelGone)) {
+    // 핵심은 «비슷한 걸로 바꿔놨다» 가 아니라 **성격이 다를 수 있다** 이다
+    says.push("대신 들어간 모델은 성격이 다를 수 있습니다 — 빠른 모델이 균형 모델로 " +
+      "바꿔도 합니다. 모르고 쓰면 답이 왜 달라졌는지 나중에 알 수 없습니다.");
+  }
+  const anyStuck = hit.some((b) => joinStuck(b));
+  if (anyStuck) {
+    says.push("붙지 못한 봇은 불러도 답이 오지 않습니다. 다시 해보거나, 봇을 내보내면 됩니다.");
+  }
 
   host.append(
     el(
@@ -2024,7 +2118,7 @@ function renderFix(r: Room): void {
         // **가둬두지 않는다.** 이 방을 지금 안 쓰겠다는 것도 답이다
         onclick: () => { room = null; chat = null; go("list"); },
       }, icon("arrow-left")),
-      el("h1", { text: anyAgent ? "이 방을 쓰려면 정리가 필요합니다" : "모델을 다시 골라 주세요" }),
+      el("h1", { text: anyAgent || anyStuck ? "이 방을 쓰려면 정리가 필요합니다" : "모델을 다시 골라 주세요" }),
     ),
     el("div", { class: "fix-why" },
       el("p", {
@@ -2032,21 +2126,19 @@ function renderFix(r: Room): void {
           `${r.title}의 ${hit.length > 1 ? `봇 ${hit.length}개` : hit[0]!.name}가 ` +
           `지금 돌 수 없어 이 방을 쓸 수 없습니다. 하나씩 정리하면 돌아갑니다.`,
       }),
-      /*
-       * **왜 막는지**를 적는다. 안 적으면 «그냥 쓰면 되지 왜 막아» 가 된다.
-       * 핵심은 «비슷한 걸로 바꿔놨다» 가 아니라 **성격이 다를 수 있다** 이다.
-       */
-      el("p", { class: "dim",
-        text: anyAgent
-          ? "받지 않은 에이전트는 부를 수 없습니다. 로봇 아이콘에서 받아두거나, " +
-            "여기서 다른 에이전트로 바꾸거나 봇을 내보내면 됩니다."
-          : "대신 들어간 모델은 성격이 다를 수 있습니다 — 빠른 모델이 균형 모델로 " +
-            "바꿔도 합니다. 모르고 쓰면 답이 왜 달라졌는지 나중에 알 수 없습니다.",
-      }),
+      ...says.map((text) => el("p", { class: "dim", text })),
     ),
   );
 
   for (const bot of hit) {
+    /*
+     * ★ **붙다가 걸린 봇은 다른 카드다** (2026-10-13). 고르개를 띄우면
+     * «모델을 바꾸라는 건가» 가 된다 — 모델은 멀쩡하다. 여기서 할 일은
+     * **다시 해보거나 내보내거나** 뿐이다.
+     */
+    const stuck = joinStuck(bot);
+    if (stuck) { host.append(stuckCard(r, bot, stuck)); continue; }
+
     const who = agentById.get(bot.agentId);
     const gone = agentGone(bot);
     const got = fixPick.get(bot.id) ?? { carry: "log" as const };
@@ -7546,13 +7638,15 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
        * 보여주기 전에** 끝난다.
        */
       if (stack[stack.length - 1] === "joining") {
-        // 붙이는 일이 **이미 끝났다고** 들었으면 그대로 넘어간다
-        if (joined.has(m.room.id) && joinFails.size === 0) {
-          go(needsModel(m.room).length > 0 ? "fix" : "chat");
-        } else {
-          renderJoining(m.room);
-          break;
-        }
+        /*
+         * 붙이는 일이 **이미 끝났다고** 들었으면 그대로 넘어간다.
+         *
+         * ★ 걸린 봇이 있어도 여기로 온다 (2026-10-13) — 아래 `needsModel` 이
+         * 같이 센다. **다시 붙어보는 길이 여기로 돌아온다**: `retryJoin` 은
+         * `joinDone` 을 다시 내지 않고(방은 이미 붙은 방이다) 끝에 방만
+         * 내보내므로, 되면 채팅 · 또 걸리면 `fix` 를 **이 한 자리가** 가른다.
+         */
+        if (!joined.has(m.room.id)) { renderJoining(m.room); break; }
       }
 
       if (needsModel(m.room).length > 0) {
@@ -7565,7 +7659,9 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
          * 늦게 와서 다시 그리기 전까지.
          */
         screens.fix.replaceChildren();
-        if (stack[stack.length - 1] === "fix") go("chat");
+        /* 붙는 화면에서도 여기로 빠진다 — 다 붙었고 막을 것도 없으면 채팅이다 */
+        const top = stack[stack.length - 1];
+        if (top === "fix" || top === "joining") go("chat");
       }
 
       // **방을 만들었으면 바로 들어간다.**
@@ -7738,10 +7834,16 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
        */
       joined.add(m.roomId);
       if (room?.id !== m.roomId) break;
-      // 못 붙은 봇이 있으면 **그 화면에 남는다** — 고치거나 내보내거나다
-      if (joinFails.size > 0) { renderJoining(room); break; }
       if (stack[stack.length - 1] === "joining") {
-        go(needsModel(room).length > 0 ? "fix" : "chat");
+        /*
+         * ★ **못 붙은 봇이 있으면 `fix` 로 간다** (2026-10-13).
+         *
+         * 🔴 여태 붙는 화면에 **남았다.** 그래서 결정하는 단추가 거기 달려야
+         * 했고, 화면 둘이 같은 일을 반씩 했다. 붙는 일이 **다 끝난 뒤**에
+         * 한 번만 넘어가면 — 걸린 봇이 한꺼번에 카드로 서고, 그 화면은
+         * 기다리기만 하면 된다. `needsModel` 이 이제 걸린 봇도 센다.
+         */
+        if (needsModel(room).length > 0) { renderFix(room); go("fix"); } else go("chat");
       }
       break;
     }
@@ -7756,7 +7858,10 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
     case "joinFail": {
       if (room?.id !== m.roomId) break;
       joinFails.set(m.botId, { kind: m.kind, why: m.why });
-      if (stack[stack.length - 1] === "joining") renderJoining(room);
+      const top = stack[stack.length - 1];
+      if (top === "joining") renderJoining(room);
+      // 카드가 서 있는 동안 **다른 봇이 또 걸릴 수 있다** — 그 자리에 더 그린다
+      else if (top === "fix") renderFix(room);
       break;
     }
 

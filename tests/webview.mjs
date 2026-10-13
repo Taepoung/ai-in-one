@@ -276,39 +276,77 @@ function main() {
        "★ **다음 칸으로 넘어간다**");
   }
 
-  console.log("\n[★ 못 붙은 봇은 **그 줄에서** 다시 해본다]");
+  console.log("\n[★ 못 붙은 봇 — **붙는 화면은 기다리고, fix 가 정한다** (2026-10-13)]");
   {
     /*
-     * 🔴 고치는 길이 **까닭마다 다르다.** 한 덩어리로 «실패» 라고만 하면
-     * 화면이 무슨 단추를 달아야 할지 모른다.
+     * 고치는 길이 **까닭마다 다르다.** 한 덩어리로 «실패» 라고만 하면 화면이
+     * 무슨 단추를 달아야 할지 모른다.
+     *
+     * 🔴 한때 그 단추들이 **붙는 화면에** 달려 있었다([로그인]·[고치기]).
+     * 그러면 아직 붙는 중인 봇 옆에서 결정을 내리게 되고, 돌아와 보면 그
+     * 사이에 다른 봇도 걸려 있다. 자리를 둘로 나눈다 — **붙는 화면은
+     * 기다리는 자리**(그 자리 재시도만), **`fix` 는 정하는 자리.**
      */
     const t = mount(boot([meta()]));
     t.$(".room").click();
     t.send({ t: "room", room: room(), compactable: false });
     t.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "other", why: "시간이 지났습니다" });
-    t.send({ t: "joinDone", roomId: "r1" });
 
     const scr = t.$("#screen-joining");
-    ok(scr.classList.contains("active"),
-       "★ **못 붙었으면 거기 남는다** — 쓸 수 없는 방에 들여보내지 않는다");
-    ok(scr.textContent.includes("시간이 지났습니다"),
-       "★ **까닭을 그대로 적는다** — 기록이 아니라 이 화면에");
+    ok(scr.classList.contains("active") && scr.textContent.includes("시간이 지났습니다"),
+       "★ **붙는 중에는 그 줄에 적는다** — 아직 다른 봇을 기다릴 수 있다");
+    const waiting = [...scr.querySelectorAll(".auth-acts button")].map((b) => b.textContent);
+    ok(waiting.join() === "다시 시도",
+       `★ 기다리는 자리에는 **[다시 시도] 하나**뿐 (${waiting.join(",")})`);
 
-    const btns = [...scr.querySelectorAll("button")].map((b) => b.textContent);
-    ok(btns.includes("다시 시도"), `★ 다시 해볼 수 있다 (${btns.join(",")})`);
+    t.send({ t: "joinDone", roomId: "r1" });
+    const fix = t.$("#screen-fix");
+    ok(fix.classList.contains("active"),
+       "★ **다 끝난 뒤에 한 번** fix 로 — 걸린 봇이 한꺼번에 카드로 선다");
+    ok(fix.textContent.includes("시간이 지났습니다"),
+       "★ **까닭을 그대로 적는다** — 기록이 아니라 이 화면에");
+    ok(!fix.querySelector(".fix-bot select"),
+       "★ **고르개는 안 뜬다** — 모델은 멀쩡하다. 띄우면 «모델을 바꾸라는 건가» 가 된다");
+
+    const btns = [...fix.querySelectorAll(".fix-bot button")].map((b) => b.textContent);
+    ok(btns.join() === "다시 시도,내보내기", `★ 할 수 있는 것이 둘뿐 (${btns.join(",")})`);
     /*
      * 🔴 **「그냥 들어가기」를 안 둔다** (2026-10-13).
      *
      * 반쯤 깨진 봇을 달고 들어가면 **상태가 헷갈린다** — 멘션은 되는데 답이
      * 안 오고, 그 까닭이 어디에도 안 적혀 있다. 답은 둘뿐이다: **고치거나,
-     * 내보내거나.** 둘 다 `fix` 화면에 있다.
+     * 내보내거나.**
      */
     ok(!btns.includes("그냥 들어가기"),
        "★ **반쯤 깨진 채로는 안 들여보낸다** — 고치거나 내보내거나다");
 
-    [...scr.querySelectorAll("button")].find((b) => b.textContent === "다시 시도").click();
+    [...fix.querySelectorAll(".fix-bot button")].find((b) => b.textContent === "다시 시도").click();
     const sent = t.sent.filter((x) => x.t === "retryJoin").pop();
     ok(sent?.botId === "b1", `★ **그 봇만** 다시 (${JSON.stringify(sent)})`);
+    ok(t.$("#screen-joining").classList.contains("active"),
+       "★ 그리고 **기다리는 자리로 돌아간다** — 세워두면 아무 일도 안 일어난 것 같다");
+  }
+
+  console.log("\n[★ 로그인이 풀린 봇은 **[로그인] 이 먼저다**]");
+  {
+    /*
+     * 자격은 **우리 것이 아니다**(P3) — 우리가 할 수 있는 것은 로봇 화면으로
+     * 보내는 것뿐이고, 거기서 공식 CLI 가 로그인을 받는다.
+     */
+    const t = mount(boot([meta()]));
+    t.$(".room").click();
+    t.send({ t: "room", room: room(), compactable: false });
+    t.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "auth", why: "로그인이 필요합니다" });
+    t.send({ t: "joinDone", roomId: "r1" });
+
+    const fix = t.$("#screen-fix");
+    const btns = [...fix.querySelectorAll(".fix-bot button")].map((b) => b.textContent);
+    ok(btns.join() === "로그인,다시 확인,내보내기",
+       `★ **줄이 까닭마다 갈린다** — 여기만 [로그인] 이 선다 (${btns.join(",")})`);
+
+    [...fix.querySelectorAll(".fix-bot button")].find((b) => b.textContent === "로그인").click();
+    ok(t.$$(".screen.active").map((x) => x.id).includes("screen-agents"),
+       "★ **로그인은 로봇 화면에서** — 우리는 자격을 안 만진다 (P3)");
   }
 
   console.log("\n[★ 기록만 읽기 — **붙이지 않고** 연다]");
