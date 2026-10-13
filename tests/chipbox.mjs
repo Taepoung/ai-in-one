@@ -68,6 +68,7 @@ const room = (bots) => ({
 /** 방을 열고 입력창을 돌려준다 */
 function open(t, bots) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false });
   return t.$("#screen-chat .composer textarea, #screen-chat .chipbox");
 }

@@ -69,6 +69,7 @@ const room = (bots) => ({
 /** 방을 열고 헤더의 참여자 버튼을 누른다 */
 function openInfo(t, bots) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
   return t.$("#screen-bots");
@@ -106,6 +107,7 @@ console.log("\n[권한 설정 — 봇이 나란히 보이는 자리에도]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room([bot("b1", "claude"), bot("b2", "codex")]), compactable: false });
   const perm = t.$("#screen-chat .perm");
   ok(perm !== null, "입력창 옆에 권한 버튼이 있다");
@@ -123,6 +125,7 @@ console.log("\n[1:1 권한 설정 — 여기서도 조용하다]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
   const MODE = [{ configId: "mode", name: "권한 모드", category: "mode", type: "select", current: "d", values: [{ id: "d", name: "기본", description: "아주 긴 설명이 여기 온다 — 길이를 우리가 정하지 않는다" }] }];
   // 이 방엔 b1(claude) 하나뿐이다 — 설정은 봇 단위다
@@ -135,6 +138,7 @@ console.log(String.fromCharCode(10) + "[★ 권한 세 칸은 가로로 누운�
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room([bot("b1", "claude"), bot("b2", "codex")]), compactable: false });
   t.$("#screen-chat .perm").click();
 
@@ -159,6 +163,7 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
   t.$("#screen-chat .perm").click();
   ok(t.$$("#screen-perm .sheet-bot:not(.relay)").length === 1, "열 때는 하나");
@@ -219,6 +224,7 @@ console.log(String.fromCharCode(10) + "[★ 시트가 방을 따라간다]");
   {
     const t2 = mount();
     t2.$(".room").click();
+    t2.send({ t: "joinDone", roomId: "r1" });
     t2.send({ t: "room", compactable: false, room: room([
       bot("b1", "claude", { color: "var(--vscode-terminal-ansiGreen, #0dbc79)" }),
       bot("b2", "claude"),

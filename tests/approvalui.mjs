@@ -77,6 +77,7 @@ const room = (participants = [bot("b1", "Claude")]) => ({
 
 function open(t, participants) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(participants), compactable: false });
 }
 const answers = (t) => t.sent.filter((m) => m.t === "answer");

@@ -212,6 +212,9 @@ export class ChatPanel implements AskTarget {
     on("reviews", ((roomId: string, list: never) =>
       this.post({ t: "reviews", roomId, list })) as never);
     on("mcp", ((state: never) => this.post({ t: "mcp", state })) as never);
+    on("joinFail", ((roomId: string, botId: string, kind: never, why: string) =>
+      this.post({ t: "joinFail", roomId, botId, kind, why })) as never);
+    on("joinDone", ((roomId: string) => this.post({ t: "joinDone", roomId })) as never);
     on("clashes", ((roomId: string, list: never) =>
       this.post({ t: "clashes", roomId, list })) as never);
     on("roomError", ((roomId: string, message: string) =>
@@ -552,6 +555,13 @@ export class ChatPanel implements AskTarget {
         // **못 물어본 것만** 다시 — 이미 답한 줄을 또 묻지 않는다
         case "ready":
           this.onReady();
+          break;
+        case "retryJoin":
+          await this.rooms.retryJoin(m.roomId, m.botId);
+          break;
+        case "peek":
+          // **붙이지 않고** 연다 — `setActiveRoom` 이 붙이는 자리다
+          this.postRoom(await this.rooms.openRoom(m.roomId));
           break;
         case "authRetry":
           this.askAuth();

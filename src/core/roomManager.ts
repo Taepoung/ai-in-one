@@ -25,6 +25,7 @@ import {
   type AnswerPolicy,
   type ReviewWait,
   type Approver,
+  type JoinFail,
   ASK_USER,
   type BotInstance,
   type ForkFallback,
@@ -727,6 +728,24 @@ function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<
   ]).finally(() => clearTimeout(timer)) as Promise<T>;
 }
 
+/**
+ * 오류 한 줄에서 **고치는 길**을 읽어낸다 (2026-10-13).
+ *
+ * ⚠️ **글자로 가른다.** ACP 는 오류에 종류를 안 싣는다 — `newSession` 이
+ * auth 를 이미 우리 말로 바꿔두고(«…에 로그인이 필요합니다»), 안 받은
+ * 에이전트는 `withInstalled` 가 «아직 받지 않았습니다» 로 바꿔둔다. 그
+ * 두 자리가 **우리가 쓴 글**이라 여기서 알아볼 수 있다.
+ *
+ * 🔴 모르면 `other` 다 — 그쪽이 **[다시 시도]** 를 다는 쪽이라, 잘못 맞혀도
+ * 사용자가 할 수 있는 일이 남는다. 거꾸로 `auth` 로 잘못 몰면 **로그인하라고
+ * 보내놓고 아무것도 안 고쳐진다.**
+ */
+function whyJoin(say: string): JoinFail {
+  if (say.includes("받지 않았습니다") || say.includes("알 수 없는 에이전트")) return "gone";
+  if (say.includes("로그인")) return "auth";
+  return "other";
+}
+
 type Events = {
   /** 목록 화면 갱신 */
   metas: [RoomMeta[]];
@@ -744,6 +763,26 @@ type Events = {
    * 디스크를 JSONL append로 푸다 것과 같은 문제를 한 겹 위에서 푸는 것이다.
    */
   message: [string, Message];
+  /**
+   * ★ **그 봇이 방에 못 붙었다** — (roomId, botId, 까닭, 한 줄) (2026-10-13).
+   *
+   * 🔴 여태 이것을 **말풍선으로** 남겼다(`noteRoom`). 그러면 «세션을 열지
+   * 못했습니다» 가 **대화 기록의 일부**가 된다 — 다음에 열면 그대로 있고,
+   * 되먹임에도 실려 간다. 세션이 붙고 말고는 **우리 사정**이지 대화가 아니다.
+   *
+   * 그리고 `bindSession` 은 봇 전부를 `Promise.all` 로 묶어 **하나의 catch** 로
+   * 받고 있었다 — 봇 셋 중 누가 못 붙었는지가 거기서 사라진다.
+   */
+  joinFail: [string, string, JoinFail, string];
+  /**
+   * ★ **붙이는 일이 끝났다** — (roomId) (2026-10-13).
+   *
+   * 🔴 **「다 붙었다」를 화면이 추론하게 두면 안 된다.** 봇별 상태만 보고
+   * 재면 **아직 한 줄도 안 온 때**와 **다 끝난 때**가 똑같아 보인다 —
+   * 그러면 붙는 화면이 영영 서 있거나, 반대로 한 프레임 만에 지나간다.
+   * 끝나는 때를 아는 것은 여기뿐이므로 여기서 말한다.
+   */
+  joinDone: [string];
   /**
    * 응답 대기 표시 (C10) — (roomId, 합친 상태, 봇별 상태).
    *
@@ -2312,26 +2351,68 @@ export class RoomManager extends EventEmitter<Events> {
     const need = room.participants.filter(
       (b) => !this.botRuntime(room.id, b.id).sessionId,
     );
-    if (need.length === 0) return Promise.resolve();
+    if (need.length === 0) {
+      // 붙일 것이 없으면 **그 자리에서 끝난 것**이다 — 화면을 세워두지 않는다
+      this.emit("joinDone", room.id);
+      return Promise.resolve();
+    }
 
     const running = this.sessionFlight.get(room.id);
     if (running) return running;
 
-    this.setStatus(room.id, "connecting");
-    const work = Promise.all(need.map((b) => this.ensureSession(room, b)))
+    for (const b of need) this.setStatus(room.id, "connecting", b.id);
+    /*
+     * ★ **봇마다 따로 받는다** (2026-10-13).
+     *
+     * 🔴 여기가 `Promise.all` 하나에 `catch` 하나였다. 봇 셋 중 하나가
+     * 터지면 **누가 터졌는지가 거기서 사라지고**, 나머지가 멀쩡히 붙었는지도
+     * 알 수 없었다. 화면은 «세션에 붙지 못했습니다» 한 줄만 받았다.
+     *
+     * 그리고 그 한 줄이 **말풍선으로** 남았다 — 대화 기록에 박혀서 다음에
+     * 열어도 그대로 있다. 세션이 붙고 말고는 **우리 사정**이지 대화가 아니다.
+     */
+    const work = Promise.all(need.map((b) => this.joinOne(room, b)))
       .then(() => {
         // 붙고 나면 화면이 들고 있는 값이 낡았다 — 이 방의 진짜 값으로 갈아준다
-        this.setStatus(room.id, "idle");
         this.emit("room", room);
-      })
-      .catch((err: unknown) => {
-        this.setStatus(room.id, "error");
-        this.noteRoom(room, `세션에 붙지 못했습니다 — ${describe(err)}`);
+        this.emit("joinDone", room.id);
       })
       .finally(() => this.sessionFlight.delete(room.id));
 
     this.sessionFlight.set(room.id, work);
     return work;
+  }
+
+  /**
+   * 한 봇을 방에 붙인다 — **터져도 나머지를 안 끈다** (2026-10-13).
+   *
+   * 까닭을 갈라 알려주는 것이 여기서 하는 일의 절반이다. 화면이 달 단추가
+   * 종류마다 다르기 때문이다(`JoinFail`).
+   */
+  private async joinOne(room: Room, bot: BotInstance): Promise<void> {
+    try {
+      await this.ensureSession(room, bot);
+      this.setStatus(room.id, "idle", bot.id);
+    } catch (err) {
+      const why = describe(err);
+      this.setStatus(room.id, "error", bot.id);
+      this.emit("joinFail", room.id, bot.id, whyJoin(why), why);
+    }
+  }
+
+  /**
+   * ★ **못 붙은 봇을 다시 붙여본다** — 화면의 [다시 시도] (2026-10-13).
+   *
+   * 자동으로 되풀이하지 않는다. 「몇 초마다」 라는 숫자가 하나 생기는데 그
+   * 숫자는 아무도 고를 수 없다 — MCP 쪽과 같은 규칙이다.
+   */
+  async retryJoin(roomId: string, botId: string): Promise<void> {
+    const room = await this.openRoom(roomId);
+    const bot = room.participants.find((b) => b.id === botId);
+    if (!bot) return;
+    this.setStatus(room.id, "connecting", bot.id);
+    await this.joinOne(room, bot);
+    this.emit("room", room);
   }
 
   /**

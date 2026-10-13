@@ -84,6 +84,13 @@ function mount(bootState) {
 function enter(t, over = {}) {
   t.$(".room").click();
   t.send({ t: "room", room: room(over), compactable: false });
+  /*
+   * ★ **붙는 화면을 지나야 채팅이다** (2026-10-13).
+   *
+   * 방을 누르면 「붙는 중」 화면에 선다. 「다 붙었다」는 **코어만** 아는
+   * 것이라(`joinDone`) 화면이 추론하지 않는다 — 여기서도 그 줄을 보낸다.
+   */
+  t.send({ t: "joinDone", roomId: "r1" });
   return t;
 }
 
@@ -192,12 +199,79 @@ function main() {
     ok(t.$("#screen-chat h1").textContent.startsWith("리팩터링"), "제목이 헤더에");
   }
 
-  console.log("\n[목록에서 방을 눌러도 들어간다]");
+  console.log("\n[★ 목록에서 누르면 **붙는 화면을 지나** 채팅이다 (2026-10-13)]");
   {
+    /*
+     * 🔴 여태 채팅이 **바로** 열리고 뒤에서 붙었다. 그래서 셋이 어긋났다:
+     * 쓸 수 있는 것처럼 보이고, 실패가 말풍선으로 기록에 박히고, 처음 쓰는
+     * 방에서 모델이 없어졌으면 **보던 채팅에서 fix 로 끌려갔다.**
+     */
     const t = mount(boot([meta()]));
     t.$(".room").click();
     ok(t.sent.some((m) => m.t === "open" && m.roomId === "r1"), "open 전송");
-    ok(t.screenOf() === "chat", "채팅으로 전환");
+    ok(t.$("#screen-joining").classList.contains("active"),
+       "★ **붙는 화면에 선다** — 아직 세션이 없는데 입력창을 열어두면 거짓말이다");
+
+    t.send({ t: "room", room: room(), compactable: false });
+    ok(t.$("#screen-joining").classList.contains("active"),
+       "★ 방이 와도 **그것만으로는 안 넘어간다**");
+
+    t.send({ t: "joinDone", roomId: "r1" });
+    ok(t.screenOf() === "chat",
+       "★ **끝났다고 해야 넘어간다** — «다 붙었다» 를 화면이 추론하지 않는다");
+  }
+
+  console.log("\n[★ 못 붙은 봇은 **그 줄에서** 다시 해본다]");
+  {
+    /*
+     * 🔴 고치는 길이 **까닭마다 다르다.** 한 덩어리로 «실패» 라고만 하면
+     * 화면이 무슨 단추를 달아야 할지 모른다.
+     */
+    const t = mount(boot([meta()]));
+    t.$(".room").click();
+    t.send({ t: "room", room: room(), compactable: false });
+    t.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "other", why: "시간이 지났습니다" });
+    t.send({ t: "joinDone", roomId: "r1" });
+
+    const scr = t.$("#screen-joining");
+    ok(scr.classList.contains("active"),
+       "★ **못 붙었으면 거기 남는다** — 쓸 수 없는 방에 들여보내지 않는다");
+    ok(scr.textContent.includes("시간이 지났습니다"),
+       "★ **까닭을 그대로 적는다** — 기록이 아니라 이 화면에");
+
+    const btns = [...scr.querySelectorAll("button")].map((b) => b.textContent);
+    ok(btns.includes("다시 시도"), `★ 다시 해볼 수 있다 (${btns.join(",")})`);
+    /*
+     * 🔴 **「그냥 들어가기」를 안 둔다** (2026-10-13).
+     *
+     * 반쯤 깨진 봇을 달고 들어가면 **상태가 헷갈린다** — 멘션은 되는데 답이
+     * 안 오고, 그 까닭이 어디에도 안 적혀 있다. 답은 둘뿐이다: **고치거나,
+     * 내보내거나.** 둘 다 `fix` 화면에 있다.
+     */
+    ok(!btns.includes("그냥 들어가기"),
+       "★ **반쯤 깨진 채로는 안 들여보낸다** — 고치거나 내보내거나다");
+
+    [...scr.querySelectorAll("button")].find((b) => b.textContent === "다시 시도").click();
+    const sent = t.sent.filter((x) => x.t === "retryJoin").pop();
+    ok(sent?.botId === "b1", `★ **그 봇만** 다시 (${JSON.stringify(sent)})`);
+  }
+
+  console.log("\n[★ 기록만 읽기 — **붙이지 않고** 연다]");
+  {
+    /*
+     * 「잠깐 뭐라고 했더라」 보러 들어온 사람에게 **Antigravity 17초**를
+     * 물릴 이유가 없다 — 기록은 우리 것이라 CLI 가 없어도 읽힌다.
+     */
+    const t = mount(boot([meta()]));
+    const row = t.$(".room");
+    row.dispatchEvent(new t.w.MouseEvent("contextmenu", { bubbles: true }));
+    const items = [...t.$$("#screen-list .menu button")].map((b) => b.textContent);
+    ok(items.includes("기록만 읽기"), `★ 우클릭에 있다 (${items.join(",")})`);
+
+    [...t.$$("#screen-list .menu button")].find((b) => b.textContent === "기록만 읽기").click();
+    ok(t.sent.some((m) => m.t === "peek" && m.roomId === "r1"),
+       "★ **붙이지 말라고 말한다** — open 이 아니다");
+    ok(t.screenOf() === "chat", "★ 그리고 바로 채팅이다 — 기다릴 것이 없다");
   }
 
   console.log("\n[스트리밍 중 입력창이 살아 있다]");

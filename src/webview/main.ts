@@ -23,6 +23,7 @@ import {
   botColor,
   BOT_COLORS,
   USER_CHIP,
+  type JoinFail,
 } from "../core/types.js";
 import type {
   AgentBrief,
@@ -211,7 +212,9 @@ function agentGone(b: BotInstance): boolean {
 type ScreenName =
   | "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents"
   /** 창이 뜨자마자 로그인을 확인하는 자리 (2026-10-13) */
-  | "auth";
+  | "auth"
+  /** 방에 붙는 동안 서는 자리 (2026-10-13) */
+  | "joining";
 
 /**
  * 화면 칸을 찾는다. **없으면 만든다.**
@@ -276,6 +279,21 @@ const screens: Record<ScreenName, HTMLElement> = {
    * 때** 막히고, 그때 뜨는 것은 CLI 원문이다.
    */
   auth: screenEl("screen-auth"),
+  /**
+   * ★ **방에 붙는 동안** (2026-10-13).
+   *
+   * 🔴 여태 채팅이 **바로** 열리고 뒤에서 붙었다. 그래서 셋이 어긋났다:
+   *
+   * ```
+   * 쓸 수 있는 것처럼 보인다   아직 세션이 없는데 입력창이 열려 있다
+   * 실패가 기록에 박힌다       「세션을 열지 못했습니다」 가 말풍선이 된다
+   * 보다가 끌려간다            modelGone 이 붙으면 fix 로 넘어간다
+   * ```
+   *
+   * 붙는 동안을 **따로 세우면** 셋이 한꺼번에 사라진다. 지난 대화를 읽으려고
+   * 들어온 사람에게는 **다른 길**이 있다 — 목록에서 우클릭 「기록만 읽기」.
+   */
+  joining: screenEl("screen-joining"),
 };
 let stack: ScreenName[] = ["list"];
 
@@ -712,7 +730,22 @@ function roomNode(m: RoomMeta): HTMLElement {
 
       return el(
         "button",
-        { class: "room", "data-id": m.id, onclick: () => openRoom(m.id) },
+        {
+          class: "room",
+          "data-id": m.id,
+          onclick: () => openRoom(m.id),
+          /*
+           * ★ **우클릭도 같은 메뉴를 연다** (2026-10-13).
+           *
+           * 여태 「…」 단추뿐이었다. 그런데 목록에서 **행을 우클릭**하는 것은
+           * 메신저·파일 목록 어디서나 하는 몸짓이고, 안 받으면 브라우저
+           * 기본 메뉴가 뜬다 — 우리 것이 아닌 메뉴가.
+           */
+          oncontextmenu: (e: Event) => {
+            e.preventDefault();
+            openRoomMenu(e, m);
+          },
+        },
         el("span", { class: "room-icon" }, icon(kindIcon(m.kind))),
         el(
           "span",
@@ -778,6 +811,14 @@ function openRoomMenu(e: Event, m: RoomMeta): void {
   const menu = el(
     "div",
     { class: "menu" },
+    el("button", {
+      /* ★ 붙이지 않고 연다 — 읽기만 할 사람에게 17초를 물리지 않는다 */
+      text: "기록만 읽기",
+      onclick: () => {
+        close();
+        peekRoom(m.id);
+      },
+    }),
     el("button", {
       text: "이름 바꾸기",
       onclick: () => {
@@ -1573,7 +1614,28 @@ let draftTimer: ReturnType<typeof setTimeout> | undefined;
 function openRoom(roomId: string): void {
   // 뷰는 **그 방 안의 상태**다 — 다른 방에 들고 가면 엉뚱한 봇을 가리킨다
   viewBotId = null;
+  joinFails = new Map();
   post({ t: "open", roomId });
+  /*
+   * ★ **붙는 동안은 붙는 화면에 선다** (2026-10-13).
+   *
+   * 한 번 들어갔던 방은 다시 안 세운다 — 세션이 이미 붙어 있어 **한 프레임
+   * 번쩍하고 사라질** 뿐이다.
+   */
+  go(joined.has(roomId) ? "chat" : "joining");
+}
+
+/**
+ * ★ **기록만 읽는다** (2026-10-13).
+ *
+ * 세션을 안 붙이고 연다. 「잠깐 뭐라고 했더라」 보러 들어온 사람에게
+ * **Antigravity 17초**를 물릴 이유가 없다 — 기록은 우리 것이라 CLI 가
+ * 없어도 읽힌다. 입력창은 `renderChat` 이 세션 없음을 보고 잠근다.
+ */
+function peekRoom(roomId: string): void {
+  viewBotId = null;
+  joinFails = new Map();
+  post({ t: "peek", roomId });
   go("chat");
 }
 
@@ -1647,6 +1709,11 @@ function mb(n: number): string {
  * 거긴 우리 자리가 아니다. 그래서 둘이 **다른 단추**여야 한다 — 하나로
  * 묶으면 «앱을 지웠더니 로그인도 날아갔다» 가 된다.
  */
+/** 붙다가 못 붙은 봇 — 방을 나가면 비운다 */
+let joinFails = new Map<string, { kind: JoinFail; why: string }>();
+/** 붙는 화면을 지나왔나 — 한 번 들어간 방은 다시 안 세운다 */
+const joined = new Set<string>();
+
 /** 지금 그리고 있는 확인 줄 — 호스트가 보낼 때마다 갈린다 */
 let authList: AuthRow[] = boot.auth ?? [];
 let authStuck = false;
@@ -1723,6 +1790,93 @@ function renderAuth(): void {
     );
   }
 
+  host.append(box);
+}
+
+/**
+ * ★ **방에 붙는 화면** (2026-10-13).
+ *
+ * 봇마다 한 칸이고 **서로 독립**이다 — 코어도 그렇게 다룬다(«한 봇이 안
+ * 열려도 나머지는 산다»). 끝난 봇은 **사라지지 않고 체크로 줄어든다**:
+ * 사라지면 «몇 명이었더라» 가 된다.
+ *
+ * 달 단추가 **까닭마다 다르다**:
+ *
+ * ```
+ * other  [다시 시도]   망·시간 초과. 대개 이걸로 풀린다
+ * auth   [로그인]      로봇 화면으로
+ * gone   [고치기]      fix 화면으로 — 고르개가 거기 있다
+ * ```
+ */
+function renderJoining(r: Room): void {
+  const host = screens.joining;
+  host.replaceChildren();
+  host.append(
+    el("header", { class: "bar" },
+      el("button", { class: "icon", title: "뒤로", onclick: () => { go("list"); } }, icon("arrow-left")),
+      el("h1", { text: r.title }),
+    ),
+  );
+
+  const box = el("div", { class: "auth-box" });
+  const bots = botStatus;
+  const left = r.participants.filter(
+    (b) => !joinFails.has(b.id) && (bots[b.id] ?? "connecting") === "connecting",
+  );
+  box.append(el("p", { class: "auth-head",
+    text: left.length > 0 ? "방을 여는 중입니다…" : "방을 열지 못한 봇이 있습니다" }));
+
+  /* ★ 끝난 것은 **한 줄로 줄여서** 같이 보여준다 — 사라지면 셈이 안 맞는다 */
+  const done = r.participants.filter(
+    (b) => !joinFails.has(b.id) && (bots[b.id] ?? "connecting") !== "connecting",
+  );
+  if (done.length > 0) {
+    box.append(el("div", { class: "join-done" },
+      ...done.map((b) => el("span", { class: "join-chip" },
+        el("span", { class: "auth-mark", text: "✓" }),
+        el("span", { text: b.name }),
+      )),
+    ));
+  }
+
+  for (const bot of r.participants) {
+    if (done.includes(bot)) continue;
+    const bad = joinFails.get(bot.id);
+    const row = el("div", { class: `auth-row ${bad ? "failed" : "asking"}` },
+      el("span", { class: "auth-mark", text: bad ? "!" : "…" }),
+      el("span", { class: "auth-name", text: bot.name }),
+      el("span", { class: bad ? "auth-say bad" : "auth-say dim",
+        text: bad ? bad.why : "여는 중…" }),
+    );
+    if (bad) {
+      const act = el("div", { class: "auth-acts" });
+      if (bad.kind === "auth") {
+        act.append(el("button", { class: "agent-go", text: "로그인",
+          onclick: () => { post({ t: "agentsAsk" }); renderAgents(); push("agents"); } }));
+      } else if (bad.kind === "gone") {
+        act.append(el("button", { class: "agent-go", text: "고치기",
+          onclick: () => { renderFix(r); push("fix"); } }));
+      }
+      act.append(el("button", {
+        class: bad.kind === "other" ? "agent-go" : "agent-btn", text: "다시 시도",
+        onclick: () => {
+          joinFails.delete(bot.id);
+          post({ t: "retryJoin", roomId: r.id, botId: bot.id });
+          renderJoining(r);
+        },
+      }));
+      row.append(act);
+    }
+    box.append(row);
+  }
+
+  /*
+   * 🔴 **「그냥 들어가기」를 안 둔다** (2026-10-13).
+   *
+   * 반쯤 깨진 봇을 달고 들어가면 **상태가 헷갈린다** — 멘션은 되는데 답이
+   * 안 오고, 그 까닭이 어디에도 안 적혀 있다. 답은 둘뿐이다: **고치거나,
+   * 내보내거나.** 둘 다 `fix` 화면에 있다(거기 「내보내기」가 이미 있다).
+   */
   host.append(box);
 }
 
@@ -7353,6 +7507,24 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
        * **다시 돌아** 남은 봇이 없으면 채팅으로 넘긴다 — 봇이 여럿이면 하나씩
        * 지워지다가 마지막에 열린다.
        */
+      /*
+       * ★ **붙는 화면을 지나야 채팅이다** (2026-10-13).
+       *
+       * 🔴 여태 채팅이 먼저 열리고 뒤에서 붙었다. 그래서 **처음 쓰는 방에서
+       * 모델이 없어졌으면 보던 채팅에서 끌려갔다** — `modelGone` 은 세션이
+       * 열려야 정해지기 때문이다. 붙는 것을 앞에 세우면 판정이 **채팅을
+       * 보여주기 전에** 끝난다.
+       */
+      if (stack[stack.length - 1] === "joining") {
+        // 붙이는 일이 **이미 끝났다고** 들었으면 그대로 넘어간다
+        if (joined.has(m.room.id) && joinFails.size === 0) {
+          go(needsModel(m.room).length > 0 ? "fix" : "chat");
+        } else {
+          renderJoining(m.room);
+          break;
+        }
+      }
+
       if (needsModel(m.room).length > 0) {
         renderFix(m.room);
         if (stack[stack.length - 1] !== "fix") go("fix");
@@ -7431,6 +7603,10 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       statuses.set(m.roomId, m.status);
       if (room?.id === m.roomId) botStatus = m.bots ?? {};
       if (room?.id === m.roomId) renderChat();
+      // 붙는 화면은 **봇별 상태로** 그려진다 — 바뀔 때마다 다시 그린다
+      if (room?.id === m.roomId && stack[stack.length - 1] === "joining") {
+        renderJoining(room);
+      }
       renderList();
       break;
 
@@ -7520,6 +7696,32 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       authStuck = m.stuck;
       renderAuth();
       break;
+
+    case "joinDone": {
+      /*
+       * 🔴 **방보다 먼저 와도 된다** (2026-10-13).
+       *
+       * 호스트는 방을 내보내는 것과 붙이는 것을 **따로** 한다 — 어느 쪽이
+       * 먼저 닿을지 우리가 못 정한다. 먼저 오면 **적어뒀다가**, 방이 올 때
+       * 그걸 보고 넘어간다. 순서에 기대면 그 기대가 틀리는 날 **붙는 화면에
+       * 갇힌다** — `ready` 악수에서 이미 한 번 밟은 자리다.
+       */
+      joined.add(m.roomId);
+      if (room?.id !== m.roomId) break;
+      // 못 붙은 봇이 있으면 **그 화면에 남는다** — 고치거나 내보내거나다
+      if (joinFails.size > 0) { renderJoining(room); break; }
+      if (stack[stack.length - 1] === "joining") {
+        go(needsModel(room).length > 0 ? "fix" : "chat");
+      }
+      break;
+    }
+
+    case "joinFail": {
+      if (room?.id !== m.roomId) break;
+      joinFails.set(m.botId, { kind: m.kind, why: m.why });
+      if (stack[stack.length - 1] === "joining") renderJoining(room);
+      break;
+    }
 
     case "nav":
       if (m.screen === "new") openNewRoom();

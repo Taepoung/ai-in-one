@@ -74,6 +74,7 @@ const bot = (id, agentId, name) => ({
 function open(bots, staged, status) {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({
     t: "room", compactable: false,
     room: {

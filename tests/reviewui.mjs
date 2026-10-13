@@ -74,6 +74,7 @@ const wait = (over = {}) => ({
 
 function open(t) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(), compactable: false });
 }
 

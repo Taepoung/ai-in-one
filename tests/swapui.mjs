@@ -96,6 +96,7 @@ const MODEL_CODEX = {
 /** 방을 열고 서랍을 편다 */
 function drawer(t, bots = [bot("b1", "claude", "구현")], { status, config, configs } = {}) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false });
   // 설정은 **봇 단위**다 — 그 에이전트를 쓰는 봇에게만 붙는다
   const send = (c) => {

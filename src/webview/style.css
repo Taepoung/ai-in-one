@@ -3491,6 +3491,40 @@ fieldset.bot .bot-drop.danger:hover {
   font-size: var(--fs-11);
 }
 
+/* 끝난 봇은 **사라지지 않고 줄어든다** — 사라지면 «몇 명이었더라» 가 된다 */
+.join-done {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.join-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: var(--fs-11);
+}
+
+.join-chip .auth-mark {
+  width: auto;
+  color: var(--vscode-charts-green, #3fb950);
+}
+
+/* 실패 줄은 단추가 아래로 내려간다 — 한 줄에 다 넣으면 이름이 눌린다 */
+.auth-row.failed {
+  flex-wrap: wrap;
+}
+
+.auth-row.failed .auth-acts {
+  width: 100%;
+  justify-content: flex-end;
+}
+
 .auth-stuck {
   margin: 8px 0 0;
   font-size: var(--fs-12);

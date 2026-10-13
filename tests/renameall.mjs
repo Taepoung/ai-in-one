@@ -85,6 +85,7 @@ const room = (bots) => ({
 /** 방을 열고 말풍선이 한 번 그려지게 한다 (그래야 캐시가 찬다) */
 function open(t) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(both()), compactable: false });
   return t;
 }

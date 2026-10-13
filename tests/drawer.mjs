@@ -74,6 +74,7 @@ const room = (bots, messages) => ({
 /** 방을 열고 헤더의 참여자 버튼을 누른다 */
 function open(t, bots, extra = {}) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false, ...extra });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
   return t.$("#screen-bots");
@@ -215,6 +216,7 @@ console.log("\n[헤더의 분기 버튼]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
   const fork = t.$$("#screen-chat .bar button").find((b) => /분기/.test(b.title));
   ok(fork !== undefined && !fork.disabled, "★ ⋮ 안에 숨기지 않는다 — 대화를 보며 정하는 것이라");
@@ -229,6 +231,7 @@ console.log("\n[말풍선 우클릭 = **그 메시지**에 대한 것만]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({
     t: "room", compactable: true, compactableBots: ["b1"],
     room: room(
@@ -255,6 +258,7 @@ console.log("\n[코드가 없으면 «코드만 복사»도 없다]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", compactable: false, room: room([bot("b1", "claude")],
     [{ id: "a1", role: "agent", authorBotId: "b1", text: "그냥 말", deliveredTo: ["b1"], createdAt: 1 }]) });
   const labels = labelsOf(rightClick(t));
@@ -266,6 +270,7 @@ console.log("\n[분기는 남긴다 — 헤더가 못 하는 일이라서]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", compactable: false, room: room([bot("b1", "claude")],
     [{ id: "m1", role: "user", text: "처음 질문", deliveredTo: ["b1"], createdAt: 1 },
      { id: "m2", role: "agent", authorBotId: "b1", text: "답", deliveredTo: ["b1"], createdAt: 2 }]) });
@@ -280,6 +285,7 @@ console.log(String.fromCharCode(10) + "[★ 다중 봇 분기 — **누가 잃�
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", compactable: false,
     room: room([bot("b1", "claude"), bot("b2", "codex")],
       [{ id: "m1", role: "user", text: "해줘", deliveredTo: ["b1"], createdAt: 1 }]) });
@@ -299,6 +305,7 @@ console.log(String.fromCharCode(10) + "[둘 다 분기를 하면 조용하다]")
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", compactable: false,
     room: room([bot("b1", "claude"), bot("b2", "codex")],
       [{ id: "m1", role: "user", text: "해줘", deliveredTo: ["b1"], createdAt: 1 }]) });
@@ -407,6 +414,7 @@ console.log(String.fromCharCode(10) + "[말풍선 이름 옆에 퍼센트]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({
     t: "room", compactable: false,
     room: room(
@@ -431,6 +439,7 @@ console.log(String.fromCharCode(10) + "[★ 말풍선은 **봇 이름**을 쓴�
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   // 같은 에이전트로 봇 둘 — 에이전트 라벨로 그리면 둘을 구별 못 한다
   t.send({
     t: "room", compactable: false,
@@ -448,6 +457,7 @@ console.log(String.fromCharCode(10) + "[★ 방 정보는 팔업이다]");
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
   t.$("#screen-chat .bar button:last-child").click();
   t.$$("#screen-chat .menu button").find((b) => b.textContent === "방 정보").click();

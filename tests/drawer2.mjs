@@ -81,6 +81,7 @@ const MODE = {
 
 function open(t, bots, extra = {}) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false, ...extra });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
   return t.$("#screen-bots");
@@ -92,6 +93,7 @@ console.log("\n[★ 권한을 한 줄로 — 봇마다 시트를 열어보지 �
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(BOTH()), compactable: false });
   for (const b of ["b1", "b2"]) t.send({ t: "config", roomId: "r1", botId: b, ...MODE });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();
@@ -111,6 +113,7 @@ console.log("\n[★ 봇마다 다른 권한이 한눈에 대비된다]");
     bot("b2", "claude", "리뷰어", { configValues: { mode: "plan" }, answerPolicy: "auto" }),
   ];
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false });
   for (const b of ["b1", "b2"]) t.send({ t: "config", roomId: "r1", botId: b, ...MODE });
   t.$$("#screen-chat .bar button").find((b) => /참여자/.test(b.title)).click();

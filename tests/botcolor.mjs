@@ -81,6 +81,7 @@ const MSGS = [
 
 function open(t) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: { id: "r1", title: "방", cwd: "/ws", participants: TWO,
                               messages: MSGS, unread: 0, createdAt: 1, lastActivityAt: 2 },
            compactable: false });

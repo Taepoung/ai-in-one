@@ -83,6 +83,7 @@ const room = (bots = BOTH(), msgs = MSGS()) => ({
 
 function open(t, bots) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: room(bots), compactable: false });
   return t;
 }
@@ -179,6 +180,7 @@ console.log("\n[★ 릴레이로 받은 말은 **양쪽 뷰에** 뜬다 (v3.0 �
 {
   const t = mount();
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   /*
    * 알파가 베타를 부르면 그 말은 «알파가 쓴 것»이면서 «베타가 받은 것»이다.
    * 🔴 글쓴이로만 가르면 **베타가 실제로 받은 말이 베타 뷰에 안 뜬다** —

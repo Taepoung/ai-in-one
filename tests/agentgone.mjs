@@ -78,6 +78,7 @@ const bot = (id, agentId, name, extra = {}) => ({
 
 function open(t, participants) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: { id: "r1", title: "방", cwd: "/ws", participants,
                               messages: [], unread: 0, createdAt: 1, lastActivityAt: 2 },
            compactable: false });
@@ -172,6 +173,7 @@ console.log("\n[★ 받으면 막음이 풀린다]");
       state: "ready", size: 1, loggedIn: true },
   ] });
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   const top = t.$$(".screen.active").map((s) => s.id);
   console.log(`   받은 뒤: ${top.join(",")}`);
   ok(top.includes("screen-chat"),

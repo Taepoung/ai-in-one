@@ -7,6 +7,7 @@ import type {
   Attachment,
   SearchHit,
   ForkFallback,
+  JoinFail,
   Message,
   PermissionRequest,
   Room,
@@ -192,6 +193,23 @@ export type ToWebview =
    */
   | { t: "status"; roomId: string; status: RoomStatus; bots?: Record<string, RoomStatus> }
   /**
+   * ★ **그 봇이 방에 못 붙었다** (2026-10-13).
+   *
+   * 🔴 여태 이것을 **말풍선으로** 남겼다 — 「세션을 열지 못했습니다」 가
+   * **대화 기록의 일부**가 됐다. 세션이 붙고 말고는 **우리 사정**이지
+   * 대화가 아니다. 그래서 붙는 화면에만 뜨고 기록엔 안 남는다.
+   *
+   * `kind` 로 **달 단추가 갈린다** — 로그인 / 고치기 / 다시 시도.
+   */
+  | { t: "joinFail"; roomId: string; botId: string; kind: JoinFail; why: string }
+  /**
+   * 붙이는 일이 끝났다 — 못 붙은 봇이 있어도 온다.
+   *
+   * 🔴 **「다 붙었다」를 화면이 추론하면 안 된다.** 봇별 상태만 보면 **아직
+   * 한 줄도 안 온 때**와 **다 끝난 때**가 똑같아 보인다.
+   */
+  | { t: "joinDone"; roomId: string }
+  /**
    * ★ **예약을 풀어 글을 돌려준다** — «수정» 을 눌렀을 때 (v3.0 1-E).
    *
    * ⏪ 여기 있던 `queued` 는 **줄 서 있는 메시지 id 들**이었다. 큐를 없앴으니
@@ -268,6 +286,16 @@ export type ToWebview =
   | { t: "createFailed"; message: string };
 
 export type FromWebview =
+  /** 못 붙은 봇을 **다시 붙여본다** — 자동으로 되풀이하지 않는다 */
+  | { t: "retryJoin"; roomId: string; botId: string }
+  /**
+   * ★ **기록만 읽는다** (2026-10-13).
+   *
+   * 세션을 안 붙이고 방을 연다. 「잠깐 뭐라고 했더라」 보러 들어온 사람에게
+   * **Antigravity 17초**를 물릴 이유가 없다 — 기록은 우리 것이라 CLI 가
+   * 없어도 읽힌다.
+   */
+  | { t: "peek"; roomId: string }
   /**
    * ★ **웹뷰가 떴다** (2026-10-13).
    *

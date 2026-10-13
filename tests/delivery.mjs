@@ -76,6 +76,7 @@ const msg = (id, to, extra = {}) =>
 
 function open(t, r) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: r, compactable: false });
 }
 

@@ -78,6 +78,7 @@ const TWO = [
 
 function open(t, participants = TWO) {
   t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
   t.send({ t: "room", room: { id: "r1", title: "방", cwd: "/ws", participants,
                               messages: [], unread: 0, createdAt: 1, lastActivityAt: 2 },
            compactable: false });
