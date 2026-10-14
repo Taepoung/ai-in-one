@@ -159,8 +159,28 @@ async function main(): Promise<void> {
     process.chdir(lockMe);
     const got = purgeOnce(agent, "locked", (m) => logs.push(m));
     console.log(`   지운 ${got.wiped}개 · 못 지운 ${got.left}개`);
-    ok(got.left > 0, "★ **못 지운 것이 세어진다** — 이게 밀린 목록으로 간다");
-    ok(got.wiped > 0, "★ 되는 것은 그래도 지운다 — 하나 막혔다고 다 멈추지 않는다");
+    /*
+     * ★ **«못 지운다» 는 윈도우 규칙이다** (2026-10-14, 리눅스에서 처음 드러났다).
+     *
+     * 🔴 이 검사는 **현재 작업 폴더로 잡아** 막았는데, 그걸 거절하는 것은
+     * Windows 뿐이다 — POSIX 는 **쓰고 있는 폴더도 그냥 지운다.** 그래서
+     * 리눅스 판에서 「지운 5개 · 못 지운 0개」로 깨졌다.
+     *
+     * 고치는 방향은 둘이었다. 리눅스에서도 **막히는 모양**(권한 없는 상위
+     * 폴더)을 만들거나, **플랫폼대로 가르거나.** 앞은 컨테이너가 보통
+     * root 라 권한으로 안 막히고(root 는 통과한다) 파일 시스템도 탄다 —
+     * 안 막히는 것을 막힌 척하면 **그 검사가 거짓말**이 된다.
+     *
+     * 그래서 가른다. 밀린 목록 자체는 **윈도우에서 진짜로 쓰이는 길**이고
+     * (`sweepStrays` 가 그 자리다), POSIX 에서는 **지워지는 것이 맞다.**
+     */
+    if (process.platform === "win32") {
+      ok(got.left > 0, "★ **못 지운 것이 세어진다** — 이게 밀린 목록으로 간다 (윈도우)");
+      ok(got.wiped > 0, "★ 되는 것은 그래도 지운다 — 하나 막혔다고 다 멈추지 않는다");
+    } else {
+      ok(got.left === 0 && got.wiped > 0,
+         `★ **POSIX 는 쓰는 중이어도 지운다** — 밀릴 것이 없다 (지움 ${got.wiped} · 밀림 ${got.left})`);
+    }
     process.chdir(was);
 
     // 놓으면 그 다음엔 지워진다 — 다음에 켤 때가 그 순간이다
@@ -185,13 +205,24 @@ async function main(): Promise<void> {
 
   console.log(`${NL}[★ 아직 잠겨 있으면 들고 있는다]`);
   {
+    /*
+     * 바로 위와 **같은 갈림**이다(2026-10-14) — 「현재 작업 폴더는 못 지운다」는
+     * 윈도우 규칙이라, POSIX 에서는 **들고 있을 일이 안 생긴다.** 거기서는
+     * 「치우고 목록을 비운다」 가 맞는 결말이다.
+     */
     await plant(home, "still");
     const was = process.cwd();
     process.chdir(path.join(home, "brain", "still"));
     const { done, keep } = sweepBacklog(
       [{ agentId: "agy", sessionId: "still", at: Date.now() }], [agent], () => {},
     );
-    ok(done === 0 && keep.length === 1, "★ **다음에 또 해본다** — 한 번 실패했다고 버리지 않는다");
+    if (process.platform === "win32") {
+      ok(done === 0 && keep.length === 1,
+         "★ **다음에 또 해본다** — 한 번 실패했다고 버리지 않는다 (윈도우)");
+    } else {
+      ok(done === 1 && keep.length === 0,
+         `★ **POSIX 는 그 자리에서 치운다** — 들고 있을 일이 없다 (치움 ${done} · 남김 ${keep.length})`);
+    }
     process.chdir(was);
     await fs.rm(home, { recursive: true, force: true });
   }
@@ -221,8 +252,18 @@ async function main(): Promise<void> {
     );
     console.log(`   ${logs.join(" / ")}`);
     ok(keep.length === 0, "★ 더 안 들고 있는다 — 켤 때마다 헛일하면 안 된다");
-    ok(logs.some((l) => l.includes("손으로")),
-       "★ **손으로 치우라고 말한다** — 조용히 버리면 남아 있는 줄도 모른다");
+    /*
+     * 세 번째 같은 갈림이다(2026-10-14). POSIX 에서는 **그냥 지워지므로**
+     * 「오래 밀렸다」는 상황 자체가 안 만들어진다 — 포기할 일도, 손으로
+     * 치우라고 할 일도 없다. 거기서 재는 것은 **지워졌나** 다.
+     */
+    if (process.platform === "win32") {
+      ok(logs.some((l) => l.includes("손으로")),
+         "★ **손으로 치우라고 말한다** — 조용히 버리면 남아 있는 줄도 모른다 (윈도우)");
+    } else {
+      ok((await left(home)).length === 0,
+         "★ **POSIX 는 그냥 지워진다** — 포기할 일이 안 생긴다");
+    }
     process.chdir(was);
     await fs.rm(home, { recursive: true, force: true });
   }
