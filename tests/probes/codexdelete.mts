@@ -33,10 +33,17 @@ import * as fsp from "node:fs/promises";
 import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
 import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
+import { withInstalled } from "../../src/core/agentInstaller.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";
 
 const mark = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, m); return c; };
 const CX = path.join(os.homedir(), ".codex");
+
+/** 확장이 에이전트를 받아두는 자리 — 제품이 보는 그곳 */
+const AGENTS_ROOT = path.join(
+  process.env.APPDATA ?? os.homedir(), "Code", "User", "globalStorage",
+  "taein-yoon.ai-in-one",
+);
 
 /** 그 세션이 지금 파일·인덱스에 남아 있나 */
 function left(id: string): { file: boolean; row: boolean; cat: boolean } {
@@ -157,7 +164,24 @@ async function makeRoom(): Promise<{ id: string; close: () => void }> {
 async function liveOrder(): Promise<boolean[]> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-cxlive-"));
   const store = new RoomStore(dir); await store.init();
-  const agent = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
+  /*
+   * 🔴 **받아둔 자리를 쓴다** (2026-10-14).
+   *
+   * 여기서 카탈로그의 `AgentDef` 를 그대로 넘기고 있었다. 그런데 뒷정리
+   * 명령(`purgeSession`)은 **`withInstalled` 가 만들어 넣는 칸**이다 — 품은
+   * exe 의 자리를 알아야 하므로. 그래서 이 프로브는 **뒷정리가 아예 안 걸린
+   * 채로** 돌았고, ③ 의 NO 가 **판 탓인지 프로브 탓인지** 알 수 없었다.
+   * 2026-10-14 에 핀을 올리다 걸렸다.
+   *
+   * ⚠️ 받아둔 것이 없으면 **NO 가 아니라 «전제가 안 섰다»** 다 — 없는 것을
+   * 못 잰 것과, 있는데 안 되는 것은 다르다.
+   */
+  const agent = withInstalled(DEFAULT_AGENTS.find((a) => a.id === "codex")!, AGENTS_ROOT);
+  if (!agent.purgeSession) {
+    console.log("\n[③] 전제가 안 섰다 — 받아둔 Codex 가 없어 뒷정리 명령이 안 붙었다.");
+    console.log("     로봇 화면에서 받은 뒤 다시 돌린다. `realinstall.mts` 가 같은 자리를 잰다.");
+    return [];
+  }
   const mgr = new RoomManager({ host: hostAt(dir), store, agents: [agent], configProbeMs: 60000 });
   mgr.on("roomError", (_r, e) => console.log("   roomError:", e));
 
