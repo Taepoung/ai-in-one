@@ -17,15 +17,58 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
-import { holdInstall, freeInstall } from "../src/core/agentInstaller.js";
+import { holdInstall, freeInstall, ensureNode } from "../src/core/agentInstaller.js";
 
 const NL = "\n";
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
+
+/**
+ * ★ **Node 는 한 번만 받는다** (2026-10-14).
+ *
+ * 🔴 사용자가 밟았다 — *"코덱스랑 클로드랑 동시에 업데이트하면 permitted
+ * deny가 둘중 하나에서 뜨네"*. 에이전트 자리는 저마다 빗장이 있는데
+ * **Node 는 `<root>/node` 하나를 같이 쓴다.** 둘이 들어오면 한쪽이 다른
+ * 쪽의 자리를 지우고, 같은 임시 이름에 쓰고, 이름 바꾸기에서 EPERM 이 난다.
+ *
+ * 여기서는 **받으러 가는 횟수**를 센다. 받는 것 자체(zip 을 푸는 것)는
+ * `realinstall.mts` 가 진짜로 보므로, 이 검사는 **겹침만** 본다 — 해시가
+ * 안 맞는 가짜 응답을 주면 파일을 건드리기 전에 끝난다.
+ */
+async function nodeOnce(): Promise<void> {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-node-"));
+  let calls = 0;
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    /* 해시가 안 맞는 몸통 — 자리를 건드리기 전에 돌아선다 */
+    await new Promise((r) => setTimeout(r, 60));
+    return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const said: string[] = [];
+    const [a, b] = await Promise.all([
+      ensureNode(root, (m) => said.push(m)),
+      ensureNode(root, (m) => said.push(m)),
+    ]);
+    console.log(`   받으러 간 횟수 ${calls} · 답 ${String(a)}·${String(b)}`);
+    ok(calls === 1, `★ **한 번만 받으러 간다** (${calls}번) — 둘이 같이 받으면 서로 지운다`);
+    ok(a === false && b === false, "★ 둘 다 같은 답을 받는다 — 기다렸다가 그 결과를 쓴다");
+    ok(said.some((m) => m.includes("기다립니다")),
+       `★ 기다리는 쪽에 **뭘 기다리는지** 적는다 (${said.join(" / ")})`);
+  } finally {
+    globalThis.fetch = real;
+    await fsp.rm(root, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
 
 async function main(): Promise<void> {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "aio-lock-"));
   const said: string[] = [];
   const log = (m: string) => said.push(m);
+
+  console.log(`${NL}[★ Node 는 둘이 같이 받으려 해도 **한 번만**]`);
+  await nodeOnce();
 
   console.log(`${NL}[★ 잡으면 남이 못 잡는다 — 그리고 어디서인지 말해준다]`);
   {

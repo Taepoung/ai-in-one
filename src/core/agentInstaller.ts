@@ -658,11 +658,45 @@ export function nodeEnv(root: string): Record<string, string> {
  * 🔴 **막지 않는다.** 못 받아도 사용자 기계에 Node 가 있으면 그걸로 돌아간다 —
  * 여기서 던지면 **원래 되던 사람까지 막는 셈**이다.
  */
+/**
+ * ★ **지금 Node 를 받고 있는 일** — 한 창에 하나 (2026-10-14).
+ *
+ * 🔴 사용자가 밟았다 — *"코덱스랑 클로드랑 동시에 업데이트하면 permitted
+ * deny가 둘중 하나에서 뜨네"*. 에이전트 자리는 저마다 `.busy` 로 지켰는데
+ * (4.5-AB) **Node 는 `<root>/node` 하나를 같이 쓴다.** 둘이 동시에 들어오면:
+ *
+ * ```
+ * A: remove(node/)  →  B 가 풀고 있던 것을 지운다
+ * B: _node.zip 에 쓴다  ←  A 도 같은 이름에 쓴다
+ * A: rename(node-v…/ → current)  →  B 는 EPERM · 또는 «푼 모양이 뜻밖»
+ * ```
+ *
+ * 그리고 **하나가 끝나면 다른 것도 된다** — `haveNode` 가 참이 되어 아예 안
+ * 받기 때문이다. 그래서 사용자 눈에는 «오류가 났다 안 났다 하는 것»으로
+ * 보이고, 한 번 실패한 사람은 **안 되는 줄 알고 그만둔다.**
+ *
+ * 같이 기다리게 한다 — 두 번째 사람은 **같은 일을 기다렸다가** 그 결과를
+ * 받는다. 받는 것은 한 번뿐이다.
+ */
+let nodeJob: Promise<boolean> | undefined;
+
 export async function ensureNode(
   root: string,
   onLine?: (line: string) => void,
 ): Promise<boolean> {
   if (haveNode(root)) return true;
+  if (nodeJob) {
+    onLine?.("Node 를 받는 중입니다 — 끝나기를 기다립니다…");
+    return nodeJob;
+  }
+  nodeJob = fetchNode(root, onLine).finally(() => { nodeJob = undefined; });
+  return nodeJob;
+}
+
+async function fetchNode(
+  root: string,
+  onLine?: (line: string) => void,
+): Promise<boolean> {
   const at = NODE_PIN.at[hostKey()];
   if (!at) return false;
 
@@ -677,12 +711,25 @@ export async function ensureNode(
     const got = createHash("sha256").update(buf).digest("hex");
     if (got !== at.sha256) { onLine?.("Node 가 온전하지 않습니다 — 해시가 다릅니다"); return false; }
 
-    await remove(base).catch(() => undefined);
+    /*
+     * ★ **자리를 통째로 지우지 않는다** (2026-10-14).
+     *
+     * 🔴 `remove(base)` 였다. 그러면 **옆 창이 풀고 있던 것을 지운다** —
+     * 사용자가 밟은 «permitted deny» 의 한쪽이 이것이다. 우리가 어차피 다시
+     * 만들 것(`current` 와 표)만 걷고, 남의 임시 파일은 안 건드린다.
+     */
+    await remove(nodeHome(root)).catch(() => undefined);
+    await fsp.rm(path.join(base, NODE_MARK), { force: true }).catch(() => undefined);
     await fsp.mkdir(base, { recursive: true });
     onLine?.("Node 를 푸는 중…");
 
     const isZip = at.url.endsWith(".zip");
-    const tmp = path.join(base, isZip ? "_node.zip" : "_node.tar.gz");
+    /*
+     * 🔴 **임시 이름에 pid 를 박는다.** 옆 **창**이 같이 받으면 같은 이름에
+     * 둘이 쓴다 — 한 창 안에서는 위 `nodeJob` 이 막지만 창 사이는 못 막는다.
+     * 이름이 갈리면 적어도 **서로의 파일을 덮어쓰지는** 않는다.
+     */
+    const tmp = path.join(base, `_node-${process.pid}${isZip ? ".zip" : ".tar.gz"}`);
     await fsp.writeFile(tmp, buf);
     if (isZip) {
       await unzip(tmp, base);
@@ -698,15 +745,42 @@ export async function ensureNode(
      * 그대로 두면 판을 올릴 때마다 경로가 바뀐다 — `current` 로 바꿔 단다.
      */
     const inside = (await fsp.readdir(base, { withFileTypes: true }))
-      .filter((e) => e.isDirectory() && e.name.startsWith("node-v"));
-    if (inside.length !== 1) { onLine?.(`푼 모양이 뜻밖입니다 (${inside.length}개)`); return false; }
-    await fsp.rename(path.join(base, inside[0]!.name), nodeHome(root));
+      .filter((e) => e.isDirectory() && e.name.startsWith(`node-v${NODE_PIN.version}`));
+    if (inside.length === 0) { onLine?.("푼 모양이 뜻밖입니다 (0개)"); return false; }
+    /*
+     * ⚠️ **여럿이면 하나를 고른다.** 옆 창이 같이 풀고 있으면 둘이 보인다 —
+     * 예전엔 «뜻밖» 이라며 **멀쩡히 받아놓고 실패로 끝냈다.** 어느 쪽이든
+     * 같은 판이므로(판이 이름에 박혀 있다) 하나를 쓰면 된다.
+     */
+    await fsp.rename(path.join(base, inside[0]!.name), nodeHome(root))
+      .catch(async (err: unknown) => {
+        /* 옆 창이 먼저 걸었으면 그것으로 됐다 — 우리 것은 치운다 */
+        if (haveNode(root)) {
+          await fsp.rm(path.join(base, inside[0]!.name), { recursive: true, force: true })
+            .catch(() => undefined);
+          return;
+        }
+        throw err;
+      });
 
     await fsp.writeFile(
       path.join(base, NODE_MARK), JSON.stringify({ version: NODE_PIN.version }), "utf8");
     return haveNode(root);
   } catch (err) {
-    onLine?.(`Node 를 받지 못했습니다 — ${err instanceof Error ? err.message : String(err)}`);
+    const why = err instanceof Error ? err.message : String(err);
+    /*
+     * ★ **«겹쳤다» 는 다시 하면 된다** (2026-10-14).
+     *
+     * 🔴 EPERM·EBUSY·EACCES 는 대개 **다른 받기와 부딪힌 것**이고, 그 다음
+     * 번에는 그냥 된다(먼저 끝난 쪽이 Node 를 깔아두므로). 그런데 화면에는
+     * 그 글자만 뜨니 사용자는 **안 되는 줄 알고 그만둔다** — 사용자가 짚은
+     * 그 자리다. 무엇을 해보면 되는지 같이 적는다.
+     */
+    const clash = /EPERM|EBUSY|EACCES/i.test(why);
+    onLine?.(
+      `Node 를 받지 못했습니다 — ${why}` +
+      (clash ? " · 다른 받기와 겹쳤을 수 있습니다. 잠시 뒤 다시 눌러보세요" : ""),
+    );
     return false;
   }
 }
