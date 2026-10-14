@@ -1436,6 +1436,36 @@ function main() {
     ok(t.$("#screen-chat .act-pill.in_progress") !== null, "★ 도는 중이라고 표가 난다");
   }
 
+  console.log("\n[★ 파일 변경도 **활동 알약**이다 (2026-10-14)]");
+  {
+    /*
+     * 🔴 사용자: *"봇2 파일 1개 변경 → 활동인데 안잡힘"*. 활동을 알약으로
+     * 바꾸면서 **여기만 접는 상자로 남아 있었다** — 「무엇을 했나」 중 하나인데
+     * 혼자 다른 모양이면 눈이 두 규칙을 외운다.
+     */
+    const t = mount(boot([meta()]));
+    enter(t, { messages: [msg({ id: "a", files: [
+      { path: "/ws/src/store.ts", kind: "edit", added: 3, removed: 1, newSha256: "abc" },
+    ] })] });
+
+    const pill = t.$("#screen-chat .act-pill");
+    ok(pill !== null, "★ **알약이다** — 접는 상자가 아니라");
+    ok(pill.textContent.includes("파일 1개 변경"), `★ 무엇을 했는지 (${pill.textContent})`);
+    /*
+     * 🔴 **말풍선 «아래»다** (사용자, 2026-10-14). 활동 알약과 같은 모양이지만
+     * 자리가 다르다 — 활동은 글 사이에 끼는 **그 순간의 일**이고, 이것은 턴이
+     * 끝난 뒤의 **결과**다. 안에 넣으면 마지막 문장 뒤에 붙어 말의 일부처럼
+     * 읽힌다.
+     */
+    ok(pill.closest(".bubble") === null, "★ **말풍선 아래**에 있다");
+    ok(pill.closest(".msg") !== null, "★ 그래도 그 말풍선의 것이다");
+
+    pill.click();
+    t.$(".modal .file").click();
+    ok(t.sent.some((x) => x.t === "diffFile" && x.path === "/ws/src/store.ts"),
+       "★ 누르면 **바뀐 내용**으로 — 변경 전후가 남아 있으면 diff 다");
+  }
+
   console.log("\n[파일 하나면 눌러서 연다]");
   {
     const t = mount(boot([meta()]));

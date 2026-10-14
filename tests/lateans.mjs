@@ -221,6 +221,36 @@ console.log("\n[⑥ ★ 화면 밖이면 «읽던 자리로»가 뜬다]");
   ok(band.hidden === true, "★ 돌아가면 띠도 걷는다");
 }
 
+console.log("\n[⑦ ★ 위로 올라가 있으면 «맨 아래로» 가 뜬다 (2026-10-15)]");
+{
+  /*
+   * 🔴 사용자: *"스크롤으로 위로 올라가면, 아래로 내려갈 수 있는 버튼 만들기"*.
+   * 긴 대화를 훑다 보면 **바닥으로 돌아갈 길이 손가락뿐**이고, 봇이 답하는
+   * 중이면 그 사이에도 내용이 자라 끝이 멀어진다.
+   *
+   * «읽던 자리로»와 **같은 띠·같은 모양**이다 — 하는 일이 같으므로.
+   */
+  const t = mount();
+  open(t, room([M, A, N, A2, B]));
+  const list = t.$("#screen-chat .messages");
+  const down = t.$("#screen-chat .back-jump.to-bottom");
+  ok(down !== null && down.hidden === true, "★ 바닥에 있으면 안 뜬다");
+
+  /* jsdom 은 배치가 없으므로 «한 화면 넘게 올라가 있다»를 손으로 만든다 */
+  Object.defineProperty(list, "scrollHeight", { value: 2000, configurable: true });
+  Object.defineProperty(list, "clientHeight", { value: 400, configurable: true });
+  list.scrollTop = 500;
+  list.dispatchEvent(new t.w.Event("scroll", { bubbles: true }));
+
+  console.log(`   띠 : hidden=${down.hidden} · «${down.textContent}»`);
+  ok(down.hidden === false, "★ **올라가 있으면 뜬다**");
+  ok(down.textContent.includes("맨 아래로"), "★ 어디로 가는지 말한다");
+
+  down.querySelector("button").click();
+  ok(list.scrollTop === 2000, "★ 누르면 **바닥으로**");
+  ok(down.hidden === true, "★ 가고 나면 띠도 걷는다");
+}
+
 console.log("\n[★ 봇이 먼저 보낸 말은 어느 경우든 «한 줄»]");
 {
   /*

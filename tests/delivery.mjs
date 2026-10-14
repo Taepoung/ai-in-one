@@ -185,11 +185,34 @@ console.log("\n[★ 봇끼리 주고받은 말은 **접힌다** (2026-10-14)]");
   const fold = t.$("#screen-chat .relay-fold");
   ok(fold !== null, "★ 접히는 물건이 된다");
   ok(fold.open === false, "★ **접힌 채로 온다**");
-  ok(t.$("#screen-chat .msg.relay") !== null, "★ 말풍선에 표가 붙는다");
+  /*
+   * ★ **말풍선 «안»에 있다** (사용자, 2026-10-14): *"전체 말풍선 안에
+   * 들어가있어야지, 이것도 봇1이 하는 메시지 활동이잖아"*.
+   *
+   * ⏪ 말풍선을 통째로 접었더니 **말풍선 밖에 줄이 하나 더** 생겼다. `say`
+   * 는 그 턴에 그 봇이 **한 일**이라 활동 알약과 같은 자리가 맞다.
+   */
+  /*
+   * ★ **제 말풍선을 가진다** (사용자, 2026-10-15): *"> @봇1 이게 별개의
+   * 말풍선이 되어야함"*.
+   *
+   * ⏪ 두 번 돌았다 — ① 말풍선을 통째로 접었다(밖에 줄이 하나 더 생겼다)
+   * ② 앞 말풍선 **안에** 넣었다(사용자에게 한 말과 한 상자에 섞였다).
+   */
+  ok(fold.closest(".bubble") !== null, "★ 말풍선 하나가 이것만 감싼다");
+  ok(fold.closest(".bubble").querySelector(".to-line") === null,
+     "★ **섞이지 않는다** — 사용자에게 한 말은 다른 상자다");
 
   const head = t.$("#screen-chat .relay-head").textContent;
-  ok(head.includes("@Claude") && head.includes("@Codex"),
-     `★ **누가 누구에게** 를 칩으로 (${head.trim()})`);
+  /*
+   * ★ **받는 이 칩 하나** (사용자, 2026-10-14) — *"말풍선 안에 있으니까
+   * @봇2 → @봇1 대신에 그냥 @봇1 칩"*. 보낸 이는 **말풍선이 이미 말한다**
+   * (이름 알약) — 같은 것을 두 번 적지 않는다.
+   */
+  ok(head.includes("@Codex"), `★ **받는 이**를 칩으로 (${head.trim()})`);
+  ok(!head.includes("@Claude"), "★ 보낸 이는 안 적는다 — 말풍선이 이미 말한다");
+  ok(t.$("#screen-chat .relay-token").classList.contains("to"),
+     "★ `@사용자` 와 **같은 칩**이다 — 같은 일이면 말투가 같아야 한다");
   /*
    * ★ **접히면 «누가 누구에게» 하나뿐** (사용자): *"(@봇2->@봇1) 이렇게만
    * 있는 메시지를 클릭하면 전체 메시지가 나오는 느낌이 나을듯"*.
@@ -199,19 +222,62 @@ console.log("\n[★ 봇끼리 주고받은 말은 **접힌다** (2026-10-14)]");
    */
   ok(!head.includes("이 테스트 좀 봐줄래?"),
      `★ **글은 접힌 줄에 안 샌다** (${head.trim()})`);
-  /*
-   * ★ **한 알로 묶는다** (사용자): *"@봇1->@봇2가 하나의 토큰으로 묶인 형태
-   * 왼쪽에 >가 존재"*. 칩 둘에 화살표를 끼우면 눈이 **셋을 따로** 읽는다 —
-   * 이건 «누가 누구에게» 한 가지 사실이다.
-   */
+  /* 왼쪽의 `>` 가 «여기 숨은 글이 있다»를 말한다 — 다른 칩과 그것만 다르다 */
   ok(head.trim().startsWith(">"), `★ 왼쪽에 \`>\` (${head.trim()})`);
-  const token = t.$("#screen-chat .relay-token");
-  ok(token !== null && token.textContent.includes("→"),
-     `★ **한 알 안에 둘 다** (${token?.textContent ?? "(없음)"})`);
 
   /* 🔴 **글은 안 사라진다** — 접혔을 뿐이라 안에 그대로 있다 */
-  ok(fold.querySelector(".bubble").textContent.includes("이 테스트 좀 봐줄래?"),
-     "★ 펴면 말풍선 그대로");
+  ok(fold.querySelector(".say").textContent.includes("이 테스트 좀 봐줄래?"),
+     "★ 펴면 글이 그대로 난다");
+}
+
+console.log("\n[★ 둘에게 걸면 **칩도 둘** — 받는 이마다 한 장 (2026-10-15)]");
+{
+  /*
+   * 🔴 사용자: *"봇이 보내는 메세지가 받는 사람별로 안잘려짐"*. 사용자가
+   * `@봇1 @봇2` 로 쓰면 코어가 **받는 이별로 쪼개** 보낸다 — 받는 쪽에서는
+   * 각각 한 통이므로 화면도 그래야 읽기가 같다.
+   *
+   * ⚠️ 한 번 깨뜨렸다: 앞 말풍선으로 옮길 때 `querySelector` 로 **첫 장만**
+   * 집어서 나머지가 통째로 사라졌다.
+   */
+  const t = mount();
+  open(t, room([...BOTH, bot("b3", "claude", "셋째")], [
+    { id: "a1", role: "agent", authorBotId: "b1", text: "둘 다 봐줘",
+      deliveredTo: ["b2", "b3"], createdAt: 1 },
+  ]));
+
+  const folds = t.$$("#screen-chat .relay-fold");
+  ok(folds.length === 2, `★ **받는 이마다 한 장** (${folds.length})`);
+  const names = t.$$("#screen-chat .relay-token").map((c) => c.textContent);
+  ok(names.join() === "@Codex,@셋째", `★ 칩이 하나씩 (${names.join(" ")})`);
+
+  /* 펴는 것도 따로다 — 하나를 폈다고 둘 다 펴지면 접은 보람이 없다 */
+  folds[0].querySelector("summary").click();
+  ok(folds[1].open === false, "★ **따로 펴진다**");
+}
+
+console.log("\n[★ 갈린 말풍선에는 **반응인지 답장인지**가 붙는다 (2026-10-15)]");
+{
+  /*
+   * 🔴 사용자: *"그렇게 나뉜 메세지는 반응과 답장으로 구분해 붙일 수 있잖아?"*.
+   *
+   * ⏪ 「바로 위가 그 질문이면 자명하다」로 **안 적던** 자리다. 상자가 갈려
+   * 나가면서 그 전제가 깨졌다 — 사이에 사용자에게 한 말이 끼고, 한 턴이
+   * 상자 여럿으로 흩어진다.
+   */
+  const t = mount();
+  open(t, room(BOTH, [
+    { id: "x1", role: "agent", authorBotId: "b2", text: "큐 몇 개야?",
+      deliveredTo: ["b1"], createdAt: 1 },
+    { id: "a1", role: "agent", authorBotId: "b1", text: "0개야",
+      deliveredTo: ["b2"], replyToIds: ["x1"], createdAt: 2 },
+  ]));
+
+  const notes = t.$$("#screen-chat .msg .answer-note, #screen-chat .msg .answers")
+    .map((n) => n.textContent);
+  ok(notes.length > 0, `★ 꼬리표가 붙는다 (${notes.join(" | ") || "(없음)"})`);
+  ok(notes.join().includes("반응"),
+     `★ **봇의 말을 보고 쓴 것은 «반응»** — 묻지도 않은 것에 «답합니다» 면 거짓말이다 (${notes.join(" | ")})`);
 }
 
 console.log("\n[★ 나에게 한 말은 **안 접는다**]");
@@ -583,9 +649,14 @@ console.log("\n[★ 봇이 나에게 한 말에도 칩을 단다]");
                   deliveredTo: ["b1", "b2"], createdAt: 10 };
   open(t, room(BOTH, [msg("u1", ["b1"]), toMe, toBot]));
 
-  const nodes = t.$$("#screen-chat .msg");
-  const mine = nodes.find((n) => /고쳤어/.test(n.textContent));
-  const other = nodes.find((n) => /이것 좀 봐줘/.test(n.textContent));
+  /*
+   * ★ **둘이 한 말풍선에 있다** (2026-10-14) — 봇끼리 보낸 말은 그 봇의
+   * 말풍선 «안»의 묶음 칩이다(사용자). 그래서 자리를 **칸으로** 가른다:
+   * 바깥 토큰 줄은 나에게, 접힌 것 안의 토큰 줄은 저 봇에게.
+   */
+  const mine = t.$("#screen-chat .msg.agent .bubble > .to-line");
+  const other = t.$("#screen-chat .relay-fold");
+  ok(mine !== null && other !== null, "전제 — 한 말풍선 안에 둘 다 있다");
 
   const chips = (n) => [...n.querySelectorAll(".chip.to")].map((c) => c.textContent);
   console.log(`   나에게: ${chips(mine).join(" ")} · 봇에게: ${chips(other).join(" ")}`);

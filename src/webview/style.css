@@ -1188,7 +1188,12 @@ button.ghost:hover {
   padding: 1px 9px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: transparent;
+  /*
+   * ★ **대화 바탕색으로** (사용자, 2026-10-14). 말풍선 색 위에 투명하게 두면
+   * 봇 색을 고른 방에서 **알약이 말풍선에 녹는다** — 바탕색이면 어떤 색
+   * 위에서도 «얹힌 것»으로 읽힌다.
+   */
+  background: var(--chat-bg);
   color: var(--chat-dim);
   font-size: var(--fs-11);
   cursor: pointer;
@@ -1229,6 +1234,13 @@ button.ghost:hover {
   max-width: 92%;
 }
 
+/*
+ * 🔴 **칩은 `@(사용자)` 와 **같아야** 한다** (사용자, 2026-10-14) —
+ * *"@봇1은 @(사용자) 칩과 동일해야함. 하지만 지금 글씨도 작고 다름"*.
+ *
+ * 여기에 `font-size`·`color` 를 걸어두면 **안의 칩까지 끌려간다.** 머리줄은
+ * 자리만 잡고, 글자 모양은 칩이 제 규칙(`.chip`)으로 정한다.
+ */
 .relay-fold > summary {
   display: flex;
   align-items: center;
@@ -1236,8 +1248,6 @@ button.ghost:hover {
   padding: 2px 0;
   cursor: pointer;
   list-style: none;
-  font-size: var(--fs-11);
-  color: var(--chat-dim);
 }
 
 .relay-fold > summary::-webkit-details-marker {
@@ -1263,14 +1273,7 @@ button.ghost:hover {
 .relay-head .relay-mark {
   opacity: 0.55;
   font-weight: 600;
-}
-
-/* 한 알 — «누가 누구에게» 는 한 가지 사실이다 */
-.relay-head .relay-token {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  color: var(--chat-dim);
 }
 
 /* ── 활동 타임라인 (C3) ───────────────────────────────────────────────── */
@@ -2028,6 +2031,14 @@ mark {
   padding: 4px 12px;
   border-top: 1px solid var(--line);
   background: var(--bubble-bot-bg);
+}
+
+/*
+ * «맨 아래로» — «읽던 자리로»와 **같은 띠**다. 하는 일이 같으므로 모양도
+ * 같아야 한다(아래로 데려다준다). 둘이 같이 뜨지는 않는다.
+ */
+.back-jump.to-bottom {
+  border-top: 1px solid var(--line);
 }
 
 /* ── 방 안에서 찾기 (H4) ──────────────────────────────────────────────── */

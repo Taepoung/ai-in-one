@@ -939,6 +939,23 @@ let hits: SearchHit[] | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 /** 방을 열 때 점프할 메시지 (H3) */
 let jumpToMessageId: string | undefined;
+
+/**
+ * ★ **한 번에 그리는 말풍선 수 — 쉰 개** (사용자, 2026-10-15).
+ *
+ * 🔴 여태 **전부** 그렸다 — 기록을 통째로 읽어서 통째로 DOM 에 올렸다.
+ * 돌아가는 중에는 `nodeCache` 가 받쳐주지만 **껐다 켜면 그 캐시가 없으므로**
+ * 방을 열 때마다 평생치를 처음부터 짓는다. 그리고 오늘 모양을 바꾸면서
+ * 한 턴이 상자 여럿이 됐다 — 노드 수는 더 는다.
+ *
+ * 사용자: *"기록은 남아있지만 보여주는건 다른거지"*. **기록은 안 자른다**
+ * (§0) — 파일도 그대로고, 넘겨 보낸 것도 그대로다. 자르는 것은 **그리는
+ * 것**뿐이고, 위에 「이전 대화 더 보기」가 서서 언제든 되찾을 수 있다.
+ */
+const PAGE = 50;
+
+/** 지금 방에서 **몇 개까지 그리나** — 방을 바꾸면 처음으로 돌아간다 */
+let shownCount = PAGE;
 /**
  * ★ **찾아가기 전에 읽던 자리** (2026-09-23).
  *
@@ -1652,6 +1669,15 @@ let draftTimer: ReturnType<typeof setTimeout> | undefined;
 function openRoom(roomId: string): void {
   // 뷰는 **그 방 안의 상태**다 — 다른 방에 들고 가면 엉뚱한 봇을 가리킨다
   viewBotId = null;
+  /*
+   * ★ **들어올 때마다 백 개부터** (사용자, 2026-10-15) — *"방을 나갔다가
+   * 들어오면 다시 최근 100개만 로딩하고"*.
+   *
+   * 🔴 방을 **바꿀 때**만 되돌리면, 나갔다 **같은 방**으로 돌아올 때는 아까
+   * 펴둔 만큼이 그대로 다시 그려진다 — 가장 비싼 순간(캐시가 식은 뒤)에
+   * 제일 많이 짓는 셈이다.
+   */
+  shownCount = PAGE;
   joinFails = new Map();
   joinSteps = new Map();
   post({ t: "open", roomId });
@@ -2487,6 +2513,16 @@ interface ChatEls {
    * 방향(아래)과 단추 자리가 어긋난다.
    */
   back: HTMLElement;
+  /**
+   * ★ **«맨 아래로»** — 위로 올라가 있을 때만 뜬다 (사용자, 2026-10-15).
+   *
+   * «읽던 자리로»와 **같은 자리, 같은 모양**이다 — 하는 일이 같으므로(아래로
+   * 데려다준다) 모양이 둘이면 읽는 사람이 둘을 외운다.
+   *
+   * 🔴 **둘이 같이 뜨지 않는다.** 찾아가기로 움직인 참이면 돌아갈 곳은
+   * «읽던 자리»지 바닥이 아니다 — 그때는 그쪽이 이긴다.
+   */
+  down: HTMLElement;
   status: HTMLElement;
   chips: HTMLElement;
   box: HTMLTextAreaElement;
@@ -3152,6 +3188,7 @@ function mountChat(r: Room): void {
   const clash = el("div", { class: "clashes", hidden: true });
   const list = el("div", { class: "messages" });
   const back = el("div", { class: "back-jump", hidden: true });
+  const down = el("div", { class: "back-jump to-bottom", hidden: true });
   const status = el("div", { class: "status" });
   /*
    * 단체방에서만 칩 상자다 — 봇이 하나인데 `@`를 치게 할 이유가 없다.
@@ -3353,6 +3390,7 @@ function mountChat(r: Room): void {
     clash,
     list,
     back,
+    down,
     status,
     compose,
     staged,
@@ -3375,7 +3413,10 @@ function mountChat(r: Room): void {
     ),
   );
 
-  chat = { roomId: r.id, head, queue, clash, list, back, status, chips, box, perm, compose, staged, stop };
+  chat = {
+    roomId: r.id, head, queue, clash, list, back, down, status, chips, box, perm,
+    compose, staged, stop,
+  };
   // 방을 갈아타면 돌아갈 자리도 사라진다 — 남의 방 스크롤 값이다
   backTo = undefined;
   pending = [];
@@ -3662,6 +3703,18 @@ function needsAnswerNote(m: Message, all: Message[]): boolean {
   if (answers.length === 0) return false;
   if (answers.length > 1) return true;   // 묶여서 답한 것은 언제나 적는다
 
+  /*
+   * ★ **봇에게 건 말에는 언제나 적는다** (사용자, 2026-10-15).
+   *
+   * 그 말풍선은 **제 상자로 갈려** 나가므로(받는 이마다 하나), 아래의
+   * «바로 위가 그 질문이면 자명하다» 가 더는 안 맞는다 — 사이에 사용자에게
+   * 한 말이 끼고, 한 턴이 상자 여럿으로 흩어진다.
+   *
+   * 그리고 그 꼬리표가 **반응인지 답장인지**를 가른다(4.5-AF): 사용자가
+   * 물은 것엔 「답합니다」, 봇의 말을 보고 쓴 것엔 「반응했습니다」.
+   */
+  if (botToBot(m)) return true;
+
   // 바로 위가 그 질문이면 자명하다
   const at = all.findIndex((x) => x.id === m.id);
   return at <= 0 || all[at - 1]!.id !== answers[0];
@@ -3842,7 +3895,23 @@ function paintChat(r: Room): void {
      */
     return m.placedAt ?? m.createdAt;
   };
-  const shownMsgs = [...inView].sort((x, y) => orderAt(x) - orderAt(y));
+  const sorted = [...inView].sort((x, y) => orderAt(x) - orderAt(y));
+
+  /*
+   * ★ **꼬리부터 백 개** — 그 위는 접는다.
+   *
+   * 🔴 **못 보면 안 되는 것은 창을 넓힌다.** 안 읽음 줄·찾아가 앉을 자리·
+   * 분기 선이 창 밖이면 **그 줄이 통째로 사라진다** — 방을 열자마자 「여기서
+   * 부터 안 읽음」이 없는 채로 바닥에 앉게 된다. 자르는 것이 **보이는 것을
+   * 바꾸면** 안 된다.
+   */
+  const spot = (id?: string): number => (id ? sorted.findIndex((m) => m.id === id) : -1);
+  let from = Math.max(0, sorted.length - shownCount);
+  for (const must of [spot(firstUnreadId), spot(jumpToMessageId), spot(r.forkedAtMessageId)]) {
+    if (must >= 0 && must < from) from = must;
+  }
+  const hidden = from;
+  const shownMsgs = sorted.slice(from);
   let day = "";
   /** 바로 위에 붙어 있는 메시지. 선이 끼어들면 끊긴다 */
   let above: Message | undefined;
@@ -3870,9 +3939,16 @@ function paintChat(r: Room): void {
       nodes.push(el("div", { class: "unread-line", text: "여기서부터 안 읽음" }));
       broken = true;
     }
-    nodes.push(
-      reuseOrBuild(m, agentOf(m, r), !broken && followsSame(above, m), needsAnswerNote(m, r.messages)),
+    const built = reuseOrBuild(
+      m, agentOf(m, r), !broken && followsSame(above, m), needsAnswerNote(m, r.messages),
     );
+    /*
+     * ⏪ **앞 말풍선 안으로 밀어 넣어봤다** (2026-10-14) — `say` 도 그 턴에
+     * 그 봇이 한 일이므로. 🔴 그러면 **사용자에게 한 말과 봇에게 한 말이 한
+     * 상자에** 섞인다: *"> @봇1 이게 별개의 말풍선이 되어야함"*. 상자는
+     * 갈리고, 이어 말하는 표시(이름 안 쓰기)가 둘을 묶어준다.
+     */
+    nodes.push(built);
     above = m;
     // 물려받은 대화가 끝나는 자리에 선 하나 (D2)
     if (r.forkedAtMessageId && m.id === r.forkedAtMessageId) {
@@ -3881,6 +3957,41 @@ function paintChat(r: Room): void {
       above = undefined;
     }
   }
+  /*
+   * ★ **접어둔 것이 있으면 맨 위에 길을 낸다** (사용자, 2026-10-15).
+   *
+   * 🔴 **수를 적는다.** 「더 보기」만 있으면 **얼마나 묻혀 있는지**를 모르고,
+   * 그걸 모르면 누를지 말지를 못 고른다.
+   *
+   * ⚠️ **누른 뒤에도 보던 자리에 머문다** — 위로 백 개가 끼어들면 읽던 줄이
+   * 화면 밖으로 밀려난다. 바닥에서 잰 거리(`scrollHeight - scrollTop`)를
+   * 그대로 되돌려 놓는다.
+   */
+  if (hidden > 0) {
+    nodes.unshift(
+      el(
+        "div",
+        { class: "back-jump more-up" },
+        el(
+          "button",
+          {
+            class: "link",
+            onclick: () => {
+              const c2 = chat;
+              const keep = c2 ? c2.list.scrollHeight - c2.list.scrollTop : 0;
+              shownCount += PAGE;
+              paintChat(r);
+              const now = chat;
+              if (now) now.list.scrollTop = now.list.scrollHeight - keep;
+            },
+          },
+          icon("arrow-up"),
+          `이전 대화 ${hidden}개 더 보기`,
+        ),
+      ),
+    );
+  }
+
   // 줄 서 있는 심사는 대화 아래에 — 이건 **기다리는 것**이지 답할 것이 아니다
   for (const w of reviews) nodes.push(reviewNode(w, r));
   // 다른 프로젝트의 방이면 열자마자 알려준다 — 엉뚱한 디렉터리에서 일하게 하면 안 된다 (B5)
@@ -4464,7 +4575,13 @@ function messageNode(
    * 🔴 그런데 받는 이가 둘셋이면 **첫 문장이 칩에 밀려** 어디서 시작하는지
    * 가 흐려진다. 토큰은 «누구에게»를 말하는 머리고, 글은 그 다음이다.
    */
-  if (room) {
+  /*
+   * 🔴 **봇끼리 보낸 말은 여기서 토큰 줄을 안 만든다** (2026-10-14).
+   *
+   * 그 칩은 **접는 머리로** 올라간다(`relayFold`) — 거기 이미 «누구에게»가
+   * 있는데 안에서 또 적으면 펴는 순간 **같은 칩이 두 번** 보인다.
+   */
+  if (room && !botToBot(m)) {
     const to = deliveryChips(m, room);
     if (to) wrap.append(el("div", { class: "to-line" }, to));
   }
@@ -4538,11 +4655,14 @@ function messageNode(
     );
   }
 
-  // 뭐에 대한 답인지 — **자명하지 않을 때만** 보여준다 (C4). `needsAnswerNote` 참조
-  if (noteAnswer) {
-    const note = answerNote(m);
-    if (note) wrap.append(note);
-  }
+  /*
+   * 뭐에 대한 답인지 — **자명하지 않을 때만** 보여준다 (C4).
+   *
+   * 🔴 **말풍선 «아래»다** (사용자, 2026-10-14). 한 번 안에 넣어봤는데
+   * (「전체를 감싼다」를 넓게 읽어서) 그건 **글이 아니라 꼬리표**다 —
+   * 안에 들어가면 봇이 한 말처럼 읽히고, 인용이 글 흐름을 끊는다.
+   */
+  const note = noteAnswer ? answerNote(m) : null;
 
   // 누구에게 갔고 누가 아직 줄에 서 있나 (§4.1.1)
   if (room) {
@@ -4553,7 +4673,14 @@ function messageNode(
   // 계획은 **결과가 아니라 약속**이다 — 접지 않고 말풍선 아래 그대로 보여준다
   if (m.plan) wrap.append(planNode(m.plan, m.id));
   if (m.attachments?.length) wrap.append(attachmentsNode(m));
-  if (m.files?.length) wrap.append(filesNode(m));
+  /*
+   * 🔴 **파일 변경은 말풍선 «아래»다** (사용자, 2026-10-14).
+   *
+   * 활동 알약과 같은 모양이지만 자리가 다르다 — 활동은 **글 사이에** 끼는
+   * 그 순간의 일이고, 이것은 **턴이 끝나고 난 뒤의 결과**다(그 턴에 무엇이
+   * 바뀌었나). 안에 넣으면 마지막 문장 뒤에 붙어 **말의 일부처럼** 읽힌다.
+   */
+  const changed = m.files?.length ? filesNode(m) : null;
 
   /*
    * ★ **같은 말을 두 번 하지 않는다** (2026-10-13).
@@ -4594,16 +4721,58 @@ function messageNode(
    * 🔴 **안 지운다**(§0). 접을 뿐이다 — 누가 누구에게 보냈는지는 **칩으로
    * 그 줄에 남고**, 펴면 글도 활동도 그대로 있다.
    */
-  node.append(
-    el(
-      "div",
-      { class: "row" },
-      wrap,
-      !m.streaming ? el("span", { class: "time", text: hhmm(m.createdAt) }) : null,
-    ),
-  );
-
-  if (botToBot(m)) foldRelay(node, m, room);
+  /*
+   * ★ **봇끼리 보낸 말은 말풍선 «안»의 묶음 칩이다** (사용자, 2026-10-14).
+   *
+   * ⏪ 말풍선을 통째로 접었다 — 그러면 **말풍선 밖에 줄이 하나 더** 생긴다.
+   * 사용자: *"전체 말풍선 안에 들어가있어야지, 이것도 봇1이 하는 메시지
+   * 활동이잖아"*. 맞는 말이다 — `say` 는 그 턴에 그 봇이 **한 일**이고,
+   * 활동 알약이 말풍선 안에 서는 것과 같은 자리다.
+   *
+   * 왼쪽 `>` 가 «숨겨진 것이 있다»는 표고, 누르면 **칩은 그대로 있고**
+   * 글이 아래로 난다(`details` 가 원래 그렇게 생겼다).
+   */
+  /*
+   * ★ **봇에게 보낸 말은 제 말풍선이다 — 받는 이마다 하나씩** (사용자,
+   * 2026-10-14~15).
+   *
+   * ⏪ 두 번 돌았다. ① 말풍선을 통째로 접었다(밖에 줄이 하나 더 생겼다).
+   * ② 앞 말풍선 **안에** 묶음 칩으로 넣었다 — 그러면 사용자에게 한 말과
+   * 봇에게 한 말이 **한 상자에 섞인다**: *"> @봇1 이게 별개의 말풍선이
+   * 되어야함"*.
+   *
+   * 지금은 **상자가 갈린다.** 사용자가 `@봇1 @봇2` 로 쓰면 코어가 받는
+   * 이별로 쪼개 보내는 것과 같은 규칙이다(`mentions.ts`) — 받는 쪽에서는
+   * 각각 한 통이므로 화면도 한 통씩이어야 읽기가 같다.
+   */
+  if (botToBot(m)) {
+    const ids = m.deliveredTo.filter((id) => id !== m.authorBotId);
+    const inner = [...wrap.childNodes];
+    ids.forEach((id, n) => {
+      const kids = n === 0 ? inner : inner.map((k) => k.cloneNode(true) as ChildNode);
+      node.append(
+        el(
+          "div",
+          { class: "row" },
+          el("div", { class: "bubble" }, relayFold(m, room, id, kids)),
+          !m.streaming && n === ids.length - 1
+            ? el("span", { class: "time", text: hhmm(m.createdAt) })
+            : null,
+        ),
+      );
+    });
+  } else {
+    node.append(
+      el(
+        "div",
+        { class: "row" },
+        wrap,
+        !m.streaming ? el("span", { class: "time", text: hhmm(m.createdAt) }) : null,
+      ),
+    );
+  }
+  if (changed) node.append(changed);
+  if (note) node.append(note);
   return node;
 }
 
@@ -4623,20 +4792,19 @@ function botToBot(m: Message): boolean {
 }
 
 /**
- * 말풍선을 통째로 접는다 — 머리줄에 **보낸 이 → 받는 이**와 한 줄 미리보기.
+ * **묶음 칩 하나** — 누르면 그 아래로 숨겨둔 것이 난다.
  *
- * ⚠️ **글은 안 건드린다.** 자식들을 그대로 안으로 옮길 뿐이라, 펴면 평소와
- * 똑같다(마크다운·활동·계획·답장 인용까지).
+ * ⚠️ **글은 안 건드린다.** 받은 자식들을 그대로 안에 넣을 뿐이라, 펴면
+ * 평소와 똑같다(마크다운·활동·계획·답장 인용까지).
  */
-function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
-  const kids = [...node.childNodes];
+function relayFold(m: Message, r: Room | null, to: string, kids: ChildNode[]): HTMLElement {
   const nameOfBot = (id: string): string => {
     const seen = r ? botLabel(r, id) : undefined;
     return seen ? `@${seen.name}` : "@나간 봇";
   };
-  const to = m.deliveredTo.filter((id) => id !== m.authorBotId);
 
-  const box = el("details", { class: "relay-fold", open: relayOpen.has(m.id) });
+  const key = `${m.id}:${to}`;
+  const box = el("details", { class: "relay-fold", open: relayOpen.has(key) });
   box.append(
     el(
       "summary",
@@ -4648,8 +4816,8 @@ function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
          * 접을 때 겪은 그것). 누르는 순간 적는다.
          */
         onclick: () => {
-          if (box.open) relayOpen.delete(m.id);
-          else relayOpen.add(m.id);
+          if (box.open) relayOpen.delete(key);
+          else relayOpen.add(key);
         },
       },
       /*
@@ -4663,24 +4831,22 @@ function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
        * «오갔다»만 알면 되고, 궁금하면 누른다.
        */
       /*
-       * ★ **하나의 토큰** (사용자, 2026-10-14) — *"@봇1->@봇2가 하나의
-       * 토큰으로 묶인 형태 왼쪽에 >가 존재"*.
+       * ★ **받는 이 칩 하나** (사용자, 2026-10-14) — *"말풍선 안에 있으니까
+       * @봇2 → @봇1 대신에 그냥 @봇1 칩이 나오고 누르면 메시지가 아래"*.
        *
-       * 칩 둘에 화살표를 끼우면 **세 조각**이라 눈이 셋을 따로 읽는다. 이건
-       * «누가 누구에게» **한 가지 사실**이므로 한 알이어야 한다. 왼쪽 `>` 는
-       * 펼 수 있다는 표고, 누르면 **토큰은 그 자리에 있고 글이 아래로** 난다
-       * (`details` 가 원래 그렇게 생겼다).
+       * ⏪ 한 알에 «보낸 이 → 받는 이» 를 다 넣었다. 🔴 그건 **말풍선 밖에
+       * 혼자 섰을 때** 쓰던 모양이다 — 안으로 들어오면 **보낸 이는 말풍선이
+       * 이미 말한다**(이름 알약). 같은 것을 두 번 적는 셈이다.
+       *
+       * 그래서 `@사용자` 와 **같은 취급**이다: 같은 `.chip.to`, 같은 자리.
+       * 다른 것은 왼쪽의 `>` 하나뿐이고, 그게 «여기 숨은 글이 있다»를 말한다.
        */
       el("span", { class: "relay-mark", text: ">" }),
-      el("span", {
-        class: "chip relay-token",
-        text: `${m.authorBotId ? nameOfBot(m.authorBotId) : "@봇"} → ${to.map(nameOfBot).join(" ")}`,
-      }),
+      el("span", { class: "chip to relay-token", text: nameOfBot(to) }),
     ),
   );
   for (const k of kids) box.append(k);
-  node.replaceChildren(box);
-  node.classList.add("relay");
+  return box;
 }
 
 /** 발췌 길이 — 한 줄에 여럿이 설 수 있어야 하므로 짧게 */
@@ -5073,17 +5239,15 @@ function filesNode(m: Message): HTMLElement {
     ? room?.participants.find((b) => b.id === m.authorBotId)?.name
     : undefined;
 
-  return el(
-    "details",
-    { class: "tool" },
-    el(
-      "summary",
-      {},
-      icon("chevron-right"),
-      who ? el("span", { class: "by", text: ` ${who}` }) : null,
-      ` ${label}`,
-    ),
-    el(
+  /*
+   * ★ **파일 변경도 활동이다** (사용자, 2026-10-14) — *"봇2 파일 1개 변경 →
+   * 활동인데 안잡힘"*.
+   *
+   * ⏪ 여기만 **접는 상자**로 남아 있었다. 활동을 알약으로 바꾸면서 놓친
+   * 자리다 — 「무엇을 했나」 중 하나인데 혼자 다른 모양이면 **눈이 두 규칙을
+   * 외운다.** 같은 알약, 같은 손놀림(누르면 팝업).
+   */
+  const body = el(
       "div",
       { class: "files" },
       ...files.map((f) =>
@@ -5100,6 +5264,34 @@ function filesNode(m: Message): HTMLElement {
               : post({ t: "openFile", path: f.path }),
         }),
       ),
+    );
+
+  return el(
+    "div",
+    { class: "acts" },
+    el(
+      "button",
+      {
+        class: "act-pill",
+        title: files.map((f) => f.path).join("\n"),
+        onclick: () =>
+          showModal(
+            el(
+              "div",
+              { class: "card act-pop" },
+              el("div", { class: "card-title" }, icon("files"), ` ${label}`),
+              body,
+              el(
+                "div",
+                { class: "card-actions" },
+                el("button", { text: "닫기", onclick: () => closeModal() }),
+              ),
+            ),
+          ),
+      },
+      icon("files"),
+      who ? el("span", { class: "by", text: who }) : null,
+      el("span", { class: "what", text: label }),
     ),
   );
 }
@@ -8150,13 +8342,51 @@ function paintBack(on: boolean): void {
   c.back.hidden = !on;
 }
 
+/**
+ * ★ **«맨 아래로» 를 켜고 끈다** (사용자, 2026-10-15).
+ *
+ * 🔴 긴 대화를 위로 훑다 보면 **바닥으로 돌아갈 길이 손가락뿐**이다 — 봇이
+ * 답하는 중이면 그 사이에도 내용이 자라서 끝이 멀어진다. «읽던 자리로»와
+ * 같은 자리에 같은 모양으로 둔다.
+ */
+function paintDown(on: boolean): void {
+  const c = chat;
+  if (!c) return;
+  /* 🔴 **«읽던 자리로»가 떠 있으면 비킨다** — 돌아갈 곳이 둘이면 안 된다 */
+  const show = on && backTo === undefined;
+  if (show && c.down.childElementCount === 0) {
+    replace(
+      c.down,
+      el(
+        "button",
+        {
+          class: "link",
+          onclick: () => {
+            const now = chat;
+            if (!now) return;
+            now.list.scrollTop = now.list.scrollHeight;
+            stick = true;
+            paintDown(false);
+          },
+        },
+        icon("arrow-down"),
+        "맨 아래로",
+      ),
+    );
+  }
+  c.down.hidden = !show;
+}
+
 function scrollIntoPlace(list: HTMLElement): void {
   const line = list.querySelector<HTMLElement>(".unread-line");
   if (line) {
     scrollInside(list, line, "center");
     return;
   }
-  if (stick) list.scrollTop = list.scrollHeight;
+  if (stick) {
+    list.scrollTop = list.scrollHeight;
+    paintDown(false);
+  }
 }
 
 // 파일 탐색기에서 끌어다 놓기 (I2)
@@ -8196,6 +8426,30 @@ screens.chat.addEventListener(
     stick = t.scrollHeight - t.scrollTop - t.clientHeight < 60;
     // 손으로 바닥까지 내려왔으면 **이미 돌아온 것**이다 — 띠가 남아 있을 이유가 없다
     if (stick && backTo !== undefined) paintBack(false);
+    /*
+     * 🔴 **조금 올라간 것으로는 안 띄운다.** 한 줄 읽으려고 손가락을 굴린
+     * 자리에 단추가 뜨면 **읽는 것을 가린다.** 한 화면쯤 올라가야 «돌아갈
+     * 길»이 뜻이 생긴다.
+     */
+    paintDown(t.scrollHeight - t.scrollTop - t.clientHeight > t.clientHeight * 0.5);
+    /*
+     * ★ **위에 닿으면 저절로 백 개 더** (사용자, 2026-10-15) — *"그 100개까지
+     * 다다르면 다시 100개 로딩해오는거지?"*.
+     *
+     * 띠는 그대로 둔다 — **눌러서도** 되는 것이 분명해야 «왜 멈췄지»가 안
+     * 생기고, 저절로 이어지는 것은 그 위에 얹힌 편의다.
+     *
+     * ⚠️ **자리를 지킨다.** 위로 백 개가 끼어들면 읽던 줄이 화면 밖으로
+     * 밀려난다 — 바닥에서 잰 거리를 그대로 되돌려 놓는다(띠를 누를 때와
+     * 같은 셈법).
+     */
+    if (t.scrollTop < 40 && room && t.querySelector(".more-up")) {
+      const keep = t.scrollHeight - t.scrollTop;
+      shownCount += PAGE;
+      paintChat(room);
+      const now = chat;
+      if (now) now.list.scrollTop = now.list.scrollHeight - keep;
+    }
   },
   true,
 );
@@ -8214,7 +8468,8 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       const switching = room?.id !== m.room.id;
       // 🔴 심사 줄은 **방마다**다. 안 비우면 옆 방 것이 여기 붙는다.
       // 치워둔 글도 방을 갈아타면 보여줄 자리가 없다 — 그 방으로 돌아가면 다시 뜬다.
-      if (switching) { reviews = []; waiting = []; waitBotId = null; }
+      /* 🔴 **창도 되돌린다** — 안 그러면 옆 방에서 편 만큼 여기서도 펴진다 */
+      if (switching) { reviews = []; waiting = []; waitBotId = null; shownCount = PAGE; }
       room = m.room;
       usage = m.room.usage;
       compactable = m.compactable;
