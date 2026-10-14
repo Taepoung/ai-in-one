@@ -1271,9 +1271,25 @@ export class RoomManager extends EventEmitter<Events> {
   async openRoom(roomId: string): Promise<Room> {
     const cached = this.open.get(roomId);
     if (cached) return cached;
-    const room = await this.opts.store.loadRoom(roomId);
+    /*
+     * ★ **옆 창이 산 채로 들고 있으면 «끊겼다» 로 안 읽는다** (2026-10-14).
+     *
+     * 「기록만 읽기」는 자물쇠를 안 잡고 연다 — 붙이지 않으니 잡을 이유가 없다.
+     * 그래서 **옆 창이 지금 답을 받고 있는 방**도 열리는데, 디스크에 남은
+     * `streaming: true` 를 보고 고치면 **멀쩡히 돌고 있는 답에 「중단되었습니다」**
+     * 가 붙는다. 그쪽 창은 멀쩡한데 이쪽만 거짓말을 하는 꼴이다.
+     */
+    const elsewhere = this.opts.locks?.heldByOther(roomId);
+    const room = await this.opts.store.loadRoom(
+      roomId, elsewhere ? { heal: false } : undefined,
+    );
     if (!room) throw new Error("방을 찾을 수 없습니다.");
-    this.open.set(roomId, room);
+    /*
+     * 🔴 **남의 방은 안 들고 있는다.** 캐시에 넣으면 그 뒤로 이 창의 쓰기가
+     * 그 위에서 일어나고, 옆 창이 끝낸 결과와 어긋난다. 「기록만 읽기」는
+     * **그때 한 번 읽는 것**이라 캐시가 필요 없다.
+     */
+    if (!elsewhere) this.open.set(roomId, room);
     return room;
   }
 

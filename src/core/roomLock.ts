@@ -112,6 +112,21 @@ export class RoomLocks {
     return this.mine.has(roomId);
   }
 
+  /**
+   * ★ **남이 «산 채로» 들고 있나** (2026-10-14).
+   *
+   * 「기록만 읽기」가 쓴다. 그 길은 자물쇠를 **안 잡고** 여는데(붙이지 않으니
+   * 잡을 이유가 없다), 그러면 **옆 창이 지금 쓰는 중인 방**도 읽게 된다 —
+   * 디스크에 `streaming: true` 로 남아 있는 것을 보고 「끊겼다」 고 읽는다.
+   *
+   * 죽은 창이 들고 있는 것은 **없는 것으로 친다** — 그건 진짜로 끊긴 것이다.
+   */
+  heldByOther(roomId: string): LockNote | undefined {
+    const held = this.read(roomId);
+    if (!held || held.pid === process.pid) return undefined;
+    return alive(held.pid) ? held : undefined;
+  }
+
   private read(roomId: string): LockNote | undefined {
     try {
       const raw = fs.readFileSync(this.pathOf(roomId), "utf8");

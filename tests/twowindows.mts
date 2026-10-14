@@ -21,7 +21,8 @@
  */
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomStore } from "../src/core/store.js";
-import type { Room } from "../src/core/types.js";
+import { RoomLocks } from "../src/core/roomLock.js";
+import type { Message, Room } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 
@@ -60,6 +61,48 @@ async function main(): Promise<void> {
   }
 
   await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  console.log("\n[★ 옆 창이 쓰는 중인 방을 «끊겼다» 고 읽지 않는다 (2026-10-14)]");
+  {
+    /*
+     * 🔴 「기록만 읽기」는 자물쇠를 **안 잡고** 연다 — 붙이지 않으니 잡을
+     * 이유가 없다. 그래서 **옆 창이 지금 답을 받고 있는 방**도 열리는데,
+     * 디스크에 남은 `streaming: true` 를 보고 고치면 **멀쩡히 돌고 있는 답에
+     * 「응답이 중단되었습니다」**가 붙는다. 그쪽 창은 멀쩡한데 이쪽만
+     * 거짓말을 하는 꼴이다.
+     */
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-peek-"));
+    const store = new RoomStore(dir); await store.init();
+    const live: Message = {
+      id: "m1", role: "agent", text: "쓰는 중", deliveredTo: [],
+      createdAt: 1, streaming: true,
+    };
+    await store.createRoom({
+      ...room("r1", "도는 방", dir), messages: [live],
+    });
+
+    console.log("   ① 아무도 안 들고 있으면 — 끊긴 것이다");
+    const alone = await store.loadRoom("r1");
+    ok(alone!.messages[0]!.truncated === true,
+       "★ **고친다** — 들고 있는 창이 없으면 그건 진짜로 끊긴 것이다");
+
+    console.log("   ② 옆 창이 산 채로 들고 있으면 — 도는 중이다");
+    /* 옆 창인 척: **살아 있는** 다른 pid 로 자리를 적어둔다 */
+    const note = { pid: process.ppid, window: "옆 창", at: Date.now() };
+    await fs.writeFile(path.join(dir, "rooms", "r1.open"), JSON.stringify(note), "utf8");
+
+    const locks = new RoomLocks(path.join(dir, "rooms"), "내 창", () => {});
+    const held = locks.heldByOther("r1");
+    ok(held?.window === "옆 창", `전제 — 자물쇠가 «남이 들고 있다» 고 말한다 (${held?.window})`);
+
+    const peeked = await store.loadRoom("r1", { heal: false });
+    ok(peeked!.messages[0]!.truncated === undefined,
+       "★ **안 고친다** — 옆 창은 멀쩡히 받고 있다");
+    ok(peeked!.messages[0]!.streaming === true,
+       "★ 그리고 **쓰는 중이라고 그대로 둔다** — 우리가 아는 사실 그대로다");
+
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+
   console.log("\n전부 통과");
 }
 

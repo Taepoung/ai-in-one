@@ -167,7 +167,7 @@ export class RoomStore {
    *
    * 줄을 순서대로 적용한다 — `room`은 속성을 덮고, `msg`는 같은 id를 병합한다.
    */
-  async loadRoom(id: string): Promise<Room | null> {
+  async loadRoom(id: string, opts?: { heal?: boolean }): Promise<Room | null> {
     let raw: string;
     try {
       raw = await fs.readFile(this.roomPath(id), "utf8");
@@ -202,7 +202,18 @@ export class RoomStore {
 
     this.lineCounts.set(id, lines);
     const room = { ...props, id, messages: [...byId.values()] } as Room;
-    return this.healAfterCrash(room);
+    /*
+     * ★ **옆 창이 쓰는 중이면 안 고친다** (2026-10-14).
+     *
+     * `healAfterCrash` 는 「`streaming: true` 로 남아 있으면 끊긴 것」으로
+     * 읽는다. 그런데 **옆 창이 지금 쓰는 중이어도 디스크는 그 꼴**이다 —
+     * 스트리밍 중에도 틈틈이 저장하기 때문이다. 그걸 고치면 **멀쩡히 돌고
+     * 있는 답에 「응답이 중단되었습니다」가 붙는다.**
+     *
+     * 누가 살아서 들고 있는지는 **자물쇠가 안다**(`heldByOther`). 부르는 쪽이
+     * 그걸 보고 정한다.
+     */
+    return opts?.heal === false ? room : this.healAfterCrash(room);
   }
 
   /**
