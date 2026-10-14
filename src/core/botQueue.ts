@@ -277,6 +277,38 @@ export class BotQueue {
     return before - lane.share.length;
   }
 
+  /**
+   * ★ **끊긴 봇이 낀 권한 요청을 거둔다** (2026-10-14).
+   *
+   * 🔴 권한 항목에는 **둘**이 걸려 있다 — 낸 봇(`fromId`)과 맡은 봇(`to`).
+   * 어느 쪽이 끊겨도 그 항목은 **아무 데도 못 간다**:
+   *
+   * ```
+   * 낸 봇이 끊겼다   답해봐야 받을 데가 없다. 심사 봇은 턴 하나를 헛쓴다
+   * 맡은 봇이 끊겼다  답할 사람이 없다. **낸 봇이 영영 기다린다**
+   * ```
+   *
+   * 메시지는 안 거둔다 — **이미 한 말**이라 끊겼다고 없던 일이 되지 않는다.
+   *
+   * @returns 거둔 항목들. 푸는 것(사용자에게 넘길지, 거절로 닫을지)은
+   *   부르는 쪽이 정한다 — 둘의 답이 다르다.
+   */
+  dropPermissions(match: (item: QueuePermission) => boolean): QueuePermission[] {
+    const out: QueuePermission[] = [];
+    for (const lane of this.lanes.values()) {
+      for (const list of [lane.share, lane.next]) {
+        for (let i = list.length - 1; i >= 0; i--) {
+          const item = list[i]!;
+          if (item.kind !== "permission" || !match(item)) continue;
+          list.splice(i, 1);
+          lane.seen.delete(item.id);
+          out.push(item);
+        }
+      }
+    }
+    return out;
+  }
+
   /** 그 봇이 아직 답 안 한 것들 — 이번 몫과 다음 몫을 합쳐서 */
   pending(owner: string): QueueItem[] {
     const lane = this.lanes.get(owner);

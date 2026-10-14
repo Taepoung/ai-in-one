@@ -84,7 +84,7 @@ export class ChatPanel implements AskTarget {
    */
   private static readonly pending = new Map<
     string,
-    { roomId: string; card: AskCard; settle: (answer: AskAnswer) => void }
+    { roomId: string; botId?: string; card: AskCard; settle: (answer: AskAnswer) => void }
   >();
 
   /** 지금 떠 있는 창에 보낸다 — 이 카드를 띄운 창은 닫혔을 수 있다 */
@@ -274,11 +274,12 @@ export class ChatPanel implements AskTarget {
   // ── 물어보기 (D1·D4) ──────────────────────────────────────────────────
 
   permission(req: PermissionRequest): Promise<PermissionDecision> {
+    /* **누구 것인지 적어둔다** — 그 봇이 죽으면 이 카드만 거둬야 한다 */
     return this.ask({ kind: "permission", req }, (answer) =>
       answer.kind === "permission" && answer.optionId
         ? { outcome: "selected", optionId: answer.optionId }
         : { outcome: "cancelled" },
-    );
+    req.askerBotId);
   }
 
   /**
@@ -291,9 +292,15 @@ export class ChatPanel implements AskTarget {
    * 거두면 그 기다림이 `cancelled` 로 풀리고, 에이전트에게 답이 가는 것도
    * **저절로** 따라온다 — 답하는 길이 애초에 이 하나뿐이기 때문이다.
    */
-  cancelPermissions(roomId: string): void {
+  cancelPermissions(roomId: string, botId?: string): void {
     for (const [id, waiting] of [...ChatPanel.pending]) {
       if (waiting.roomId !== roomId) continue;
+      /*
+       * **봇을 집었으면 그 봇 것만** (2026-10-14). CLI 가 죽어 거두는 길은
+       * 봇 하나짜리다 — 단체방에서 남의 카드까지 걷으면 멈추라고 한 적 없는
+       * 일이 멈춘다. 전체 중지는 봇을 안 집어 보내 방 전체를 거둔다.
+       */
+      if (botId && waiting.botId !== botId) continue;
       ChatPanel.pending.delete(id);
       // 답이 없는 답 — `decide` 가 `cancelled` 로 읽는다
       waiting.settle({ kind: "permission" });
@@ -310,6 +317,7 @@ export class ChatPanel implements AskTarget {
   private ask<T>(
     card: Omit<AskCard, "id" | "roomId">,
     decide: (answer: AskAnswer) => T,
+    botId?: string,
   ): Promise<T> {
     const id = `ask-${++this.seq}`;
     const full = { ...card, id, roomId: this.openRoomId ?? "" } as AskCard;
@@ -319,6 +327,7 @@ export class ChatPanel implements AskTarget {
     return new Promise<T>((resolve) => {
       ChatPanel.pending.set(id, {
         roomId: full.roomId,
+        ...(botId ? { botId } : {}),
         // **본문을 들고 있는다** — 새 창이 뜨면 이걸 그대로 다시 보낸다
         card: full,
         settle: (answer) => {

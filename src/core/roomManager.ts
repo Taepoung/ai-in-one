@@ -985,6 +985,21 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private readonly verdictWhy = new Map<string, string>();
 
+  /**
+   * 들고 있던 까닭을 버린다 — **짝이 영영 안 오는 것**이 있기 때문이다.
+   *
+   * 🔴 판정 결과가 활동으로 돌아오기 전에 그 CLI 가 죽으면 그 칸은 영영
+   * 남는다. 하나는 작지만 **버리는 자리가 없는 것**이 문제다 — `closed` 가
+   * 쓰는 것과 같은 손질을 건다.
+   */
+  private trimVerdictWhy(): void {
+    while (this.verdictWhy.size > CLOSED_MEMORY) {
+      const oldest = this.verdictWhy.keys().next().value;
+      if (oldest === undefined) break;
+      this.verdictWhy.delete(oldest);
+    }
+  }
+
   /** 내린 뒤인가 — 그러면 예약을 더 안 내보낸다 (`dispose`) */
   private down = false;
 
@@ -3161,7 +3176,7 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const why = reason.trim().replace(/\s+/g, " ").slice(0, 200);
     if (held.toolCallId) {
-      if (why) this.verdictWhy.set(held.toolCallId, why);
+      if (why) { this.verdictWhy.set(held.toolCallId, why); this.trimVerdictWhy(); }
     } else {
       /*
        * 🔴 **붙일 활동이 없으면 버리지 않는다** (§0). `toolCallId` 가 없는
@@ -5360,9 +5375,89 @@ export class RoomManager extends EventEmitter<Events> {
         if (b.agentId !== agentId) continue;
         const bt = rt?.bots.get(b.id);
         if (!bt) continue;
+        /*
+         * ★ **쓰던 말풍선을 여기서 닫는다** (2026-10-14).
+         *
+         * 🔴 여태 `streaming: true` 인 채로 **남겨뒀다.** 아무것도 안 쓰고
+         * 있는데 칸은 «쓰는 중»이라고 말한다 — 그냥 거짓말이다. 점이 안 멈추던
+         * 버그는 상태(`holding`)로 막았지만 그건 **증상 쪽**이고, 그 칸을 읽는
+         * 다음 사람은 또 속는다.
+         *
+         * ⚠️ **에이전트마다 여기 오는 길이 다르다** (2026-10-14 실측):
+         *
+         * ```
+         * Claude   prompt 약속이 **거절된다** → 턴 코드가 끝까지 돌아 닫는다
+         * Codex    약속이 **안 깨진다** → 턴이 영영 안 끝나고 칸이 열린 채 남는다
+         * ```
+         *
+         * 그래서 Codex 쪽은 **다음에 방을 열 때**에야 `healAfterCrash` 가
+         * 고쳤다(디스크의 `streaming: true` 를 보고). 여기서 닫으면 **둘 다
+         * 그 자리에서** 같은 모양이 된다 — 다시 열 때까지 기다릴 이유가 없다.
+         *
+         * 적는 것도 `healAfterCrash` 와 **똑같이** 한다. 두 길이 다른 모양을
+         * 남기면 그걸 읽는 쪽이 또 갈린다.
+         */
+        /*
+         * 🔴 **조건은 «streaming 인가» 가 아니다** (2026-10-14).
+         *
+         * 저쪽이 죽을 때 **프롬프트 약속이 먼저 깨지는** 에이전트가 있다
+         * (Claude·가짜). 그러면 턴 코드가 먼저 돌아 `streaming` 을 이미
+         * 내려놓는다 — 여기서 그 칸만 보면 **아무것도 안 하고 지나간다.**
+         * 실제로 그렇게 지었다가 검사에 걸렸다.
+         *
+         * 기준은 **«그 턴이 돌던 중이었나»** 다. 끝난 턴은 상태가 `idle` 이라
+         * 안 걸리고, 돌던 중이면 어느 길로 왔든 걸린다.
+         */
+        /*
+         * ★ **떠 있는 승인 카드를 거둔다** (2026-10-14 실측).
+         *
+         * 🔴 저쪽은 `request_permission` 에 얼어 있다가 죽었다 — **답할 상대가
+         * 없어진 카드**가 화면에 남는다. 사용자가 눌러도 받을 데가 없다.
+         * 전체 중지가 쓰는 길을 그대로 쓴다.
+         *
+         * **그 봇 것만** 거둔다 — 단체방에서 Codex 가 죽었다고 Claude 의 카드를
+         * 걷으면, 멈추라고 한 적 없는 일이 멈춘다.
+         */
+        this.opts.host.cancelPermissions?.(roomId, b.id);
+
+        /*
+         * ★ **봇에게 맡긴 심사도 거둔다** (2026-10-14).
+         *
+         * 사용자: *"심사받을 그것도 다 제거해야되는거 아님? 답이 안나오는 것
+         * 처럼 그럼거 아님? 턴이 끊겼잖아"*. 맞다 — 그리고 **방향이 둘**이다:
+         *
+         * ```
+         * 이 봇이 **낸** 요청     답해봐야 받을 데가 없다 → 거절로 닫는다
+         * 이 봇이 **맡은** 심사   답할 사람이 없다 → **사용자에게 넘긴다**
+         * ```
+         *
+         * 둘째가 더 급하다 — 안 넘기면 **요청한 봇이 영영 기다린다.**
+         * `settleQueued(id, undefined)` 가 곧 «맡길 수 없다» 이고, 그러면
+         * `askPermission` 이 사용자에게 물어보는 길로 떨어진다.
+         */
+        for (const item of this.queue.dropPermissions((i) => i.fromId === b.id)) {
+          this.noteClosed(item.id, "요청한 봇이 끊겨 거두어졌습니다");
+          this.settleQueued(item.id, { outcome: "cancelled" });
+        }
+        for (const item of this.queue.dropPermissions((i) => i.to === b.id)) {
+          this.noteClosed(item.id, "심사 봇이 끊겨 사용자에게 넘어갔습니다");
+          // **조용히 넘기지 않는다** — 맡겼다고 생각하고 자리를 비우면 안 된다
+          this.emit("notice", roomId,
+            `심사를 맡긴 봇이 끊겨 직접 물어봅니다 — «${item.title}»`);
+          this.settleQueued(item.id, undefined);
+        }
+
+        const live = bt.turn;
+        if (live && this.statusOf(roomId, b.id) !== "idle") {
+          live.streaming = false;
+          live.truncated = true;
+          if (!live.text && !live.error) live.error = "응답이 중단되었습니다.";
+          void this.saveMessage(room, live);
+          this.emit("message", roomId, live);
+        }
         bt.sessionId = undefined;
         bt.roleInjected = false;
-    delete bt.rosterSent;
+        delete bt.rosterSent;
       }
       const hit = room.participants.filter((b) => b.agentId === agentId);
       // ★ **그 에이전트를 쓰는 봇만** 오류다 — 같은 방의 다른 봇은 멀줦하다
@@ -5389,7 +5484,8 @@ export class RoomManager extends EventEmitter<Events> {
           "notice",
           roomId,
           `${this.agentOrThrow(agentId).label} 프로세스가 종료되어 ` +
-            `답변이 끊겼습니다 (${reason}). 다시 보내면 이어서 합니다.`,
+            `답변이 끊겼습니다 (${reason}). 다시 보내면 이어서 합니다. ` +
+            "자세한 것은 출력 창에 있습니다.",
         );
       }
     }
@@ -6460,8 +6556,21 @@ export class RoomManager extends EventEmitter<Events> {
       }
       return await this.opts.host.requestPermission(asked);
     } finally {
-      // 턴은 막혀 있었으므로 **원래 하던 것으로** 돌아간다
-      if (found && before) this.setStatus(found.room.id, before, found.bot.id);
+      /*
+       * 턴은 막혀 있었으므로 **원래 하던 것으로** 돌아간다.
+       *
+       * 🔴 **그 사이에 죽었으면 안 돌아간다** (2026-10-14 실측). 카드가 떠
+       * 있는 동안 CLI 가 죽으면 상태는 `error` 가 되는데, 늦게 답한 카드가
+       * 그걸 **`tool` 로 되살렸다** — 죽은 프로세스를 기다리는 꼴이고 점도
+       * 다시 돈다. 어제 고친 그 버그가 이 길로 되살아난다.
+       *
+       * 그래서 **아직 «묻는 중» 일 때만** 되돌린다 — 그 사이에 누가 상태를
+       * 바꿨다면 그쪽이 더 새로운 소식이다.
+       */
+      if (found && before
+        && this.statusOf(found.room.id, found.bot.id) === "permission") {
+        this.setStatus(found.room.id, before, found.bot.id);
+      }
     }
   }
 

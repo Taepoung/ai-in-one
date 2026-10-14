@@ -34,7 +34,7 @@ export interface WorkspaceHost {
    *
    * 선택이다 — 카드를 안 띄우는 호스트(검사용)는 할 일이 없다.
    */
-  cancelPermissions?(roomId: string): void;
+  cancelPermissions?(roomId: string, botId?: string): void;
 
 
   /** 진단/로그용. 사용자에게 보이는 채널 */

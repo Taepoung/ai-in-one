@@ -354,11 +354,29 @@ export class AcpConnection {
       this.init = undefined;
       this.listeners.clear();
       const how = signal ? `신호 ${signal}` : `종료 코드 ${code}`;
-      this.host.log(`[${this.agent.id}] 프로세스가 끝났습니다 (${how})`);
-      // 🔴 **진짜 이유는 stderr에 있다.** 종료 코드만으로는 «왜 죽었나»를
-      // 알 수 없다 — 토큰 만료, 메모리 부족, 설정 오류가 전부 코드 1이다.
+      /*
+       * 🔴 **진짜 이유는 stderr 에 있다** — 종료 코드만으로는 «왜 죽었나»를
+       * 알 수 없다(토큰 만료·메모리 부족·설정 오류가 전부 코드 1이다). 그래서
+       * **출력 창에 통째로** 적는다. 위에서 들어오는 줄마다 이미 적고 있고,
+       * 여기서 마지막 자락을 한 번 더 모아 둔다.
+       *
+       * ⏪ **그런데 그 자락을 «사용자에게 뜨는 줄»에도 실었다** (2026-10-14
+       * 실측). Claude 어댑터는 **평소 로그를 stderr 로 쓴다** — 그래서 알림이
+       * 이렇게 떴다:
+       *
+       * ```
+       * … 답변이 끊겼습니다 (신호 SIGKILL — e] sessionId=4ac9… phase=models
+       *  durationMs=22 totalMs=1258 / [session/create] … phase=register …)
+       * ```
+       *
+       * 사용자가 읽을 글이 아니다. **아는 것만 말하고**(신호·종료 코드) 나머지는
+       * 있는 자리(출력 창)를 가리킨다 — 켜기 실패를 다루는 방식과 같다.
+       */
       const tail = this.stderr.trimEnd().split("\n").slice(-3).join(" / ").slice(-300);
-      this.onCrash?.(tail ? `${how} — ${tail}` : how);
+      this.host.log(
+        `[${this.agent.id}] 프로세스가 끝났습니다 (${how})${tail ? ` — ${tail}` : ""}`,
+      );
+      this.onCrash?.(how);
     });
 
     /*

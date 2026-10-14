@@ -77,6 +77,8 @@ async function make() {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
     judging: Set<string>;
     queue: BotQueue;
+    /** 그 에이전트의 CLI 를 죽일 때 쓴다 (2026-10-14) */
+    connections: Map<string, { proc?: { kill(sig?: string): boolean } }>;
   };
 
   const room = await mgr.createRoom({
@@ -206,6 +208,47 @@ async function main(): Promise<void> {
     ok(said!.includes(t.judge.name), "★ 누가 정했는지");
     ok(said!.includes("되돌릴 수 없는"), "★ **왜 그랬는지도** — 이유를 모르면 그냥 열어주게 된다");
     bye(t);
+  }
+
+  console.log(`${NL}[★ **끊긴 봇이 낀 심사는 거둔다** — 양쪽 방향 (2026-10-14)]`);
+  {
+    /*
+     * 권한 항목에는 **둘**이 걸려 있다 — 낸 봇과 맡은 봇. 어느 쪽이 끊겨도
+     * 그 항목은 아무 데도 못 간다. 사용자: *"심사받을 그것도 다 제거해야되는거
+     * 아님? 답이 안나오는 것 처럼 그럼거 아님? 턴이 끊겼잖아"*.
+     */
+    console.log("   ① 낸 봇이 끊기면 — 답해봐야 받을 데가 없다");
+    const t = await make();
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+    const pending = t.inner.askApprover(t.asker.sessionId!, REQ({ toolCallId: "tc-9" }));
+    await t.untilQueued();
+    ok((await t.check()).item !== null, "전제 — 심사 봇 몫에 들어갔다");
+
+    /* 요청한 봇(알파)의 CLI 를 죽인다 */
+    t.inner.connections.get("alpha")?.proc?.kill("SIGKILL");
+    const out = await pending;
+    ok(out.outcome === "cancelled",
+       `★ **거절로 닫힌다** — 기다리던 쪽이 이미 없다 (${JSON.stringify(out)})`);
+    ok((await t.check()).item === null,
+       "★ **심사 봇 몫에서도 빠진다** — 답해봐야 받을 데가 없는 것을 들고 깨우지 않는다");
+    ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 띠에서도 빠진다");
+    bye(t);
+
+    console.log("   ② 맡은 봇이 끊기면 — **사용자에게 넘긴다**");
+    const t2 = await make();
+    await t2.mgr.setPolicy(t2.room.id, { approver: { kind: "bot", botId: t2.judge.id } }, t2.asker.id);
+    const waiting = t2.inner.askApprover(t2.asker.sessionId!, REQ({ toolCallId: "tc-8" }));
+    await t2.untilQueued();
+
+    /* 심사 봇(베타)의 CLI 를 죽인다 — 답할 사람이 없어졌다 */
+    t2.inner.connections.get("beta")?.proc?.kill("SIGKILL");
+    const got = await waiting;
+    ok(t2.userAsks() > 0,
+       `★ **사용자에게 물어본다** — 안 넘기면 낸 봇이 영영 기다린다 (${t2.userAsks()}번)`);
+    ok(got.outcome === "cancelled", "★ 그 답이 그대로 간다 (검사의 사용자는 거절한다)");
+    ok(t2.notices.some((n) => n.includes("직접 물어봅니다")),
+       "★ **조용히 안 넘긴다** — 맡겼다고 생각하고 자리를 비우면 안 된다");
+    bye(t2);
   }
 
   console.log(`${NL}[★ 읽기도 넘긴다 — 이제 턴이 안 든다]`);
