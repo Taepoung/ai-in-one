@@ -688,6 +688,45 @@ function main() {
     ok(t.$(".plan-item.completed") !== null, "끝난 것");
     ok(t.$(".plan-item.in_progress") !== null, "하는 중");
     ok(t.$(".plan") .closest(".msg") !== null, "말풍선에 딸려 붙는다");
+
+    /*
+     * ★ **접혀 있고, 머리줄이 약속을 들고 있다** (§5-N, 2026-10-14).
+     *
+     * ⏪ 여태 다 펴 두었다. 근거가 *"계획은 결과가 아니라 약속"* 이었는데,
+     * 🔴 **열두 칸짜리 계획이 말풍선마다 붙으면 정작 봇이 한 말이 화면
+     * 밖으로 나간다.** 약속은 머리줄로 옮긴다 — 지금 하는 칸이 거기 떠 있다.
+     */
+    ok(t.$(".plan").tagName === "DETAILS", "★ 접을 수 있는 물건이다");
+    ok(t.$(".plan").open === false, "★ **접힌 채로 온다**");
+    const head = t.$(".plan-head").textContent;
+    ok(head.includes("구현"), `★ 머리줄이 **지금 하는 칸**을 말한다 (${head.trim()})`);
+    ok(!head.includes("테스트 읽기"),
+       "🔴 **맨 앞 칸이 아니다** — 끝난 칸이 머리에 있으면 멈춘 것처럼 보인다");
+    ok(head.includes("(1/3)"), `★ 어디까지 왔나 (${head.trim()})`);
+  }
+
+  console.log("\n[★ 펼쳐 두면 **글자가 와도** 안 접힌다 (§5-N)]");
+  {
+    const t = enter(mount(boot([meta()])));
+    const msg = (text) => ({ t: "room", compactable: false, room: { ...room(), messages: [
+      { id: "a1", role: "agent", text, deliveredTo: [], createdAt: 1,
+        plan: { entries: [
+          { text: "테스트 읽기", status: "completed" },
+          { text: "구현", status: "in_progress" },
+        ]}},
+    ]}});
+    t.send(msg("이렇게"));
+    t.$(".plan-head").click();
+    ok(t.$(".plan").open === true, "전제 — 눌러서 폈다");
+
+    /*
+     * 🔴 **이 화면은 글자가 올 때마다 다시 그린다.** `<details>` 는 새로
+     * 만들어지면 닫힌 채라, 기억해 두지 않으면 **보는 눈앞에서 접힌다.**
+     * 체크해 둔 승인(`ticked`)이 겪은 것과 같은 자리다.
+     */
+    t.send(msg("이렇게 하겠습니다"));
+    ok(t.$(".plan").open === true, "★ **편 채로 남는다** — 다음 조각이 와도");
+    ok(t.$$(".plan-item").length === 2, "전제 — 다시 그려진 것이 맞다");
   }
 
   console.log("\n[마크다운 계획도 그대로]");

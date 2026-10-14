@@ -1016,8 +1016,9 @@ button.ghost:hover {
 /* ── 계획 (계획 모드) ─────────────────────────────────────────────────── */
 
 /*
- * 계획은 **결과가 아니라 약속**이다 — 접지 않는다. 활동 기록(지나간 일)과
- * 구분되게 왼쪽 띠를 강조색으로 둔다.
+ * 계획은 **결과가 아니라 약속**이다 — 활동 기록(지나간 일)과 구분되게 왼쪽
+ * 띠를 강조색으로 둔다. 접히지만 **머리줄이 지금 하는 칸을 들고 있어서**
+ * 약속은 접혀도 보인다 (§5-N).
  */
 .plan {
   align-self: flex-start;
@@ -1037,6 +1038,41 @@ button.ghost:hover {
   margin-bottom: 3px;
   font-size: var(--fs-11);
   color: var(--chat-dim);
+  cursor: pointer;
+  list-style: none;
+}
+
+.plan-head::-webkit-details-marker {
+  display: none;
+}
+
+.plan[open] > summary .codicon-chevron-right {
+  transform: rotate(90deg);
+}
+
+/*
+ * ★ **머리줄의 «지금 하는 칸»** (§5-N) — 접혀 있을 때 약속을 들고 있는 자리라
+ * 흐리게 두지 않는다. 길면 한 줄로 자른다 — 머리가 두 줄이 되면 접은 보람이
+ * 없다.
+ */
+.plan-now {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--focus);
+}
+
+.plan-count {
+  flex: 0 0 auto;
+}
+
+/* 접혀 있을 때는 머리줄이 전부다 — 아래 여백이 남으면 띄 하나가 떠 보인다 */
+.plan:not([open]) > .plan-head {
+  margin-bottom: 0;
 }
 
 .plan-list {

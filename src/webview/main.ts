@@ -4545,7 +4545,7 @@ function messageNode(
   }
 
   // 계획은 **결과가 아니라 약속**이다 — 접지 않고 말풍선 아래 그대로 보여준다
-  if (m.plan) node.append(planNode(m.plan));
+  if (m.plan) node.append(planNode(m.plan, m.id));
   if (m.attachments?.length) node.append(attachmentsNode(m));
   if (m.files?.length) node.append(filesNode(m));
 
@@ -4880,13 +4880,71 @@ function toolsNode(list: ToolActivity[]): HTMLElement {
 }
 
 /**
+ * ★ **펼쳐 둔 계획** (§5-N) — 말풍선 id 로.
+ *
+ * 🔴 **기억 안 하면 못 펼친다.** 이 화면은 글자가 올 때마다 다시 그려지는데,
+ * `<details>` 는 새로 만들어지면 **닫힌 채**다 — 펼쳐놓고 보는 사이에 다음
+ * 조각이 오면 눈앞에서 접힌다. 체크해 둔 승인(`ticked`)과 같은 자리다.
+ */
+const planOpen = new Set<string>();
+
+/**
  * 에이전트가 세운 계획 (계획 모드).
  *
  * 🔴 여태 **받아서 버리고 있었다** — 계획을 세우라고 시켜놓고 화면에는
  * 아무것도 안 나왔다. 항목형이면 체크리스트로, 마크다운이면 그대로 그린다.
+ *
+ * ★ **접는다 — 머리 한 줄이 약속을 계속 말해주므로** (§5-N, 2026-10-14).
+ *
+ * ```
+ * 접힘   ▸ 계획 — ▶ 테스트 돌려보기 (2/3)
+ * 펼침   ☑ auth.ts 읽기 · ▶ 토큰 만료 처리 고치기 · ☐ 테스트 돌려보기
+ * ```
+ *
+ * ⏪ 여기 *"계획은 결과가 아니라 **약속**이라 접지 않는다"* 고 적혀 있었다.
+ * 그 근거가 **머리줄로 옮겨간다** — 지금 하는 칸이 머리에 떠 있으면 약속은
+ * 안 깨진다. 🔴 반대로 **다 펴두면 긴 계획이 대화를 밀어낸다**: 열두 칸짜리
+ * 계획이 말풍선마다 붙으면 **정작 봇이 한 말이 화면 밖**으로 나간다.
  */
-function planNode(plan: NonNullable<Message["plan"]>): HTMLElement {
-  const box = el("div", { class: "plan" }, el("div", { class: "plan-head" }, icon("checklist"), " 계획"));
+function planNode(plan: NonNullable<Message["plan"]>, msgId: string): HTMLElement {
+  const entries = plan.entries ?? [];
+  const done = entries.filter((e) => e.status === "completed").length;
+  /*
+   * **지금 하는 칸.** 없으면 아직 시작 안 한 첫 칸 — 그것도 없으면 다 끝났다.
+   * 🔴 «맨 앞»을 적으면 안 된다. 끝난 칸이 머리에 떠 있으면 **멈춘 것처럼**
+   * 보인다.
+   */
+  const now = entries.find((e) => e.status === "in_progress")
+    ?? entries.find((e) => e.status !== "completed");
+
+  const box = el("details", { class: "plan", open: planOpen.has(msgId) });
+  box.append(
+    el(
+      "summary",
+      {
+        class: "plan-head",
+        /*
+         * 🔴 **`toggle` 로 적으면 놓친다.** 그 사건은 **다음 차례**에 오는데,
+         * 같은 차례에 글자 조각이 한 번 더 오면 다시 그려지는 쪽이 **먼저**다 —
+         * 방금 편 것이 눈앞에서 접힌다(검사가 실제로 그걸 잡았다).
+         *
+         * 누르는 순간 적는다. 이때 `open` 은 **아직 바뀌기 전 값**이라 뒤집어
+         * 읽는다.
+         */
+        onclick: () => {
+          if (box.open) planOpen.delete(msgId);
+          else planOpen.add(msgId);
+        },
+      },
+      icon("chevron-right"),
+      icon("checklist"),
+      " 계획",
+      now ? el("span", { class: "plan-now" }, " — ", icon(planIcon(now.status)), ` ${now.text}`) : null,
+      entries.length > 0
+        ? el("span", { class: "plan-count", text: ` (${done}/${entries.length})` })
+        : null,
+    ),
+  );
 
   if (plan.markdown) {
     const body = el("div", { class: "plan-body" });
@@ -4899,7 +4957,7 @@ function planNode(plan: NonNullable<Message["plan"]>): HTMLElement {
     el(
       "ul",
       { class: "plan-list" },
-      ...(plan.entries ?? []).map((e) =>
+      ...entries.map((e) =>
         el("li", { class: `plan-item ${e.status}` }, icon(planIcon(e.status)), ` ${e.text}`),
       ),
     ),
