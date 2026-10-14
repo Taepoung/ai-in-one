@@ -4638,7 +4638,6 @@ function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
     });
   };
   const to = m.deliveredTo.filter((id) => id !== m.authorBotId);
-  const peek = m.text.trim().replace(/\s+/g, " ");
 
   const box = el("details", { class: "relay-fold", open: relayOpen.has(m.id) });
   box.append(
@@ -4656,11 +4655,22 @@ function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
           else relayOpen.add(m.id);
         },
       },
+      /*
+       * ★ **접히면 «누가 누구에게» 하나뿐** (사용자, 2026-10-14) —
+       * *"(@봇2->@봇1) 이렇게만 있는 메시지를 클릭하면 전체 메시지가 나오는
+       * 느낌이 나을듯"*.
+       *
+       * ⏪ 한 줄 미리보기를 달아봤다. 🔴 그런데 **미리보기는 반쯤 읽히는
+       * 글**이다 — 줄 끝이 «…» 로 잘리면 눈이 거기 머물고, 접은 보람이
+       * 그만큼 준다. 봇끼리의 말은 **나에게 한 말이 아니므로** 평소엔
+       * «오갔다»만 알면 되고, 궁금하면 누른다.
+       */
       icon("chevron-right"),
+      el("span", { class: "relay-mark", text: "(" }),
       m.authorBotId ? chip(m.authorBotId) : null,
       icon("arrow-right"),
       ...to.map(chip),
-      el("span", { class: "relay-peek", text: peek }),
+      el("span", { class: "relay-mark", text: ")" }),
     ),
   );
   for (const k of kids) box.append(k);

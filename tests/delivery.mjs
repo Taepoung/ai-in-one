@@ -178,8 +178,17 @@ console.log("\n[★ 봇끼리 주고받은 말은 **접힌다** (2026-10-14)]");
   const head = t.$("#screen-chat .relay-head").textContent;
   ok(head.includes("@Claude") && head.includes("@Codex"),
      `★ **누가 누구에게** 를 칩으로 (${head.trim()})`);
-  ok(head.includes("이 테스트 좀 봐줄래?"),
-     "★ 한 줄 미리보기 — 펴기 전에도 무슨 얘긴지는 안다");
+  /*
+   * ★ **접히면 «누가 누구에게» 하나뿐** (사용자): *"(@봇2->@봇1) 이렇게만
+   * 있는 메시지를 클릭하면 전체 메시지가 나오는 느낌이 나을듯"*.
+   *
+   * ⏪ 한 줄 미리보기를 달아봤다. 🔴 미리보기는 **반쯤 읽히는 글**이라 줄
+   * 끝의 «…» 에 눈이 머문다 — 접은 보람이 그만큼 준다.
+   */
+  ok(!head.includes("이 테스트 좀 봐줄래?"),
+     `★ **글은 접힌 줄에 안 샌다** (${head.trim()})`);
+  ok(head.includes("(") && head.includes(")"),
+     "★ 괄호로 «곁들인 것» 이라고 말한다");
 
   /* 🔴 **글은 안 사라진다** — 접혔을 뿐이라 안에 그대로 있다 */
   ok(fold.querySelector(".bubble").textContent.includes("이 테스트 좀 봐줄래?"),
