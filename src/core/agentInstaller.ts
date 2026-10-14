@@ -6,6 +6,7 @@ import * as fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { unzip } from "./unzip.js";
+import { alive } from "./roomLock.js";
 import { NODE_PIN } from "./agentCatalog.js";
 import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
@@ -750,6 +751,54 @@ export const realNpm: Run = (args, cwd, onLine, env) =>
  * 227MB 를 아끼지만 플랫폼별 꾸러미를 손으로 골라야 한다 — npm 이
  * `os`/`cpu` 로 알아서 하는 일이다. 한 벌만 받으니 중복도 없다.
  */
+/**
+ * ★ **창이 둘이어도 한 번만 받는다** (2026-10-14).
+ *
+ * 🔴 빗장이 **창 안에만** 있었다(`ChatPanel.busy`). 그런데 받아두는 자리는
+ * `globalStorage` 라 **창끼리 공유**다 — 두 창에서 같은 에이전트의 [설치하기]
+ * 를 누르면 **같은 폴더에 둘이 동시에 쓴다.** npm 이든 zip 이든 반쯤 쓰인
+ * 파일이 남고, 그걸 «받아졌다» 로 읽는다.
+ *
+ * 방 자리(`roomLock.ts`)와 **같은 모양**으로 막는다:
+ *
+ * ```
+ * 파일      <받아두는 폴더>/.busy   { pid, 창, 시작 시각 }
+ * 얻는다    받기·지우기를 시작할 때
+ * 빼앗는다  pid 가 죽었으면 — **껐다 켜면 저절로 풀린다**
+ * 푼다      끝나면 (성공이든 실패든)
+ * ```
+ *
+ * ★ **못 써도 막지 않는다.** 디스크가 읽기 전용일 수 있는데, 그때 받기가
+ * 아예 안 되면 **빗장이 없을 때보다 나빠진다.** 빗장은 사고를 줄이는 것이지
+ * 받기 위한 조건이 아니다 — 방 자리와 같은 판단이다.
+ */
+export function holdInstall(
+  dir: string, window: string, log: (m: string) => void,
+): { ok: true } | { ok: false; held: { pid: number; window: string; at: number } } {
+  const at = path.join(dir, ".busy");
+  let held: { pid: number; window: string; at: number } | undefined;
+  try {
+    held = JSON.parse(fs.readFileSync(at, "utf8")) as typeof held;
+  } catch { /* 없거나 깨졌으면 없는 것으로 */ }
+
+  if (held && held.pid !== process.pid && alive(held.pid)) return { ok: false, held };
+  if (held && held.pid !== process.pid) {
+    log(`[${path.basename(dir)}] 죽은 창(pid ${held.pid})의 자리를 넘겨받습니다`);
+  }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(at, JSON.stringify({ pid: process.pid, window, at: Date.now() }), "utf8");
+  } catch (err) {
+    log(`[${path.basename(dir)}] 받는 자리를 적지 못했습니다 — ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { ok: true };
+}
+
+/** 받기가 끝났다 — 성공이든 실패든 **반드시** 푼다 */
+export function freeInstall(dir: string): void {
+  try { fs.rmSync(path.join(dir, ".busy"), { force: true }); } catch { /* 이미 없으면 됐다 */ }
+}
+
 export async function install(
   dir: string,
   pkg: AgentPackage,

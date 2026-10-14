@@ -6309,6 +6309,16 @@ export class RoomManager extends EventEmitter<Events> {
     return this.connection(agentId).logOut();
   }
 
+  /**
+   * 출력 창에 한 줄 적는다.
+   *
+   * 화면 쪽()에는 출력 창으로 가는 길이 없다 — 호스트를 들고 있는
+   * 것은 이쪽뿐이라 여기로 지나간다. 받는 자리의 빗장이 이걸 쓴다.
+   */
+  log(message: string): void {
+    this.opts.host.log(message);
+  }
+
   dropConnection(agentId: string): void {
     const conn = this.connections.get(agentId);
     if (!conn) return;

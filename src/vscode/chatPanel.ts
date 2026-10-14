@@ -2,7 +2,8 @@
 import * as os from "node:os";
 import * as vscode from "vscode";
 import {
-  authPlan, authStatus, cmdPath, dirFor, dropOptions, install, realNpm, remove, stateOf,
+  authPlan, authStatus, cmdPath, dirFor, dropOptions, freeInstall, holdInstall, install,
+  realNpm, remove, stateOf,
 } from "../core/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
@@ -1086,18 +1087,39 @@ export class ChatPanel implements AskTarget {
 
     if (what === "install") {
       if (ChatPanel.busy.has(agent.id)) return;
+      /*
+       * 🔴 **창 안의 빗장만으로는 모자란다** (2026-10-14). `ChatPanel.busy` 는
+       * 이 창의 것이고 받아두는 자리는 **창끼리 공유**다(globalStorage) —
+       * 두 창에서 같이 누르면 같은 폴더에 둘이 쓴다. 디스크에 적는 빗장으로
+       * 막는다(죽은 창의 자리는 빼앗으므로 껐다 켜면 풀린다).
+       */
+      const mine = holdInstall(
+        dir,
+        vscode.workspace.workspaceFolders?.[0]?.name ?? "다른 창",
+        (m) => this.rooms.log(m),
+      );
+      if (!mine.ok) {
+        void vscode.window.showWarningMessage(
+          `${agent.label}을(를) 「${mine.held.window}」 창에서 받는 중입니다.`);
+        return;
+      }
       ChatPanel.busy.set(agent.id, "준비하는 중…");
       ChatPanel.repaintAgents();
-      const r = await install(dir, agent.pkg, realNpm, (line: string) => {
-        ChatPanel.busy.set(agent.id, line.slice(0, 120));
+      try {
+        const r = await install(dir, agent.pkg, realNpm, (line: string) => {
+          ChatPanel.busy.set(agent.id, line.slice(0, 120));
+          ChatPanel.repaintAgents();
+        });
+        if (!r.ok) {
+          void vscode.window.showErrorMessage(
+            `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}`);
+        }
+      } finally {
+        // **성공이든 실패든 푼다** — 안 풀면 그 창이 살아 있는 동안 아무도 못 받는다
+        freeInstall(dir);
+        ChatPanel.busy.delete(agent.id);
+        this.refreshAgents();
         ChatPanel.repaintAgents();
-      });
-      ChatPanel.busy.delete(agent.id);
-      this.refreshAgents();
-      ChatPanel.repaintAgents();
-      if (!r.ok) {
-        void vscode.window.showErrorMessage(
-          `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}`);
       }
       return;
     }
@@ -1123,6 +1145,17 @@ export class ChatPanel implements AskTarget {
        * 몇 번 기다렸다 다시 해본다. 그 사이 화면이 아무 말도 안 하면
        * **누른 것이 먹혔나** 싶어 또 누르게 된다 — 들어오자마자 막는다.
        */
+      /* 받는 중인 폴더를 지우면 **반쯤 받은 것**이 남는다 — 같은 빗장을 건다 */
+      const held = holdInstall(
+        dir,
+        vscode.workspace.workspaceFolders?.[0]?.name ?? "다른 창",
+        (m) => this.rooms.log(m),
+      );
+      if (!held.ok) {
+        void vscode.window.showWarningMessage(
+          `${agent.label}을(를) 「${held.held.window}」 창에서 받는 중입니다.`);
+        return;
+      }
       ChatPanel.busy.set(agent.id, "지우는 중…");
       ChatPanel.repaintAgents();
       this.rooms.dropConnection(agent.id);
@@ -1132,10 +1165,12 @@ export class ChatPanel implements AskTarget {
         /* 반만 지운 걸 «지웠다» 고 하면 다음에 잎어 읽는다 — 말해준다 */
         void vscode.window.showErrorMessage(
           `${agent.label}을(를) ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        freeInstall(dir);
+        ChatPanel.busy.delete(agent.id);
+        this.refreshAgents();
+        ChatPanel.repaintAgents();
       }
-      ChatPanel.busy.delete(agent.id);
-      this.refreshAgents();
-      ChatPanel.repaintAgents();
       return;
     }
 

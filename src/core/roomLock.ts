@@ -130,7 +130,14 @@ export class RoomLocks {
  * `kill(pid, 0)` 은 **신호를 안 보내고 존재만 묻는다.** 남의 프로세스라
  * 권한이 없으면 `EPERM` 이 나는데, 그것도 **살아 있다는 뜻**이다.
  */
-function alive(pid: number): boolean {
+/**
+ * ★ **그 프로세스가 살아 있나** — 죽었으면 자리를 빼앗는다.
+ *
+ * 받는 자리(`agentInstaller.holdInstall`)도 같은 판단을 쓴다. 「죽은 창이
+ * 들고 있던 것은 빼앗는다」가 **같은 규칙**이어야 하기 때문이다 — 한쪽만
+ * 안 빼앗으면 껐다 켜도 안 풀리는 자리가 생긴다.
+ */
+export function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;

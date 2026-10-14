@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { alive } from "./roomLock.js";
 
 import {
   toMeta,
@@ -90,8 +91,30 @@ export class RoomStore {
   async init(): Promise<void> {
     await fs.mkdir(this.roomsDir, { recursive: true });
     await fs.mkdir(this.blobsDir, { recursive: true });
+    await this.sweepTmp();
     this.index = await this.readIndex();
     this.appState = await this.readApp();
+  }
+
+  /**
+   * ★ **죽은 판이 남긴 임시 파일을 치운다** (2026-10-14).
+   *
+   * 쓰는 도중 창이 죽으면 `<이름>.<pid>.<번호>.tmp` 가 남는다. 예전엔 이름에
+   * 번호가 없어서 **다음 쓰기가 덮어썼는데**, 겹침을 막으려고 번호를 붙이면서
+   * 그 길이 사라졌다 — 안 치우면 **쌓인다.**
+   *
+   * 🔴 **남의 것은 안 건드린다.** 이름에 든 pid 가 **살아 있으면** 다른 창이
+   * 지금 쓰는 중일 수 있다 — 그걸 지우면 그쪽 쓰기가 깨진다.
+   */
+  private async sweepTmp(): Promise<void> {
+    let names: string[];
+    try { names = await fs.readdir(this.roomsDir); } catch { return; }
+    for (const name of names) {
+      const bits = /\.(\d+)\.\d+\.tmp$/.exec(name);
+      if (!bits) continue;
+      if (alive(Number(bits[1]))) continue;
+      await fs.rm(path.join(this.roomsDir, name), { force: true }).catch(() => {});
+    }
   }
 
   // ── 목록 ────────────────────────────────────────────────────────────────
@@ -474,18 +497,50 @@ function stripMessages(room: Room): Partial<Omit<Room, "messages">> {
  * 임시 파일에 쓰고 rename 한다.
  *
  * 쓰는 도중 VSCode가 죽어도 **반쪽짜리 파일이 남지 않는다.**
+ *
+ * 🔴 **임시 이름이 겹치면 안 된다** (2026-10-14). 예전엔 `<dest>.<pid>.tmp`
+ * 였는데, **한 프로세스 안에서 같은 파일을 겹쳐 쓰면 그 이름이 같다** —
+ * 두 쓰기가 같은 임시 파일에 섞여 들어가고, 먼저 끝난 쪽이 rename 해 가면
+ * 남은 쪽은 **없는 파일을 옮기려 한다.** 세는 수를 하나 붙여 가른다.
  */
+let writeSeq = 0;
+
+async function landAtomic(dest: string, body: string): Promise<void> {
+  const tmp = `${dest}.${process.pid}.${++writeSeq}.tmp`;
+  await fs.writeFile(tmp, body, "utf8");
+  /*
+   * ★ **윈도우에선 바꿔치기가 가끔 막힌다** (2026-10-14 실측).
+   *
+   * 전체 검사 한 판에서 `EPERM: rename … rooms.json` 이 났다. 윈도우는
+   * **다른 손이 그 파일을 열고 있으면** 덮어쓰는 rename 을 거절한다 —
+   * 바이러스 검사기·탐색기·다른 창이 그 순간 읽고 있으면 그렇다. 짧게
+   * 기다렸다 다시 하면 대개 풀린다(`esbuild.mjs` 와 같은 자리다).
+   *
+   * 🔴 **끝내 안 되면 던진다.** 조용히 넘어가면 **적었다고 믿은 것이 디스크에
+   * 없다** — 그게 흔들리는 검사보다 훨씬 나쁘다.
+   */
+  for (let i = 0; ; i++) {
+    try {
+      await fs.rename(tmp, dest);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      const busy = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      if (!busy || i >= 4) {
+        await fs.rm(tmp, { force: true }).catch(() => {});
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 20 * (i + 1)));
+    }
+  }
+}
+
 async function writeJsonAtomic(dest: string, value: unknown): Promise<void> {
-  const tmp = `${dest}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
-  await fs.rename(tmp, dest);
+  await landAtomic(dest, JSON.stringify(value, null, 2));
 }
 
 async function writeLinesAtomic(dest: string, lines: Line[]): Promise<void> {
-  const body = lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
-  const tmp = `${dest}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, body, "utf8");
-  await fs.rename(tmp, dest);
+  await landAtomic(dest, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
 }
 
 function isNotFound(err: unknown): boolean {
