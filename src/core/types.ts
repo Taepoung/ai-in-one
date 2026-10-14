@@ -1502,6 +1502,30 @@ export interface ReviewWait {
   since: number;
 }
 
+/**
+ * **봇 하나의 큐에 서 있는 것 하나** — 화면에 보여줄 만큼만 (§5-M).
+ *
+ * 🔴 `QueueItem` 을 그대로 안 보낸다. 거기에는 `fromId`·`depth`·`srcId` 처럼
+ * **우리 장부**가 붙어 있고, 그건 화면이 쓸 일이 없다. 모델에게 안 보내는
+ * 것과 같은 줄이다(`wireItem`) — 나가는 모양은 **쓰는 쪽에 맞춰 깎는다.**
+ *
+ * 디스크에 안 남긴다 — `ReviewWait` 와 같이, 켜져 있는 동안만 뜻이 있다.
+ */
+export interface WaitItem {
+  /** 큐 항목 id — 권한이면 **심사 id 와 같다**(가로채기가 이걸 쓴다) */
+  id: string;
+  /** 누구의 큐인가 */
+  botId: string;
+  kind: "permission" | "message";
+  /** 넣은 이 — **보여줄 이름** */
+  from: string;
+  /** 한 줄로 읽을 것 — 권한이면 무엇을 하려는지, 메시지면 한 말 */
+  text: string;
+  /** 권한이면 명령 그대로 (D1 — 제목만으로는 `rm -rf /` 와 `ls` 가 같아 보인다) */
+  command?: string;
+  at: number;
+}
+
 /** 질문 정책의 기본값. 에이전트가 물으면 사용자에게 띄운다 */
 export const DEFAULT_ANSWER_POLICY: AnswerPolicy = "ask";
 

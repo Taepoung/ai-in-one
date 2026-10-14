@@ -2,6 +2,7 @@ import type {
   AnswerPolicy,
   RelayMode,
   ReviewWait,
+  WaitItem,
   Clash,
   Approver,
   Attachment,
@@ -235,6 +236,13 @@ export type ToWebview =
    */
   | { t: "reviews"; roomId: string; list: ReviewWait[] }
   /**
+   * **봇마다 들고 있는 대기** (§5-M).
+   *
+   * 방 하나치를 통째로 보낸다 — 봇별로 쪼개 보내면 «이 봇은 0 이 됐다» 를
+   * **안 보내는 실수**가 생기고, 그러면 수가 영영 안 줄어든 채로 남는다.
+   */
+  | { t: "waiting"; roomId: string; list: WaitItem[] }
+  /**
    * ★ **봇끼리 부르는 길이 서 있나** (v3.0 2-F).
    *
    * 그 길은 MCP 서버 위에 서 있는데, **루프백이 막힌 기계가 있다.** 그때
@@ -387,6 +395,13 @@ export type FromWebview =
   | { t: "retry"; roomId: string; messageId?: string }
   /** **이 심사는 내가 답한다** — 줄에서 빼고 승인 카드를 띄운다 (§4.2.2) */
   | { t: "takeOverReview"; roomId: string; reviewId: string }
+  /**
+   * **이건 안 볼래** — 그 봇의 큐에서 메시지 하나를 버린다 (§5-M).
+   *
+   * 권한에는 안 쓴다 — 낸 봇이 얼어 있어서 버리면 영영 기다린다. 그쪽은
+   * `takeOverReview` 로 사람이 받는다.
+   */
+  | { t: "dropWaiting"; roomId: string; botId: string; id: string }
   /** **봇끼리 부르는 길을 다시 세워본다** (v3.0 2-F) */
   | { t: "retryMcp" }
   | { t: "rename"; roomId: string; title: string }

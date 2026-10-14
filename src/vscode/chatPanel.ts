@@ -241,6 +241,8 @@ export class ChatPanel implements AskTarget {
       this.post({ t: "status", roomId, status, bots })) as never);
     on("reviews", ((roomId: string, list: never) =>
       this.post({ t: "reviews", roomId, list })) as never);
+    on("waiting", ((roomId: string, list: never) =>
+      this.post({ t: "waiting", roomId, list })) as never);
     on("mcp", ((state: never) => this.post({ t: "mcp", state })) as never);
     on("joinFail", ((roomId: string, botId: string, kind: never, why: string) =>
       this.post({ t: "joinFail", roomId, botId, kind, why })) as never);
@@ -507,6 +509,9 @@ export class ChatPanel implements AskTarget {
           break;
         case "takeOverReview":
           this.rooms.takeOverReview(m.reviewId);
+          break;
+        case "dropWaiting":
+          this.rooms.dropWaiting(m.roomId, m.botId, m.id);
           break;
         case "retryMcp":
           await this.rooms.startMcp();
@@ -1390,6 +1395,7 @@ export class ChatPanel implements AskTarget {
       compactableBots: this.rooms.compactableBots(room.id),
     });
     this.post({ t: "reviews", roomId: room.id, list: this.rooms.reviewsIn(room.id) });
+    this.post({ t: "waiting", roomId: room.id, list: this.rooms.waitingIn(room.id) });
     this.post({ t: "clashes", roomId: room.id, list: this.rooms.clashesIn(room.id) });
   }
 

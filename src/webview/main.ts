@@ -9,6 +9,7 @@ import type {
   RoomUsage,
   PermissionRequest,
   ReviewWait,
+  WaitItem,
   ToolActivity,
   Clash,
 } from "../core/types.js";
@@ -81,6 +82,17 @@ let botStatus: Record<string, RoomStatus> = {};
  * 얼어 있으므로**, 안 보이면 «아무 일도 안 일어난다»가 된다.
  */
 let reviews: ReviewWait[] = [];
+/**
+ * ★ **봇마다 들고 있는 대기** (§5-M) — 지금 보는 방의 것만.
+ *
+ * 🔴 `reviews` 와 겹쳐 보이지만 다른 물건이다. 저쪽은 «**얼어 있는 봇**이
+ * 누구를 기다리나»라 채팅에 띠로 서고, 이쪽은 «**이 봇 앞에** 무엇이
+ * 서 있나»라 봇마다 모인다 — 봇이 건 말은 아무도 안 얼리므로 저쪽에는
+ * 아예 안 뜬다.
+ */
+let waiting: WaitItem[] = [];
+/** 대기 화면이 **누구 것인가** — 그 봇이 방을 떠나면 자리가 사라진다 */
+let waitBotId: string | null = null;
 /** 지금 부딪히는 파일들 (§4.3). 방을 옮기면 갈아 끼운다 */
 let clashes: Clash[] = [];
 /**
@@ -212,6 +224,8 @@ function agentGone(b: BotInstance): boolean {
 
 type ScreenName =
   | "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents"
+  /** 그 봇 앞에 서 있는 것들 — 참여자 서랍 «위에» 얹는다 (§5-M) */
+  | "wait"
   /** 창이 뜨자마자 로그인을 확인하는 자리 (2026-10-13) */
   | "auth"
   /** 방에 붙는 동안 서는 자리 (2026-10-13) */
@@ -262,6 +276,15 @@ const screens: Record<ScreenName, HTMLElement> = {
    */
   perm: screenEl("screen-perm"),
   bots: screenEl("screen-bots"),
+  /**
+   * ★ **대기는 서랍에서 펼치지 않고 화면으로 뺀다** (§5-M, 2026-10-14).
+   *
+   * 사용자: *"엄청 쌓이면서는 봇별로 엄청 많아지면 정보보기도 어렵고
+   * 지저분해서 좀 힘들듯"*. 🔴 서랍 한 줄은 **봇 하나**인데, 한 봇의 대기가
+   * 열 줄이면 **다른 봇이 화면 밖으로 밀린다** — 훑는 자리가 훑을 수 없게
+   * 된다. 서랍에 두는 것은 **수 하나**고, 그게 곧 «여기 눌러볼 것이 있다»다.
+   */
+  wait: screenEl("screen-wait"),
   /**
    * ★ **봇 부르기도 화면** (2026-09-30).
    *
@@ -7009,6 +7032,108 @@ function paintDrawer(r: Room): void {
 }
 
 /**
+ * ★ **«대기 N ›» — 서랍 줄 오른쪽 끝** (§5-M, 2026-10-14).
+ *
+ * 🔴 **0 이면 아예 없다.** «대기 0» 을 띄우면 **아무 일도 없다는 것을 말하려고
+ * 모든 줄에 자리를 하나씩 내주게** 된다 — 단체방이면 그 빈 단추가 참여자 수만큼
+ * 선다. 있는 것만 보이면 **단추가 곧 알림**이다.
+ */
+function waitGo(r: Room, bot: BotInstance): HTMLElement | null {
+  const mine = waiting.filter((w) => w.botId === bot.id);
+  if (mine.length === 0) return null;
+  const perms = mine.filter((w) => w.kind === "permission").length;
+  return el(
+    "button",
+    {
+      class: "ghost wait-go",
+      title: perms > 0
+        ? `${bot.name} 앞에 ${mine.length} 개 — 그중 ${perms} 개는 승인 요청입니다`
+        : `${bot.name} 앞에 ${mine.length} 개가 서 있습니다`,
+      onclick: () => openWaiting(r, bot.id),
+    },
+    icon("inbox"),
+    ` 대기 ${mine.length} `,
+    icon("chevron-right"),
+  );
+}
+
+/** 서랍 «위에» 얹는다 — 뒤로가기 하나로 서랍으로 돌아온다 */
+function openWaiting(r: Room, botId: string): void {
+  waitBotId = botId;
+  paintWaiting(r, botId);
+  push("wait");
+}
+
+/**
+ * ★ **그 봇 앞에 서 있는 것들** (§5-M).
+ *
+ * 두 종류가 한 줄 간격으로 선다. 🔴 **할 수 있는 일이 서로 다르다:**
+ *
+ * ```
+ * 권한    낸 봇이 **얼어 있다**  → 「내가 답할게」 — 줄에서 빼고 카드가 나에게
+ * 메시지  아무도 안 기다린다     → 「버리기」 — 그 봇은 영영 안 본다
+ * ```
+ *
+ * 권한에 「버리기」를 안 주는 이유가 그것이다 — 버리면 **낸 봇이 영영
+ * 기다린다.** 둘을 같은 단추로 묶으면 그 차이가 지워진다.
+ */
+function paintWaiting(r: Room, botId: string): void {
+  const bot = r.participants.find((b) => b.id === botId);
+  const mine = waiting.filter((w) => w.botId === botId);
+  const keep = screens.wait.scrollTop;
+  screens.wait.replaceChildren(
+    el(
+      "header",
+      { class: "bar" },
+      el("button", { class: "icon", title: "돌아가기", onclick: () => back() }, icon("arrow-left")),
+      el("h1", {}, icon("inbox"), ` ${bot?.name ?? "봇"} — 대기 ${mine.length}`),
+    ),
+    /*
+     * 🔴 **비면 화면을 닫지 않는다.** 마지막 하나를 처리한 순간 화면이 사라지면
+     * «내가 뭘 한 거지» 가 된다 — 돌아가는 것은 사용자가 한다.
+     */
+    ...(mine.length === 0
+      ? [el("div", { class: "empty", text: "대기가 없습니다." })]
+      : mine.map((w) => waitRow(r, w))),
+  );
+  screens.wait.scrollTop = keep;
+}
+
+/** 대기 한 줄 — 누가 · 무엇을 · 내가 할 수 있는 것 */
+function waitRow(r: Room, w: WaitItem): HTMLElement {
+  const perm = w.kind === "permission";
+  return el(
+    "div",
+    { class: "card wait-item" },
+    el(
+      "div",
+      { class: "card-title" },
+      icon(perm ? "shield" : "comment"),
+      ` ${w.from}의 ${perm ? "승인 요청" : "말"}`,
+    ),
+    el("div", { class: "wait-text", text: w.text }),
+    // **무엇을 하려는지 그대로** — 제목만 보면 `rm -rf /` 와 `ls` 가 같다 (D1)
+    w.command ? el("pre", { class: "wait-cmd" }, el("code", { text: w.command })) : null,
+    el(
+      "div",
+      { class: "card-actions" },
+      perm
+        ? el("button", {
+            text: "내가 답할게",
+            title: "이 봇을 기다리지 않고 승인 카드를 지금 띄웁니다",
+            onclick: () => post({ t: "takeOverReview", roomId: r.id, reviewId: w.id }),
+          })
+        : el("button", {
+            class: "ghost danger",
+            text: "버리기",
+            title: "이 봇은 이 말을 끝내 안 봅니다. 보낸 쪽 기록에는 그대로 남습니다.",
+            onclick: () => post({ t: "dropWaiting", roomId: r.id, botId: w.botId, id: w.id }),
+          }),
+    ),
+  );
+}
+
+/**
  * **봇 부르기** — 서랍 바닥 (v2.0).
  *
  * 1:1 방에서 누르면 그 자리에서 단체방이 된다 — 방을 새로 만들 필요가 없다.
@@ -7415,6 +7540,7 @@ function drawerBot(r: Room, bot: BotInstance): HTMLElement {
              ...(pickedInk ? { ink: pickedInk } : {}) })),
     busy ? el("span", { class: "typing" }, el("i"), el("i"), el("i")) : null,
     usageChip(bot),
+    waitGo(r, bot),
   );
 
   /*
@@ -7808,7 +7934,7 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       const switching = room?.id !== m.room.id;
       // 🔴 심사 줄은 **방마다**다. 안 비우면 옆 방 것이 여기 붙는다.
       // 치워둔 글도 방을 갈아타면 보여줄 자리가 없다 — 그 방으로 돌아가면 다시 뜬다.
-      if (switching) { reviews = []; }
+      if (switching) { reviews = []; waiting = []; waitBotId = null; }
       room = m.room;
       usage = m.room.usage;
       compactable = m.compactable;
@@ -7903,6 +8029,21 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       if (room?.id === m.roomId) {
         reviews = m.list;
         renderChat();
+      }
+      break;
+
+    /*
+     * ★ **대기는 두 자리에 떠 있다** (§5-M) — 서랍의 수와, 열어둔 대기 화면.
+     *
+     * 🔴 **둘 다 다시 그린다.** 서랍만 고치면 화면을 열어둔 채 항목이 닫혔을
+     * 때 **이미 답한 것이 그대로 서 있고**, 거기서 「버리기」를 누르면 코어가
+     * «그런 건 없다» 로 답한다 — 사용자 눈에는 단추가 먹지 않는 것이 된다.
+     */
+    case "waiting":
+      if (room?.id === m.roomId) {
+        waiting = m.list;
+        if (stack.includes("bots")) paintDrawer(room);
+        if (stack[stack.length - 1] === "wait" && waitBotId) paintWaiting(room, waitBotId);
       }
       break;
 

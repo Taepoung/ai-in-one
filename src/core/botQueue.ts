@@ -133,6 +133,17 @@ export class BotQueue {
   private readonly lanes = new Map<string, Lane>();
   private seq = 0;
 
+  /**
+   * ★ **바뀌면 한 자리에서 알린다** (§5-M, 2026-10-14).
+   *
+   * 화면에 큐를 띄우기로 하면서 «고치는 자리마다 알림을 넣는» 길을 먼저
+   * 떠올렸는데, 🔴 그 자리가 **여섯 군데**다 — 넣기·답하기·닫기·거두기·
+   * 비우기·통째로 비우기. 하나만 빠뜨리면 화면이 **조용히 낡는다**, 그리고
+   * 틀린 수가 떠 있는 것은 **없느니만 못하다.** 바뀌는 길이 전부 이 클래스
+   * 안이므로 여기서 한 번만 알린다.
+   */
+  constructor(private readonly onChange: (owner: string) => void = () => {}) {}
+
   private lane(owner: string): Lane {
     let lane = this.lanes.get(owner);
     if (!lane) { lane = { share: [], next: [], seen: new Set() }; this.lanes.set(owner, lane); }
@@ -158,6 +169,7 @@ export class BotQueue {
      */
     const id = `${item.kind === "permission" ? "p" : "x"}${++this.seq}`;
     this.lane(item.to).next.push({ ...item, id, at: Date.now() } as QueueItem);
+    this.onChange(item.to);
     return id;
   }
 
@@ -240,7 +252,10 @@ export class BotQueue {
     if (!lane) return undefined;
     for (const list of [lane.share, lane.next]) {
       const at = list.findIndex((i) => i.id === id);
-      if (at >= 0) return list.splice(at, 1)[0];
+      if (at < 0) continue;
+      const out = list.splice(at, 1)[0];
+      this.onChange(owner);
+      return out;
     }
     return undefined;
   }
@@ -274,7 +289,9 @@ export class BotQueue {
       (i) => !(i.kind === "message" && lane.seen.has(i.id)),
     );
     lane.seen.clear();
-    return before - lane.share.length;
+    const closed = before - lane.share.length;
+    if (closed > 0) this.onChange(owner);
+    return closed;
   }
 
   /**
@@ -295,17 +312,20 @@ export class BotQueue {
    */
   dropPermissions(match: (item: QueuePermission) => boolean): QueuePermission[] {
     const out: QueuePermission[] = [];
-    for (const lane of this.lanes.values()) {
+    const touched = new Set<string>();
+    for (const [owner, lane] of this.lanes) {
       for (const list of [lane.share, lane.next]) {
         for (let i = list.length - 1; i >= 0; i--) {
           const item = list[i]!;
           if (item.kind !== "permission" || !match(item)) continue;
           list.splice(i, 1);
           lane.seen.delete(item.id);
+          touched.add(owner);
           out.push(item);
         }
       }
     }
+    for (const owner of touched) this.onChange(owner);
     return out;
   }
 
@@ -353,6 +373,7 @@ export class BotQueue {
     const lane = this.lanes.get(owner);
     if (!lane) return [];
     this.lanes.delete(owner);
+    this.onChange(owner);
     return [...lane.share, ...lane.next];
   }
 

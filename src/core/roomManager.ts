@@ -24,6 +24,7 @@ import {
   type AgentDef,
   type AnswerPolicy,
   type ReviewWait,
+  type WaitItem,
   type Approver,
   type JoinFail,
   type JoinStep,
@@ -835,6 +836,14 @@ type Events = {
    */
   reviews: [string, ReviewWait[]];
   /**
+   * **그 방의 봇들이 들고 있는 큐** (roomId, 목록) — §5-M.
+   *
+   * 🔴 `reviews` 와 겹치지 않는다. 저쪽은 «**얼어 있는 봇**이 누구를 기다리나»
+   * 라 채팅에 띠로 뜨고, 이쪽은 «**이 봇 앞에** 무엇이 서 있나» 라 봇마다
+   * 모인다 — 메시지는 아무도 안 얼리므로 저쪽에는 아예 안 뜬다.
+   */
+  waiting: [string, WaitItem[]];
+  /**
    * **지금 부딪히는 파일들** (roomId, 목록) — §4.3.
    *
    * 🔴 **메시지로만 적으면 «지금»을 못 본다.** 시스템 메시지는 대화가 흐르면
@@ -942,7 +951,10 @@ export class RoomManager extends EventEmitter<Events> {
    * 끊기므로), 간 적 없는 말은 **아무도 못 본 것**이다 — `ReviewWait` 와
    * 같은 선택이다(§4.2.2).
    */
-  private readonly queue = new BotQueue();
+  /**
+   * 큐가 바뀌면 **그 방 화면에 알린다** (§5-M) — 알림을 거는 자리는 여기 하나다.
+   */
+  private readonly queue = new BotQueue((owner) => this.waitingChanged(owner));
   /**
    * ★ **방금 닫힌 항목이 왜 닫혔나** (v3.0 2-E, 2026-10-12).
    *
@@ -3106,6 +3118,67 @@ export class RoomManager extends EventEmitter<Events> {
     return [...this.reviews.values()]
       .filter((r) => r.roomId === roomId)
       .map(({ takenOver: _drop, ...rest }) => rest);
+  }
+
+  /**
+   * ★ **그 방 봇들이 들고 있는 것 전부** — 방을 열 때도 실어 보낸다 (§5-M).
+   *
+   * 이번 몫과 다음 몫을 **안 가른다.** 「이번 턴 것 / 다음 턴 것」은 우리가
+   * 턴을 끊는 방식일 뿐인데, 사용자에게는 **어느 쪽이든 아직 답 안 한 것**
+   * 하나다 — 가르면 설명할 것만 는다.
+   */
+  waitingIn(roomId: string): WaitItem[] {
+    const room = this.open.get(roomId);
+    if (!room) return [];
+    const out: WaitItem[] = [];
+    for (const bot of room.participants) {
+      for (const item of this.queue.pending(bot.id)) {
+        out.push({
+          id: item.id,
+          botId: bot.id,
+          kind: item.kind,
+          from: item.from,
+          at: item.at,
+          text: item.kind === "permission" ? item.title : item.text,
+          ...(item.kind === "permission" && item.command ? { command: item.command } : {}),
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * ★ **사용자가 하나를 버린다** (§5-M).
+   *
+   * 🔴 **권한은 못 버린다.** 낸 봇이 `request_permission` 에 얼어 있어서,
+   * 그냥 빼면 **영영 기다린다** — 그쪽은 「내가 답할게」(`takeOverReview`)로
+   * 가야 하고, 그러면 카드가 사람에게 뜬다. 메시지는 아무도 안 기다리므로
+   * (단방향이다) 버려도 멈추는 데가 없다.
+   *
+   * 기록에는 안 남긴다 — 보낸 쪽 말풍선에 **이미 적혀 있고**(그 `say` 활동),
+   * 사용자가 제 손으로 버린 것이라 «언제 이게 사라졌지»가 안 생긴다.
+   */
+  dropWaiting(roomId: string, botId: string, id: string): boolean {
+    const item = this.queue.find(botId, id);
+    if (!item || item.kind !== "message") return false;
+    this.queue.answer(botId, id);
+    this.noteClosed(id, "사용자가 버렸습니다");
+    this.opts.host.log(`[${roomId}] ${botId} 의 대기에서 «${id}» 를 사용자가 버렸습니다`);
+    return true;
+  }
+
+  /**
+   * 큐가 바뀌었다 — **그 봇이 있는 방**의 화면에 알린다 (§5-M).
+   *
+   * 봇 id 로 방을 찾는다. 안 열린 방이면 보낼 데가 없으므로 조용히 넘어간다 —
+   * 다시 열 때 `waitingIn` 이 통째로 실려 간다.
+   */
+  private waitingChanged(botId: string): void {
+    for (const room of this.open.values()) {
+      if (!room.participants.some((b) => b.id === botId)) continue;
+      this.emit("waiting", room.id, this.waitingIn(room.id));
+      return;
+    }
   }
 
   /**

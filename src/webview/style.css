@@ -3003,6 +3003,51 @@ fieldset.bot .bot-drop.danger:hover {
 }
 
 /*
+ * ★ **«대기 N ›» — 서랍 줄의 오른쪽 끝** (§5-M, 2026-10-14).
+ *
+ * `margin-left: auto` 하나로 끝까지 민다 — 이름과 사용량은 왼쪽에 붙어 있고,
+ * 이것만 **반대편**에 선다. 🔴 사이에 끼우면 이름 줄이 **길이에 따라 흔들린다**
+ * (사용량 칩이 있다 없다 하므로).
+ *
+ * 0 이면 아예 안 그린다(`waitGo`) — 그래서 **보이는 것 자체가 알림**이다.
+ */
+.drawer-bot .who .wait-go {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: var(--fs-11);
+}
+
+/*
+ * **대기 한 줄** (§5-M) — 승인 카드와 같은 `.card` 지만 **답하는 자리가 아니다.**
+ * 심사 줄(`.review-wait`)과 같이 테두리를 죽이고 왼쪽 선으로만 표시한다.
+ */
+.card.wait-item {
+  border-color: transparent;
+  border-left: 3px solid var(--warn);
+  background: transparent;
+}
+
+.card.wait-item .wait-text {
+  /* **남이 쓴 글이다** — 줄바꿈을 그대로 두되 긴 줄은 싸맨다 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 2px;
+}
+
+.card.wait-item .wait-cmd {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  overflow-x: auto;
+}
+
+/*
  * **활동 줄에 붙는 승인 결과** (D3).
  *
  * 제목과 시각 사이에 작게. 허용·거절이 **색으로 갈려야** 한다 —
