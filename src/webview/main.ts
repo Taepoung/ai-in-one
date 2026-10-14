@@ -3715,6 +3715,20 @@ function needsAnswerNote(m: Message, all: Message[]): boolean {
    */
   if (botToBot(m)) return true;
 
+  /*
+   * ★ **`say(to: null)` 로 사용자에게 한 말에도 언제나 적는다**
+   * (사용자, 2026-10-15).
+   *
+   * 그 말풍선은 **턴의 산문과 같은 턴, 다른 상자**다. 둘 다 `@(사용자)` 를
+   * 달고 서므로, 갈라 읽히게 하는 것은 **이 꼬리표뿐**이다 — 사용자:
+   * *"얘는 산문이랑 구별되게 별도의 말풍선으로 나오고 (반응을 달고)"*.
+   *
+   * 가르는 법: 턴의 산문은 **제가 묶음의 머리**다(`composeGroupId === id`).
+   * `say` 가 만든 상자는 그 머리를 가리키므로 둘이 다르다. 새 칸을 안 만들고
+   * **이미 있는 사실**로 가른다.
+   */
+  if (saidToUser(m)) return true;
+
   // 바로 위가 그 질문이면 자명하다
   const at = all.findIndex((x) => x.id === m.id);
   return at <= 0 || all[at - 1]!.id !== answers[0];
@@ -4790,6 +4804,18 @@ function botToBot(m: Message): boolean {
   if (m.role !== "agent" || m.toUser === true) return false;
   return m.deliveredTo.some((id) => id !== m.authorBotId);
 }
+
+/**
+ * **`say(to: null)` 로 사용자에게 보낸 말인가** (사용자, 2026-10-15).
+ *
+ * 턴의 산문도 사용자에게 가지만 그것은 **묶음의 머리**다 — `composeGroupId`
+ * 가 제 `id` 와 같다. `say` 가 만든 상자는 그 머리를 가리키므로 둘이 다르다.
+ */
+const saidToUser = (m: Message): boolean =>
+  m.role === "agent"
+  && m.toUser === true
+  && m.composeGroupId !== undefined
+  && m.composeGroupId !== m.id;
 
 /**
  * **묶음 칩 하나** — 누르면 그 아래로 숨겨둔 것이 난다.

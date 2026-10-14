@@ -287,15 +287,22 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 답할 것이 아니면 **넘긴다** — to: null (2026-10-13)]`);
+  console.log(`${NL}[★ to: null 은 **사용자에게** — 말풍선으로 선다 (사용자, 2026-10-15)]`);
   {
     /*
      * 🔴 항목을 빼는 길이 «답하기» 하나뿐이면 **답할 것이 아닌 말에 억지로
      * 답하게** 된다. 턴 끝 자동 닫기가 받쳐주지만 그건 조용해서, 사용자는
      * «봤는데 안 한 것»과 «못 본 것»을 구별할 수 없다.
      *
-     * 사용자: *"say에 대상에 null을 적으면 제거되게하는거지 근데 text를
-     * reason처럼 적어서 제거한 이유를 적게하고 활동에 표시하는건?"*
+     * ⏪ **«넘김»이었다** (2026-10-13) — 항목을 닫고 **활동 한 줄**로 «왜
+     * 넘겼나»를 남겼다. 사용자: *"MCP에 to, null은 사용자에게 메시지를
+     * 보내는 것로 바꿀 수 있어? 말풍선으로 나오는거지 @사용자 를 달고!
+     * 얘는 산문이랑 구별되게 별도의 말풍선으로 나오고 (반응을 달고)"*.
+     *
+     * ★ **갈라야 할 것은 «누구에게»지 «말인가 아닌가»가 아니다.** 봇에게
+     * 가는 말과 사용자에게 가는 말은 둘 다 **말**이라 말풍선으로 서야 흐름이
+     * 한 줄로 읽힌다. 활동 한 줄은 «말이 아닌 것»으로 보이고, 턴의 산문에
+     * 섞으면 **무엇에 대한 말인지가 안 붙는다** — 여기서는 붙는다.
      */
     const t = await make(); dirs.push(t.dir);
     const first = t.say(t.a, "베타", "이 로그 좀 봐줄래?");
@@ -318,22 +325,89 @@ async function main(): Promise<void> {
     ok(missed.isError === true && missed.text.includes("`null`"),
        `★ **to 를 빠뜨리면 오류다** — 한 번의 빠뜨림이 조용한 삭제가 되면 안 된다`);
 
+    const asked = bubbles(t.room, t.a.id, t.b.id).at(-1)!;
     const out = await t.mgr.mcpCall(
       `${t.room.id}:${t.b.id}`, "say", { to: null, text: "제 일이 아닙니다", id },
     );
-    const body = JSON.parse(out.text) as { ok: boolean; skipped?: string; queue_left: number };
-    ok(body.ok === true && body.skipped === id, `★ 넘겼다고 답한다 (${out.text})`);
-    ok(t.inner.queue.find(t.b.id, id) === undefined, "★ **그 항목이 닫힌다**");
+    const body = JSON.parse(out.text) as { ok: boolean; to?: string; queue_left: number };
+    ok(body.ok === true && body.to === "사용자", `★ 사용자에게 갔다고 답한다 (${out.text})`);
+    ok(t.inner.queue.find(t.b.id, id) === undefined,
+       "★ **그 항목이 닫힌다** — 사용자에게 말하는 것도 그 항목에 대한 반응이다");
     ok(bubbles(t.room, t.b.id, t.a.id).length === 0,
-       "★ **말풍선은 안 생긴다** — 대화가 «넘겼습니다» 로 덮이면 안 된다 (되먹임에도 안 실린다)");
+       "★ **알파에게는 안 간다** — `null` 은 «아무에게도»가 아니라 «사용자에게»다");
 
-    const row = turn.tools?.at(-1);
-    ok(row?.title.includes("넘김") === true && row?.output === "제 일이 아닙니다",
-       `★ **활동 한 줄로 남는다 — 이유까지** (${row?.title} · ${row?.output})`);
+    const toMe = t.room.messages.filter((m) => m.authorBotId === t.b.id && m.toUser).at(-1)!;
+    ok(toMe.text === "제 일이 아닙니다" && toMe.id !== turn.id,
+       `★ **말풍선이 선다 — 산문과 따로** (${toMe.text})`);
+    ok((toMe.replyToIds ?? [])[0] === asked.id,
+       `★ **무엇에 반응한 말인지 달고 선다** (${JSON.stringify(toMe.replyToIds)}) — ` +
+       "화면이 ««…»에 반응했습니다» 로 잇고, 누르면 그 자리로 간다");
+    ok(toMe.composeGroupId !== undefined && toMe.composeGroupId === turn.composeGroupId,
+       "★ 같은 턴이면 묶인다 — 산문과 이 말은 한 턴의 두 말풍선이다 (4-14)");
 
-    /* 이유를 안 적으면 안 받는다 — 사용자가 읽을 줄이다 */
+    /* 할 말이 없으면 안 받는다 — 빈 말풍선을 세울 이유가 없다 */
     const bare = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { to: null, text: "  ", id });
-    ok(bare.isError === true, "★ **이유 없이는 못 넘긴다**");
+    ok(bare.isError === true, "★ **빈 말은 못 보낸다**");
+
+    /*
+     * 🔴 **«0» 은 사용자가 연 턴에서만** — 여기 턴은 알파가 열었다. 받아주면
+     * 사슬 깊은 봇이 **아무 때나 사용자에게 새 말을 거는** 길이 생긴다.
+     */
+    const zero = await t.mgr.mcpCall(
+      `${t.room.id}:${t.b.id}`, "say", { to: null, text: "안녕하세요", id: "0" },
+    );
+    ok(zero.isError === true && zero.text.includes("다른 봇이 열었습니다"),
+       `★ **깨어난 턴에서는 «0» 을 못 쓴다** (${zero.text.slice(0, 40)}…)`);
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_to (사용자, 2026-10-15)]`);
+  {
+    /*
+     * 🔴 **모르면 한 번 더 보낸다.** 사용자: *"봇한테 온 메세지가 다른 봇한테도
+     * 갔는지는 알아야할거 같아. 그게 아니면 봇1이 봇2한테 명령을 한 전적이 있을때
+     * 봇2한테 다시 전달하더라고?"* — 받는 쪽에 보이는 것이 «나한테 왔다»
+     * 뿐이면, 전에 심부름을 시켜본 사이는 **그대로 옮기는 것**이 자연스러운 수다.
+     * 그러면 같은 말이 두 번 가고, 그 두 번째는 상한(4-L)을 한 칸 쓰면서 간다.
+     */
+    const t = await make(); dirs.push(t.dir);
+    const bt = (t.mgr as unknown as {
+      botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+    }).botRuntime(t.room.id, t.a.id);
+    bt.depth = 0; bt.fromUser = true;
+
+    const call = t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say",
+      { to: ["베타", "감마"], text: "둘 다 봐줘", id: "0" },
+    );
+    await t.answerCard(true);
+    const out = JSON.parse((await call).text) as SayOut;
+    ok(out.ok === true, `★ 전제 — 둘에게 갔다 (${out.to?.join("·")})`);
+
+    const forB = (await t.check(t.b)).item as { also_to?: string[] } | null;
+    const forC = (await t.check(t.c)).item as { also_to?: string[] } | null;
+    ok(JSON.stringify(forB?.also_to) === JSON.stringify(["감마"]),
+       `★ 베타는 **감마도 받은 것을 안다** (${JSON.stringify(forB?.also_to)})`);
+    ok(JSON.stringify(forC?.also_to) === JSON.stringify(["베타"]),
+       `★ 감마는 베타를 (${JSON.stringify(forC?.also_to)})`);
+    ok(forB?.also_to?.includes("베타") !== true,
+       "★ **제 이름은 안 들어간다** — 물음은 «나 말고 누가 더»다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 사용자가 둘에게 한 말도 마찬가지 — 깃발에 적혀 간다]`);
+  {
+    /*
+     * 🔴 **사용자가 둘에게 한 말도 각자에게는 «나한테 온 말»로 보인다.**
+     * 틀리는 쪽은 한결같다 — 지시를 받은 봇이 친절하게 옮기면 같은 지시가 두 번 간다.
+     */
+    const t = await make(); dirs.push(t.dir);
+    await t.mgr.send(t.room.id, "셋 다 보세요");
+    await t.settle();
+    const ps = await t.prompts();
+    const two = ps.filter((p) => /"also_to":\["[^"]+","[^"]+"\]/.test(p));
+    ok(two.length >= 1,
+       `★ **같이 받은 둘이 적혀 간다** (${two.length}개) — 그 칸이 없으면 «나한테만 왔다»로 읽는다`);
     t.mgr.dispose();
   }
 

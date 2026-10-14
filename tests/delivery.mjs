@@ -683,6 +683,57 @@ console.log("\n[★ 봇이 나에게 한 말에도 칩을 단다]");
   ok(other.querySelector(".chip.to.me") === null, "★ 봇 칩에는 안 붙는다");
 }
 
+console.log("\n[★ say(to: null) — 사용자에게 간 말은 **산문과 따로 선다** (사용자, 2026-10-15)]");
+{
+  /*
+   * ⏪ **«넘김»이던 시절에는 활동 한 줄**이었다. 사용자: *"MCP에 to, null은 사용자에게
+   * 메세지를 보내는 것로 바꿀 수 있어? 말풍선으로 나오는거지 @사용자 를달고! 얘는 산문이랑
+   * 구별되게 별도의 말풍선으로 나오고 (반응을 달고)"*.
+   *
+   * 🔴 **둘 다 `@(사용자)` 를 달고 선다** — 턴의 산문도, 이 말도. 갈라 읽히게
+   * 하는 것은 **꼬리표뿐**이다. 그런데 여기서는 반응한 말이 **바로 위**에 있어
+   * «바로 위면 자명하다» 규칙에 걸려 **꼬리표가 사라질 뿔했다.**
+   */
+  const t = mount();
+  const ask = { id: "s1", role: "agent", text: "이거 봐줄래?", authorBotId: "b1",
+                deliveredTo: ["b2"], createdAt: 5 };
+  /* `say(to: null)` 이 지은 상자 — 묶음의 **머리가 아니다** */
+  const said = { id: "s2", role: "agent", text: "제 일이 아닙니다", authorBotId: "b2",
+                 deliveredTo: ["b2"], toUser: true, createdAt: 6,
+                 composeGroupId: "s3", replyToIds: ["s1"] };
+  /* 턴의 산문 — **제가 머리다** */
+  const prose = { id: "s3", role: "agent", text: "다른 건 마저 볼게요", authorBotId: "b2",
+                  deliveredTo: ["b2"], toUser: true, createdAt: 7,
+                  composeGroupId: "s3", replyToIds: ["s1"] };
+  open(t, room(BOTH, [ask, said, prose]));
+
+  const boxes = t.$$("#screen-chat .msg.agent");
+  ok(boxes.length === 3, `★ **세 상자다** (${boxes.length}) — 산문과 한 상자에 섞이지 않는다`);
+
+  const mine = boxes[1].querySelector(".bubble > .to-line");
+  const chips = [...mine.querySelectorAll(".chip.to")].map((c) => c.textContent);
+  ok(chips.join() === "@(사용자)", `★ **@(사용자) 를 달고 선다** (${chips.join(" ")})`);
+
+  const note = boxes[1].querySelector(".answer-note");
+  ok(note !== null, "★ **꼬리표가 붙는다** — 바로 위가 그 말이어도");
+  ok(note.textContent.includes("반응했습니다"),
+     `★ 봇의 말에 **«반응했습니다»** (${note.textContent})`);
+  ok(note.textContent.includes("이거 봐줄래?"), "★ 무엇에 반응했는지까지 적는다");
+
+  /*
+   * ⚠️ **산문에도 꼬리표가 붙을 수 있다** — 사이에 이 상자가 끼어들면
+   * «바로 위가 그 말» 이 아니게 되어서다. 그것은 이 규칙의 값이지 허물이 아니다 —
+   * 멀어진 말에 «무엇에 대한 말인지» 를 적는 것은 원래 맞다.
+   *
+   * 가르는 것은 **위치**이다: 산문이 제 질문 바로 아래면 꼬리표가 없고,
+   * `say` 가 지은 상자는 **그 자리에서도** 단다(바로 위 검사).
+   */
+  const t2 = mount();
+  open(t2, room(BOTH, [ask, { ...prose, createdAt: 6 }]));
+  ok(t2.$$("#screen-chat .msg.agent")[1].querySelector(".answer-note") === null,
+     "★ **산문은 제 질문 바로 아래면 안 달린다** — 자명한 것을 적으면 잊힘이 된다");
+}
+
 console.log("\n[★ 1:1 에서는 안 단다 — 받을 사람이 나뿐이다]");
 {
   /*

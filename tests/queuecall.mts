@@ -126,8 +126,13 @@ async function main(): Promise<void> {
      * ⏪ 같은 자리를 전에 한 번 밟았다 — `replyToIds`·`afterIds` 를 «프롬프트에
      * 실린다» 고 적어뒀는데 그건 **우리가 알기 편하려고** 둔 칸이었다.
      */
+    /*
+     * ★ **`also_to` 가 늘었다** (사용자, 2026-10-15) — «이 말을 같이 받은
+     * 다른 봇». 이건 우리 장부가 아니라 **모델이 고를 때 쓰는 값**이다:
+     * 거기 적힌 봇에게 옮기면 같은 말이 두 번 간다.
+     */
     const keys = Object.keys(body.item as object).sort();
-    ok(keys.join() === "from,id,text",
+    ok(keys.join() === "also_to,from,id,text",
        `★ **봇이 알 것만 간다** (${keys.join(" · ")}) — to·at 은 우리 장부다`);
   }
 
