@@ -296,6 +296,74 @@ async function main(): Promise<void> {
     mgr.dispose();
   }
 
+  console.log("\n[★ 같은 이름이 딴 id 에 있어도 **조용히 안 옮긴다** (사용자, 2026-10-15)]");
+  {
+    /*
+     * ★ 사용자가 고른 쪽이다. 여쭌 것: *"id 가 사라졌는데 **같은 이름**을 단
+     * 다른 id 가 목록에 있으면 말없이 그쪽으로 옮겨 드릴까요?"* → **묻고
+     * 고르게.** (`PIN.md` §A3-1)
+     *
+     * 실제로 일어난 자리다 — 어댑터 0.90.0 에서 「Fable 5.1」이
+     * `claude-fable-5-1` 에서 `fable` 로 **id 만** 갈아탔다.
+     *
+     * 🔴 **이름은 저쪽이 아무 때나 바꾸는 칸이다**(§A2 의 `haiku` 가 그
+     * 증거다 — 같은 별명이 4.5 에서 5.5 로 옮겨갔다). 이름이 같다는 것
+     * 하나로 말없이 옮기면, 틀렸을 때 **딴 모델이 조용히 도는** 쪽으로
+     * 틀린다. 틀리는 방향이 위험한 쪽이면 사람에게 간다.
+     *
+     * ⚠️ **글자까지 똑같은 자리와 섞으면 안 된다** — 바로 위 칸(`opus[1m]`
+     * → `opus`, 둘 다 「Opus 5」)은 **보이는 것이 안 바뀌어서** 입을 다문다.
+     * 여기는 보이는 것이 「Fable 5.1」에서 「Opus 5」로 **바뀐다.**
+     */
+    const twin = path.join(dir, "fable.jsonl");
+    const old = make(dir, twin, { AIO_FAKE_ALIAS: "fable-5-1|Fable 5.1" });
+    const mgr = new RoomManager({
+      host: old.host, store, agents: [old.agent], configProbeMs: 20000,
+    });
+    mgr.on("roomError", () => {});
+    const room = await mgr.createRoom({
+      agentId: "fake", title: "페이블 방", configValues: { model: "fable-5-1" },
+    });
+    ok(room.participants[0]?.modelLabel === "Fable 5.1", "★ 「Fable 5.1」 로 잡혔다");
+    mgr.dispose();
+
+    // 판이 올라간다 — 고른 id 는 사라지고 **같은 이름이 딴 id 로** 선다
+    const now = make(dir, twin, { AIO_FAKE_ALIAS: "fable|Fable 5.1" });
+    const mgr2 = new RoomManager({
+      host: now.host, store, agents: [now.agent], configProbeMs: 20000,
+    });
+    mgr2.on("roomError", () => {});
+    const again = await mgr2.openRoom(room.id);
+    await mgr2.send(again.id, "안녕");
+    for (let i = 0; i < 400 && mgr2.statusOf(again.id) !== "idle"; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    const bot = again.participants[0]!;
+    const opts = await mgr2.roomConfigOptions(again.id);
+    const offered = (opts.find((o) => o.category === "model") as
+      { options?: Array<{ value?: string; name?: string }> })?.options ?? [];
+    console.log(`   고를 수 있는 것: ${offered.map((o) => `${o.value}«${o.name}»`).join(", ")}`);
+    console.log(`   지금: ${String(bot.model)} «${String(bot.modelLabel)}» · modelGone: ${JSON.stringify(bot.modelGone)}`);
+
+    ok(offered.some((o) => o.name === "Fable 5.1" && o.value === "fable"),
+       "★ 전제 — **같은 이름이 딴 id 로** 목록에 있다");
+    ok(bot.model !== "fable",
+       `★ **말없이 그쪽으로 안 옮긴다** (${String(bot.model)}) — 이름이 같다는 것만으로는 같은 모델이 아니다`);
+    ok(bot.modelGone?.value === "fable-5-1" && bot.modelGone?.label === "Fable 5.1",
+       `★ **묻는다** (${JSON.stringify(bot.modelGone)}) — 화면이 이걸로 고르개를 띄운다`);
+
+    const told = again.messages.filter((m) => m.role === "system" && /Fable 5\.1/.test(m.text));
+    console.log(`   알려준 줄: ${told.length}개 ${told.map((m) => `«${m.text}»`).join(" ")}`);
+    ok(told.length === 1, "★ 사라졌다고 적는다 — 고르개만 뜨면 «뭐가 없어진 거지»가 된다");
+
+    // 그 이름을 다시 고르는 것도 **사용자 손으로** 된다
+    await mgr2.setConfig(again.id, "model", "fable");
+    ok(again.participants[0]?.modelGone === undefined,
+       "★ 고르면 걷힌다 — 결국 같은 이름으로 가더라도 **고른 것은 사용자다**");
+    mgr2.dispose();
+  }
+
   // 가짜 프로세스가 아직 붙들고 있을 수 있다 — 지워지든 말든 임시 폴더다
   await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
   console.log("\n전부 통과");

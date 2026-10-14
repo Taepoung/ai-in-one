@@ -16,7 +16,18 @@ const MODELS = [
   { value: "sonnet", name: "Sonnet 5" },
   // **같은 모델인데 id 만 다르다.** 어댑터 0.81.2 → 0.84.0 에서
   // `opus[1m]` 이 `opus` 가 되면서 실제로 이 모양이 됐다 — 둘 다 「Opus 5.5」.
-  ...(process.env.AIO_FAKE_ALIAS ? [{ value: process.env.AIO_FAKE_ALIAS, name: "Opus 5" }] : []),
+  //
+  // `AIO_FAKE_ALIAS` 는 `값` 또는 `값|이름` 이다. 이름을 따로 줄 수 있어야
+  // **딴 이름을 단 쌍둥이**(「Fable 5.1」이 `claude-fable-5-1` 에서 `fable`
+  // 로 옮겨간 자리, 0.90.0)를 흉내낼 수 있다. 안 주면 예전처럼 「Opus 5」다.
+  ...(process.env.AIO_FAKE_ALIAS
+    ? process.env.AIO_FAKE_ALIAS.split(",").map((spec) => {
+        const at = spec.indexOf("|");
+        return at < 0
+          ? { value: spec, name: "Opus 5" }
+          : { value: spec.slice(0, at), name: spec.slice(at + 1) };
+      })
+    : []),
 ];
 const MODES = [
   { value: "default", name: "Manual" },

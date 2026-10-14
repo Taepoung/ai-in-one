@@ -91,6 +91,9 @@ Codex         rawInput = { server: "ai-in-one", tool: "aio_peek", … }
 > 아예 안 묻는다. 그래서 `ask_bot` 승인은 에이전트에 기대지 않고 **우리 서버에서**
 > 건다. ⑫가 깨져도 그 승인은 안 사라진다.
 
+✅ **2026-10-15 — Antigravity 1.4.0 에서 넷 다 그대로다** (`PIN.md` §G7-1).
+신원은 여전히 `_meta.mcp` 고 `name` 은 `null` 로 온다.
+
 ⚠️ **`readOnlyHint` 로 자동 승인을 유도할 수 없다** — Antigravity 는 붙여놔도
 물었다. 그 길은 닫힌 것으로 적어둔다.
 
@@ -122,6 +125,15 @@ npm view <어댑터> version dependencies
 node tests/probes/sweep.mjs <옛판>
 node tests/probes/sweep.mjs <새판>
 #    OK/NO 줄만 보면 절반을 놓친다 (§B). .probe-out/<판>/ 에 본문이 통째로 남는다
+#
+#    ⚠️ **옛 판을 다시 돌리지 않는다** — .probe-out/ 은 안 지운다. 0.81.2 · 0.84.0
+#       이 그렇게 남아 있어서 **새 판만** 돌리고 줄로 맞대면 된다. 한 판치가
+#       진짜 턴 **스물일곱 번**이다(할당량).
+#    ⚠️ **판을 타는 것은 열아홉 개뿐이다** — `AIO_ACP_VERSION` 을 읽는 것들.
+#       나머지는 두 번 돌려도 같은 것을 잰다. 파일 이름을 뒤에 적어 고른다:
+#         node tests/probes/sweep.mjs 0.90.0 elicit.cjs steer.cjs cancelwhy.cjs
+#    ⚠️ **「아무것도 못 쟀다」는 뒷정리 실패에도 뜬다** — OK 줄을 안 찍는 프로브
+#       (modelids)가 끝에 EPERM 하나만 내도 그렇게 적힌다. 본문을 봐야 한다.
 
 # 3. 세션·되돌리기·모델 갈림 (Claude 쪽)
 node tests/probes/bumpsafe.cjs <새판>
