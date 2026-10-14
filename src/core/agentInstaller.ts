@@ -862,6 +862,28 @@ export async function install(
   };
 }
 
+/**
+ * ★ **창이 뜰 때 어디로 보내나** (2026-10-13 · 코어로 2026-10-14).
+ *
+ * 받아둔 것 중 **낡은 것이 하나라도 있으면 로봇 화면이 먼저다.** 핀이 곧
+ * 모델 판이라(`PIN.md` §A), 안 올리면 **사용자가 옛 모델에 묶이는데 알아챌
+ * 방법이 없다** — 목록에는 아무 표시도 없고, 방은 멀쩡히 돌기 때문이다.
+ *
+ * 🔴 **막아서는 것이 아니다.** 로봇 화면은 얹히는 자리라 뒤로가기 하나로
+ * 가려던 곳에 간다. 옛 판도 돌기 때문에 «못 쓰게» 하면 안 된다.
+ *
+ * ⚠️ 안 받은 것(`none`)은 안 센다 — 그건 낡은 것이 아니라 **없는 것**이고,
+ * 쓰려는 순간 방 만들기가 이미 말한다.
+ */
+export function landingFor(
+  agents: AgentDef[],
+  root: string,
+  home: string,
+  after: "list" | "new",
+): "list" | "new" | "agents" {
+  return agents.some((a) => stateOf(a, root, home).state === "stale") ? "agents" : after;
+}
+
 /** 프로세스 표 한 줄. 플랫폼마다 긁는 법이 달라 모양만 맞춘다 */
 export interface ProcRow { pid: number; ppid: number; path: string }
 

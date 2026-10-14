@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as vscode from "vscode";
 import {
   authPlan, authStatus, cmdPath, dirFor, dropOptions, freeInstall, holdInstall, install,
-  realNpm, remove, stateOf,
+  landingFor, realNpm, remove, stateOf,
 } from "../core/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
@@ -890,15 +890,11 @@ export class ChatPanel implements AskTarget {
    *
    * 보는 것은 파일뿐이라(`stateOf`) **CLI 를 안 띄운다.**
    */
-  private staleAgent(): boolean {
-    const root = this.ctx.globalStorageUri.fsPath;
-    const home = os.homedir();
-    return this.agents().some((a) => stateOf(a, root, home).state === "stale");
-  }
-
-  /** 확인이 끝났을 때 **어디로 보낼까** — 낡은 것이 있으면 그 화면이 먼저다 */
+  /** 확인이 끝났을 때 **어디로 보낼까** — 규칙은 코어에 있다(`landingFor`) */
   private landing(): "list" | "new" | "agents" {
-    return this.staleAgent() ? "agents" : this.authAfter;
+    return landingFor(
+      this.agents(), this.ctx.globalStorageUri.fsPath, os.homedir(), this.authAfter,
+    );
   }
 
   /** 확인할 줄 — **에이전트 목록에서 저절로** 나온다 (`authPlan`) */
@@ -977,7 +973,7 @@ export class ChatPanel implements AskTarget {
    */
   /** 확인 화면이 없을 때의 길 — 낡았으면 로봇 화면으로 */
   navIfStale(): void {
-    if (this.staleAgent()) this.post({ t: "nav", screen: "agents" });
+    if (this.landing() === "agents") this.post({ t: "nav", screen: "agents" });
   }
 
   private onReady(): void {

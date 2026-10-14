@@ -29,6 +29,7 @@ import * as http from "node:http";
 import { spawnSync } from "node:child_process";
 import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
+  landingFor,
   install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn,
   haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, authPlan, type Run,
 } from "../src/core/agentInstaller.js";
@@ -71,6 +72,42 @@ async function main(): Promise<void> {
 
     const c = JSON.parse(manifestFor(claude.pkg!)) as Record<string, unknown>;
     ok(c["overrides"] === undefined, "★ 엔진이 못인 쪽은 overrides 를 안 넣는다");
+  }
+
+  console.log("\n[★ 낡은 것이 있으면 **로봇 화면이 먼저다**]");
+  {
+    /*
+     * ★ **핀이 곧 모델 판이다** (`PIN.md` §A). 안 올리면 사용자가 옛 모델에
+     * 묶이는데, 목록에는 아무 표시가 없고 방은 멀쩡히 돌아서 **알아챌 자리가
+     * 없다.** 그래서 창이 뜰 때 한 번 데려간다.
+     *
+     * 🔴 **막아서는 것이 아니다** — 로봇 화면은 얹히는 자리라 뒤로가기 하나면
+     * 가려던 곳이다. 옛 판도 돌기 때문에 «못 쓰게» 하면 안 된다.
+     */
+    const root2 = fs.mkdtempSync(path.join(os.tmpdir(), "aio-land-"));
+    const home2 = fs.mkdtempSync(path.join(os.tmpdir(), "aio-landh-"));
+    const PIN2 = splitSpec(codex.pkg!.spec!).version;
+
+    ok(landingFor([codex], root2, home2, "list") === "list",
+       "★ 안 받았으면 그냥 간다 — **없는 것**은 낡은 것이 아니다");
+
+    fakeTree(dirFor(root2, codex.id), codex, PIN2);
+    ok(landingFor([codex], root2, home2, "list") === "list",
+       "★ 핀과 같으면 그냥 간다");
+
+    /* 핀이 올라간 꼴 — 받아둔 것은 그대로인데 원하는 것이 달라진다 */
+    const next: AgentDef = {
+      ...codex, pkg: { ...codex.pkg!, spec: "@agentclientprotocol/codex-acp@99.0.0" },
+    };
+    ok(landingFor([next], root2, home2, "list") === "agents",
+       "★ **낡았으면 로봇 화면** — 핀을 올려두고 아무도 안 받으면 뜻이 없다");
+    ok(landingFor([next], root2, home2, "new") === "agents",
+       "★ 만들기로 가려던 참이어도 마찬가지다");
+    ok(landingFor([codex, next], root2, home2, "list") === "agents",
+       "★ **하나만 낡아도** 간다 — 섞여 있는 쪽이 흔하다");
+
+    fs.rmSync(root2, { recursive: true, force: true });
+    fs.rmSync(home2, { recursive: true, force: true });
   }
 
   console.log("\n[★ 상태가 표대로 나온다]");
