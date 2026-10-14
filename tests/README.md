@@ -1,9 +1,28 @@
 # 검사
 
 ```
-npm test          # 전부 돌린다 (tests/all.mjs)
+npm test          # 전부 돌린다 (tests/all.mjs) — 먼저 짓고 돈다
 node tests/all.mjs clash      # 이름에 «clash» 가 든 것만
+npm run typecheck             # 제품 + **검사 파일까지** (tsconfig.tests.json)
 ```
+
+> 🔴 **화면 검사는 `dist/webview.js` 를 읽는다.** 손으로 하나만 돌릴 때는
+> `npm run build` 를 **먼저** 하지 않으면 **고친 것이 안 고쳐진 것처럼 보인다.**
+> (`npm test` 는 알아서 짓고, 언제 지었는지도 찍는다.)
+
+### 리눅스에서
+
+윈도우에서만 돌리면 **윈도우 규칙을 보편 규칙으로 알고 있는 단언**이 숨는다 —
+처음 리눅스로 돌린 날 셋이 그렇게 걸렸다. 도커 하나면 된다:
+
+```bash
+docker run --rm -v "$PWD":/src:ro -w /work node:24-bookworm-slim bash -lc \
+  "cp -r /src /work/repo && cd /work/repo && rm -rf node_modules && npm i && npm test"
+```
+
+🔴 **마운트는 읽기 전용(`:ro`)으로 걸고 안에서 복사한다.** 윈도우의
+`node_modules` 위에 그냥 `npm install` 하면 **양쪽이 다 깨진다**(바이너리가
+플랫폼을 탄다). mac 은 이 길로도 못 잰다 — 도커는 호스트 커널을 함께 쓴다.
 
 ## 왜 여기 있나
 
@@ -66,7 +85,17 @@ node tests/probes/newsess.cjs      # 메시지마다 세션이 새로 생기나
 node tests/probes/fsseam.cjs       # 파일 접근이 우리를 거치나
 npx tsx tests/probes/agysay.mts    # ★ Antigravity 가 say·check_queue 를 제대로 쓰나
 npx tsx tests/probes/agytalk.mts   # ★ 봇끼리의 말이 진짜 대화인가 · 울타리는 버티나 (M3)
+
+npx tsx tests/probes/killresume.mts <에이전트>   # 죽이고 다시 붙이면 그 턴을 기억하나
+npx tsx tests/probes/killwords.mts  <에이전트>   # 하던 일을 이어서 하나
+npx tsx tests/probes/killrecall.mts <에이전트>   # ★ **몇 개까지 했는지** 아나
+npx tsx tests/probes/pins.mts                    # 못 돌려보는 OS 의 카탈로그 줄 (글자만)
 ```
+
+★ **`killrecall.mts` 가 제일 날카롭다.** 앞의 둘은 «프롬프트만 보고도 지어낼 수
+있는 것»을 물어서 **재현이 곧 증거가 아니었다.** 「몇 개까지 적었나」는 지어낼 수
+없다 — 그래서 **Antigravity 가 10 개를 하고 40 개를 했다고 답하는 것**을 잡았다.
+Claude 는 맞혔고 Codex 는 **모른다고 말했다.**
 
 ★ **`agysay.mts` 는 다른 것들과 생김새가 다르다** — ACP 를 손으로 말하지 않고
 **제품 코드를 그대로 띄운다**(`RoomManager` · `McpServer` · 진짜 바이너리).

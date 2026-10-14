@@ -1,7 +1,7 @@
 # AI in One
 
 여러 AI 코딩 에이전트를 **메신저처럼 한 곳에서** 쓰는 VSCode 확장.
-나중에는 여러 봇을 한 방에 불러 멘션으로 일을 나누고, 맥락을 에이전트 사이로 옮긴다.
+한 방에 봇을 여럿 불러 멘션으로 일을 나누고, **봇끼리도 서로 말을 건다**.
 
 사용자의 기존 구독을 그대로 사용한다. 공식 CLI 를 사용자 기기에서 그대로
 실행하므로 **토큰을 직접 다루지 않는다.**
@@ -55,24 +55,31 @@
 ```
 src/
 ├─ core/        ← 진짜 제품. vscode를 import하지 않음 (ESLint로 강제)
-│   ├─ types.ts          ✅ Room / Message / BotInstance 모델
-│   ├─ workspaceHost.ts  ✅ 셸에게 요구하는 능력 (ACP 클라이언트 메서드와 1:1)
-│   ├─ agentCatalog.ts   ✅ 기본 에이전트 정의
-│   ├─ acpConnection.ts  ✅ CLI spawn + ACP 세션 · 턴 실행 · 설정 조회
-│   ├─ store.ts          ✅ 파일 영속화 (rooms.json · rooms/ · blobs/)
-│   ├─ roomManager.ts    ✅ 방 CRUD · 세션 수명 · 큐잉 · unread · 사용량
-│   └─ transcript.ts     ⬜ 대화 직렬화 (재시작 되먹임 · fork 폴백 · v4.0 주입에 재사용)
-├─ protocol.ts    ← 셸 ↔ 웹뷰 메시지 타입 ✅
+│   ├─ types.ts          Room / Message / BotInstance 모델 · 방 정책
+│   ├─ workspaceHost.ts  셸에게 요구하는 능력 (ACP 클라이언트 메서드와 1:1)
+│   ├─ agentCatalog.ts   에이전트 정의 — 핀·받는 주소·로그인 길
+│   ├─ agentInstaller.ts 받아두기 (npm · zip) · Node 까지 · 창 사이 락
+│   ├─ unzip.ts          zip 꼴 에이전트를 푼다
+│   ├─ acpConnection.ts  CLI spawn + ACP 세션 · 턴 실행 · 설정 조회
+│   ├─ mcpServer.ts      봇에게 여는 도구 창구 (say · check_queue · verdict)
+│   ├─ botQueue.ts       봇마다의 큐 — 이번 몫 · 다음 몫 · 꺼내 본 것
+│   ├─ mentions.ts       입력창의 칩 → «누가 무엇을 받나»
+│   ├─ roomManager.ts    방 CRUD · 세션 수명 · 턴 · 승인 · 릴레이 · 사용량
+│   ├─ store.ts          파일 영속화 (rooms.json · rooms/ · blobs/) · 원자적 쓰기
+│   ├─ roomLock.ts       창이 둘일 때 한 방을 둘이 안 쓰게
+│   └─ purgeBacklog.ts   지운 방의 세션 뒷정리를 미뤄 두고 끝까지 따라간다
+├─ protocol.ts    ← 셸 ↔ 웹뷰 메시지 타입
 ├─ vscode/        ← 셸 (얇게)
-│   ├─ extension.ts      ✅ 활성화 · 커맨드 · 상태표시줄(미읽음 배지)
-│   ├─ chatPanel.ts      ✅ WebviewPanel · 목록을 박은 첫 페인트(F8)
-│   └─ vscodeHost.ts     ✅ 미저장 버퍼 읽기/쓰기 · 물어보기 중계
+│   ├─ extension.ts      활성화 · 커맨드 · 상태표시줄(미읽음 배지)
+│   ├─ chatPanel.ts      WebviewPanel · 목록을 박은 첫 페인트
+│   ├─ blobDocuments.ts  변경 전후를 네이티브 diff 로
+│   ├─ imeProbe.ts       한글 조합 중 Enter 를 가린다
+│   └─ vscodeHost.ts     미저장 버퍼 읽기/쓰기 · 물어보기 중계
 └─ webview/       ← 메신저 UI
-    ├─ main.ts           ✅ 화면 3개 (목록 · 방 만들기 · 채팅)
-    └─ style.css         ✅ VSCode 테마를 그대로 따르는 시맨틱 토큰(G)
+    ├─ main.ts           화면 전부 (목록 · 방 만들기 · 채팅 · 참여자 · 권한 ·
+    │                    에이전트 · 붙는 중 · 고치기 · 대기 · 유저 승인)
+    └─ style.css         VSCode 테마를 그대로 따르는 시맨틱 토큰
 ```
-
-> 남은 것: `transcript.ts`(재시작 되먹임 폴백) · 네이티브 diff(E) · 첨부파일(I) · 검색(H)
 
 `core`가 셸에 의존하지 않으므로 단독 테스트가 가능하고, 나중에 다른 셸을 붙여도 그대로 재사용된다.
 
@@ -124,7 +131,7 @@ npm run watch      # esbuild watch
 | **`docs/USAGE.md`** | 사용법. 버전을 낼 때마다 갱신한다 |
 | **`docs/RELEASE.md`** | 배포와 설치 — `.vsix` · 마켓플레이스 · Open VSX |
 | **`docs/BUMP.md`** | 에이전트를 올릴 때 — 점검표와 밟는 순서 |
-| **`docs/PIN.md`** | 핀이 움직이면 무엇이 바뀔나 — 모델·모양·세션 뒷정리 |
+| **`docs/PIN.md`** | 핀이 움직이면 무엇이 바뀌나 — 모델·모양·세션 뒷정리 |
 | **`docs/INSTALL.md`** | 에이전트를 우리 자리에 받아두는 설계 |
 
 ---
@@ -135,10 +142,10 @@ npm run watch      # esbuild watch
 |---|---|
 | **1.0** ✅ | 에이전트를 골라 1:1 채팅방을 만들고 대화 |
 | **1.1** ✅ | 채팅방 fork — 대화를 분기해 여러 갈래로 실험 |
-| **2.0** | 단체 채팅방 — 여러 봇 초대, 멘션으로 명령 분리, `@everyone` |
-| 2.1 | 단체방 안에서 봇별 1:1 뷰 (입력 시 자동 멘션) |
-| 2.2 | 같은 에이전트로 봇 여러 개 + 부를 이름 직접 지정 |
-| 3.0 | 봇끼리 멘션해 주고받기 |
+| **2.0** ✅ | 단체 채팅방 — 여러 봇 초대, 멘션으로 명령 분리, `@everyone` |
+| **2.1** ✅ | 단체방 안에서 봇별 1:1 뷰 |
+| **2.2** ✅ | 같은 에이전트로 봇 여러 개 + 부를 이름 직접 지정 |
+| **3.0** ✅ | 봇끼리 주고받기 — 도구로, 단방향, 상한 안에서 |
 | 4.0 | 컨텍스트를 옮기거나 완전 공유하는 채팅방 |
 
 버전 계보 밖에 두 묶음이 따로 있다 — **실험실**(효과가 미검증이라 시기를 못 정하는 것)과

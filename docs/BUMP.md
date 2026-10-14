@@ -37,9 +37,12 @@ ACP `authenticate` 로만 되고 **터미널로 때우는 길이 없다**(`PIN.m
 들이기 전에 `initialize` 의 `authMethods` 를 보고 **어느 길인지** 가른다:
 
 ```
-type: "terminal"   그 CLI 를 터미널로 띄운다        ← 지금 우리가 하는 것
-type 없음 = agent  authenticate 를 불러야 한다      ← 아직 안 만들었다
+type: "terminal"   그 CLI 를 터미널로 띄운다        ← Claude · Codex
+type 없음 = agent  authenticate 를 불러야 한다      ← Antigravity (저쪽이 브라우저를 연다)
 ```
+
+둘 다 **만들어 뒀다.** 새 에이전트를 들일 때 고를 것은 «어느 쪽인가» 뿐이다 —
+카탈로그 `auth.acp` 가 그 칸이고, 🔴 **짐작하면 안 된다**(`PIN.md` §G4-2).
 
 🔴 **바로 할 수 없으면 «창을 열어주는 것» 까지만 한다.**
 
