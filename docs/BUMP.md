@@ -19,7 +19,7 @@
 | **⑥ 상태 명령** | **로그인했는데 «로그인하세요»** | `logindoor.mts` — 말을 돌려주나 |
 | **⑦ env 문** | 사용자 기계의 판이 돈다 (§F5) | `realinstall.mts` — `CODEX_PATH` 가 박히나 |
 | **⑧ 세션 뒷정리** | 목록에 «열 수 없는 세션» 이 쌓인다 (§F) | `codexdelete.mts` |
-| **⑨ 오가는 모양** | 말풍선·활동 줄이 깨진다 (§B) | `sweep.mjs` 로 전후 비교 |
+| **⑨ 오가는 모양** | 말풍선·활동 줄이 깨진다 | `sweep.mjs` 로 전후 비교 · ✅ `0.84.0`↔`0.90.0` 스물한 칸 같았다 (2026-10-15) |
 | **⑩ MCP `http`** | 그 방은 **봇끼리 말을 못 건다** — 조용히 | `initialize` 의 `mcpCapabilities.http` |
 | **⑪ 도구를 진짜 부르나** | 광고만 하고 안 부르면 **릴레이가 안 돈다** | `mcpagy.cjs` — `tools/call` 이 오나 |
 | **⑫ 우리 도구의 신원 자리** | **자동 승인이 조용히 사라진다** — 매번 사용자에게 묻는다 | `mcpagy.cjs` — `name` / `_meta.mcp` / `rawInput.server` 중 어디인가 · `mcpself.mts` 가 셋을 다 흉내낸다 |
@@ -132,6 +132,10 @@ node tests/probes/sweep.mjs <새판>
 #    ⚠️ **판을 타는 것은 열아홉 개뿐이다** — `AIO_ACP_VERSION` 을 읽는 것들.
 #       나머지는 두 번 돌려도 같은 것을 잰다. 파일 이름을 뒤에 적어 고른다:
 #         node tests/probes/sweep.mjs 0.90.0 elicit.cjs steer.cjs cancelwhy.cjs
+#    🔴 **프로브가 틀렸을 확률을 먼저 센다.** 한 칸만 갈렸으면 그 자의 모양부터
+#       본다 — 2026-10-15 에 갈린 한 칸(wakebusy)은 **판이 아니라 자**였다.
+#       재는 낱말을 **프롬프트에 적어 보내고** 있어서 모델이 되뇌기만 해도 ✅ 가
+#       됐다(ROADMAP §wakebusy). 낱말은 모델이 알 수 없는 곳에서 와야 한다.
 #    ⚠️ **「아무것도 못 쟀다」는 뒷정리 실패에도 뜬다** — OK 줄을 안 찍는 프로브
 #       (modelids)가 끝에 EPERM 하나만 내도 그렇게 적힌다. 본문을 봐야 한다.
 
