@@ -2,7 +2,7 @@
   "name": "ai-in-one",
   "displayName": "AI in One",
   "description": "여러 AI 코딩 에이전트를 메신저처럼 한 곳에서. 구독은 그대로, 대화는 에이전트 사이를 넘나들며.",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "publisher": "taein-yoon",
   "license": "MIT",
   "icon": "media/icon.png",

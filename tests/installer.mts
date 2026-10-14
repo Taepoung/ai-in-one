@@ -79,7 +79,14 @@ async function main(): Promise<void> {
     console.log(`   받기 전 · ${s0.state}`);
     ok(s0.state === "none", "★ 안 받았다 → `none` (설치하기)");
 
-    fakeTree(dirFor(root, codex.id), codex, "2.1.0");
+    /*
+     * 🔴 **판을 손으로 적지 않는다** (2026-10-14). 여기 «2.1.0» 이 박혀 있어서
+     * 카탈로그 핀을 올리는 순간 **받아둔 것이 처음부터 낡은 것**이 됐고,
+     * 「받았는데 로그인 안 됨」이 `stale` 로 떨어졌다 — 재려던 것과 무관한
+     * 자리에서 깨진다. 핀은 카탈로그에서 읽는다(`pinned.cjs` 와 같은 줄).
+     */
+    const PIN = splitSpec(codex.pkg!.spec!).version;
+    fakeTree(dirFor(root, codex.id), codex, PIN);
     const s1 = stateOf(codex, root, home);
     console.log(`   받은 뒤 · ${s1.state} (로그인 ${s1.loggedIn ? "됨" : "안됨"})`);
     ok(s1.state === "needLogin", "★ 받았는데 로그인 안 됨 → `needLogin` (로그인)");
@@ -90,12 +97,13 @@ async function main(): Promise<void> {
     console.log(`   로그인 뒤 · ${s2.state}`);
     ok(s2.state === "ready", "★ 받았고 로그인됨 → `ready` (로그아웃·사용량)");
 
-    /* 핀을 올린 꼴 — 받아둔 것은 2.1.0 인데 원하는 것이 달라진다 */
-    const bumped: AgentDef = { ...codex, pkg: { ...codex.pkg!, spec: "@agentclientprotocol/codex-acp@2.2.0" } };
+    /* 핀을 올린 꼴 — 받아둔 것은 지금 핀인데 원하는 것이 달라진다 */
+    const NEXT = "99.0.0";
+    const bumped: AgentDef = { ...codex, pkg: { ...codex.pkg!, spec: `@agentclientprotocol/codex-acp@${NEXT}` } };
     const s3 = stateOf(bumped, root, home);
     console.log(`   핀 올린 뒤 · ${s3.state} (있는 것 ${s3.version} · 원하는 것 ${s3.wanted})`);
     ok(s3.state === "stale", "★ 핀이 올라갔다 → `stale` (업데이트)");
-    ok(s3.version === "2.1.0" && s3.wanted === "2.2.0", "★ 두 판을 같이 보여준다");
+    ok(s3.version === PIN && s3.wanted === NEXT, "★ 두 판을 같이 보여준다");
 
     const s4 = stateOf(codex, root, home);
     ok(s4.state === "ready", "★ **핀이 안 올라갔으면 그대로 둔다** — 괜히 다시 받지 않는다");
@@ -132,13 +140,15 @@ async function main(): Promise<void> {
     console.log(`   거짓말하는 npm → ${r1.ok ? "통과" : "막힘"} «${r1.say}»`);
     ok(!r1.ok, "★ **종료코드만 믿지 않는다** — bin 이 생겼는지 본다");
 
-    const real: Run = async (args, at) => { fakeTree(at, half, "2.1.0"); return { code: 0, say: "ok" }; };
+    // 받아주는 척 — **지금 핀으로** 만든다. 손으로 적으면 핀을 올릴 때 깨진다
+    const HALF = splitSpec(half.pkg!.spec!).version;
+    const real: Run = async (args, at) => { fakeTree(at, half, HALF); return { code: 0, say: "ok" }; };
     const r2 = await install(dir, half.pkg!, real);
     ok(r2.ok, "★ 제대로 받으면 통과한다");
     ok(fs.existsSync(path.join(dir, "package.json")), "★ 우리 package.json 이 남는다");
 
     let called = 0;
-    const count: Run = async (a, at) => { called++; fakeTree(at, half, "2.1.0"); return { code: 0, say: "" }; };
+    const count: Run = async (a, at) => { called++; fakeTree(at, half, HALF); return { code: 0, say: "" }; };
     await install(dir, half.pkg!, count);
     ok(called === 0, "★ **이미 맞는 판이 있으면 npm 을 안 부른다**");
   }
@@ -197,10 +207,22 @@ async function main(): Promise<void> {
     ok(pickBinary({ binary: { "solaris-sparc": { archive: "x", cmd: "y" } } }) === undefined,
        "★ **이 기계 몫이 없으면 안 고른다**");
 
-    /* 핀이 주소에 들어 있다 — 그래서 주소가 곧 판이다 */
+    /*
+     * 핀이 주소에 들어 있다 — 그래서 **주소가 곧 판이다.**
+     *
+     * 🔴 **판을 손으로 적지 않는다** (2026-10-14). «1.3.0» 을 박아뒀더니 핀을
+     * 올리는 순간 깨졌다. 더 중요한 것은 **여섯이 같은 판인가**다 — 하나만
+     * 안 올리면 그 플랫폼만 옛 판을 받고, 그건 아무도 안 알아챈다.
+     */
+    const vers = new Set(
+      keys.map((k) => /agy-acp-server-([0-9.]+)-/.exec(pkg.binary![k]!.archive)?.[1] ?? ""),
+    );
+    console.log(`   주소에 박힌 판: ${[...vers].join(" · ")}`);
+    ok(vers.size === 1 && ![...vers][0]!.includes("undefined") && [...vers][0] !== "",
+       `★ **여섯이 같은 판이다** (${[...vers].join(" · ")})`);
     for (const k of keys) {
       const at = pkg.binary![k]!;
-      ok(at.archive.includes("1.3.0"), `★ ${k} 주소에 판이 박혀 있다`);
+      ok(/\d+\.\d+\.\d+/.test(at.archive), `★ ${k} 주소에 판이 박혀 있다`);
     }
     /*
      * ★ **더 이상 `agy` 를 같이 받지 않는다** (2026-10-07).
@@ -233,7 +255,14 @@ async function main(): Promise<void> {
      */
     const bumped = {
       ...pkg,
-      binary: { ...pkg.binary, [hostKey()]: { ...at, archive: at.archive.replace("1.3.0", "1.4.0") } },
+      // 주소에서 판만 갈아 끼운다 — **지금 핀이 무엇이든** 다른 판이 된다
+      binary: {
+        ...pkg.binary,
+        [hostKey()]: {
+          ...at,
+          archive: at.archive.replace(/-[0-9]+\.[0-9]+\.[0-9]+-/, "-99.0.0-"),
+        },
+      },
     };
     const next = statusOf(dir, bumped);
     console.log(`   핀 올린 뒤: ${next.stale ? "낡았다" : "그대로"}`);

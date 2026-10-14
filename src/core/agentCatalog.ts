@@ -111,8 +111,8 @@ export const NODE_PIN = {
  * 생긴다 — 없애려면 `~/AppData/Local/npm-cache/_npx` 의 낡은 자리를 지운다.
  */
 const CODEX_PIN = [
-  "-p", "@agentclientprotocol/codex-acp@2.1.0",
-  "-p", "@openai/codex@0.159.3",
+  "-p", "@agentclientprotocol/codex-acp@2.2.2",
+  "-p", "@openai/codex@0.160.1",
 ];
 
 export const DEFAULT_AGENTS: AgentDef[] = [
@@ -193,7 +193,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * 0.81.2 → 0.84.0 (2026-09-29). 위 순서를 다 밟았다. probe 21개 판정
      * 차이 0, 세션·맥락·되돌리기 다 살아 있다. Sonnet 방만 모델이 올라간다.
      */
-    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.84.0"],
+    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.90.0"],
     /*
      * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/INSTALL.md`.
      *
@@ -206,7 +206,7 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * 갈리므로(`-win32-x64` · `-darwin-arm64` …) `*` 로 두고 받은 것을 찾는다.
      */
     pkg: {
-      spec: "@agentclientprotocol/claude-agent-acp@0.84.0",
+      spec: "@agentclientprotocol/claude-agent-acp@0.90.0",
       bin: "claude-agent-acp",
       auth: {
         file: path.join(".claude", ".credentials.json"),
@@ -268,13 +268,19 @@ export const DEFAULT_AGENTS: AgentDef[] = [
      * 그 도움이 없어 **사용자가 깔아둔 codex** 가 걸린다(이 기계: 0.155.0).
      * 오류도 안 나고 그냥 다른 판이 돌기 때문에 더 나쁘다.
      *
-     * `overrides` 는 엔진 범위(`^0.159.1`)를 한 판으로 눌러 박는다 — npx 로는
-     * `-p` 를 둘 주는 꺼미를 썼는데, 우리 `package.json` 이 생기니 정식 길이 열렸다.
+     * `overrides` 는 엔진 범위를 **한 판으로 눌러 박는다** — npx 로는 `-p` 를
+     * 둘 주는 꺼미를 썼는데, 우리 `package.json` 이 생기니 정식 길이 열렸다.
+     *
+     * 🔴 **범위 밖을 박으면 안 된다** (2026-10-14). 어댑터 2.2.2 는
+     * `^0.160.1` 을 무는데, 0.x 의 캐럿은 **`>=0.160.1 <0.161.0`** 이다 —
+     * 옛 핀(0.159.3)을 그대로 뒀으면 `overrides` 가 **저쪽이 거절할 판을
+     * 억지로** 눌러 박는 꼴이었다. 지금 그 범위에 드는 것은 `0.160.1`
+     * 하나뿐이라 그것으로 박는다(0.162.1 은 범위 밖이다).
      */
     pkg: {
-      spec: "@agentclientprotocol/codex-acp@2.1.0",
+      spec: "@agentclientprotocol/codex-acp@2.2.2",
       bin: "codex-acp",
-      overrides: { "@openai/codex": "0.159.3" },
+      overrides: { "@openai/codex": "0.160.1" },
       exeEnv: { name: "CODEX_PATH", bin: "codex" },
       /* 나갈 때 세션을 지우는 명령 — **품은 그 exe** 로 부른다 */
       purge: { find: CODEX_EXE, args: ["delete", "--force", "{id}"] },
@@ -416,28 +422,28 @@ export const DEFAULT_AGENTS: AgentDef[] = [
        */
       binary: {
         "win32-x64": {
-          archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-x86_64.zip",
+          archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-x86_64.zip",
           cmd: "agy_acp_server.exe",
         },
         "win32-arm64": {
-          archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.3.0-windows-arm64.zip",
+          archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-arm64.zip",
           cmd: "agy_acp_server.exe",
         },
         "darwin-arm64": {
-          archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-arm64.zip",
+          archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-arm64.zip",
           cmd: "agy_acp_server.par",
         },
         "darwin-x64": {
-          archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.3.0-darwin-x86_64.zip",
+          archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-x86_64.zip",
           cmd: "agy_acp_server.par",
         },
         "linux-x64": {
-          archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-x86_64.zip",
+          archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-x86_64.zip",
           cmd: "agy_acp_server.par",
           args: ["--uid="],
         },
         "linux-arm64": {
-          archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.3.0-linux-arm64.zip",
+          archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-arm64.zip",
           cmd: "agy_acp_server.par",
           args: ["--uid="],
         },
