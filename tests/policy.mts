@@ -15,8 +15,7 @@ async function main() {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => asked(),
-    askUser: async () => ({ outcome: "cancelled" }),
-    log: () => {}, defaultCwd: () => "/ws",
+    log: () => {}, defaultCwd: () => "/ws", hasWorkspace: () => true,
   };
   // **전역 권한 설정이 없다.** 권한은 에이전트 모드가 정한다.
   const mgr = new RoomManager({ host, store, agents: DEFAULT_AGENTS });

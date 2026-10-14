@@ -20,7 +20,7 @@ const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); c
 const NL = String.fromCharCode(10);
 
 const perm = (to: string, title: string, over = {}) =>
-  ({ kind: "permission" as const, to, from: "알파", title, readOnly: false, ...over });
+  ({ kind: "permission" as const, to, from: "알파", fromId: "alpha-1", title, readOnly: false, ...over });
 const msg = (to: string, text: string, over = {}) =>
   ({ kind: "message" as const, to, from: "알파", fromId: "alpha-1", depth: 1, text, ...over });
 

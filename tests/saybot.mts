@@ -118,7 +118,7 @@ async function make(hold = 60) {
       `${room.id}:${from.id}`, "say",
       { to, text, id: id ?? "0" },
     );
-    if (out.isError) return { ok: false, reason: out.text, left: 0, isError: true };
+    if (out.isError) return { ok: false, reason: out.text, queue_left: 0, isError: true };
     return JSON.parse(out.text) as SayOut;
   };
   /** 그 봇의 몫을 꺼내 본다 */

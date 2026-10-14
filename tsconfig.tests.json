@@ -1,0 +1,28 @@
+/*
+ * ★ **검사 파일도 타입 검사를 받는다** (2026-10-14).
+ *
+ * 🔴 `tsconfig.json` 이 `src` 만 봤다. 그래서 **검사는 돌려야만 틀린 것을
+ * 알았다** — 없는 변수(`NL`)를 쓴 것이 `npm run typecheck` 를 통과했고,
+ * 하루에도 두 번(`askedUser`·안 쓰는 import) 실행해서야 걸렸다.
+ *
+ * 붙이면서 **55군데**가 나왔다. 대부분은 **없어진 칸을 검사만 아직 들고
+ * 있던 것**이다 — `askUser`(7군데) · `AgentBrief.color` · `McpServerOptions.call`
+ * · `Message.usageNote` · `SayOut.left`. 돌아는 가는데, 읽는 사람에게는
+ * **있는 것처럼 보인다.**
+ *
+ * ⚠️ **`noUnusedLocals` 는 여기서 끈다.** 검사는 «부르기만 하고 이름은
+ * 남겨두는» 일이 흔하다(`const second = await …` 로 순서를 적어두는 식).
+ * 그걸로 깨뜨리면 사려는 값(모양이 안 맞는 것)보다 소음이 커진다.
+ *
+ * ⚠️ **`.mjs`·`.cjs` 는 안 본다.** 그쪽은 TypeScript 가 아니라서
+ * `allowJs`+`checkJs` 를 켜야 하는데, 그러면 jsdom 을 손으로 들고 노는
+ * 화면 검사들이 통째로 빨개진다. 거기는 **돌려서** 잡는다.
+ */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["tests/**/*.mts"]
+}

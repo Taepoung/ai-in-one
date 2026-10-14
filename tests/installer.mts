@@ -43,7 +43,7 @@ const codex = DEFAULT_AGENTS.find((a) => a.id === "codex")!;
 
 /** 받아진 척 — 진짜 npm 대신 나무만 만든다 */
 function fakeTree(dir: string, agent: AgentDef, version: string): void {
-  const { name } = splitSpec(agent.pkg!.spec);
+  const { name } = splitSpec(agent.pkg!.spec!);
   const home = path.join(dir, "node_modules", ...name.split("/"));
   fs.mkdirSync(home, { recursive: true });
   fs.writeFileSync(path.join(home, "package.json"),
@@ -400,8 +400,8 @@ async function main(): Promise<void> {
     ok(authPlan([claude, codex], root, home).length === 0,
        "★ **안 받은 것은 줄이 없다** — 로그인할 것이 없고 「설치하기」가 먼저다");
 
-    fakeTree(dirFor(root, "claude"), claude, splitSpec(claude.pkg!.spec).version);
-    fakeTree(dirFor(root, "codex"), codex, splitSpec(codex.pkg!.spec).version);
+    fakeTree(dirFor(root, "claude"), claude, splitSpec(claude.pkg!.spec!).version);
+    fakeTree(dirFor(root, "codex"), codex, splitSpec(codex.pkg!.spec!).version);
     const two = authPlan([claude, codex], root, home);
     ok(two.map((p) => p.id).join(",") === "claude,codex",
        `★ 받은 것이 줄이 된다 (${two.map((p) => p.id).join(",")})`);
@@ -412,7 +412,7 @@ async function main(): Promise<void> {
       ...claude, id: "새것", label: "새 에이전트",
       pkg: { ...claude.pkg!, auth: { ...claude.pkg!.auth!, file: path.join("새집", "t.json") } },
     };
-    fakeTree(dirFor(root, "새것"), made, splitSpec(made.pkg!.spec).version);
+    fakeTree(dirFor(root, "새것"), made, splitSpec(made.pkg!.spec!).version);
     const three = authPlan([claude, codex, made], root, home);
     ok(three.length === 3 && three[2]!.id === "새것",
        `★ **더하면 저절로 는다** (${three.map((p) => p.label).join(" · ")})`);
@@ -422,7 +422,7 @@ async function main(): Promise<void> {
       ...made, id: "파일뿐", label: "파일뿐",
       pkg: { ...made.pkg!, auth: { file: path.join("집", "tok.json") } },
     };
-    fakeTree(dirFor(root, "파일뿐"), noAsk, splitSpec(noAsk.pkg!.spec).version);
+    fakeTree(dirFor(root, "파일뿐"), noAsk, splitSpec(noAsk.pkg!.spec!).version);
     const off = authPlan([noAsk], root, home);
     ok(off[0]?.how === "file" && off[0].guess === false,
        `★ **물어볼 길이 없으면 파일만 본다** (${JSON.stringify(off[0])})`);

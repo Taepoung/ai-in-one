@@ -17,7 +17,7 @@ import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const here = path.dirname(fileURLToPath(import.meta.url));
-const cur = (o: Array<{ category?: string; currentValue?: unknown }>, c: string) =>
+const cur = (o: Array<{ category?: string | null; currentValue?: unknown }>, c: string) =>
   o.find((x) => x.category === c)?.currentValue;
 
 async function main() {
@@ -30,7 +30,6 @@ async function main() {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    askUser: async () => ({ outcome: "cancelled" }),
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });

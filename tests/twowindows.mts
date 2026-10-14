@@ -27,6 +27,7 @@ const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); c
 
 const room = (id: string, title: string, cwd: string): Room => ({
   id, title, participants: [], cwd, messages: [], unread: 0,
+  createdAt: 0, lastActivityAt: 0,
 });
 
 async function main(): Promise<void> {

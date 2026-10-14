@@ -26,7 +26,6 @@ async function make(env: Record<string, string> = {}) {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    askUser: async () => ({ outcome: "cancelled" }),
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const base = {
@@ -175,7 +174,6 @@ async function main(): Promise<void> {
     const host: WorkspaceHost = {
       readTextFile: async () => "", writeTextFile: async () => {},
       requestPermission: async () => ({ outcome: "cancelled" }),
-      askUser: async () => ({ outcome: "cancelled" }),
       log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
     };
     const base = {
@@ -275,8 +273,14 @@ async function main(): Promise<void> {
     if (a!.approver.kind !== "bot") throw new Error("FAIL: 전제가 안 섰다 — 심사를 못 맡겼다");
 
     await mgr.removeBot(room.id, b!.id);
-    ok(a!.approver.kind === "user",
-       `★ **사용자로 되돌아온다** (${a!.approver.kind}) — 안 그러면 고친 적 없는 설정이 조용히 안 듣는다`);
+    /*
+     * 🔴 **지운 뒤에 다시 읽는다.** 위에서 «bot 이다» 를 확인했으므로 타입이
+     * 그 자리에 **좁혀져 있고**, 같은 식으로 또 물으면 컴파일러는 «늘 거짓» 으로
+     * 읽는다 — `removeBot` 이 그 칸을 바꾼다는 것을 타입은 모른다.
+     */
+    const after = room.participants[0]!.approver.kind;
+    ok(after === "user",
+       `★ **사용자로 되돌아온다** (${after}) — 안 그러면 고친 적 없는 설정이 조용히 안 듣는다`);
     ok(notes(room).some((t) => t.includes("승인 주체")),
        "★ 그리고 **우리가 고쳤다고 말한다** — 사용자가 안 건드린 칸이 바뀌었다");
     mgr.dispose();

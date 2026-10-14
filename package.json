@@ -122,7 +122,7 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tests.json",
     "test": "node tests/all.mjs",
     "lint": "eslint src",
     "vscode:prepublish": "npm run typecheck && node esbuild.mjs --production"

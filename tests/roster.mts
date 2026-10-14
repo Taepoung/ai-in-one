@@ -180,7 +180,7 @@ async function main(): Promise<void> {
     await t.mgr.addBot(room.id, { agentId: "gamma", name: "테스터" });
     const afterAdd = await t.turn(room.id, "부른 뒤", me.id);
     ok(names(t.roster(afterAdd)).includes("테스터"), "★ **봇이 늘면 다시**");
-    ok(t.roster(afterAdd)?.bots.some((b) => b.does === "코드를 쓰고 고친다"),
+    ok(t.roster(afterAdd)?.bots.some((b) => b.does === "코드를 쓰고 고친다") === true,
        "★ 🔴 **차분이 아니라 전체다** — 모델이 합치게 하면 틀려도 우리가 못 본다");
     t.mgr.dispose();
   }

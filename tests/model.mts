@@ -28,7 +28,7 @@ function unbind(inner: Inner, room: Room): void {
   }
 }
 
-const current = (opts: Array<{ id: string; category?: string; currentValue?: unknown }>, cat: string) =>
+const current = (opts: Array<{ id: string; category?: string | null; currentValue?: unknown }>, cat: string) =>
   opts.find((o) => o.category === cat)?.currentValue;
 
 async function main() {
@@ -44,8 +44,7 @@ async function main() {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    askUser: async () => ({ outcome: "cancelled" }),
-    log: () => {}, defaultCwd: () => dir,
+    log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
   mgr.on("roomError", () => {});

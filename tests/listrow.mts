@@ -18,10 +18,10 @@ const meta = (over: Partial<RoomMeta> = {}): RoomMeta => ({
 const boot = (rooms: RoomMeta[]): Boot => ({
   rooms,
   agents: [
-    { id: "claude", label: "Claude", color: "#d97757" },
-    { id: "codex", label: "Codex", color: "#10a37f" },
+    { id: "claude", label: "Claude" },
+    { id: "codex", label: "Codex" },
   ],
-  reducedMotion: true,
+  reducedMotion: true, hasWorkspace: true,
   screen: "list",
   cwd: "/ws",
 });

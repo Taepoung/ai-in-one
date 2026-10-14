@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   };
 
   const mcp = new McpServer({
-    tools: [], call: async () => ({ text: "" }), log: () => {},
+    log: () => {},
   });
   const at = await mcp.start();
   ok(at.at === "ready", "MCP 서버가 섰다");
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
      * 루프백이 막힌 기계도 있다. 그때 **방이 안 열리면 안 된다** — 봇끼리
      * 못 부를 뿐이고 나머지는 멀쩡해야 한다.
      */
-    const off = new McpServer({ tools: [], call: async () => ({ text: "" }), log: () => {} });
+    const off = new McpServer({ log: () => {} });
     const mgr = new RoomManager({ host, store, configProbeMs: 20000, agents: [agent], mcp: off });
     mgr.on("roomError", () => {}); mgr.on("notice", () => {});
     const room = await mgr.createRoom({ agentId: "fake", title: "서버 없이" });

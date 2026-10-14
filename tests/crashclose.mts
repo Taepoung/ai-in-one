@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    log: () => {}, defaultCwd: () => dir,
+    log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const agent = {
     ...DEFAULT_AGENTS[0]!, id: "fake", label: "가짜",
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
         card = undefined;
         c.settle({ outcome: "cancelled" });
       },
-      log: () => {}, defaultCwd: () => dir2,
+      log: () => {}, defaultCwd: () => dir2, hasWorkspace: () => true,
     };
     const agent2 = {
       ...DEFAULT_AGENTS[0]!, id: "fake", label: "가짜",

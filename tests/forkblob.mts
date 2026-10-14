@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 
   const room = await mgr.createRoom({ agentId: "a1", title: "원본" });
   await mgr.send(room.id, "이거 보세요", [
-    { sha256: sha, mimeType: "image/png", name: "shot.png" },
+    { sha256: sha, mimeType: "image/png", name: "shot.png", byteSize: 4 },
   ]);
   await settle(room.id);
 

@@ -26,8 +26,7 @@ async function make() {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    askUser: async () => ({ outcome: "cancelled" }),
-    log: () => {}, defaultCwd: () => dir,
+    log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const base = {
     ...DEFAULT_AGENTS[0]!, command: "node", args: [path.join(here, "fakeagent.cjs")],

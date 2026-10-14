@@ -29,7 +29,6 @@ async function main() {
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
     requestPermission: async () => ({ outcome: "cancelled" }),
-    askUser: async () => ({ outcome: "cancelled" }),
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
@@ -118,9 +117,7 @@ async function main() {
       attachments: [{ sha256: "a".repeat(64), mimeType: "image/png", name: "s.png", byteSize: 9 }],
       thought: "생각했다",
       plan: { entries: [{ text: "하나", status: "pending" }] },
-      usageNote: undefined as never,
     };
-    delete (rich as Record<string, unknown>)["usageNote"];
     live.messages.push(rich);
     await store.appendMessage(live, rich);
 
@@ -136,7 +133,7 @@ async function main() {
     const m3 = d.messages.find((m) => m.id === "m3")!;
     ok(m3.tools?.[0]?.title === "Bash(npm test)", "활동 기록 (C3)");
     ok(m3.files?.[0]?.path === "/ws/a.ts", "파일 변경 카드 (E2)");
-    ok(m3.attachments?.[0]?.sha256.startsWith("aaaa"), "첨부 참조 (I1)");
+    ok(m3.attachments?.[0]?.sha256.startsWith("aaaa") === true, "첨부 참조 (I1)");
     ok(m3.thought === "생각했다", "사고 과정");
     ok(m3.plan?.entries?.[0]?.text === "하나", "**계획** — 계획 모드의 알맹이");
     ok(m3.replyToIds?.[0] === "m1", "무엇에 답했나");

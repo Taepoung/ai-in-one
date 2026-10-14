@@ -116,7 +116,7 @@ async function one(agent: AgentDef, root: string, out: boolean[]): Promise<void>
 
   const said = await initialize(sp.command, sp.args, sp.env);
   console.log(`   initialize → ${said}`);
-  out.push(mark(said.includes(agent.pkg!.spec.split("@").slice(0, -1).join("@").slice(1)) || said.includes("@"),
+  out.push(mark(said.includes(agent.pkg!.spec!.split("@").slice(0, -1).join("@").slice(1)) || said.includes("@"),
     `★ 받은 것으로 어댑터가 뜬다 (${said})`));
 
   if (agent.pkg!.auth?.login?.find) {
