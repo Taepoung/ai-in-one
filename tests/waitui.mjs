@@ -152,6 +152,13 @@ console.log("\n[🔴 둘은 **할 수 있는 일이 다르다**]");
   const over = t.sent.at(-1);
   ok(over.t === "takeOverReview" && over.reviewId === "p7",
      `★ 가로채기로 간다 (${JSON.stringify(over)})`);
+  /*
+   * 🔴 **그 자리에 서 있으면 안 된다.** 카드는 채팅에 뜨는데 여기는 두 화면
+   * 위다 — 누른 사람 눈에는 **아무 일도 안 일어난다.** 사용자가 짚었다:
+   * *"내가 답할게도 승인 거절 두개로 있어야되는거 아님?"* — 단추를 둘로
+   * 쪼개는 대신 **카드가 있는 곳으로 데려간다**(diff·「항상」은 카드에만 있다).
+   */
+  ok(t.active().includes("screen-chat"), "★ **카드가 뜨는 자리로 내려간다**");
 
   ok(msg.textContent.includes("구현의 말"), "★ 메시지 줄");
   ok(msg.textContent.includes("이 테스트 좀 봐줄래?"), "★ 한 말이 그대로 보인다");

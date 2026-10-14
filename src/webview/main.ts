@@ -7178,8 +7178,24 @@ function waitRow(r: Room, w: WaitItem): HTMLElement {
       perm
         ? el("button", {
             text: "내가 답할게",
-            title: "이 봇을 기다리지 않고 승인 카드를 지금 띄웁니다",
-            onclick: () => post({ t: "takeOverReview", roomId: r.id, reviewId: w.id }),
+            title: "이 봇을 기다리지 않고, 승인 카드를 띄워 채팅으로 내려갑니다",
+            /*
+             * ★ **누르면 카드가 있는 곳으로 데려간다** (사용자, 2026-10-14).
+             *
+             * 🔴 이 단추는 **답하는 것이 아니라 가져오는 것**이다 — 심사가
+             * 봇의 큐에서 빠지고 승인 카드가 **채팅에** 뜬다. 그런데 여기
+             * 그대로 서 있으면 **아무 일도 안 일어난 것처럼** 보인다:
+             * 카드는 두 화면 아래에 있고, 이 줄은 (큐에서 빠졌으니) 조용히
+             * 사라질 뿐이다.
+             *
+             * 그 자리에 [승인][거절] 을 놓지 않는 이유도 같다 — 이 줄에는
+             * 제목과 명령뿐이고 **diff·바뀌는 파일·「항상 허용」은 카드에만**
+             * 있다. 안 보고 누르면 그건 심사가 아니라 도장 찍기다(D1).
+             */
+            onclick: () => {
+              post({ t: "takeOverReview", roomId: r.id, reviewId: w.id });
+              go("chat");
+            },
           })
         : el("button", {
             class: "ghost danger",
