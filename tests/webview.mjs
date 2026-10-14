@@ -1583,6 +1583,37 @@ function main() {
 
     t.send({ t: "nav", screen: "list" });
     ok(t.$("#screen-list").classList.contains("active"), "★ 끝나면 원래 가려던 화면으로");
+    ok(!t.$("#screen-auth").classList.contains("behind"),
+       "★ **확인 화면은 뒤에 안 남는다** — 돌아갈 자리가 아니다");
+  }
+
+  console.log("\n[★ 낡은 것이 있으면 로봇 화면으로 — **확인 화면을 밟고 넘어간다**]");
+  {
+    /*
+     * 핀이 올라갔으면 창이 뜰 때 로봇 화면으로 보낸다(`landingFor`). 그 길은
+     * **확인 화면 위를 지나간다** — 창은 거기서 시작하기 때문이다.
+     *
+     * 🔴 사용자가 짚었다: *"로딩창에서 로봇 화면으로 전환될때, 화면이
+     * 왼쪽으로 다 안넘어감"*. `["auth"]` 위에 얹으면 확인 화면이
+     * `behind`(-24%) 로 남아 **덜 빠진 것처럼** 보이고, 더 나쁜 것은
+     * **뒤로가기가 끝난 로딩 화면으로** 돌아간다는 것이다 — 거기엔 나갈
+     * 길이 없다.
+     */
+    const t = mount({ ...boot([], "auth"), auth: [
+      { id: "claude", label: "Claude", at: "asking" },
+    ]});
+    ok(t.$("#screen-auth").classList.contains("active"), "전제 — 확인 화면에서 시작한다");
+
+    t.send({ t: "nav", screen: "agents" });
+    const auth = t.$("#screen-auth");
+    ok(t.$("#screen-agents").classList.contains("active"), "★ 로봇 화면이 선다");
+    ok(!auth.classList.contains("active") && !auth.classList.contains("behind"),
+       "★ **확인 화면은 뒤에도 안 남는다** — 스택에서 아예 빠진다");
+
+    /* 그리고 뒤로가기는 **목록**이다 — 끝난 로딩 화면이 아니라 */
+    t.$("#screen-agents .bar button").click();
+    ok(t.$("#screen-list").classList.contains("active"),
+       "★ **뒤로가면 목록** — 바닥을 깔아줬으므로 갇히지 않는다");
   }
 
   console.log("\n[★ 다 떴다고 알린다 — **먼저 보낸 것이 사라지므로**]");

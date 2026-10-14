@@ -380,6 +380,20 @@ function back(): void {
 }
 
 function paintScreens(): void {
+  /*
+   * ★ **확인 화면은 돌아갈 자리가 아니다** (2026-10-14).
+   *
+   * 창이 뜰 때 `stack = ["auth"]` 로 시작한다. 그 위에 로봇 화면을 얹으면
+   * `["auth","agents"]` 가 되는데, 🔴 **뒤로가기가 끝난 로딩 화면으로**
+   * 돌아간다 — 거기엔 나갈 길이 없다. 그리고 확인 화면이 `behind`(-24%)로
+   * 남아 **왼쪽으로 다 안 빠진 것처럼** 보인다(사용자가 짚은 그것).
+   *
+   * 떠나는 순간 **목록을 바닥으로** 깔아준다. 한 자리에서만 하므로 새 길이
+   * 생겨도 빠뜨릴 데가 없다.
+   */
+  if (stack.length > 1 && stack.includes("auth")) {
+    stack = ["list", ...stack.filter((s) => s !== "auth" && s !== "list")];
+  }
   const top = stack[stack.length - 1]!;
   for (const [name, el] of Object.entries(screens) as Array<[ScreenName, HTMLElement]>) {
     el.classList.toggle("active", name === top);

@@ -112,6 +112,18 @@ body {
   transform: translateX(-24%);
 }
 
+/*
+ * ★ **확인 화면만 왼쪽으로 완전히 빠진다** (2026-10-14).
+ *
+ * 다른 화면은 «돌아갈 자리» 라 오른쪽에서 들어오고 오른쪽으로 나간다.
+ * 확인 화면은 **지나가는 자리**다 — 끝나면 다시 올 일이 없다. 기본값
+ * (`translateX(100%)`)대로 두면 **들어온 길로 되돌아 나가서**, 새 화면과
+ * 같은 방향으로 움직이는 것이 «덜 빠진 것» 처럼 보인다.
+ */
+#screen-auth:not(.active) {
+  transform: translateX(-100%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .screen {
     transition: none;
