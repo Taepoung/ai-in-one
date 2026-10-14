@@ -134,8 +134,13 @@ console.log("\n[★ 자리 — 헤더 밑, 입력창이 보이는 곳]");
   const band = kids.indexOf("clashes");
   ok(band > kids.indexOf("bar"), "★ 헤더 아래");
   ok(band < kids.indexOf("messages"), "★ **대화 위** — 흘러가 버리면 «지금»을 못 본다");
-  ok(band > kids.indexOf("approvals"),
-     "★ **승인 큐 아래** — 승인은 답해야 진행되고, 부딪힘은 저절로 풀린다");
+  /*
+   * ⏪ 한때 «승인 큐 아래» 였다. 승인이 **입력창 바로 위**로 내려가면서
+   * (2026-10-14) 둘의 위아래가 뒤집혔다 — 지키려던 것은 그대로다:
+   * **급한 것이 눈에 가까이**. 지금은 승인이 더 가깝다.
+   */
+  ok(band < kids.indexOf("approvals"),
+     "★ **승인 줄보다 위** — 승인은 답해야 진행되고, 부딪힘은 저절로 풀린다");
   ok(w.document.querySelector(".composer") !== null,
      "★ 입력창과 같은 화면에 있다 — 치기 전에 보여야 뜻이 있다");
 }

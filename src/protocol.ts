@@ -402,6 +402,12 @@ export type FromWebview =
    * `takeOverReview` 로 사람이 받는다.
    */
   | { t: "dropWaiting"; roomId: string; botId: string; id: string }
+  /**
+   * **그 자리에서 답한다** — 대기 줄의 승인 하나 (§5-M).
+   *
+   * 「이번 한 번만」이다. «항상» 은 카드를 펴서 고를 때만 있다.
+   */
+  | { t: "answerWaiting"; roomId: string; botId: string; id: string; allow: boolean }
   /** **봇끼리 부르는 길을 다시 세워본다** (v3.0 2-F) */
   | { t: "retryMcp" }
   | { t: "rename"; roomId: string; title: string }

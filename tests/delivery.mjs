@@ -154,6 +154,55 @@ console.log("\n[★ 에이전트의 말에는 안 붙는다]");
      "★ 봇의 말은 **아무에게도 안 간다**(§4.1.1). §4.4가 «v2.0은 표시 없음»으로 정했다");
 }
 
+console.log("\n[★ 봇끼리 주고받은 말은 **접힌다** (2026-10-14)]");
+{
+  /*
+   * 🔴 사용자: *"자기들끼리 주고 받는 메세지는 … 약간 주고받을때 정신없이
+   * 엄청 길어져"*. 봇 둘이 세 번만 오가도 **내가 한 말이 화면 밖**으로 나간다.
+   * 그런데 그 말들은 **나에게 한 말이 아니다.**
+   *
+   * 🔴 **안 지운다**(§0) — 접을 뿐이다. 누가 누구에게 보냈는지는 칩으로 그
+   * 줄에 남고, 펴면 글도 활동도 그대로다.
+   */
+  const t = mount();
+  open(t, room(BOTH, [
+    { id: "a1", role: "agent", authorBotId: "b1", text: "이 테스트 좀 봐줄래?",
+      deliveredTo: ["b2"], createdAt: 1 },
+  ]));
+
+  const fold = t.$("#screen-chat .relay-fold");
+  ok(fold !== null, "★ 접히는 물건이 된다");
+  ok(fold.open === false, "★ **접힌 채로 온다**");
+  ok(t.$("#screen-chat .msg.relay") !== null, "★ 말풍선에 표가 붙는다");
+
+  const head = t.$("#screen-chat .relay-head").textContent;
+  ok(head.includes("@Claude") && head.includes("@Codex"),
+     `★ **누가 누구에게** 를 칩으로 (${head.trim()})`);
+  ok(head.includes("이 테스트 좀 봐줄래?"),
+     "★ 한 줄 미리보기 — 펴기 전에도 무슨 얘긴지는 안다");
+
+  /* 🔴 **글은 안 사라진다** — 접혔을 뿐이라 안에 그대로 있다 */
+  ok(fold.querySelector(".bubble").textContent.includes("이 테스트 좀 봐줄래?"),
+     "★ 펴면 말풍선 그대로");
+}
+
+console.log("\n[★ 나에게 한 말은 **안 접는다**]");
+{
+  /*
+   * 접는 근거는 «나에게 한 말이 아니다» 하나다. 사용자에게도 한 말이면
+   * (`toUser`) 감추는 것은 **다른 이야기**가 된다.
+   */
+  const t = mount();
+  open(t, room(BOTH, [
+    { id: "a1", role: "agent", authorBotId: "b1", text: "둘 다 보라고 전했습니다",
+      deliveredTo: ["b2"], toUser: true, createdAt: 1 },
+    { id: "a2", role: "agent", authorBotId: "b1", text: "평범한 답",
+      deliveredTo: [], createdAt: 2 },
+  ]));
+  ok(t.$("#screen-chat .relay-fold") === null,
+     "★ **나한테도 한 말이면 안 접는다** — 감추면 내가 받은 말이 사라진다");
+}
+
 console.log("\n[★ 프롬프트는 안 건드린다 — 그릴 때만 만든다]");
 {
   const t = mount();

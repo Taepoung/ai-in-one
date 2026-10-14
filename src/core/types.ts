@@ -1523,6 +1523,19 @@ export interface WaitItem {
   text: string;
   /** 권한이면 명령 그대로 (D1 — 제목만으로는 `rm -rf /` 와 `ls` 가 같아 보인다) */
   command?: string;
+  /**
+   * ★ **펼치면 보여줄 것** (§5-M, 2026-10-14).
+   *
+   * 🔴 처음엔 제목과 명령만 실었다. 그래서 **답하려면 화면을 옮겨야** 했고,
+   * 사용자: *"펼쳐볼 수 있고 바로 승인, 거절 할 수 있는게 더나을듯"*. 그
+   * 자리에서 답하려면 **무엇을 승인하는지가 그 자리에 다 있어야** 한다 —
+   * 적게 보고 누르는 것이 곧 도장 찍기다(D1).
+   */
+  paths?: string[];
+  diff?: { path: string; oldText: string | null; newText: string };
+  readOnly?: boolean;
+  /** ACP `ToolKind` — 아이콘을 고르는 데 쓴다 */
+  tool?: string;
   at: number;
 }
 

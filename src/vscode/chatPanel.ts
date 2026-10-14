@@ -513,6 +513,9 @@ export class ChatPanel implements AskTarget {
         case "dropWaiting":
           this.rooms.dropWaiting(m.roomId, m.botId, m.id);
           break;
+        case "answerWaiting":
+          this.rooms.answerWaiting(m.roomId, m.botId, m.id, m.allow);
+          break;
         case "retryMcp":
           await this.rooms.startMcp();
           break;

@@ -1117,6 +1117,60 @@ button.ghost:hover {
   margin-bottom: 0;
 }
 
+/*
+ * ★ **봇끼리 주고받은 말풍선** (§5-M, 2026-10-14) — 접힌 채로 한 줄.
+ *
+ * 나에게 한 말이 아니므로 **자리를 적게 쓴다.** 누가 누구에게 보냈는지는
+ * 칩으로 그 줄에 남고, 펴면 평소 말풍선 그대로다.
+ */
+.msg.relay {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.relay-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--fs-11);
+  color: var(--chat-dim);
+}
+
+.relay-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.relay-fold[open] > summary .codicon-chevron-right {
+  transform: rotate(90deg);
+}
+
+/*
+ * 화살표는 작게 — 칩 둘 사이의 **방향**만 말한다.
+ *
+ * 🔴 `px` 로 박지 않는다. 사용자가 글자 크기를 키우면 **그 줄만 안 커진다** —
+ * `fontsize.mjs` 가 지키는 줄이다. 둘레에 맞춰 따라가게 `em` 으로.
+ */
+.relay-head .codicon-arrow-right {
+  font-size: 0.9em;
+  opacity: 0.7;
+}
+
+/* 한 줄 미리보기. 펴면 아래에 전문이 나오므로 **두 번 안 보이게** 감춘다 */
+.relay-head .relay-peek {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.relay-fold[open] > summary .relay-peek {
+  display: none;
+}
+
 /* ── 활동 타임라인 (C3) ───────────────────────────────────────────────── */
 
 /*
@@ -3080,6 +3134,49 @@ fieldset.bot .bot-drop.danger:hover {
   background: transparent;
 }
 
+/* 접힘·펼침 — 활동 줄과 같은 손놀림 */
+.card.wait-item > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.card.wait-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.card.wait-item[open] > summary .codicon-chevron-right {
+  transform: rotate(90deg);
+}
+
+/*
+ * 접혔을 때는 **한 줄 미리보기**가 제목 옆에 붙는다. 펼치면 아래에 전문이
+ * 나오므로 **같은 글이 두 번** 보이지 않게 감춘다.
+ */
+.card.wait-item > summary .wait-head {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--chat-dim);
+}
+
+.card.wait-item[open] > summary .wait-head {
+  display: none;
+}
+
+.card.wait-item .preview {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--code-bg);
+}
+
 .card.wait-item .wait-text {
   /* **남이 쓴 글이다** — 줄바꿈을 그대로 두되 긴 줄은 싸맨다 */
   white-space: pre-wrap;
@@ -3243,49 +3340,22 @@ fieldset.bot .bot-drop.danger:hover {
 }
 
 /*
- * ★ **채팅에 남는 것은 띠 한 줄** (§5-M, 2026-10-14) — 자리는 그대로
- * (머리 바로 아래, 대화와 같이 안 흐른다). 답하는 것은 유저 승인 화면이다.
+ * ★ **승인은 입력창 바로 위에 쌓인다** (§5-M, 2026-10-14).
+ *
+ * ⏪ 머리 바로 아래였다가(*"위에 뜨니까 잘 안보임"*), 따로 한 화면이었다가
+ * (*"창을 따로 만드니까 조금 불편한데"*), 여기로 왔다. **눈은 입력창에
+ * 있다** — 답할 것이 거기 있어야 보이고, 답하고 이어서 칠 자리도 바로
+ * 아래다. 대화와 같이 안 흐르는 것은 그대로다(스크롤 밖).
+ *
+ * ★ **서넛까지만 보이고 그 다음은 스크롤** (사용자). 안 묶으면 쌓일수록
+ * 대화를 덮는다 — 그게 한때 화면으로 뺐던 까닭이다.
  */
 .approvals {
   flex: 0 0 auto;
-  max-height: 44vh;
+  max-height: min(220px, 40vh);
   overflow-y: auto;
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
   background: var(--bubble-bot-bg);
-}
-
-/* 화면 안에서는 **높이를 안 묶는다** — 거기서는 이것이 본문이다 */
-.screen > .approvals {
-  flex: 1 1 auto;
-  max-height: none;
-  border-bottom: none;
-  background: transparent;
-}
-
-.asks-note {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-size: var(--fs-11);
-}
-
-.asks-note .count {
-  font-weight: 600;
-}
-
-/* 무엇이 기다리는지 한 조각 — 길면 자른다. 단추는 **안 밀린다** */
-.asks-note .what {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--chat-dim);
-}
-
-.asks-note button {
-  flex: 0 0 auto;
 }
 
 .approvals-head {

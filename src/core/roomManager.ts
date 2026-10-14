@@ -3140,7 +3140,15 @@ export class RoomManager extends EventEmitter<Events> {
           from: item.from,
           at: item.at,
           text: item.kind === "permission" ? item.title : item.text,
-          ...(item.kind === "permission" && item.command ? { command: item.command } : {}),
+          ...(item.kind === "permission"
+            ? {
+                ...(item.command ? { command: item.command } : {}),
+                ...(item.paths?.length ? { paths: item.paths } : {}),
+                ...(item.diff ? { diff: item.diff } : {}),
+                ...(item.tool ? { tool: item.tool } : {}),
+                readOnly: item.readOnly,
+              }
+            : {}),
         });
       }
     }
@@ -3164,6 +3172,41 @@ export class RoomManager extends EventEmitter<Events> {
     this.queue.answer(botId, id);
     this.noteClosed(id, "사용자가 버렸습니다");
     this.opts.host.log(`[${roomId}] ${botId} 의 대기에서 «${id}» 를 사용자가 버렸습니다`);
+    return true;
+  }
+
+  /**
+   * ★ **대기 줄에서 사용자가 바로 답한다** (§5-M, 2026-10-14).
+   *
+   * 봇에게 맡겨둔 승인을 **가져와서 답하는 것이 한 걸음**이다. 사용자:
+   * *"펼쳐볼 수 있고 바로 승인, 거절 할 수 있는게 더나을듯"*.
+   *
+   * ⏪ 전에는 두 걸음이었다 — 「유저 승인으로」로 **가져오고**, 뜬 카드에
+   * **답하고**. 가져오는 것 자체는 사용자가 원하는 일이 아니라 **우리 사정**
+   * 이었다(큐에서 빼야 봇이 나중에 또 꺼내지 않으므로). 한 번에 한다.
+   *
+   * 🔴 **«이번 한 번만» 으로 답한다** — 봇에게 «항상» 을 안 주는 것과 같은
+   * 줄이다(§4.2.2). 「항상」은 카드를 펴서 고를 때만 있다.
+   *
+   * @returns 답했나. 없거나 메시지 항목이면 `false`
+   */
+  answerWaiting(roomId: string, botId: string, id: string, allow: boolean): boolean {
+    const item = this.queue.find(botId, id);
+    if (!item || item.kind !== "permission") return false;
+    const held = this.queued.get(id);
+    if (!held || held.roomId !== roomId) return false;
+
+    this.queue.answer(botId, id);
+    this.noteClosed(id, "사용자가 답했습니다");
+    /* 띠·심사 줄에서 빼고 기다리던 약속을 푸는 것은 전부 `settleQueued` 가 한다 */
+    this.settleQueued(id, {
+      outcome: "selected",
+      optionId: allow ? held.allowId : held.rejectId,
+    });
+    this.opts.host.log(
+      `[${roomId}] ${botId} 의 대기에서 «${id}» 를 사용자가 ` +
+        `${allow ? "허용" : "거절"}했습니다`,
+    );
     return true;
   }
 
