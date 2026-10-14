@@ -92,7 +92,7 @@ console.log("\n[★ 기다리는 중이면 보이고, 가로챌 수 있다]");
   ok(card.textContent.includes("리뷰어") && card.textContent.includes("기다립니다"),
      `★ **누구를 기다리는지** (${card.querySelector(".dim").textContent})`);
 
-  const btn = [...card.querySelectorAll("button")].find((b) => b.textContent === "내가 답할게");
+  const btn = [...card.querySelectorAll("button")].find((b) => b.textContent === "유저 승인으로");
   ok(btn !== undefined, "★ **빠져나올 길이 있다**");
   btn.click();
   const posted = t.sent.find((m) => m.t === "takeOverReview");

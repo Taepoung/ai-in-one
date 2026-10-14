@@ -12,7 +12,7 @@
  * 그리고 두 종류는 **할 수 있는 일이 다르다**:
  *
  * ```
- * 권한    낸 봇이 얼어 있다   → 「내가 답할게」. **버리기는 없다**
+ * 권한    낸 봇이 얼어 있다   → 「유저 승인으로」. **버리기는 없다**
  * 메시지  아무도 안 기다린다  → 「버리기」
  * ```
  */
@@ -146,13 +146,19 @@ console.log("\n[🔴 둘은 **할 수 있는 일이 다르다**]");
   ok(perm.querySelector("pre").textContent.includes("rm -rf build/"),
      "★ **명령 그대로** — 제목만 보면 `rm -rf` 와 `ls` 가 같아 보인다 (D1)");
   const takeOver = [...perm.querySelectorAll("button")];
-  ok(takeOver.length === 1 && takeOver[0].textContent === "내가 답할게",
+  /*
+   * ★ **이름이 가는 곳을 말한다** (사용자, 2026-10-14) — 「내가 답할게」에서
+   * 「유저 승인으로」로. 이 단추는 **답하는 것이 아니라 옮기는 것**이다:
+   * 심사가 봇의 큐에서 빠지고 **유저 승인 큐**에 선다.
+   */
+  ok(takeOver.length === 1 && takeOver[0].textContent === "유저 승인으로",
      "🔴 **권한에는 버리기가 없다** — 버리면 낸 봇이 영영 기다린다");
+  ok(takeOver[0].title.includes("이 요청 하나만"),
+     `⚠️ **설정이 바뀌는 게 아니다** — 다음 승인은 그대로 그 봇에게 (${takeOver[0].title})`);
   takeOver[0].click();
   const over = t.sent.at(-1);
   ok(over.t === "takeOverReview" && over.reviewId === "p7",
      `★ 가로채기로 간다 (${JSON.stringify(over)})`);
-  ok(t.active().includes("screen-wait"), "★ **그 자리에 머문다** — 줄을 비우러 들어온 화면이다");
 
   ok(msg.textContent.includes("구현의 말"), "★ 메시지 줄");
   ok(msg.textContent.includes("이 테스트 좀 봐줄래?"), "★ 한 말이 그대로 보인다");
@@ -206,7 +212,7 @@ const CARD = {
   },
 };
 
-console.log("\n[★ 가로채면 **그 자리에서** 카드가 뜬다]");
+console.log("\n[★ 가로채면 **유저 승인 큐로 따라간다**]");
 {
   const t = mount();
   const d = open(t, WAITING);
@@ -216,48 +222,52 @@ console.log("\n[★ 가로채면 **그 자리에서** 카드가 뜬다]");
   /*
    * 카드는 **돌아서 온다** — 우리 → 코어 → 승인 요청 → 카드. 그 사이에 큐가
    * 줄어서 이 화면이 한 번 다시 그려진다(가로챈 항목이 빠졌으므로).
+   *
+   * ⏪ 두 번 돌았다: 채팅으로 내려보냈다가(줄을 비우러 온 화면에서 내려갔다
+   * 올라오기를 반복하게 된다), 그 자리에 팝업으로 띄웠다가(같은 물건이 두
+   * 모양이 된다). **큐에는 큐의 자리**가 맞다.
    */
   t.send({ t: "waiting", roomId: "r1", list: WAITING.filter((w) => w.kind === "message") });
   t.send({ t: "ask", card: CARD });
 
-  const pop = t.$("#screen-wait .modal");
-  ok(pop !== null, "★ **대기 화면 위에** 뜬다 — 채팅으로 안 데려간다");
-  ok(pop.textContent.includes("rm -rf build/"), "★ 무엇을 승인하는지 그대로 (D1)");
+  ok(t.active().includes("screen-asks"), "★ **유저 승인 큐로 간다**");
+  const row = t.$("#screen-asks .approval");
+  ok(row !== null, "★ 거기 서 있다");
+  ok(row.textContent.includes("rm -rf build/"), "★ 무엇을 승인하는지 그대로 (D1)");
   /*
-   * 🔴 **카드를 통째로 띄우는 이유.** 이 줄에 [승인][거절] 만 놓으면 «항상
-   * 허용» 과 바꾸는 파일을 **안 보고 누르게** 된다 — 그건 심사가 아니라
-   * 도장 찍기다. 채팅의 승인 줄과 **같은 함수**로 그리므로 빠지는 것이 없다.
+   * 🔴 **카드를 통째로 옮기는 이유.** 대기 줄에 [승인][거절] 만 놓으면 «항상
+   * 허용»과 바꾸는 파일을 **안 보고 누르게** 된다 — 그건 심사가 아니라 도장
+   * 찍기다. 유저 승인 화면은 채팅의 승인 줄과 **같은 함수**로 그린다.
    */
-  ok(pop.textContent.includes("항상 허용"), "★ «항상»도 그대로 — 같은 함수로 그린다");
+  ok(row.textContent.includes("항상 허용"), "★ «항상»도 그대로 — 같은 함수로 그린다");
 
-  pop.querySelector(".quick .ok").click();
+  row.querySelector(".quick .ok").click();
   // 답한 뒤에 화면을 다시 그리므로 **맨 끝이 아니다** — 설정 요청이 뒤따른다
   const ans = t.sent.find((m) => m.t === "answer");
   ok(ans !== undefined && ans.id === "c1" && ans.answer.optionId === "y",
      `★ 답이 간다 — **이번만** (${JSON.stringify(ans?.answer)})`);
-  ok(t.$("#screen-wait .modal") === null, "★ 답하면 닫히고 줄로 돌아온다");
-  ok(t.$("#screen-wait .modal-veil") === null, "★ 덮개도 같이");
+  ok(t.$("#screen-asks .approval") === null, "★ 답하면 줄에서 빠진다");
+  ok(t.$("#screen-asks").textContent.includes("답할 승인이 없습니다"),
+     "★ 비어도 화면은 서 있는다 — 돌아가는 것은 사용자가 한다");
 }
 
-console.log("\n[★ 다시 그려도 **답하는 중인 카드는** 안 걷는다]");
+console.log("\n[★ 두 큐를 잇는 단추 — 대기 화면 머리에]");
 {
   const t = mount();
   const d = open(t, WAITING);
   rowOf(d, 1).querySelector(".wait-go").click();
-  t.$$("#screen-wait .wait-item")[0].querySelector("button").click();
-  t.send({ t: "ask", card: CARD });
-  ok(t.$("#screen-wait .modal") !== null, "전제 — 떠 있다");
+  const head = () => [...t.$$("#screen-wait .bar button")].find((b) => /유저 승인/.test(b.textContent));
+  ok(head() === undefined, "★ 내 앞에 아무것도 없으면 **단추도 없다**");
 
-  /*
-   * 🔴 이 화면은 **큐가 바뀔 때마다** 다시 그린다 — 옆 봇에게 말 하나만
-   * 들어와도. 팝업이 이 화면의 자식이라, 안 지키면 **답하는 중에 사라진다.**
-   */
-  t.send({ t: "waiting", roomId: "r1", list: [...WAITING,
-    { id: "x9", botId: "b1", kind: "message", from: "리뷰어", text: "딴 말", at: 12 }] });
-  ok(t.$("#screen-wait .modal") !== null, "★ 떠 있는 채로 남는다");
+  t.send({ t: "ask", card: CARD });
+  /* 이 판에서는 가로채기를 안 눌렀다 — 그냥 승인이 하나 온 것이다 */
+  ok(t.active().includes("screen-wait"), "전제 — 안 따라간다");
+  ok(head() !== undefined, "★ 내 앞에 서면 **머리줄에 뜬다**");
+  head().click();
+  ok(t.active().includes("screen-asks"), "★ 눌러서 건너간다 — 보낸 것이 어디 쌓였는지 본다");
 }
 
-console.log("\n[★ 화면을 떴으면 안 띄운다 — 평소대로 채팅에]");
+console.log("\n[★ 화면을 떴으면 안 따라간다 — 보던 것을 안 빼앗는다]");
 {
   const t = mount();
   const d = open(t, WAITING);
@@ -265,8 +275,10 @@ console.log("\n[★ 화면을 떴으면 안 띄운다 — 평소대로 채팅에
   t.$$("#screen-wait .wait-item")[0].querySelector("button").click();
   t.$("#screen-wait .bar button").click();      // 참여자로 돌아간다
   t.send({ t: "ask", card: CARD });
-  ok(t.$("#screen-wait .modal") === null, "★ 보지도 않는 화면에 안 띄운다");
-  ok(t.$("#screen-chat .approvals .approval") !== null, "★ 카드는 **잃지 않는다** — 채팅 승인 줄에 선다");
+  ok(!t.active().includes("screen-asks"), "★ 보던 화면을 안 빼앗는다");
+  /* 🔴 그래도 **놓칠 일은 없다** — 카드는 큐에 서고 채팅에는 띠가 뜬다 */
+  ok(t.$("#screen-asks .approval") !== null, "★ 카드는 **잃지 않는다** — 유저 승인 큐에 선다");
+  ok(t.$("#screen-chat .approvals").hidden === false, "★ 채팅에는 띠로 뜬다");
 }
 
 console.log("\n다 지나갔다 — 수는 서랍에, 목록은 화면에.");

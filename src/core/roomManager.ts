@@ -3151,7 +3151,7 @@ export class RoomManager extends EventEmitter<Events> {
    * ★ **사용자가 하나를 버린다** (§5-M).
    *
    * 🔴 **권한은 못 버린다.** 낸 봇이 `request_permission` 에 얼어 있어서,
-   * 그냥 빼면 **영영 기다린다** — 그쪽은 「내가 답할게」(`takeOverReview`)로
+   * 그냥 빼면 **영영 기다린다** — 그쪽은 「유저 승인으로」(`takeOverReview`)로
    * 가야 하고, 그러면 카드가 사람에게 뜬다. 메시지는 아무도 안 기다리므로
    * (단방향이다) 버려도 멈추는 데가 없다.
    *

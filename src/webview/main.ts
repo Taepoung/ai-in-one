@@ -234,6 +234,8 @@ type ScreenName =
   | "list" | "new" | "chat" | "fix" | "perm" | "bots" | "invite" | "agents"
   /** 그 봇 앞에 서 있는 것들 — 참여자 서랍 «위에» 얹는다 (§5-M) */
   | "wait"
+  /** **내가** 답할 승인들 — 봇의 큐와 짝이다 (§5-M) */
+  | "asks"
   /** 창이 뜨자마자 로그인을 확인하는 자리 (2026-10-13) */
   | "auth"
   /** 방에 붙는 동안 서는 자리 (2026-10-13) */
@@ -293,6 +295,17 @@ const screens: Record<ScreenName, HTMLElement> = {
    * 된다. 서랍에 두는 것은 **수 하나**고, 그게 곧 «여기 눌러볼 것이 있다»다.
    */
   wait: screenEl("screen-wait"),
+  /**
+   * ★ **유저 승인 — 큐는 봇마다 하나, 그리고 나도 하나** (§5-M, 2026-10-14).
+   *
+   * 승인 카드는 **채팅 머리 아래에 쌓여** 있었다(최대 44vh). 🔴 그런데 그 줄은
+   * «답해야 움직이는 것»이라 **쌓일수록 대화를 덮는다**, 그리고 봇의 큐를
+   * 화면으로 빼고 나니 **같은 물건이 두 모양**이 됐다 — 봇 것은 화면, 내 것은
+   * 띠. 사용자: *"승인카드들의 큐를 보여주는 창을 따로 만드는건 어때?"*
+   *
+   * 채팅에 남는 것은 **«왔다»** 한 줄이다. 답하는 자리는 여기 하나.
+   */
+  asks: screenEl("screen-asks"),
   /**
    * ★ **봇 부르기도 화면** (2026-09-30).
    *
@@ -5573,8 +5586,13 @@ function reviewNode(w: ReviewWait, r: Room): HTMLElement {
       "div",
       { class: "card-actions" },
       el("button", {
-        text: "내가 답할게",
-        title: "기다리지 않고 승인 카드를 지금 띄웁니다",
+        /*
+         * ★ **같은 일이면 같은 이름** (2026-10-14) — 대기 화면의 단추와 한 글자도
+         * 다르지 않다. 둘 다 `takeOverReview` 고, 둘 다 **그 하나를 내 큐로**
+         * 옮긴다. 이름이 갈리면 «다른 일인가»가 생긴다.
+         */
+        text: "유저 승인으로",
+        title: "이 요청 하나만 내가 답합니다 — 유저 승인 큐로 옮깁니다",
         onclick: () =>
           room && post({ t: "takeOverReview", roomId: room.id, reviewId: w.id }),
       }),
@@ -5683,19 +5701,86 @@ function shortPath(p: string): string {
   return cut.length > 2 ? `…/${cut.slice(-2).join("/")}` : p;
 }
 
-function paintApprovals(r: Room): void {
-  const host = chat?.queue;
-  if (!host) return;
-
+/** 내가 답할 것들 — 체크해 둔 것 중 사라진 것도 여기서 턴다 */
+function asksIn(r: Room): AskCard[] {
   const mine = cards.filter((c) => c.roomId === r.id || c.roomId === "");
   for (const id of [...ticked]) if (!mine.some((c) => c.id === id)) ticked.delete(id);
+  return mine;
+}
 
+/**
+ * ★ **채팅에는 «왔다»만** (§5-M, 2026-10-14) — 답하는 자리는 유저 승인 화면이다.
+ *
+ * ⏪ 여기에 **카드가 통째로** 쌓였다(최대 44vh). 한 장일 때는 그게 제일 빨랐지만,
+ * 🔴 쌓이면 **대화를 덮는다** — 그리고 봇의 큐를 화면으로 빼고 나니 같은 물건이
+ * 두 모양이 됐다. 사용자가 고른 쪽: *"알림만 — 답하는 것은 전부 큰 화면에서"*.
+ *
+ * 🔴 **띠다, 메시지가 아니다.** 대화에 한 번 적고 마는 것은 **스크롤에 밀려**
+ * «지금 몇 개가 기다리는지»를 못 말한다 — 부딪힘 띠가 배운 것과 같은 줄(§4.3).
+ * 자리도 그대로 둔다: **머리 바로 아래**, 대화와 같이 안 흐른다.
+ */
+function paintApprovals(r: Room): void {
+  // 화면은 **늘 최신으로** 둔다 — 들어가서야 그리면 한 박자 늦게 뜬다
+  paintAsks(r);
+  /*
+   * 🔴 **봇의 대기 화면도 같이 고친다.** 그 머리줄에 「유저 승인 N」이 서 있어서,
+   * 안 고치면 **승인이 하나 와도 머리줄은 0 인 채**다 — 두 큐를 이어둔 단추가
+   * 거짓말을 한다.
+   */
+  if (waitBotId && stack.includes("wait")) paintWaiting(r, waitBotId);
+
+  const host = chat?.queue;
+  if (!host) return;
+  const mine = asksIn(r);
   if (mine.length === 0) {
     host.hidden = true;
     host.replaceChildren();
     return;
   }
   host.hidden = false;
+
+  const first = mine[0]!;
+  host.replaceChildren(
+    el(
+      "div",
+      { class: "asks-note" },
+      icon("shield"),
+      el("span", { class: "count", text: `승인 대기 ${mine.length}` }),
+      /*
+       * **무엇이 기다리는지 한 조각**은 띠에 적는다. 제목이 없으면 «승인 3» 은
+       * 숫자일 뿐이고, 들어가 보기 전에는 **급한지 아닌지**를 못 고른다.
+       */
+      el("span", {
+        class: "what",
+        text: mine.length > 1
+          ? `«${first.req.title}» 외 ${mine.length - 1}`
+          : `«${first.req.title}»`,
+      }),
+      el("button", {
+        class: "primary",
+        text: "답하기",
+        title: "유저 승인 화면을 엽니다",
+        onclick: () => openAsks(r),
+      }),
+    ),
+  );
+}
+
+/** 유저 승인 화면을 연다 — 채팅 «위에» 얹는다 */
+function openAsks(r: Room): void {
+  paintAsks(r);
+  push("asks");
+}
+
+/**
+ * ★ **유저 승인 — 내가 답할 것들** (§5-M, 2026-10-14).
+ *
+ * 봇의 대기 화면과 **짝이다.** 거기는 «저 봇 앞에 무엇이», 여기는 «내 앞에
+ * 무엇이». 그래서 모양도 같다 — 머리줄에 수, 아래에 줄.
+ */
+function paintAsks(r: Room): void {
+  const mine = asksIn(r);
+  const keep = screens.asks.scrollTop;
 
   const answer = (card: AskCard, optionId?: string) => {
     if (!dropCard(card.id)) return;
@@ -5714,14 +5799,13 @@ function paintApprovals(r: Room): void {
     tick.addEventListener("change", () => {
       if (tick.checked) ticked.add(card.id);
       else ticked.delete(card.id);
-      paintApprovals(r);
+      paintAsks(r);
     });
     return approvalCard(r, card, (c, optionId) => (answer(c, optionId), renderChat()), tick);
   });
 
   const picked = mine.filter((c) => ticked.has(c.id));
-  host.replaceChildren(
-    el(
+  const head = el(
       "div",
       { class: "approvals-head" },
       el("span", { class: "count", text: `승인 대기 ${mine.length}` }),
@@ -5766,9 +5850,24 @@ function paintApprovals(r: Room): void {
             onclick: () => sweep(mine, false),
           })
         : null,
+    );
+
+  screens.asks.replaceChildren(
+    el(
+      "header",
+      { class: "bar" },
+      el("button", { class: "icon", title: "돌아가기", onclick: () => back() }, icon("arrow-left")),
+      el("h1", {}, icon("shield"), ` 유저 승인 ${mine.length}`),
     ),
-    ...rows,
+    /*
+     * 🔴 **비어도 화면을 닫지 않는다.** 마지막 하나를 답한 순간 화면이 사라지면
+     * «내가 뭘 한 거지» 가 된다 — 돌아가는 것은 사용자가 한다(대기 화면과 같다).
+     */
+    ...(mine.length === 0
+      ? [el("div", { class: "empty", text: "답할 승인이 없습니다." })]
+      : [el("div", { class: "approvals" }, head, ...rows)]),
   );
+  screens.asks.scrollTop = keep;
 }
 
 /**
@@ -7172,7 +7271,7 @@ function openWaiting(r: Room, botId: string): void {
  * 두 종류가 한 줄 간격으로 선다. 🔴 **할 수 있는 일이 서로 다르다:**
  *
  * ```
- * 권한    낸 봇이 **얼어 있다**  → 「내가 답할게」 — 줄에서 빼고 카드가 나에게
+ * 권한    낸 봇이 **얼어 있다**  → 「유저 승인으로」 — 내 큐로 옮기고 따라간다
  * 메시지  아무도 안 기다린다     → 「버리기」 — 그 봇은 영영 안 본다
  * ```
  *
@@ -7183,20 +7282,33 @@ function paintWaiting(r: Room, botId: string): void {
   const bot = r.participants.find((b) => b.id === botId);
   const mine = waiting.filter((w) => w.botId === botId);
   const keep = screens.wait.scrollTop;
-  /*
-   * 🔴 **떠 있는 팝업은 안 걷는다.** 이 화면은 큐가 바뀔 때마다 다시 그려지는데
-   * (옆 봇에게 말 하나만 들어와도) 팝업이 이 화면의 자식이라 **답하는 중에
-   * 사라진다.** 글을 쓰는 중이면 서랍을 안 건드리는 것과 같은 줄이다.
-   */
-  const popped = [...screens.wait.children].filter(
-    (n) => n.classList.contains("modal") || n.classList.contains("modal-veil"),
-  );
   screens.wait.replaceChildren(
     el(
       "header",
       { class: "bar" },
       el("button", { class: "icon", title: "돌아가기", onclick: () => back() }, icon("arrow-left")),
       el("h1", {}, icon("inbox"), ` ${bot?.name ?? "봇"} — 대기 ${mine.length}`),
+      /*
+       * ★ **두 큐를 잇는다** (사용자, 2026-10-14) — 「유저 승인 큐로 이동하는
+       * 버튼을 상단에 같이 두고」.
+       *
+       * 여기서 「유저 승인으로」를 누르면 그 항목이 **저쪽으로 간다.** 길이
+       * 한 방향으로만 나 있으면 **보낸 것이 어디 쌓였는지** 못 본다.
+       * 🔴 비면 안 그린다 — 「대기 N」과 같은 규칙이다(빈 단추는 자리만 먹는다).
+       */
+      asksIn(r).length > 0
+        ? el(
+            "button",
+            {
+              class: "ghost wait-go",
+              title: `내가 답할 승인이 ${asksIn(r).length}개 있습니다`,
+              onclick: () => openAsks(r),
+            },
+            icon("shield"),
+            ` 유저 승인 ${asksIn(r).length} `,
+            icon("chevron-right"),
+          )
+        : null,
     ),
     /*
      * 🔴 **비면 화면을 닫지 않는다.** 마지막 하나를 처리한 순간 화면이 사라지면
@@ -7205,38 +7317,8 @@ function paintWaiting(r: Room, botId: string): void {
     ...(mine.length === 0
       ? [el("div", { class: "empty", text: "대기가 없습니다." })]
       : mine.map((w) => waitRow(r, w))),
-    ...popped,
   );
   screens.wait.scrollTop = keep;
-}
-
-/**
- * ★ **가로챈 승인을 대기 화면 위에 띄운다** (§5-M, 2026-10-14).
- *
- * 채팅의 승인 줄과 **같은 함수**로 그린다(`approvalCard`) — 보낼 말·바꾸는
- * 파일·「항상 허용」이 **여기서도 그대로** 나온다는 뜻이다. 다른 것은 둘뿐:
- * 체크 상자가 없고(한 장뿐이라 고를 것이 없다), 답하면 **팝업이 닫히면서
- * 줄로 돌아온다.**
- */
-function popApproval(r: Room, card: AskCard): void {
-  const done = (c: AskCard, optionId?: string): void => {
-    if (!dropCard(c.id)) return;
-    ticked.delete(c.id);
-    post({ t: "answer", id: c.id, answer: { kind: "permission", optionId } });
-    closeModal();
-    if (waitBotId) paintWaiting(r, waitBotId);
-    // 채팅의 승인 줄도 같이 줄어든다 — 같은 카드가 두 군데 떠 있었다
-    renderChat();
-  };
-  showModal(
-    el(
-      "div",
-      { class: "card" },
-      el("div", { class: "card-title" }, icon("shield"), " 내가 답합니다"),
-      approvalCard(r, card, done, null),
-    ),
-    screens.wait,
-  );
 }
 
 /** 대기 한 줄 — 누가 · 무엇을 · 내가 할 수 있는 것 */
@@ -7259,24 +7341,26 @@ function waitRow(r: Room, w: WaitItem): HTMLElement {
       { class: "card-actions" },
       perm
         ? el("button", {
-            text: "내가 답할게",
-            title: "이 봇을 기다리지 않고, 승인 카드를 띄워 채팅으로 내려갑니다",
+            text: "유저 승인으로",
+            title: "이 요청 하나만 내가 답합니다 — 다음 승인은 그대로 이 봇에게 갑니다",
             /*
-             * ★ **누르면 카드가 그 자리에 뜬다** (사용자, 2026-10-14).
+             * ★ **이 하나를 내 큐로 옮긴다** (사용자, 2026-10-14).
              *
-             * 🔴 이 단추는 **답하는 것이 아니라 가져오는 것**이다 — 심사가
-             * 봇의 큐에서 빠지고 승인 카드가 사람에게 온다. 그 카드는 원래
-             * **채팅에** 뜨는데, 여기는 두 화면 위라 **아무 일도 안 일어난
-             * 것처럼** 보였다.
+             * 🔴 **답하는 것이 아니라 옮기는 것**이다 — 심사가 봇의 큐에서
+             * 빠지고 **유저 승인 큐**에 선다. 그래서 이름이 「유저 승인으로」고,
+             * 누르면 **그 큐로 따라간다**(카드가 돌아서 오므로 도착할 때).
              *
-             * ⏪ 한 번은 **채팅으로 내려보냈다.** 그러면 대기 셋을 치우는 데
-             * 내려갔다 올라오기를 세 번 한다 — **줄을 비우려고 들어온 화면**
-             * 에서 그건 길이 아니다. 사용자: *"카드가 뜨는건? 어때"*.
+             * ⚠️ **이 요청 하나만이다.** 봇의 승인 설정은 안 바뀐다 — 다음
+             * 요청은 그대로 그 봇에게 간다. 그 말이 단추에 안 들어가므로
+             * **툴팁에 적는다.**
              *
-             * 그 자리에 [승인][거절] 만 놓지 않는 이유는 따로다 — 이 줄에는
+             * ⏪ 두 번 돌았다: 채팅으로 내려보냈다가(줄을 비우러 온 화면에서
+             * 내려갔다 올라오기를 반복하게 된다), 그 자리에 팝업으로 띄웠다가
+             * (같은 물건이 두 모양이 된다). 큐에는 **큐의 자리**가 맞다.
+             *
+             * 🔴 [승인][거절] 두 단추로 쪼개지 않는 이유는 그대로다 — 이 줄에는
              * 제목과 명령뿐이고 **diff·바뀌는 파일·「항상 허용」은 카드에만**
-             * 있다. 안 보고 누르면 그건 심사가 아니라 도장 찍기다(D1).
-             * **카드를 통째로 띄우면** 둘 다 지킨다.
+             * 있다. 안 보고 누르면 심사가 아니라 도장 찍기다(D1).
              */
             onclick: () => {
               post({ t: "takeOverReview", roomId: r.id, reviewId: w.id });
@@ -8310,17 +8394,17 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
 
     case "ask": {
       /*
-       * ★ **가로챈 카드는 그 자리에 띄운다** (§5-M, 2026-10-14).
+       * ★ **가로챈 카드는 그 큐로 따라간다** (§5-M, 2026-10-14).
        *
-       * 대기 화면을 떠났으면 안 띄운다 — 그때는 평소대로 채팅의 승인 줄에
-       * 선다. 어느 쪽이든 `cards` 에는 들어가므로 **카드가 사라지는 일은
+       * 대기 화면을 떠났으면 안 따라간다 — 보던 것을 빼앗지 않는다. 어느
+       * 쪽이든 카드는 유저 승인 큐에 서고 채팅에 띠가 뜨므로 **놓칠 일은
        * 없다.**
        */
       const wanted = takingOver === m.card.roomId && stack[stack.length - 1] === "wait";
       takingOver = null;
       cards.push(m.card);
-      if (wanted && room) popApproval(room, m.card);
       if (room) renderChat();
+      if (wanted && room) openAsks(room);
       break;
     }
 

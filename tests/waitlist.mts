@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   {
     const perm = t.mgr.waitingIn(t.room.id).find((w) => w.kind === "permission")!;
     const got = t.mgr.dropWaiting(t.room.id, perm.botId, perm.id);
-    ok(got === false, "★ 거절한다 — 그쪽은 「내가 답할게」로 사람이 받는다");
+    ok(got === false, "★ 거절한다 — 그쪽은 「유저 승인으로」가 사람에게 넘긴다");
     ok(t.mgr.waitingIn(t.room.id).some((w) => w.id === perm.id),
        "★ **그대로 서 있다** — 조용히 사라지면 낸 봇이 영영 기다린다");
   }

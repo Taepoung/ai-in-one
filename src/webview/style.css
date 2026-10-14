@@ -3230,12 +3230,50 @@ fieldset.bot .bot-drop.danger:hover {
   opacity: 0.85;
 }
 
+/*
+ * ★ **채팅에 남는 것은 띠 한 줄** (§5-M, 2026-10-14) — 자리는 그대로
+ * (머리 바로 아래, 대화와 같이 안 흐른다). 답하는 것은 유저 승인 화면이다.
+ */
 .approvals {
   flex: 0 0 auto;
   max-height: 44vh;
   overflow-y: auto;
   border-bottom: 1px solid var(--line);
   background: var(--bubble-bot-bg);
+}
+
+/* 화면 안에서는 **높이를 안 묶는다** — 거기서는 이것이 본문이다 */
+.screen > .approvals {
+  flex: 1 1 auto;
+  max-height: none;
+  border-bottom: none;
+  background: transparent;
+}
+
+.asks-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: var(--fs-11);
+}
+
+.asks-note .count {
+  font-weight: 600;
+}
+
+/* 무엇이 기다리는지 한 조각 — 길면 자른다. 단추는 **안 밀린다** */
+.asks-note .what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--chat-dim);
+}
+
+.asks-note button {
+  flex: 0 0 auto;
 }
 
 .approvals-head {

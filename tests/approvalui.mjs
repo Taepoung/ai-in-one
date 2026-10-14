@@ -1,9 +1,14 @@
 /**
- * **승인 큐** — 헤더 바로 아래에서 개별 · 선택 · 전체 (D1).
+ * **승인 큐** — 개별 · 선택 · 전체 (D1).
  *
  * 🔴 카드를 대화 맨 아래에 쌓고 있었다. 둘만 넘어가도 **답할 것이 뭔지
  * 흐려지고**, 대화는 자동으로 바닥까지 스크롤되는데 카드는 그보다 아래라
  * 오히려 밀렸다. 답해야 하는 것은 **대화와 같이 흐르면 안 된다.**
+ *
+ * ★ **2026-10-14 — 줄은 「유저 승인」 화면으로 옮겼다** (§5-M). 채팅 머리
+ * 아래에는 **띠 한 줄**만 남는다(«승인 대기 N» + 답하기). 봇의 대기를 화면으로
+ * 빼고 나니 같은 물건이 두 모양이었기 때문이다 — 큐에는 큐의 자리가 맞다.
+ * 그래서 아래 단언들이 `#screen-asks` 를 본다. **지키는 규칙은 그대로다.**
  *
  * 🔴 그리고 **일괄 처리에는 «항상»을 쓰지 않는다.** 여러 개를 한 번에 넘길
  * 때는 하나하나를 읽지 않는다는 뜻인데, 거기에 «앞으로 전부»까지 걸면
@@ -95,6 +100,24 @@ console.log("\n[★ 헤더 바로 아래에 뜬다 — 대화와 같이 흐르�
      "★ **헤더 바로 다음**이다 — 대화는 바닥으로 스크롤되므로 아래에 두면 밀린다");
   ok(t.$("#screen-chat .messages .card") === null, "★ 대화 아래에는 이제 안 쌓인다");
   ok(q.textContent.includes("승인 대기 1"), "★ 몇 개인지 적힌다");
+
+  /*
+   * ★ **채팅에 남는 것은 띠다** (§5-M, 2026-10-14).
+   *
+   * 🔴 **메시지가 아니라 띠인 이유**: 대화에 한 번 적고 마는 것은 스크롤에
+   * 밀려 «지금 몇 개가 기다리는지»를 못 말한다 — 부딪힘 띠가 배운 것과 같다.
+   */
+  ok(t.$("#screen-chat .approval") === null, "★ **카드는 여기 없다** — 띠 한 줄뿐");
+  ok(q.textContent.includes("파일 고치기"),
+     "★ 무엇이 기다리는지 한 조각은 적는다 — 숫자만으로는 급한지 못 고른다");
+
+  const goBtn = q.querySelector("button");
+  ok(goBtn.textContent === "답하기", `★ 들어가는 문 (${goBtn.textContent})`);
+  goBtn.click();
+  ok(t.$$(".screen.active").map((x) => x.id).includes("screen-asks"),
+     "★ **유저 승인 화면으로 간다**");
+  ok(t.$("#screen-asks .bar h1").textContent.includes("유저 승인 1"), "★ 머리에 수");
+  ok(t.$("#screen-asks .approval") !== null, "★ 카드는 여기 선다");
 }
 
 console.log("\n[★ 개별 — 줄에서 바로 «이번만»]");
@@ -103,7 +126,7 @@ console.log("\n[★ 개별 — 줄에서 바로 «이번만»]");
   open(t);
   t.send({ t: "ask", card: card("c1", "파일 고치기") });
 
-  const allow = [...t.$$("#screen-chat .approval .quick button")].find((b) => b.textContent === "허용");
+  const allow = [...t.$$("#screen-asks .approval .quick button")].find((b) => b.textContent === "허용");
   allow.click();
   const a = answers(t)[0];
   ok(a?.id === "c1", "★ 그 요청에만 답한다");
@@ -118,7 +141,7 @@ console.log("\n[★ 펴면 에이전트가 준 선택지를 그대로 — «항�
   open(t);
   t.send({ t: "ask", card: card("c1", "rm -rf /tmp/x", { command: "rm -rf /tmp/x" }) });
 
-  const row = t.$("#screen-chat .approval");
+  const row = t.$("#screen-asks .approval");
   ok(row.querySelector(".perm-cmd")?.textContent === "rm -rf /tmp/x",
      "★ **무엇을 승인하는지 보인다**(D1) — 제목만으로는 rm -rf 와 ls 가 같다");
 
@@ -140,13 +163,13 @@ console.log("\n[★ 허용은 초록, 거절은 빨강 — 글자를 읽기 전�
   t.send({ t: "ask", card: card("c1", "파일 고치기") });
   t.send({ t: "ask", card: card("c2", "명령 실행") });
 
-  const q = [...t.$$("#screen-chat .approval .quick button")];
+  const q = [...t.$$("#screen-asks .approval .quick button")];
   const yes = q.find((b) => b.textContent === "허용");
   const no = q.find((b) => b.textContent === "거절");
   ok(yes.classList.contains("ok"), "★ 허용은 초록 자리(.ok)");
   ok(no.classList.contains("no"), "★ **거절도 색이 있다** — 흰 단추가 아니다");
 
-  const head = [...t.$$("#screen-chat .approvals-head button")];
+  const head = [...t.$$("#screen-asks .approvals-head button")];
   ok(head.find((b) => b.textContent === "전부 허용")?.classList.contains("ok"),
      "★ 전부 허용도 같은 색");
   ok(head.find((b) => b.textContent === "전부 거절")?.classList.contains("no"),
@@ -167,8 +190,8 @@ console.log("\n[★ 허용은 초록, 거절은 빨강 — 글자를 읽기 전�
    *
    * 🔴 그래서 이 줄은 «아직 안 붙였다»가 아니라 **붙이지 않기로 한 것**이다.
    */
-  const all = [...t.$$("#screen-chat .approval .quick button"),
-               ...t.$$("#screen-chat .approvals-head button")];
+  const all = [...t.$$("#screen-asks .approval .quick button"),
+               ...t.$$("#screen-asks .approvals-head button")];
   const withIcon = all.filter((b) => b.querySelector("i.codicon") !== null);
   ok(withIcon.length === 0,
      `★ **승인 큐는 글자만** (아이콘 ${withIcon.length}개) — ✅❎ 는 «전부»와 «선택»을 못 가른다`);
@@ -182,13 +205,13 @@ console.log("\n[★ 선택 — 체크한 것만]");
   t.send({ t: "ask", card: card("c1", "하나") });
   t.send({ t: "ask", card: card("c2", "둘") });
   t.send({ t: "ask", card: card("c3", "셋") });
-  ok(t.$$("#screen-chat .approval").length === 3, "셋이 줄 서 있다");
+  ok(t.$$("#screen-asks .approval").length === 3, "셋이 줄 서 있다");
 
-  const ticks = t.$$("#screen-chat .approval input[type=checkbox]");
+  const ticks = t.$$("#screen-asks .approval input[type=checkbox]");
   ticks[0].checked = true; ticks[0].dispatchEvent(new t.w.Event("change"));
   ticks[2].checked = true; ticks[2].dispatchEvent(new t.w.Event("change"));
 
-  const pick = [...t.$$("#screen-chat .approvals-head button")]
+  const pick = [...t.$$("#screen-asks .approvals-head button")]
     .find((b) => b.textContent === "선택 허용");
   /*
    * ⏪ 한때 «선택 2개 허용»이라 개수를 단추에 박았다 (2026-09-23 정정).
@@ -206,7 +229,7 @@ console.log("\n[★ 선택 — 체크한 것만]");
      `★ **고른 것만** (${ids.join(",")})`);
   ok(answers(t).every((m) => m.answer.optionId === "a1"),
      "★ 일괄은 «이번만» — 읽지 않은 것이 영구 규칙이 되면 안 된다");
-  ok(t.$$("#screen-chat .approval").length === 1, "★ 나머지 하나는 남는다");
+  ok(t.$$("#screen-asks .approval").length === 1, "★ 나머지 하나는 남는다");
 }
 
 console.log("\n[★ 전부 — 하나뿐이면 안 뜬다]");
@@ -214,11 +237,11 @@ console.log("\n[★ 전부 — 하나뿐이면 안 뜬다]");
   const t = mount();
   open(t);
   t.send({ t: "ask", card: card("c1", "하나") });
-  ok([...t.$$("#screen-chat .approvals-head button")].every((b) => b.textContent !== "전부 허용"),
+  ok([...t.$$("#screen-asks .approvals-head button")].every((b) => b.textContent !== "전부 허용"),
      "★ 하나면 «전부»가 뜻이 없다 — 줄에서 바로 누르면 된다");
 
   t.send({ t: "ask", card: card("c2", "둘") });
-  const all = [...t.$$("#screen-chat .approvals-head button")].find((b) => b.textContent === "전부 허용");
+  const all = [...t.$$("#screen-asks .approvals-head button")].find((b) => b.textContent === "전부 허용");
   ok(all !== undefined, "★ 둘부터 뜬다");
   all.click();
   ok(answers(t).length === 2 && answers(t).every((m) => m.answer.optionId === "a1"),
@@ -232,14 +255,14 @@ console.log("\n[★ 해소된 카드는 체크도 같이 걷힌다]");
   open(t);
   t.send({ t: "ask", card: card("c1", "하나") });
   t.send({ t: "ask", card: card("c2", "둘") });
-  const ticks = t.$$("#screen-chat .approval input[type=checkbox]");
+  const ticks = t.$$("#screen-asks .approval input[type=checkbox]");
   ticks[0].checked = true; ticks[0].dispatchEvent(new t.w.Event("change"));
   // 개수는 툴팁에 있다 — 단추 글자는 «선택 허용»로 짧게 (2026-09-23)
-  ok(t.$("#screen-chat .approvals-head button").title.includes("1개"), "하나 골랐다");
+  ok(t.$("#screen-asks .approvals-head button").title.includes("1개"), "하나 골랐다");
 
   // 다른 이유로 사라지면 (패널이 닫혔다거나)
   t.send({ t: "askResolved", id: "c1" });
-  const head = [...t.$$("#screen-chat .approvals-head button")];
+  const head = [...t.$$("#screen-asks .approvals-head button")];
   ok(head.every((b) => !b.textContent.includes("선택")),
      "★ **없는 것을 고른 채로 두지 않는다** — 누르면 답할 데가 없다");
 }
@@ -251,7 +274,7 @@ console.log("\n[★ 전부 거절도 있다]");
   t.send({ t: "ask", card: card("c1", "하나") });
   t.send({ t: "ask", card: card("c2", "둘") });
 
-  const no = [...t.$$("#screen-chat .approvals-head button")].find((b) => b.textContent === "전부 거절");
+  const no = [...t.$$("#screen-asks .approvals-head button")].find((b) => b.textContent === "전부 거절");
   ok(no !== undefined,
      "★ **비대칭이면 안 된다** — 게다가 거절이 더 안전한 쪽이라 막아둘 이유가 없다");
   no.click();
@@ -266,7 +289,7 @@ console.log("\n[★ 누가 하려는 일인지 줄에 적힌다]");
   open(t, [bot("b1", "구현"), bot("b2", "리뷰어")]);
   t.send({ t: "ask", card: card("c1", "파일 고치기", { askerBotId: "b2" }) });
 
-  const by = t.$("#screen-chat .approval .activity .by");
+  const by = t.$("#screen-asks .approval .activity .by");
   ok(by?.textContent === "리뷰어",
      `★ **어느 봇 것인지** (${by?.textContent}) — 리뷰어가 파일을 고치려 하면 그것부터 이상하다`);
 }
@@ -276,7 +299,7 @@ console.log("\n[1:1에서는 안 적는다 — 상대가 하나뿐이라 자명�
   const t = mount();
   open(t);
   t.send({ t: "ask", card: card("c1", "파일 고치기", { askerBotId: "b1" }) });
-  ok(t.$("#screen-chat .approval .activity .by") === null, "★ 군더더기가 된다");
+  ok(t.$("#screen-asks .approval .activity .by") === null, "★ 군더더기가 된다");
 }
 
 console.log("\n[★ 원래 봇에게 맡긴 승인이면 그것도 적는다]");
@@ -285,7 +308,7 @@ console.log("\n[★ 원래 봇에게 맡긴 승인이면 그것도 적는다]");
   open(t, [bot("b1", "구현", { kind: "bot", botId: "b2" }), bot("b2", "리뷰어")]);
   t.send({ t: "ask", card: card("c1", "파일 고치기", { askerBotId: "b1" }) });
 
-  const meant = t.$("#screen-chat .approval .activity .meant");
+  const meant = t.$("#screen-asks .approval .activity .meant");
   ok(meant?.textContent.includes("리뷰어") === true,
      `★ **왜 나한테 왔지에 답한다** (${meant?.textContent}) — 맡김이 헛돌면 그게 신호다`);
 }
@@ -295,7 +318,7 @@ console.log("\n[대상이 사용자면 안 적는다]");
   const t = mount();
   open(t, [bot("b1", "구현"), bot("b2", "리뷰어")]);
   t.send({ t: "ask", card: card("c1", "파일 고치기", { askerBotId: "b1" }) });
-  ok(t.$("#screen-chat .approval .activity .meant") === null,
+  ok(t.$("#screen-asks .approval .activity .meant") === null,
      "★ 내 큐에 있는 게 당연한 경우다");
 }
 
