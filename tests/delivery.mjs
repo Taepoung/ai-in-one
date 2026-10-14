@@ -291,6 +291,45 @@ console.log("\n[★ 중단은 **대화 위에 떠 있는 한 자리** — 그리
      "★ **중지 메시지에 봇 칸이 아예 없다** — 있으면 누군가 다시 쓰게 된다");
 }
 
+console.log("\n[★ 봇의 말에 반응한 것도 **그 말풍선으로 잇는다** (2026-10-14)]");
+{
+  /*
+   * 사용자 말에 답할 때와 **똑같은 길**이다 — 사용자: *"우리 말에 답장하는
+   * 메세지에 연결된 것 처럼"*. `say` 의 `id` 가 「무엇에 반응했나」를 들고
+   * 있으므로 그걸 말풍선에 걸어두면 화면은 **이미 있는 기계**로 그린다.
+   *
+   * ⏪ 칩에도 달아봤다가 걷었다 — *"칩에는 안해도돼"*. 칩은 문장 맨 앞에
+   * 꽂혀 글과 한 줄로 흐르는 자리라 글자 하나가 흐름을 끊는다.
+   */
+  const ask = {
+    id: "s1", role: "agent", text: "이거 봐줄래?", authorBotId: "b1",
+    deliveredTo: ["b2"], createdAt: 5,
+  };
+  const back = {
+    id: "s2", role: "agent", text: "봤어, 괜찮아", authorBotId: "b2",
+    deliveredTo: ["b1"], createdAt: 6, replyToIds: ["s1"],
+  };
+  /*
+   * 🔴 **사이에 한 줄을 끼운다.** 바로 위가 그 말이면 «자명하다» 고 보고
+   * 인용을 안 단다(needsAnswerNote) — 진짜 기록도 그 사이에 저쪽의
+   * 산문이 하나 들어간다(턴은 말로 닫히므로).
+   */
+  const prose = {
+    id: "s15", role: "agent", text: "봇1이 전해 온 요청을 처리했어요",
+    authorBotId: "b2", deliveredTo: [], toUser: true, createdAt: 5.5,
+    replyToIds: ["s1"],
+  };
+  const t = mount();
+  open(t, room(BOTH, [ask, prose, back]));
+
+  const note = t.$$("#screen-chat .answer-note").at(-1);
+  ok(note.textContent.includes("이거 봐줄래?"),
+     `★ **무엇에 반응했는지 인용한다** (${note.textContent})`);
+  ok(note.textContent.includes("반응했습니다"),
+     "★ 봇의 말에는 «반응했습니다** — 사용자가 물은 적 없는 것에 «답합니다» 면 거짓말이다");
+  ok(note.querySelector("button.jump") !== null, "★ 그 자리로 가는 길이 있다");
+}
+
 console.log("\n[★ ⏪ 못 간 곳은 칩에서 뺀다 (2026-09-23 정정)]");
 {
   /*

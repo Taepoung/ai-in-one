@@ -5731,6 +5731,32 @@ export class RoomManager extends EventEmitter<Events> {
        * 것의 **모양이 같아야** 읽는 규칙이 하나다.
        */
       const got = this.queue.view(botId);
+      /*
+       * **건네준 것을 그 말풍선에 적는다** — 이 순간이 「저쪽 맥락에 들어갔다」다.
+       * 권한 항목에는 말풍선이 없다(`srcId` 가 메시지 항목에만 있다).
+       */
+      /*
+       * ★ **그 턴의 산문도 «무엇에 반응했나» 를 가리킨다** (2026-10-14).
+       *
+       * 🔴 깨어난 턴은 `replyToIds` 가 비어 있었고, 화면은 그걸 **「봇이 먼저
+       * 보냈습니다」**로 읽었다 — 봇1 의 말을 받아 쓴 글인데 **먼저 보냈다고
+       * 적히는 것은 거짓말**이다. 꺼내 간 이 순간이 곧 「이 글을 보고 쓴다」다.
+       *
+       * 🔴 **사용자가 연 턴이면 안 건다** — 사용자: *"사용자 말에 의해서면
+       * 그게 우선인걸로"*. 그 턴의 산문은 **사용자에게 하는 답**이고, 큐를
+       * 곁들여 본 것일 뿐이다. 둘을 같이 걸면 «질문 2개에 한 번에 답합니다»가
+       * 되어 **사용자가 묻지도 않은 것이 제 질문 옆에 선다.**
+       */
+      const bt = this.botRuntime(roomId, botId);
+      const src = got?.item.kind === "message" ? got.item.srcId : undefined;
+      if (src && !bt.fromUser && bt.turn && !(bt.turn.replyToIds ?? []).includes(src)) {
+        bt.turn.replyToIds = [...(bt.turn.replyToIds ?? []), src];
+        const room = this.open.get(roomId);
+        if (room) {
+          void this.saveMessage(room, bt.turn);
+          this.emit("message", room.id, bt.turn);
+        }
+      }
       if (!got) {
         return {
           text: JSON.stringify({ kind: null, use: null, item: null, queue_left: 0, ...sayLeft }),
