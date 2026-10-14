@@ -93,6 +93,14 @@ let reviews: ReviewWait[] = [];
 let waiting: WaitItem[] = [];
 /** 대기 화면이 **누구 것인가** — 그 봇이 방을 떠나면 자리가 사라진다 */
 let waitBotId: string | null = null;
+/**
+ * ★ **가로채기를 누르고 카드를 기다리는 중** (§5-M) — 그 방 id.
+ *
+ * 🔴 **한 번만 쓴다.** 카드는 돌아서 오므로(우리 → 코어 → 승인 요청 → 카드)
+ * 그사이 사용자가 화면을 뜰 수 있다. 다음 카드가 올 때 이 표가 남아 있으면
+ * **누르지도 않은 팝업**이 뜬다 — 들어오는 순간 지운다.
+ */
+let takingOver: string | null = null;
 /** 지금 부딪히는 파일들 (§4.3). 방을 옮기면 갈아 끼운다 */
 let clashes: Clash[] = [];
 /**
@@ -5700,30 +5708,7 @@ function paintApprovals(r: Room): void {
     renderChat();
   };
 
-  const many = r.participants.length > 1;
   const rows = mine.map((card) => {
-    const req = card.req;
-    const from = req.askerBotId
-      ? r.participants.find((b) => b.id === req.askerBotId)
-      : undefined;
-    const asker = many ? from?.name : undefined;
-
-    /*
-     * ★ **원래 누가 심사할 것이었나** (§4.2.2의 «대상»).
-     *
-     * 이 줄이 **내 큐에 있다는 것 자체가** 봇 심사가 안 됐다는 뜻이다 —
-     * 맡길 봇이 바쁘거나, 답을 못 읽었거나, 읽기라 안 넘겼거나. 이유는
-     * 안내 줄로 한 번 지나가지만 **그건 곧 사라진다.**
-     *
-     * 그래서 줄에 남긴다: «리뷰어가 볼 예정이었다»를 알면 *"왜 나한테
-     * 왔지"* 가 풀리고, 자주 그러면 **맡김이 헛돌고 있다**는 신호가 된다.
-     *
-     * 대상이 사용자면 안 적는다 — 내 큐에 있는 게 당연한 경우다.
-     */
-    const meantFor =
-      from?.approver.kind === "bot"
-        ? r.participants.find((b) => b.id === (from.approver as { botId?: string }).botId)?.name
-        : undefined;
     const tick = el("input", { type: "checkbox" }) as HTMLInputElement;
     tick.checked = ticked.has(card.id);
     tick.addEventListener("change", () => {
@@ -5731,107 +5716,7 @@ function paintApprovals(r: Room): void {
       else ticked.delete(card.id);
       paintApprovals(r);
     });
-
-    const quick = el(
-      "span",
-      { class: "quick" },
-      /*
-       * ★ **허용은 초록, 거절은 빨강** (2026-09-23).
-       *
-       * 🔴 «거절»이 흰 단추라 **글자를 읽어야만** 어느 쪽인지 알 수 있었다.
-       * 승인 큐는 **여럿이 쌓이는 자리**라 하나씩 읽게 하면 안 된다 — 색이
-       * 먼저 말하고 글자가 확인해 준다.
-       *
-       * 파괴적인 쪽(거절)을 **눈에 띄게** 둔다. 거절은 되돌릴 수 있지만
-       * «잘못 허용»은 파일을 고치고 나서야 안다.
-       */
-      el("button", {
-        class: "ok",
-        text: "허용",
-        title: "이번만 허용합니다. «항상»은 펴서 고르세요.",
-        onclick: () => (answer(card, onceOption(req, true)), renderChat()),
-      }),
-      el("button", {
-        class: "no",
-        text: "거절",
-        onclick: () => (answer(card, onceOption(req, false)), renderChat()),
-      }),
-    );
-
-    // 펴면 **무엇을 승인하는지** 전부 (D1) — 제목만으로는 rm -rf 와 ls 가 같다
-    const body = el("div", { class: "card-body" });
-    /*
-     * ★ **보낼 말을 그대로 보여준다** (v3.0 4-J).
-     *
-     * 봇이 봇을 부르는 승인이면 **무엇을 보내는가**가 판단의 전부다. 코드
-     * 상자(`perm-cmd`)에 넣지 않는 이유는 그게 **명령처럼 보이기** 때문이다 —
-     * 이건 사람 말이라 사람 말처럼 보여야 한다.
-     */
-    if (req.text) body.append(el("blockquote", { class: "perm-text", text: req.text }));
-    if (req.command) body.append(el("pre", { class: "perm-cmd" }, el("code", { text: req.command })));
-    for (const path of req.paths ?? []) {
-      body.append(el("button", {
-        class: "file", text: shortenPath(path), title: "에디터에서 열기",
-        onclick: () => post({ t: "openFile", path }),
-      }));
-    }
-    if (req.diff) {
-      body.append(el("pre", { class: "preview" }, el("code", { text: req.diff.newText })));
-    }
-    body.append(
-      el(
-        "div",
-        { class: "card-actions" },
-        ...req.options.map((o) =>
-          el("button", {
-            class: /^allow/.test(o.kind) ? "primary" : "",
-            text: o.name,
-            onclick: () => (answer(card, o.optionId), renderChat()),
-          }),
-        ),
-      ),
-    );
-
-    return el(
-      "div",
-      { class: "approval" },
-      el(
-        "div",
-        { class: "approval-head" },
-        tick,
-        el(
-          "details",
-          { class: "act" },
-          el(
-            "summary",
-            { class: "activity" },
-            icon("chevron-right"),
-            icon(permIcon(req.kind)),
-            // 같은 이유로 제 상자에 담는다 — `toolsNode` 의 설명 참조
-            el("span", { class: "what", text: req.title }),
-            /*
-             * ★ **누가 하려는 일인가** (§4.2.2).
-             *
-             * 🔴 제목만 있었다. 단체방에서 «파일 고치기»가 셋 뜨면 어느 봇
-             * 것인지 알 수가 없는데, 그게 허용 여부를 가르는 첫 근거다 —
-             * **리뷰어가 파일을 고치려 하면 그것부터 이상하다.**
-             *
-             * 1:1에서는 안 붙인다. 상대가 하나뿐이라 자명하다.
-             */
-            asker ? el("span", { class: "by", text: asker }) : null,
-            meantFor
-              ? el("span", {
-                  class: "meant",
-                  text: `↷ ${meantFor}`,
-                  title: `원래 ${meantFor}에게 맡긴 승인입니다. 지금은 직접 답해야 합니다.`,
-                })
-              : null,
-          ),
-          body,
-        ),
-        quick,
-      ),
-    );
+    return approvalCard(r, card, (c, optionId) => (answer(c, optionId), renderChat()), tick);
   });
 
   const picked = mine.filter((c) => ticked.has(c.id));
@@ -5885,6 +5770,154 @@ function paintApprovals(r: Room): void {
     ...rows,
   );
 }
+
+/**
+ * ★ **승인 하나를 그린다 — 그리는 곳은 둘, 모양은 하나** (§5-M, 2026-10-14).
+ *
+ * 채팅의 승인 줄과 **대기 화면 위의 팝업**이 이 함수를 같이 쓴다.
+ *
+ * 🔴 **복사해 두면 갈린다.** 여기 있는 것은 전부 «무엇을 승인하는지»를 지키는
+ * 장치다 — 보낼 말은 코드 상자에 안 넣고, 바꾸는 파일은 눌러서 열 수 있고,
+ * «항상»은 펴야 나온다. 한쪽에만 고치면 **다른 쪽이 더 적게 보여주는 자리**가
+ * 되고, 적게 보고 누르는 것이 곧 도장 찍기다(D1).
+ *
+ * 밖에서 받는 둘:
+ *
+ * ```
+ * answer  답하고 **다시 그리는 것까지** — 채팅은 renderChat, 팝업은 닫기
+ * tick    여럿 고르기 체크 상자. **팝업에는 없다**(한 장뿐이라 고를 것이 없다)
+ * ```
+ */
+function approvalCard(
+  r: Room,
+  card: AskCard,
+  answer: (card: AskCard, optionId?: string) => void,
+  tick: HTMLElement | null,
+): HTMLElement {
+  const req = card.req;
+  const from = req.askerBotId
+    ? r.participants.find((b) => b.id === req.askerBotId)
+    : undefined;
+  const asker = r.participants.length > 1 ? from?.name : undefined;
+
+  /*
+   * ★ **원래 누가 심사할 것이었나** (§4.2.2의 «대상»).
+   *
+   * 이 줄이 **내 큐에 있다는 것 자체가** 봇 심사가 안 됐다는 뜻이다 —
+   * 맡길 봇이 바쁘거나, 답을 못 읽었거나, 읽기라 안 넘겼거나. 이유는
+   * 안내 줄로 한 번 지나가지만 **그건 곧 사라진다.**
+   *
+   * 그래서 줄에 남긴다: «리뷰어가 볼 예정이었다»를 알면 *"왜 나한테
+   * 왔지"* 가 풀리고, 자주 그러면 **맡김이 헛돌고 있다**는 신호가 된다.
+   *
+   * 대상이 사용자면 안 적는다 — 내 큐에 있는 게 당연한 경우다.
+   */
+  const meantFor =
+    from?.approver.kind === "bot"
+      ? r.participants.find((b) => b.id === (from.approver as { botId?: string }).botId)?.name
+      : undefined;
+  const quick = el(
+    "span",
+    { class: "quick" },
+    /*
+     * ★ **허용은 초록, 거절은 빨강** (2026-09-23).
+     *
+     * 🔴 «거절»이 흰 단추라 **글자를 읽어야만** 어느 쪽인지 알 수 있었다.
+     * 승인 큐는 **여럿이 쌓이는 자리**라 하나씩 읽게 하면 안 된다 — 색이
+     * 먼저 말하고 글자가 확인해 준다.
+     *
+     * 파괴적인 쪽(거절)을 **눈에 띄게** 둔다. 거절은 되돌릴 수 있지만
+     * «잘못 허용»은 파일을 고치고 나서야 안다.
+     */
+    el("button", {
+      class: "ok",
+      text: "허용",
+      title: "이번만 허용합니다. «항상»은 펴서 고르세요.",
+      onclick: () => answer(card, onceOption(req, true)),
+    }),
+    el("button", {
+      class: "no",
+      text: "거절",
+      onclick: () => answer(card, onceOption(req, false)),
+    }),
+  );
+
+  // 펴면 **무엇을 승인하는지** 전부 (D1) — 제목만으로는 rm -rf 와 ls 가 같다
+  const body = el("div", { class: "card-body" });
+  /*
+   * ★ **보낼 말을 그대로 보여준다** (v3.0 4-J).
+   *
+   * 봇이 봇을 부르는 승인이면 **무엇을 보내는가**가 판단의 전부다. 코드
+   * 상자(`perm-cmd`)에 넣지 않는 이유는 그게 **명령처럼 보이기** 때문이다 —
+   * 이건 사람 말이라 사람 말처럼 보여야 한다.
+   */
+  if (req.text) body.append(el("blockquote", { class: "perm-text", text: req.text }));
+  if (req.command) body.append(el("pre", { class: "perm-cmd" }, el("code", { text: req.command })));
+  for (const path of req.paths ?? []) {
+    body.append(el("button", {
+      class: "file", text: shortenPath(path), title: "에디터에서 열기",
+      onclick: () => post({ t: "openFile", path }),
+    }));
+  }
+  if (req.diff) {
+    body.append(el("pre", { class: "preview" }, el("code", { text: req.diff.newText })));
+  }
+  body.append(
+    el(
+      "div",
+      { class: "card-actions" },
+      ...req.options.map((o) =>
+        el("button", {
+          class: /^allow/.test(o.kind) ? "primary" : "",
+          text: o.name,
+          onclick: () => answer(card, o.optionId),
+        }),
+      ),
+    ),
+  );
+
+  return el(
+    "div",
+    { class: "approval" },
+    el(
+      "div",
+      { class: "approval-head" },
+      tick,
+      el(
+        "details",
+        { class: "act" },
+        el(
+          "summary",
+          { class: "activity" },
+          icon("chevron-right"),
+          icon(permIcon(req.kind)),
+          // 같은 이유로 제 상자에 담는다 — `toolsNode` 의 설명 참조
+          el("span", { class: "what", text: req.title }),
+          /*
+           * ★ **누가 하려는 일인가** (§4.2.2).
+           *
+           * 🔴 제목만 있었다. 단체방에서 «파일 고치기»가 셋 뜨면 어느 봇
+           * 것인지 알 수가 없는데, 그게 허용 여부를 가르는 첫 근거다 —
+           * **리뷰어가 파일을 고치려 하면 그것부터 이상하다.**
+           *
+           * 1:1에서는 안 붙인다. 상대가 하나뿐이라 자명하다.
+           */
+          asker ? el("span", { class: "by", text: asker }) : null,
+          meantFor
+            ? el("span", {
+                class: "meant",
+                text: `↷ ${meantFor}`,
+                title: `원래 ${meantFor}에게 맡긴 승인입니다. 지금은 직접 답해야 합니다.`,
+              })
+            : null,
+        ),
+        body,
+      ),
+      quick,
+    ),
+  );
+}
+
 
 
 /**
@@ -6446,16 +6479,27 @@ function showRoomInfo(r: Room): void {
    * 보여야 하는 것**이라 거기 있는다. 방 정보는 반대다 — 보고 닫는 것이고,
    * 대화에 끼어들면 스크롤에 밀려 사라지고 기록처럼 보이기까지 한다.
    */
-  screens.chat.append(
+  showModal(card);
+}
+
+/**
+ * 팝업을 **그 화면 위에** 띄운다 (기본은 채팅).
+ *
+ * 🔴 화면마다 따로 띄우는 이유: `.modal` 은 `position: absolute` 라 **가장
+ * 가까운 자리 잡힌 조상**을 기준으로 선다. `.screen` 이 그것이다 — 다른 데
+ * 붙이면 화면이 미끄러질 때 팝업만 제자리에 남는다.
+ */
+function showModal(node: HTMLElement, where: HTMLElement = screens.chat): void {
+  closeModal();
+  where.append(
     el("div", { class: "modal-veil", onclick: () => closeModal() }),
-    el("div", { class: "modal" }, card),
+    el("div", { class: "modal" }, node),
   );
 }
 
-/** 팔업과 덮개를 함께 걱는다 */
+/** 팝업과 덮개를 함께 걷는다 — **어느 화면에 떠 있든** */
 function closeModal(): void {
-  screens.chat.querySelector(".modal-veil")?.remove();
-  screens.chat.querySelector(".modal")?.remove();
+  for (const n of document.querySelectorAll(".modal-veil, .modal")) n.remove();
 }
 
 /**
@@ -7139,6 +7183,14 @@ function paintWaiting(r: Room, botId: string): void {
   const bot = r.participants.find((b) => b.id === botId);
   const mine = waiting.filter((w) => w.botId === botId);
   const keep = screens.wait.scrollTop;
+  /*
+   * 🔴 **떠 있는 팝업은 안 걷는다.** 이 화면은 큐가 바뀔 때마다 다시 그려지는데
+   * (옆 봇에게 말 하나만 들어와도) 팝업이 이 화면의 자식이라 **답하는 중에
+   * 사라진다.** 글을 쓰는 중이면 서랍을 안 건드리는 것과 같은 줄이다.
+   */
+  const popped = [...screens.wait.children].filter(
+    (n) => n.classList.contains("modal") || n.classList.contains("modal-veil"),
+  );
   screens.wait.replaceChildren(
     el(
       "header",
@@ -7153,8 +7205,38 @@ function paintWaiting(r: Room, botId: string): void {
     ...(mine.length === 0
       ? [el("div", { class: "empty", text: "대기가 없습니다." })]
       : mine.map((w) => waitRow(r, w))),
+    ...popped,
   );
   screens.wait.scrollTop = keep;
+}
+
+/**
+ * ★ **가로챈 승인을 대기 화면 위에 띄운다** (§5-M, 2026-10-14).
+ *
+ * 채팅의 승인 줄과 **같은 함수**로 그린다(`approvalCard`) — 보낼 말·바꾸는
+ * 파일·「항상 허용」이 **여기서도 그대로** 나온다는 뜻이다. 다른 것은 둘뿐:
+ * 체크 상자가 없고(한 장뿐이라 고를 것이 없다), 답하면 **팝업이 닫히면서
+ * 줄로 돌아온다.**
+ */
+function popApproval(r: Room, card: AskCard): void {
+  const done = (c: AskCard, optionId?: string): void => {
+    if (!dropCard(c.id)) return;
+    ticked.delete(c.id);
+    post({ t: "answer", id: c.id, answer: { kind: "permission", optionId } });
+    closeModal();
+    if (waitBotId) paintWaiting(r, waitBotId);
+    // 채팅의 승인 줄도 같이 줄어든다 — 같은 카드가 두 군데 떠 있었다
+    renderChat();
+  };
+  showModal(
+    el(
+      "div",
+      { class: "card" },
+      el("div", { class: "card-title" }, icon("shield"), " 내가 답합니다"),
+      approvalCard(r, card, done, null),
+    ),
+    screens.wait,
+  );
 }
 
 /** 대기 한 줄 — 누가 · 무엇을 · 내가 할 수 있는 것 */
@@ -7180,21 +7262,25 @@ function waitRow(r: Room, w: WaitItem): HTMLElement {
             text: "내가 답할게",
             title: "이 봇을 기다리지 않고, 승인 카드를 띄워 채팅으로 내려갑니다",
             /*
-             * ★ **누르면 카드가 있는 곳으로 데려간다** (사용자, 2026-10-14).
+             * ★ **누르면 카드가 그 자리에 뜬다** (사용자, 2026-10-14).
              *
              * 🔴 이 단추는 **답하는 것이 아니라 가져오는 것**이다 — 심사가
-             * 봇의 큐에서 빠지고 승인 카드가 **채팅에** 뜬다. 그런데 여기
-             * 그대로 서 있으면 **아무 일도 안 일어난 것처럼** 보인다:
-             * 카드는 두 화면 아래에 있고, 이 줄은 (큐에서 빠졌으니) 조용히
-             * 사라질 뿐이다.
+             * 봇의 큐에서 빠지고 승인 카드가 사람에게 온다. 그 카드는 원래
+             * **채팅에** 뜨는데, 여기는 두 화면 위라 **아무 일도 안 일어난
+             * 것처럼** 보였다.
              *
-             * 그 자리에 [승인][거절] 을 놓지 않는 이유도 같다 — 이 줄에는
+             * ⏪ 한 번은 **채팅으로 내려보냈다.** 그러면 대기 셋을 치우는 데
+             * 내려갔다 올라오기를 세 번 한다 — **줄을 비우려고 들어온 화면**
+             * 에서 그건 길이 아니다. 사용자: *"카드가 뜨는건? 어때"*.
+             *
+             * 그 자리에 [승인][거절] 만 놓지 않는 이유는 따로다 — 이 줄에는
              * 제목과 명령뿐이고 **diff·바뀌는 파일·「항상 허용」은 카드에만**
              * 있다. 안 보고 누르면 그건 심사가 아니라 도장 찍기다(D1).
+             * **카드를 통째로 띄우면** 둘 다 지킨다.
              */
             onclick: () => {
               post({ t: "takeOverReview", roomId: r.id, reviewId: w.id });
-              go("chat");
+              takingOver = r.id;
             },
           })
         : el("button", {
@@ -8222,10 +8308,21 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       break;
     }
 
-    case "ask":
+    case "ask": {
+      /*
+       * ★ **가로챈 카드는 그 자리에 띄운다** (§5-M, 2026-10-14).
+       *
+       * 대기 화면을 떠났으면 안 띄운다 — 그때는 평소대로 채팅의 승인 줄에
+       * 선다. 어느 쪽이든 `cards` 에는 들어가므로 **카드가 사라지는 일은
+       * 없다.**
+       */
+      const wanted = takingOver === m.card.roomId && stack[stack.length - 1] === "wait";
+      takingOver = null;
       cards.push(m.card);
+      if (wanted && room) popApproval(room, m.card);
       if (room) renderChat();
       break;
+    }
 
     // 우리가 답하지 않았는데 끝난 경우 — 패널이 닫혔거나 에이전트가 물러섰다
     case "askResolved":
