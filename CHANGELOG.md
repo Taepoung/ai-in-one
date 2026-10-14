@@ -64,5 +64,5 @@
 
 ### 알아둘 것
 
-- 처음 받을 때 **수백 MB** 다 — Codex 445MB · Claude 290MB · Antigravity 217MB
+- 처음 받을 때 **수백 MB** 다 — Codex 444MB · Claude 292MB · Antigravity 119MB
 - 받은 뒤 **모델 목록이 뜨기까지 20초쯤** 걸릴 수 있다

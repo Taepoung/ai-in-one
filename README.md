@@ -98,7 +98,7 @@ npm run watch      # esbuild watch
 | | |
 |---|---|
 | **에이전트 로그인** | 구독은 사용자 것이고 그 자리는 우리가 안 건드린다 |
-| **망** | 처음 받을 때. Codex 445MB · Claude 290MB · Antigravity 217MB |
+| **망** | 처음 받을 때. Codex 444MB · Claude 292MB · Antigravity 119MB (2026-10-14 실측 · 자리 크기와 받는 크기) |
 | ~~CLI 깔아두기~~ | **안 해도 된다** — 아래 |
 | ~~Node~~ | **안 해도 된다** — 없으면 그것도 받는다 (34MB) |
 
