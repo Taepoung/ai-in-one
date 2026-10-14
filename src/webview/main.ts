@@ -4402,6 +4402,20 @@ function messageNode(
      */
     const goneName =
       !who && m.authorBotId && room ? botLabel(room, m.authorBotId) : undefined;
+    /*
+     * ★ **이름과 사용량을 알약 하나로** (사용자, 2026-10-14).
+     *
+     * 🔴 *"봇 이름이 잘 안보여서"*. 흐린 글자 한 줄이라 **대화가 길어지면
+     * 누가 말하는지가 묻힌다** — 봇이 여럿이면 그게 제일 먼저 알아야 할
+     * 것인데.
+     *
+     * **테마를 뒤집어 칠한다** — 어두운 테마면 흰 알약, 밝은 테마면 검은
+     * 알약. 글자색과 배경색을 **서로 바꿔 쓰면** 테마가 무엇이든 대비가
+     * 제일 센 짝이 나온다(색을 우리가 고르지 않는다 — §C9).
+     *
+     * 사용량도 그 안에 넣는다. 둘 다 «이 봇이 지금 어떤가»라 **한 덩어리**고,
+     * 떨어져 있으면 알약 옆에 흐린 숫자가 따로 떠서 더 시끄럽다.
+     */
     node.append(
       el(
         "div",
@@ -4414,8 +4428,13 @@ function messageNode(
          * «알파»와 «알파 2»가 **둘 다 «알파»로** 보인다 — 누가 말했는지를
          * 구별할 수 없게 된다. 이름은 봇에 붙고(B1) 멘션도 그 이름으로 간다.
          */
-        who?.name ?? (goneName ? `${goneName.name} (나감)` : undefined) ?? agent?.label ?? "에이전트",
-        usageChip(who),
+        el(
+          "span",
+          { class: "name-pill" },
+          who?.name ?? (goneName ? `${goneName.name} (나감)` : undefined)
+            ?? agent?.label ?? "에이전트",
+          usageChip(who),
+        ),
       ),
     );
   }
@@ -4428,78 +4447,50 @@ function messageNode(
    * «다 말하고 → 그 밑에 한 일 목록»이 되어, **무엇 때문에 그렇게 했는지**가
    * 끊겼다. 활동이 글의 어디쯤이었는지는 `ToolActivity.textAt`에 있다.
    */
-  /** 받는 이 칩은 **첫 말풍선에만** — 조각마다 붙으면 같은 말을 여러 번 한다 */
-  let headed = false;
+  /*
+   * ★ **말풍선 하나가 전체를 감싼다** (사용자, 2026-10-14).
+   *
+   * ⏪ 조각마다 말풍선이었다 — 글·활동·글이면 상자가 셋. 🔴 그러면 **고른
+   * 색이 조각마다 끊긴다**: *"그 색을 고른 말풍선이 전체를 감싸야함"*.
+   * 한 턴은 **한 덩어리**고, 그 안에서 순서를 지키는 것은 그대로다(C3).
+   */
+  const wrap = el("div", { class: "bubble" });
+
+  /*
+   * ★ **토큰은 제 줄에** (사용자, 2026-10-14) — *"메시지는 항상 토큰에서
+   * 줄 바꿈 이후 나옴 (토큰과 같은 라인에는 토큰만 존재)"*.
+   *
+   * ⏪ 첫 문단 **안**에 꽂았다 — 메신저의 멘션처럼 글과 한 줄로 흐르게.
+   * 🔴 그런데 받는 이가 둘셋이면 **첫 문장이 칩에 밀려** 어디서 시작하는지
+   * 가 흐려진다. 토큰은 «누구에게»를 말하는 머리고, 글은 그 다음이다.
+   */
+  if (room) {
+    const to = deliveryChips(m, room);
+    if (to) wrap.append(el("div", { class: "to-line" }, to));
+  }
+
+  let lastSay: HTMLElement | undefined;
   for (const part of weave(m)) {
     if (part.kind === "tools") {
-      node.append(toolsNode(part.tools));
-      // 활동으로 끝난 턴이면 시각이 붙을 말풍선이 없다 — 활동 뒤에 단다
-      if (part.last && !m.streaming) {
-        node.append(el("div", { class: "row tail" }, el("span", { class: "time", text: hhmm(m.createdAt) })));
-      }
+      wrap.append(toolPills(part.tools));
       continue;
     }
+    const say = el("div", { class: "say" });
+    renderMarkdown(say, part.text);
+    wrap.append(say);
+    lastSay = say;
+  }
 
-    const bubble = el("div", { class: "bubble" });
-    renderMarkdown(bubble, part.text);
-    /*
-     * **받는 이를 첫 문단 앞에 꽂는다** — 글과 한 줄로 흐르게.
-     *
-     * `renderBlocks`가 문단을 `<p>`로 쌓으므로, 말풍선에 그냥 붙이면 칩이
-     * 자기 줄을 차지해 «머리말»처럼 보인다. 메신저의 멘션은 **문장 안에**
-     * 있다. 첫 `<p>`가 없는 글(코드 블록·목록으로 시작)이면 맨 앞에 둔다.
-     */
-    if (!headed && room) {
-      const to = deliveryChips(m, room);
-      if (to) {
-        const first = bubble.querySelector("p");
-        if (first) first.prepend(to, " ");
-        else bubble.prepend(to);
-      }
-      headed = true;
-    }
-    /*
-     * 타이핑 표시와 시각은 **마지막 조각에만** — 중간에 붙으면 말이 끝난 것처럼 보인다.
-     *
-     * ★ **점은 «글자가 오나» 가 아니라 «턴을 쥐고 있나» 다** (2026-10-13).
-     *
-     * 🔴 여기가 `m.streaming` 만 보고 있었다. 그런데 그 칸은 **턴이 정상으로
-     * 끝날 때에만** 내려간다(`reply.streaming = false`). CLI 가 중간에 죽으면
-     * 아무도 안 내리므로 — 상태는 `error` 가 되고 「프로세스가 종료되어…」
-     * 까지 뜨는데 — **그 바로 위에서 점이 계속 돈다.**
-     *
-     * 멈추는 조건을 하나씩 더하는 대신 **묻는 것을 바꾼다.** 쥐고 있는 칸은
-     * 셋이다:
-     *
-     * ```
-     * waiting    보냈고 첫 글자를 기다린다
-     * streaming  글자가 오는 중
-     * tool       도구를 돌리는 중 — **글자는 안 오지만 일하고 있다**
-     * ```
-     *
-     * ⏪ **승인 대기도 쥐고 있다** (2026-10-13 정정). 하루 전엔 여기서
-     * 멈췄다 — *"점이 돌면 사용자는 자기를 기다리는 줄 모른다"*. 그런데 그
-     * 말은 **점이 그 역할을 한다**는 전제였고, 실제로 그 역할은 **승인 카드**가
-     * 한다(큐 자리에 붙박이로 뜬다). 점까지 그 일을 하려 들면 규칙이 둘이 된다.
-     *
-     * 그리고 «멈췄다»는 것도 **우리 눈에만** 그렇다 — 저쪽 턴은 `prompt` 안에서
-     * **열린 채 살아 있다.** 점이 꺼지면 사용자는 «끝났거나 죽었다»로 읽는데,
-     * 답을 주면 바로 이어진다. 사용자: *"승인 대기 상태에서도 ...이 나와야함"*.
-     */
-    const at = m.authorBotId !== undefined ? botStatus[m.authorBotId] : undefined;
-    const holding = at === "waiting" || at === "streaming" || at === "tool"
-      || at === "permission";
-    if (m.streaming && part.last && holding) {
-      bubble.append(el("span", { class: "typing" }, el("i"), el("i"), el("i")));
-    }
-    node.append(
-      el(
-        "div",
-        { class: "row" },
-        bubble,
-        !m.streaming && part.last ? el("span", { class: "time", text: hhmm(m.createdAt) }) : null,
-      ),
-    );
+  /*
+   * 점은 **«턴을 쥐고 있나»** 다 — 글자가 오나가 아니라(2026-10-13).
+   * 승인 대기도 쥐고 있는 것이고(저쪽 턴은 열린 채 살아 있다), 조각이
+   * 아니라 **감싼 것 하나**에 붙는다.
+   */
+  const at = m.authorBotId !== undefined ? botStatus[m.authorBotId] : undefined;
+  const holding = at === "waiting" || at === "streaming" || at === "tool"
+    || at === "permission";
+  if (m.streaming && holding) {
+    (lastSay ?? wrap).append(el("span", { class: "typing" }, el("i"), el("i"), el("i")));
   }
 
   /*
@@ -4537,7 +4528,7 @@ function messageNode(
 
   // 생각은 기본 접힘 — 읽고 싶을 때만 편다 (C2)
   if (m.thought) {
-    node.append(
+    wrap.append(
       el(
         "details",
         { class: "tool thought" },
@@ -4550,7 +4541,7 @@ function messageNode(
   // 뭐에 대한 답인지 — **자명하지 않을 때만** 보여준다 (C4). `needsAnswerNote` 참조
   if (noteAnswer) {
     const note = answerNote(m);
-    if (note) node.append(note);
+    if (note) wrap.append(note);
   }
 
   // 누구에게 갔고 누가 아직 줄에 서 있나 (§4.1.1)
@@ -4560,9 +4551,9 @@ function messageNode(
   }
 
   // 계획은 **결과가 아니라 약속**이다 — 접지 않고 말풍선 아래 그대로 보여준다
-  if (m.plan) node.append(planNode(m.plan, m.id));
-  if (m.attachments?.length) node.append(attachmentsNode(m));
-  if (m.files?.length) node.append(filesNode(m));
+  if (m.plan) wrap.append(planNode(m.plan, m.id));
+  if (m.attachments?.length) wrap.append(attachmentsNode(m));
+  if (m.files?.length) wrap.append(filesNode(m));
 
   /*
    * ★ **같은 말을 두 번 하지 않는다** (2026-10-13).
@@ -4578,12 +4569,12 @@ function messageNode(
    * 없고, 그 자리는 `error` 한 줄이 맡는다.
    */
   if (m.truncated && m.text) {
-    node.append(el("div", { class: "meta", text: "응답이 중단되었습니다." }));
+    wrap.append(el("div", { class: "meta", text: "응답이 중단되었습니다." }));
   }
-  if (m.error) node.append(el("div", { class: "meta error", text: m.error }));
+  if (m.error) wrap.append(el("div", { class: "meta error", text: m.error }));
 
   if (m.sendFailed) {
-    node.append(
+    wrap.append(
       el("div", { class: "meta error", text: m.sendFailed }),
       el("button", {
         class: "retry",
@@ -4603,6 +4594,15 @@ function messageNode(
    * 🔴 **안 지운다**(§0). 접을 뿐이다 — 누가 누구에게 보냈는지는 **칩으로
    * 그 줄에 남고**, 펴면 글도 활동도 그대로 있다.
    */
+  node.append(
+    el(
+      "div",
+      { class: "row" },
+      wrap,
+      !m.streaming ? el("span", { class: "time", text: hhmm(m.createdAt) }) : null,
+    ),
+  );
+
   if (botToBot(m)) foldRelay(node, m, room);
   return node;
 }
@@ -4630,12 +4630,9 @@ function botToBot(m: Message): boolean {
  */
 function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
   const kids = [...node.childNodes];
-  const chip = (id: string): HTMLElement => {
+  const nameOfBot = (id: string): string => {
     const seen = r ? botLabel(r, id) : undefined;
-    return el("span", {
-      class: `chip${seen && !seen.gone ? "" : " gone"}`,
-      text: seen ? `@${seen.name}` : "@나간 봇",
-    });
+    return seen ? `@${seen.name}` : "@나간 봇";
   };
   const to = m.deliveredTo.filter((id) => id !== m.authorBotId);
 
@@ -4665,12 +4662,20 @@ function foldRelay(node: HTMLElement, m: Message, r: Room | null): void {
        * 그만큼 준다. 봇끼리의 말은 **나에게 한 말이 아니므로** 평소엔
        * «오갔다»만 알면 되고, 궁금하면 누른다.
        */
-      icon("chevron-right"),
-      el("span", { class: "relay-mark", text: "(" }),
-      m.authorBotId ? chip(m.authorBotId) : null,
-      icon("arrow-right"),
-      ...to.map(chip),
-      el("span", { class: "relay-mark", text: ")" }),
+      /*
+       * ★ **하나의 토큰** (사용자, 2026-10-14) — *"@봇1->@봇2가 하나의
+       * 토큰으로 묶인 형태 왼쪽에 >가 존재"*.
+       *
+       * 칩 둘에 화살표를 끼우면 **세 조각**이라 눈이 셋을 따로 읽는다. 이건
+       * «누가 누구에게» **한 가지 사실**이므로 한 알이어야 한다. 왼쪽 `>` 는
+       * 펼 수 있다는 표고, 누르면 **토큰은 그 자리에 있고 글이 아래로** 난다
+       * (`details` 가 원래 그렇게 생겼다).
+       */
+      el("span", { class: "relay-mark", text: ">" }),
+      el("span", {
+        class: "chip relay-token",
+        text: `${m.authorBotId ? nameOfBot(m.authorBotId) : "@봇"} → ${to.map(nameOfBot).join(" ")}`,
+      }),
     ),
   );
   for (const k of kids) box.append(k);
@@ -4868,112 +4873,92 @@ function weave(m: Message): Part[] {
   return parts;
 }
 
-function toolsNode(list: ToolActivity[]): HTMLElement {
-  const tools = list;
-  const failed = tools.filter((t) => t.status === "failed");
-  const running = tools.some((t) => t.status === "pending" || t.status === "in_progress");
-
-  /**
-   * 한 줄 = 한 가지 일. **무엇을 했고 무엇이 나왔는지**가 보여야 한다 (C3).
-   *
-   * 🔴 예전에는 제목만 찍었다 — `Bash`라고만 나오면 `ls`인지 `rm -rf`인지
-   * 알 수가 없다. 게다가 **자동 승인된 것은 승인 카드도 안 남으므로**
-   * 여기가 유일한 흔적이다.
-   *
-   * ★ **접는 단위는 활동 하나다.** 묶음을 펼쳤을 때 명령과 결과가 전부 펼쳐져
-   * 있으면 활동 몇 개만으로 화면이 가득 찬다. 묶음을 열면 **제목 줄만** 보이고,
-   * 보고 싶은 것만 다시 편다. 실패한 것은 처음부터 펼쳐 둔다 — 왜 실패했는지가
-   * 접혀 있으면 안 된다.
-   */
-  const row = (t: ToolActivity) => {
-    /*
-     * ★ **승인 결과는 그 활동 줄에 붙는다** (D3).
-     *
-     * 🔴 예전에는 승인할 때마다 대화에 시스템 줄이 하나씩 쌓였다. 스무 번
-     * 물으면 **읽을 내 대화가 그 사이에 묻힌다.** 승인은 활동의 일종이므로
-     * 그 도구 옆이 제자리다 — «무엇을 승인했나»가 한 자리에서 읽힌다.
-     *
-     * 봇이 정했으면 이름을 붙인다. **사람 결정과 구분되어야 한다**(§4.2.2).
-     */
-    const seal = t.decision
-      ? el("span", {
-          class: `seal ${t.decision.mark === "✓" ? "ok" : t.decision.mark === "✕" ? "no" : ""}`,
-          /*
-           * ★ **까닭까지 여기 붙는다** (2026-10-13). 봇이 막았으면 왜인지
-           * 모르는 채로는 사용자가 다시 묻거나 그냥 열어주게 된다 — 둘 다
-           * 심사를 한 보람이 없다. 그 글이 대화에 줄로 쌓이던 것을 여기로 옮겼다.
-           */
-          text: `${t.decision.mark} ${t.decision.label}`
-            + (t.decision.by ? ` · ${t.decision.by}` : "")
-            + (t.decision.why ? ` · ${t.decision.why}` : ""),
-          title: t.decision.by
-            ? `${t.decision.by}이(가) 정했습니다${t.decision.why ? ` — ${t.decision.why}` : ""}`
-            : "사용자가 정했습니다",
-        })
-      : null;
-
-    /*
-     * ★ **제목을 제 상자에 담는다** (2026-09-28).
-     *
-     * 🔴 여태 맨 텍스트였다. `.activity` 는 **flex** 인데 거기에
-     * `text-overflow: ellipsis` 를 걸어 놨었다 — **flex 컨테이너에는 안 먹는다.**
-     * 그래서 긴 제목이 **«…» 도 없이 그냥 잘렸고**, 더 나쁘게는 flex 항목이
-     * 기본으로 안 줄어들어 **뒤의 시각·승인 도장이 밖으로 밀려났다.**
-     *
-     * 줄어드는 것은 제목뿐이어야 한다. 시각과 도장은 **짧고 늘 필요하다.**
-     */
-    const head: Kids = [
-      icon(permIcon(t.kind)),
-      el("span", { class: "what", text: t.title }),
-      seal,
-      t.at ? el("span", { class: "at", text: hhmm(t.at) }) : null,
-    ];
-
-    // 보여줄 속이 없으면 접을 것도 없다 — 파일 하나면 눌러서 연다
-    if (!t.command && !t.output) {
-      return el(
+/**
+ * ★ **활동 하나 = 알약 하나** (사용자, 2026-10-14).
+ *
+ * ⏪ 여기는 **접는 묶음**이었다 — `▸ 활동 2개` 를 눌러 펴고, 그 안의 줄을
+ * 또 펴서 명령과 결과를 봤다. 🔴 두 번 눌러야 보이는 것은 **안 보는 것**과
+ * 비슷하고, 묶음이 접혀 있으면 «무엇을 했나»가 숫자 하나로 뭉개진다.
+ * 사용자: *"활동 드랍테이블 삭제 및 각 활동을 알약으로"*.
+ *
+ * ★ **가로로 늘어놓는다 — 넘치면 줄을 바꾼다** (사용자). 말풍선 밖으로는
+ * 안 나간다: 알약이 글보다 넓어지면 **말풍선이 활동 때문에 늘어난다.**
+ *
+ * 글자는 **도구 이름**이다(`title`) — `Bash`·`Read` 처럼 짧은 것이 와야
+ * 한 줄에 여럿이 선다. 무엇을 했는지 자세히는 눌러서 본다.
+ *
+ * 누르면 상세가 **팝업**으로 뜬다 — 말풍선 안에서 펴면 글이 멀어진다.
+ */
+function toolPills(list: ToolActivity[]): HTMLElement {
+  const box = el("div", { class: "acts" });
+  for (const t of list) {
+    box.append(
+      el(
         "button",
         {
-          class: `activity ${t.status}`,
-          title: t.paths?.join("\n") ?? t.title,
-          onclick: () => t.paths?.length === 1 && post({ t: "openFile", path: t.paths[0]! }),
+          class: `act-pill ${t.status}`,
+          // 제목만으로는 `rm -rf` 와 `ls` 가 같다 — 손대기 전에 툴팁으로 한 번 (D1)
+          title: t.command ?? t.paths?.join("\n") ?? t.title,
+          onclick: () => showActivity(t),
         },
-        ...head,
-      );
-    }
-
-    return el(
-      "details",
-      t.status === "failed" ? { class: `act ${t.status}`, open: true } : { class: `act ${t.status}` },
-      el(
-        "summary",
-        { class: `activity ${t.status}`, title: t.paths?.join("\n") ?? t.title },
-        icon("chevron-right"),
-        ...head,
-      ),
-      t.command ? el("pre", { class: "act-in" }, el("code", { text: t.command })) : null,
-      t.output ? el("pre", { class: "act-out" }, el("code", { text: t.output })) : null,
-    );
-  };
-
-  const wrap = el("div", { class: "tool-group" });
-
-  // 실패는 접지 않는다
-  for (const t of failed) wrap.append(row(t));
-
-  const rest = tools.filter((t) => t.status !== "failed");
-  if (rest.length > 0) {
-    wrap.append(
-      el(
-        "details",
-        // 아직 도는 중이면 펼쳐둔다 — 처음부터 감추면 멈춘 것처럼 보인다
-        running ? { class: "tool", open: true } : { class: "tool" },
-        el("summary", {}, icon("chevron-right"), ` 활동 ${rest.length}개`),
-        el("div", { class: "files" }, ...rest.map(row)),
+        icon(permIcon(t.kind)),
+        el("span", { class: "what", text: t.title }),
+        /* 승인 결과는 **그 활동에 붙는다**(D3) — 알약에는 표만, 까닭은 팝업에 */
+        t.decision
+          ? el("span", {
+              class: `seal ${t.decision.mark === "✓" ? "ok" : t.decision.mark === "✕" ? "no" : ""}`,
+              text: t.decision.mark,
+            })
+          : null,
       ),
     );
   }
-  return wrap;
+  return box;
+}
+
+/**
+ * 활동 하나의 **상세** — 무엇을 했고 무엇이 나왔나 (C3).
+ *
+ * 🔴 **그대로 보여준다.** 요약하면 판단 근거가 사라진다 — `Bash` 라고만
+ * 적힌 줄로는 `ls` 인지 `rm -rf` 인지 알 수 없다(D1).
+ */
+function showActivity(t: ToolActivity): void {
+  const why = t.decision
+    ? `${t.decision.mark} ${t.decision.label}`
+      + (t.decision.by ? ` · ${t.decision.by}` : "")
+      + (t.decision.why ? ` · ${t.decision.why}` : "")
+    : "";
+  showModal(
+    el(
+      "div",
+      { class: "card act-pop" },
+      el(
+        "div",
+        { class: "card-title" },
+        icon(permIcon(t.kind)),
+        el("span", { class: "what", text: t.title }),
+        t.at ? el("span", { class: "at", text: hhmm(t.at) }) : null,
+      ),
+      why
+        ? el("div", {
+            class: `seal ${t.decision?.mark === "✓" ? "ok" : t.decision?.mark === "✕" ? "no" : ""}`,
+            text: why,
+          })
+        : null,
+      t.command ? el("pre", { class: "act-in" }, el("code", { text: t.command })) : null,
+      t.output ? el("pre", { class: "act-out" }, el("code", { text: t.output })) : null,
+      ...(t.paths ?? []).map((p) =>
+        el("button", {
+          class: "file", text: shortenPath(p), title: "에디터에서 열기",
+          onclick: () => post({ t: "openFile", path: p }),
+        })),
+      el(
+        "div",
+        { class: "card-actions" },
+        el("button", { text: "닫기", onclick: () => closeModal() }),
+      ),
+    ),
+  );
 }
 
 /**

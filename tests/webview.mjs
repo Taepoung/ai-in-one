@@ -605,12 +605,21 @@ function main() {
       ]},
     ]}});
 
-    t.$(".tool summary").click();
-    ok(t.$(".act-in code").textContent === "rm -rf build && npm run build",
-       "**실행한 명령이 그대로 보인다** — `Bash`만으로는 아무것도 못 판단한다");
-    ok(t.$(".activity .at") !== null, "언제 했는지도 — 타임라인으로 읽힌다");
-    ok(t.$$(".activity").length === 2, "명령이 없는 것도 한 줄로");
-    ok(t.$$(".act").length === 1, "명령이 있는 것만 묶음이 생긴다");
+    /*
+     * ⏪ **접는 묶음이었다** — `▸ 활동 2개` 를 펴고, 그 안의 줄을 또 펴야
+     * 명령이 보였다. 사용자: *"활동 드랍테이블 삭제 및 각 활동을 알약으로"*.
+     * 🔴 두 번 눌러야 보이는 것은 **안 보는 것**과 비슷하다.
+     */
+    ok(t.$(".tool-group") === null, "★ **접는 묶음이 없다**");
+    const pills = t.$$(".act-pill");
+    ok(pills.length === 2, `★ **활동 하나 = 알약 하나** (${pills.length})`);
+    ok(pills[0].querySelector(".what").textContent === "Bash",
+       `★ 글자는 **도구 이름** (${pills[0].querySelector(".what").textContent})`);
+
+    pills[0].click();
+    ok(t.$(".modal .act-in code").textContent === "rm -rf build && npm run build",
+       "★ **누르면 명령이 그대로** — `Bash`만으로는 아무것도 못 판단한다 (D1)");
+    ok(t.$(".modal .at") !== null, "언제 했는지도 — 팝업 머리에");
 
     /*
      * ★ **제목은 제 상자에 있어야 한다** (2026-09-28).
@@ -623,14 +632,9 @@ function main() {
      * jsdom 은 폭을 못 재므로 **구조**를 못 박는다 — 제목이 제 상자에 있고,
      * 시각이 그 **형제로** 남아 있는지. 줄임은 CSS 가 `.what` 에서만 한다.
      */
-    const row = t.$(".activity");
-    const what = row.querySelector(".what");
-    ok(what !== null, "★ **제목이 제 상자에 있다** — 여기서만 줄어들게 하려면 상자가 있어야 한다");
-    ok(what.textContent === "Bash", `★ 제목 그대로 («${what.textContent}»)`);
-    ok(row.querySelector(".at") !== null,
-       "★ **시각이 같은 줄에 남는다** — 제목이 길어도 밀려나면 안 된다");
-    ok([...row.children].indexOf(what) < [...row.children].indexOf(row.querySelector(".at")),
-       "★ 제목이 먼저, 시각이 뒤 — 순서도 그대로");
+    const what2 = pills[1].querySelector(".what");
+    ok(what2 !== null, "★ **제목이 제 상자에 있다** — 여기서만 줄어들게 하려면 상자가 있어야 한다");
+    ok(what2.textContent === "Read", `★ 둘째도 도구 이름 («${what2.textContent}»)`);
   }
 
   console.log("\n[들어간 것과 나온 것이 같이 보인다 (C3)]");
@@ -645,16 +649,13 @@ function main() {
       ]},
     ]}});
 
-    t.$(".tool summary").click();
-    // 실패한 것이 **먼저** 나온다 (접지 않으므로) — 내용으로 찾는다
-    const ins = t.$$(".act-in code").map((n) => n.textContent);
-    ok(ins.includes("npm test"), `**들어간 것** — 실행한 명령 (${ins.join(" / ")})`);
-
-    const passed = t.$$(".act").find((a) => a.textContent.includes("npm test"));
-    ok(passed.querySelector(".act-out code").textContent.includes("12 passed"),
+    /* 알약은 **순서대로** 선다 — 먼저 한 것이 왼쪽이다 (C3) */
+    const pills = t.$$(".act-pill");
+    ok(pills.length === 2, `알약 둘 (${pills.length})`);
+    pills[0].click();
+    ok(t.$(".modal .act-in code").textContent === "npm test", "**들어간 것** — 실행한 명령");
+    ok(t.$(".modal .act-out code").textContent.includes("12 passed"),
        "**나온 것** — 결과가 명령 아래 붙는다");
-    ok(passed.open === false,
-       "**성공한 건 통째로 접혀 있다** — 제목 줄만 보인다");
   }
 
   console.log("\n[실패한 건 결과가 펼쳐진다]");
@@ -666,8 +667,15 @@ function main() {
           command: "npm run build", output: "error TS2304" },
       ]},
     ]}});
-    ok(t.$(".act").open === true,
-       "**실패는 바로 보여준다** — 왜 실패했는지가 접혀 있으면 안 된다");
+    /*
+     * ⏪ **«실패는 접지 않는다»** 였다. 알약에는 접고 말고가 없으므로 그
+     * 말을 **색으로** 한다 — 훑다가 빨간 알약 하나가 눈에 걸리면 그걸 누른다.
+     */
+    const bad = t.$(".act-pill.failed");
+    ok(bad !== null, "★ **실패는 색으로 말한다**");
+    bad.click();
+    ok(t.$(".modal .act-out code").textContent.includes("error TS2304"),
+       "★ 누르면 **왜 실패했는지**가 나온다");
   }
 
   console.log("\n[계획이 화면에 나온다 — 여태 받아서 버리고 있었다]");
@@ -753,21 +761,26 @@ function main() {
       ]},
     ]}});
 
-    // 말풍선이 셋으로 갈리고 사이사이에 활동이 낀다
-    ok(t.$$(".msg.agent .bubble").length === 3,
-       `**말풍선이 갈린다** (${t.$$(".msg.agent .bubble").length})`);
-    ok(t.$$(".tool-group").length === 2, "활동 묶음도 둘");
+    /*
+     * ⏪ **조각마다 말풍선이었다** — 글·활동·글이면 상자가 셋. 사용자:
+     * *"그 색을 고른 말풍선이 전체를 감싸야함"*. 🔴 상자가 갈리면 **고른
+     * 색이 조각마다 끊긴다.** 이제 한 턴은 **상자 하나**고, 그 안에서
+     * 글·활동이 번갈아 선다 — 지키려던 것(C3)은 그대로다.
+     */
+    ok(t.$$(".msg.agent .bubble").length === 1,
+       `★ **말풍선 하나가 전체를 감싼다** (${t.$$(".msg.agent .bubble").length})`);
+    ok(t.$$(".msg.agent .acts").length === 2, "활동 묶음은 둘 — 자리가 둘이므로");
 
-    const order = [...t.$(".msg.agent").children]
-      .map((n) => (n.classList.contains("row") ? "말" : n.classList.contains("tool-group") ? "활동" : ""))
+    const order = [...t.$(".msg.agent .bubble").children]
+      .map((n) => (n.classList.contains("say") ? "말" : n.classList.contains("acts") ? "활동" : ""))
       .filter(Boolean)
       .join(">");
     ok(order === "말>활동>말>활동>말",
        `**말 → 활동 → 말 순서로 놓인다** (${order})`);
 
-    const bubbles = t.$$(".msg.agent .bubble").map((b) => b.textContent.trim());
-    ok(bubbles[0].includes("먼저 테스트를"), "첫 조각");
-    ok(bubbles[2].includes("통과했습니다"), "마지막 조각");
+    const says = t.$$(".msg.agent .say").map((b) => b.textContent.trim());
+    ok(says[0].includes("먼저 테스트를"), "첫 조각");
+    ok(says[2].includes("통과했습니다"), "마지막 조각");
     ok(t.$$(".time").length === 1, "시각은 **마지막 조각에만** — 중간에 붙으면 끝난 줄 안다");
   }
 
@@ -780,9 +793,9 @@ function main() {
       ]},
     ]}});
     ok(t.$$(".msg.agent .bubble").length === 1, "말풍선 하나");
-    const kids = [...t.$(".msg.agent").children].map((n) => n.className);
-    ok(kids.indexOf("row") < kids.indexOf("tool-group"),
-       "**활동이 뒤에 온다** — 기록을 고치지 않는다");
+    const kids = [...t.$(".msg.agent .bubble").children].map((n) => n.className);
+    ok(kids.indexOf("say") < kids.indexOf("acts"),
+       "**활동이 뒤에 온다** — 자리를 모르면 글 뒤다. 기록을 고치지 않는다");
   }
 
   console.log("\n[복구 실패는 영구적이지 않다 — 다시 붙어볼 수 있다 (F7)]");
@@ -1383,15 +1396,16 @@ function main() {
       { id: "t2", title: "Bash(npm test)", kind: "execute", status: "completed" },
     ] })] });
 
-    const det = t.$("#screen-chat .tool-group details");
-    ok(det !== null, "활동이 기록된다");
-    ok(det.open === false, "**기본으로 접혀 있다**");
-    ok(det.querySelector("summary").textContent.includes("활동 2개"), "개수를 보여준다");
-    ok(t.$$("#screen-chat .activity").length === 2, "펼치면 목록");
+    const pills = t.$$("#screen-chat .act-pill");
+    ok(pills.length === 2, `활동이 **알약 둘**로 기록된다 (${pills.length})`);
+    ok(pills.every((p) => p.querySelector(".what") !== null), "제목이 제 상자에");
     ok(t.$("#screen-chat .codicon-terminal") !== null, "종류에 맞는 아이콘");
+    /* 알약은 **세는 것이 아니라 보는 것**이다 — «활동 2개» 같은 숫자가 없다 */
+    ok(!t.$("#screen-chat .bubble").textContent.includes("활동 2개"),
+       "★ 개수로 뭉개지 않는다 — 무엇을 했는지가 그대로 보인다");
   }
 
-  console.log("\n[실패한 활동은 접지 않는다]");
+  console.log("\n[실패한 활동은 **색으로** 말한다]");
   {
     const t = mount(boot([meta()]));
     enter(t, { messages: [msg({ id: "a", tools: [
@@ -1399,11 +1413,13 @@ function main() {
       { id: "t2", title: "Bash(npm test)", kind: "execute", status: "failed" },
     ] })] });
 
-    const failed = t.$("#screen-chat .activity.failed");
-    ok(failed !== null, "**실패는 바로 보인다**");
-    ok(failed.closest("details") === null, "접힌 묶음 밖에 있다");
-    ok(t.$("#screen-chat details summary").textContent.includes("활동 1개"),
-       "나머지만 접힌다");
+    /*
+     * ⏪ **«접지 않는 것»으로 말했다** — 실패만 묶음 밖에 꺼내 뒀다. 알약에는
+     * 접고 말고가 없으므로 그 말을 **색**이 한다.
+     */
+    const failed = t.$("#screen-chat .act-pill.failed");
+    ok(failed !== null, "**실패는 바로 눈에 띈다**");
+    ok(t.$$("#screen-chat .act-pill").length === 2, "둘 다 그 자리에 있다");
   }
 
   console.log("\n[아직 도는 중이면 펼쳐둔다 — 멈춘 것처럼 보이면 안 된다]");
@@ -1412,7 +1428,12 @@ function main() {
     enter(t, { messages: [msg({ id: "a", streaming: true, tools: [
       { id: "t1", title: "Read(a.ts)", kind: "read", status: "in_progress" },
     ] })] });
-    ok(t.$("#screen-chat .tool-group details").open === true, "진행 중엔 펼침");
+    /*
+     * ⏪ **«도는 중이면 펼쳐둔다»** 였다 — 접어두면 멈춘 것처럼 보이므로.
+     * 알약은 접는 것이 아니라 **늘 보이는 것**이라 그 걱정이 사라졌다.
+     */
+    ok(t.$("#screen-chat .act-pill") !== null, "도는 중에도 그 자리에 보인다");
+    ok(t.$("#screen-chat .act-pill.in_progress") !== null, "★ 도는 중이라고 표가 난다");
   }
 
   console.log("\n[파일 하나면 눌러서 연다]");
@@ -1421,7 +1442,13 @@ function main() {
     enter(t, { messages: [msg({ id: "a", tools: [
       { id: "t1", title: "Read(store.ts)", kind: "read", status: "completed", paths: ["/ws/src/store.ts"] },
     ] })] });
-    t.$("#screen-chat .activity").click();
+    /*
+     * ⏪ **알약을 누르면 바로 열렸다** — 파일이 하나뿐인 활동은 그랬다.
+     * 이제는 **모든 알약이 같은 일**을 한다(팝업). 규칙이 둘이면 «이건
+     * 열리고 저건 안 열리네» 가 되고, 그 차이는 화면에 안 보인다.
+     */
+    t.$("#screen-chat .act-pill").click();
+    t.$(".modal .file").click();
     ok(t.sent.some((m) => m.t === "openFile" && m.path === "/ws/src/store.ts"), "openFile 전송");
   }
 

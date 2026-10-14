@@ -98,15 +98,27 @@ console.log("\n[★ 받는 이가 말풍선 «안»에 칩으로 있다]");
      "★ **아래 작은 줄은 없다** — 안 읽히는 자리였고, 이제 말풍선이 말한다");
 }
 
-console.log("\n[★ 글과 한 줄로 흐른다 — 머리말이 아니다]");
+console.log("\n[★ 토큰은 **제 줄에** — 글은 그 다음 줄부터]");
 {
   const t = mount();
   open(t, room(BOTH, [msg("u1", ["b1"])]));
+  /*
+   * ⏪ **첫 문단 안에 꽂았다** — 메신저의 멘션처럼 글과 한 줄로 흐르게.
+   * 사용자가 물렸다: *"메시지는 항상 토큰에서 줄 바꿈 이후 나옴 (토큰과
+   * 같은 라인에는 토큰만 존재)"*.
+   *
+   * 🔴 받는 이가 둘셋이면 **첫 문장이 칩에 밀려** 어디서 시작하는지가
+   * 흐려진다. 토큰은 «누구에게»를 말하는 머리고, 글은 그 다음이다.
+   */
+  const line = t.$("#screen-chat .msg.user .bubble .to-line");
+  ok(line !== null, "★ 토큰이 **제 줄**을 가진다");
+  ok(line.querySelector(".chip.to") !== null, "★ 그 줄에 토큰이 있다");
+  ok(line.textContent.trim() === "@Claude",
+     `★ **그 줄에는 토큰뿐** (${line.textContent.trim()})`);
+
   const para = t.$("#screen-chat .msg.user .bubble p");
-  ok(para !== null, "문단이 있다");
-  ok(para.querySelector(".chip.to") !== null,
-     "★ **첫 문단 안에** 꽂힌다 — 말풍선에 그냥 붙이면 칩이 자기 줄을 차지한다");
-  ok(para.firstChild.textContent.includes("@Claude"), "★ 글 맨 앞에");
+  ok(para !== null && para.querySelector(".chip.to") === null,
+     "★ 글에는 토큰이 안 섞인다");
 }
 
 console.log("\n[★ 안 받은 봇은 안 나온다]");
@@ -187,8 +199,15 @@ console.log("\n[★ 봇끼리 주고받은 말은 **접힌다** (2026-10-14)]");
    */
   ok(!head.includes("이 테스트 좀 봐줄래?"),
      `★ **글은 접힌 줄에 안 샌다** (${head.trim()})`);
-  ok(head.includes("(") && head.includes(")"),
-     "★ 괄호로 «곁들인 것» 이라고 말한다");
+  /*
+   * ★ **한 알로 묶는다** (사용자): *"@봇1->@봇2가 하나의 토큰으로 묶인 형태
+   * 왼쪽에 >가 존재"*. 칩 둘에 화살표를 끼우면 눈이 **셋을 따로** 읽는다 —
+   * 이건 «누가 누구에게» 한 가지 사실이다.
+   */
+  ok(head.trim().startsWith(">"), `★ 왼쪽에 \`>\` (${head.trim()})`);
+  const token = t.$("#screen-chat .relay-token");
+  ok(token !== null && token.textContent.includes("→"),
+     `★ **한 알 안에 둘 다** (${token?.textContent ?? "(없음)"})`);
 
   /* 🔴 **글은 안 사라진다** — 접혔을 뿐이라 안에 그대로 있다 */
   ok(fold.querySelector(".bubble").textContent.includes("이 테스트 좀 봐줄래?"),
@@ -237,8 +256,8 @@ console.log("\n[★ 한 명이라도 받았으면 제자리 — 답이 질문 �
     { id: "a1", role: "agent", text: "구현의 답", authorBotId: "b1",
       deliveredTo: ["b1"], createdAt: 6 },
   ]));
-  const order = t.$$("#screen-chat .msg .bubble")
-    .map((n) => n.textContent.replace(/[@][^ ]+ ?/g, "").trim());
+  /* 글만 본다 — 토큰 줄·답장 인용은 같은 말풍선 안의 **다른 칸**이다 */
+  const order = t.$$("#screen-chat .msg .bubble .say").map((n) => n.textContent.trim());
   ok(order[0] === "둘 다 봐줘" && order[1] === "구현의 답",
      `★ **질문이 답 위에** (${order.join(" | ")}) — 자리를 정하는 것은 «대화에 들어온 시각»이다`);
 }
@@ -261,7 +280,7 @@ console.log("\n[★ 보내고 나면 그 자리에 머문다 — 위로 안 튄�
     { id: "u2", role: "user", text: "급한 거 먼저", deliveredTo: ["b1"], createdAt: 3, placedAt: 9 },
   ]));
 
-  const order = t.$$("#screen-chat .msg .bubble").map((n) => n.textContent.replace(/@\S+\s*/g, "").trim());
+  const order = t.$$("#screen-chat .msg .bubble .say").map((n) => n.textContent.trim());
   ok(order.at(-1) === "급한 거 먼저",
      `★ **여전히 맨 아래** (${order.join(" | ")}) — 대기가 풀려도 안 올라간다`);
 }
@@ -283,8 +302,8 @@ console.log("\n[★ 빼도 그 자리에 머문다 — 누른 것이 달아나�
     { id: "a1", role: "agent", text: "리뷰어 답", authorBotId: "b2", deliveredTo: ["b2"], createdAt: 9 },
   ]));
 
-  const order = t.$$("#screen-chat .msg .bubble")
-    .map((n) => n.textContent.replace(/[@][^ ]+ ?/g, "").trim());
+  /* 글만 본다 — 토큰 줄·답장 인용은 같은 말풍선 안의 **다른 칸**이다 */
+  const order = t.$$("#screen-chat .msg .bubble .say").map((n) => n.textContent.trim());
   ok(order.at(-1) === "줄에 선 말",
      `★ **뺀 뒤에도 맨 아래** (${order.join(" | ")}) — 쓴 시각(3)이 아니라 나온 시각(20)`);
   ok(t.$$("#screen-chat .chip.to").length === 1,

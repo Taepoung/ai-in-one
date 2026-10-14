@@ -568,6 +568,37 @@ button.ghost:hover {
 }
 
 /* 에이전트 구분은 말풍선 위 이름으로 한다 — 브랜드색은 작은 점에만 (G3) */
+/*
+ * ★ **이름 알약** (사용자, 2026-10-14) — *"봇 이름이 잘 안보여서"*.
+ *
+ * 🔴 **색을 우리가 고르지 않는다**(§C9). 테마의 글자색을 배경으로, 배경색을
+ * 글자로 **맞바꾼다** — 어두운 테마면 저절로 흰 알약, 밝은 테마면 검은
+ * 알약이 되고, 어떤 테마에서도 대비가 제일 센 짝이다.
+ */
+.who .name-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--vscode-foreground);
+  color: var(--vscode-editor-background, var(--chat-bg));
+  font-weight: 600;
+}
+
+/* 알약 안에서는 사용량도 같은 글자색이다 — 흐리면 알약 밖처럼 보인다 */
+.who .name-pill .usage {
+  color: inherit;
+  opacity: 0.75;
+  font-weight: 400;
+}
+
+/* 다 찼으면 거기서도 빨갛다 — 알약 안이라고 덜 급한 것이 아니다 */
+.who .name-pill .usage.full {
+  color: var(--danger);
+  opacity: 1;
+}
+
 .who {
   /*
    * 🔴 **줄어들게 한다.** `align-self`가 없으면 `.msg`(flex column)의 기본값이
@@ -1118,6 +1149,76 @@ button.ghost:hover {
 }
 
 /*
+ * ★ **한 말풍선 안의 조각들** (사용자, 2026-10-14).
+ *
+ * 글·활동·글이 **한 상자 안**에 선다 — 고른 색이 전체를 감싸야 하므로.
+ * 조각 사이는 한 줄 띄우고, 토큰은 제 줄을 쓴다.
+ */
+.bubble .say + .say,
+.bubble .acts + .say {
+  margin-top: 6px;
+}
+
+/* 토큰 줄 — **토큰만** 있는 줄이다. 글은 다음 줄부터 */
+.bubble .to-line {
+  margin-bottom: 4px;
+}
+
+/*
+ * ★ **활동 알약** (사용자, 2026-10-14) — 하나가 하나다.
+ *
+ * **가로로 늘어놓되 말풍선 밖으로는 안 나간다** — 넘치면 줄을 바꿔 내려온다
+ * (사용자). 활동 셋이 한 줄에 서면 «이만큼 했다»가 한눈에 들어오고, 글은
+ * 그 아래에서 제 자리를 지킨다.
+ */
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0;
+  max-width: 100%;
+}
+
+.act-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-dim);
+  font-size: var(--fs-11);
+  cursor: pointer;
+}
+
+/* 제목만 줄어든다 — 아이콘과 도장은 짧고 늘 필요하다 */
+.act-pill .what {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.act-pill:hover {
+  border-color: var(--focus);
+}
+
+/* 실패는 **색으로 말한다** — 예전엔 «접지 않는 것»으로 말했다 */
+.act-pill.failed {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* 팝업 안의 명령과 결과는 길 수 있다 — 상자 안에서 넘긴다 */
+.act-pop pre {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+/*
  * ★ **봇끼리 주고받은 말풍선** (§5-M, 2026-10-14) — 접힌 채로 한 줄.
  *
  * 나에게 한 말이 아니므로 **자리를 적게 쓴다.** 누가 누구에게 보냈는지는
@@ -1158,9 +1259,18 @@ button.ghost:hover {
   opacity: 0.7;
 }
 
-/* 괄호 — «이건 곁들인 것» 이라는 표. 글자처럼 안 읽히게 흐리다 */
+/* `>` — 펼 수 있다는 표. 글자처럼 안 읽히게 흐리다 */
 .relay-head .relay-mark {
   opacity: 0.55;
+  font-weight: 600;
+}
+
+/* 한 알 — «누가 누구에게» 는 한 가지 사실이다 */
+.relay-head .relay-token {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ── 활동 타임라인 (C3) ───────────────────────────────────────────────── */
