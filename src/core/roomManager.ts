@@ -5766,7 +5766,7 @@ export class RoomManager extends EventEmitter<Events> {
         "  · `queue_left` — 이것 말고 남은 수\n" +
         "\n" +
         "  [message]\n" +
-        "  · `item.also_to` — 해당 메세지를 수신한 다른 봇들\n" +
+        "  · `item.also_to` — 송신자가 해당 메세지를 보낸 다른 봇들\n" +
         "  · `item.text` — 메세지 내용\n" +
         "  · `item.depth_left` — 남은 반응 깊이. `null`은 무제한.\n" +
         "\n" +
