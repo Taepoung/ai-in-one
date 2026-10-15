@@ -86,6 +86,9 @@ node tests/probes/fsseam.cjs       # 파일 접근이 우리를 거치나
 npx tsx tests/probes/agysay.mts    # ★ Antigravity 가 say·check_queue 를 제대로 쓰나
 npx tsx tests/probes/agytalk.mts   # ★ 봇끼리의 말이 진짜 대화인가 · 울타리는 버티나 (M3)
 
+npx tsx tests/probes/tooldump.mts                  # 봇이 받는 글을 통째로 찍는다 (CLI 안 띄운다)
+npx tsx tests/probes/depthnull.mts                 # depth_left 의 null 을 «못 보낸다»로 읽나
+
 npx tsx tests/probes/killresume.mts <에이전트>   # 죽이고 다시 붙이면 그 턴을 기억하나
 npx tsx tests/probes/killwords.mts  <에이전트>   # 하던 일을 이어서 하나
 npx tsx tests/probes/killrecall.mts <에이전트>   # ★ **몇 개까지 했는지** 아나

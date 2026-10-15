@@ -209,23 +209,62 @@ async function main(): Promise<void> {
      * `check_queue` 는 보내기 직전에 불리므로 여기 수가 그 순간의 참이다.
      */
     const t = await make(3); dirs.push(t.dir);
-    const peek = async () =>
-      JSON.parse((await t.mgr.mcpCall(`${t.room.id}:${t.a.id}`, "check_queue", {})).text) as
-        { depth_left?: number };
+    /** 🔴 `depth_left` 는 **`item` 안**이다 (사용자가 고친 글, 2026-10-15) */
+    const peek = async () => {
+      const got = JSON.parse(
+        (await t.mgr.mcpCall(`${t.room.id}:${t.a.id}`, "check_queue", {})).text,
+      ) as { kind: string | null; item: { depth_left?: number | null } | null };
+      return { kind: got.kind, item: got.item ?? {} };
+    };
+
+    /*
+     * ★ **메세지를 꺼낼 때만 실린다** (사용자, 2026-10-15) — 그래서 심어둔다.
+     * 꺼내 봐도 안 빠지므로(답해야 빠진다) 여러 번 들여다봐도 같은 것이 나온다.
+     */
+    t.plant(t.a, t.b, 1);
+    t.inner.queue.startTurn(t.a.id);
 
     t.standAt(t.a, 0);
-    ok((await peek()).depth_left === 2,
-       `★ 사용자 턴에서는 둘 (${(await peek()).depth_left}) — 지금 거는 말이 이미 1다리째다`);
+    ok((await peek()).item.depth_left === 2,
+       `★ 사용자 턴에서는 둘 (${(await peek()).item.depth_left}) — 지금 거는 말이 이미 1다리째다`);
     t.standAt(t.a, 2);
-    ok((await peek()).depth_left === 0,
+    ok((await peek()).item.depth_left === 0,
        "★ **0 이면 «더 못 보낸다»가 자명하다** — 상한 값을 같이 적지 않는 이유다");
 
     /*
-     * 🔴 **안 걸리는 방에는 아예 안 싣는다.** 「승인」·「끔」에서는 상한이
-     * 안 걸리는데 숫자를 보여주면 **있지도 않은 벽**을 피해 가게 된다.
+     * ★ **안 걸리는 방에서는 `null`** (사용자, 2026-10-15).
+     *
+     * 「승인」에서는 상한이 안 걸린다. 숫자를 보여주면 **있지도 않은 벽**을
+     * 피해 가므로 수는 안 싣되, ⏪ **칸까지 빼던 것은 물렀다** — 같은 갈래
+     * 안에서 모양이 갈리면 «빠뜨린 건가»가 생긴다.
+     *
+     * 🔴 **`null` 과 `0` 은 반대 뜻이다** — `0` 은 «더 못 보낸다», `null` 은
+     * «상한이 없다». 섞이면 **갈 수 있는데 포기하는** 쪽으로 틀린다.
+     *
+     * (「끔」은 물음이 안 생긴다 — `say` 가 통째로 거절되어 봇끼리 말이 큐에
+     * 들어오지 않는다.)
      */
     t.room.relay = "ask";
-    ok((await peek()).depth_left === undefined, "★ 「승인」에서는 칸 자체가 없다");
+    const off = await peek();
+    ok("depth_left" in off.item, "★ **칸은 그대로 있다** — 메세지 갈래에서는 늘 있다");
+    ok(off.item.depth_left === null,
+       `★ 「승인」에서는 **null** — «상한이 없다» 다 (${JSON.stringify(off.item.depth_left)})`);
+
+    /*
+     * 🔴 **권한 갈래에는 안 싣는다** (사용자): *"message 내에 있어야하는거지
+     * permission에는 아니고"*. 권한을 꺼낸 봇이 할 수 있는 것은 `verdict`
+     * 뿐이라, 그 옆의 숫자는 **답에 쓰이지 않는 수**다.
+     */
+    t.room.relay = "always";
+    t.inner.queue.put({
+      kind: "permission", to: t.a.id, from: t.b.name, fromId: t.b.id,
+      title: "터미널 명령", command: "ls", readOnly: true,
+    });
+    t.inner.queue.startTurn(t.a.id);
+    const perm = await peek();
+    ok(perm.kind === "permission", `전제 — 권한이 먼저 나온다 (${String(perm.kind)})`);
+    ok(!("depth_left" in perm.item),
+       `★ **권한에는 칸이 없다** (${JSON.stringify(perm.item.depth_left)}) — 깊이는 say 쪽 이야기다`);
     t.mgr.dispose();
   }
 
