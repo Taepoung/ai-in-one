@@ -329,8 +329,10 @@ async function main(): Promise<void> {
     const out = await t.mgr.mcpCall(
       `${t.room.id}:${t.b.id}`, "say", { to: null, text: "제 일이 아닙니다", id },
     );
-    const body = JSON.parse(out.text) as { ok: boolean; to?: string; queue_left: number };
-    ok(body.ok === true && body.to === "사용자", `★ 사용자에게 갔다고 답한다 (${out.text})`);
+    const body = JSON.parse(out.text) as { ok: boolean; to?: unknown; queue_left: number };
+    ok(body.ok === true && body.to === null,
+       `★ **들어온 모양 그대로** 돌려준다 (${out.text}) — `
+       + "한 칸이 두 모양이면 읽는 쪽이 둘 다 다뤄야 한다");
     ok(t.inner.queue.find(t.b.id, id) === undefined,
        "★ **그 항목이 닫힌다** — 사용자에게 말하는 것도 그 항목에 대한 반응이다");
     ok(bubbles(t.room, t.b.id, t.a.id).length === 0,

@@ -158,6 +158,25 @@ console.log(NL + "[★ Tab으로 칩이 된다]");
   ok(!bare.includes("@cod"),
      `★ 친 «@cod»는 사라졌다 — 칩이 그 자리를 대신한다 (${JSON.stringify(bare)})`);
   ok(t.$("#screen-chat .picker") === null, "목록은 닫힌다");
+
+  /*
+   * 🔴 **칩 뒤에 첫 글자가 두 번 써졌다** (사용자, 2026-10-15).
+   *
+   * 까닭은 **커서가 놓인 자리**였다. 칩을 꼽고 나면 뒤에 빈 글자 노드가
+   * 남고 커서는 노드와 노드 **사이**에 섬다 — 그 자리에서 한글 조합이
+   * 시작되면 브라우저가 조합용 노드를 따로 만들고, 확정될 때 둘 다에
+   * 넣는다. **글자 노드 안의 자리**를 주면 조합이 처음부터 그 노드에서
+   * 일어나 겹치지 않는다. (IME 는 검사가 흉낼 수 없으므로 **그 자리를**
+   * 지킨다 — 빈 노드가 없고, 커서가 글자 노드 안에 있는가.)
+   */
+  const empties = [...box.childNodes].filter((n) => n.nodeType === 3 && n.data === "");
+  ok(empties.length === 0, `★ **빈 글자 노드가 안 남는다** (${empties.length}개)`);
+
+  const sel = t.w.document.getSelection();
+  ok(sel.anchorNode?.nodeType === 3,
+     `★ **커서가 글자 노드 안에 있다** (${sel.anchorNode?.nodeName}) — 노드 사이가 아니다`);
+  ok(sel.anchorOffset === sel.anchorNode.data.length,
+     `★ 그 노드의 끝에 (${sel.anchorOffset}/${sel.anchorNode.data.length})`);
 }
 
 console.log(NL + "[★ 보내기 전에 누구에게 가는지 말해준다]");

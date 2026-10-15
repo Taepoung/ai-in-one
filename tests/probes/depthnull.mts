@@ -127,7 +127,7 @@ async function round(depthLeft: number | null, tools: unknown[]): Promise<{
         return reply({
           content: [{
             type: "text",
-            text: JSON.stringify({ ok: true, to: to === null ? "사용자" : to, queue_left: 0 }),
+            text: JSON.stringify({ ok: true, to: to ?? null, queue_left: 0 }),
           }],
         });
       }

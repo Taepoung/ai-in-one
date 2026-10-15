@@ -6102,10 +6102,21 @@ export class RoomManager extends EventEmitter<Events> {
     }
     this.append(room, bubble);
     await this.saveNewMessage(room, bubble);
+    /*
+     * ★ **들어온 모양 그대로 돌려준다** (사용자, 2026-10-15): *"`to`:"사용자"
+     * 이게 유효한 동작인가?"*
+     *
+     * 🔴 봇에게 보내면 `to` 가 **이름 배열**인데 여기만 **글자**였다 — 한 칸이
+     * 두 모양이면 읽는 쪽이 둘 다 다뤄야 하고, 「사용자」라는 새 낱말까지
+     * 외워야 한다. `to: null` 로 보냈으니 `null` 로 답하는 것이 같은 말이다.
+     *
+     * 이름을 돌려주는 까닭은 **우리가 고른 이름**(`@` 떼고 대소문자 맞춤)을
+     * 알려주려는 것인데, 사용자에게는 맞출 이름이 없다.
+     */
     return {
       text: JSON.stringify({
         ok: true,
-        to: "사용자",
+        to: null,
         queue_left: this.queue.shareLeft(me.id),
       }),
     };

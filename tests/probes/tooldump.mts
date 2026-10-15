@@ -199,7 +199,7 @@ say("### 보낸 뒤 — 성공한 답");
 say();
 say("```");
 say('say     (봇에게)   {"ok":true,"to":["베타","감마"],"queue_left":0}');
-say('say     (사용자)   {"ok":true,"to":"사용자","queue_left":0}');
+say('say     (사용자)   {"ok":true,"to":null,"queue_left":0}');
 say('verdict            {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")');
 say("```");
 say();

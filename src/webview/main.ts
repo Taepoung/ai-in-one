@@ -3110,7 +3110,6 @@ function paintPicker(r: Room, box: HTMLElement): void {
     const text = found.node;
     const rest = text.data.slice(found.at + 1 + found.q.length);
     text.data = text.data.slice(0, found.at);
-    const after = box.ownerDocument.createTextNode(rest);
     let mark: Node = text;
     for (const id of row.ids) {
       const name = id === EVERYONE ? "everyone" : (r.participants.find((b) => b.id === id)?.name ?? id);
@@ -3120,7 +3119,16 @@ function paintPicker(r: Room, box: HTMLElement): void {
       chip.parentNode?.insertBefore(gap, chip.nextSibling);
       mark = gap;
     }
-    mark.parentNode?.insertBefore(after, mark.nextSibling);
+    /*
+     * 🔴 **빈 글자 노드를 남기지 않는다** (사용자, 2026-10-15). 뒤에 남은
+     * 글이 없는데도 빈 노드를 끼워 넣으면 커서가 **빈 노드 앞**에 서고,
+     * 거기서 한글 조합이 첫 글자를 두 번 친다. 앞쪽도 마찬가지라 `@` 앞이
+     * 비었으면 그 노드도 걷는다.
+     */
+    if (rest) {
+      mark.parentNode?.insertBefore(box.ownerDocument.createTextNode(rest), mark.nextSibling);
+    }
+    if (text !== mark && text.data === "") text.remove();
     caretAfter(box, mark);
     closePicker();
     box.dispatchEvent(new Event("input"));
@@ -3166,11 +3174,22 @@ function movePicker(to: number): void {
   btns.forEach((b, n) => b.classList.toggle("on", n === pickerAt));
 }
 
-/** 커서를 이 노드 뒤로 */
+/**
+ * 커서를 이 노드 뒤로.
+ *
+ * 🔴 **글자 노드면 «그 안의 끝»에 둔다** (사용자, 2026-10-15): *"칩 작성후
+ * 쓰는 첫 글자가 두번써짐"*.
+ *
+ * 노드와 노드 **사이**에 커서를 두면 한글 조합(IME)이 그 자리에서 **첫 글자를
+ * 두 번** 친다 — 조합을 시작할 때 브라우저가 글자 노드를 새로 만들고, 조합이
+ * 확정될 때 그 노드와 원래 자리 둘 다에 넣는다. 글자 노드 **안의 자리**(노드 +
+ * 오프셋)를 주면 조합이 처음부터 그 노드에서 일어나 겹치지 않는다.
+ */
 function caretAfter(box: HTMLElement, node: Node): void {
   const doc = box.ownerDocument;
   const range = doc.createRange();
-  range.setStartAfter(node);
+  if (node.nodeType === 3) range.setStart(node, (node as Text).data.length);
+  else range.setStartAfter(node);
   range.collapse(true);
   const sel = doc.getSelection();
   sel?.removeAllRanges();
