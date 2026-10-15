@@ -4464,6 +4464,8 @@ function sigOf(m: Message): string {
     (m.authorBotId ? room?.participants.find((b) => b.id === m.authorBotId)?.ink : "") ?? "",
     // 나에게 한 말인가 — 칩이 붙고 떨어진다 (2026-09-29)
     m.toUser ? "me" : "",
+    // 버리면서 남긴 말은 접혀서 선다 (2026-10-15)
+    m.aside ? "a" : "",
     // 자리를 잡으면 **순서가 바뀐다** — 다시 그려야 한다 (대기 정렬)
     m.placedAt ?? "",
     (m.notSentTo ?? []).join(","),
@@ -4829,6 +4831,29 @@ function messageNode(
    * 이별로 쪼개 보내는 것과 같은 규칙이다(`mentions.ts`) — 받는 쪽에서는
    * 각각 한 통이므로 화면도 한 통씩이어야 읽기가 같다.
    */
+  /*
+   * ★ **버리면서 남긴 말도 접는다** (사용자, 2026-10-15):
+   * *"그거는 사용자에게만 가지만, 확장형 말풍선(다른 봇에 보내는 것과
+   * 같이)로 분리하게 / to user로 명시하면 그냥 말풍선"*.
+   *
+   * 🔴 가르는 것은 **적어 보냈나**다. `to: ["user"]` 는 사용자에게 한
+   * 말이니 그냥 선다. `to: null` 은 **버린 것**이고, 사용자가 읽으라고
+   * 쓴 글이 아니라 **장부에 남는 글**이라 펼쳐두면 대화가 그것으로 덮인다.
+   */
+  if (m.aside === true && m.toUser === true) {
+    node.append(
+      el(
+        "div",
+        { class: "row" },
+        el("div", { class: "bubble" }, relayFold(m, room, USER_FOLD, [...wrap.childNodes])),
+        !m.streaming ? el("span", { class: "time", text: hhmm(m.createdAt) }) : null,
+      ),
+    );
+    if (changed) node.append(changed);
+    if (note) node.append(note);
+    return node;
+  }
+
   if (botToBot(m)) {
     const ids = m.deliveredTo.filter((id) => id !== m.authorBotId);
     const inner = [...wrap.childNodes];
@@ -4893,8 +4918,12 @@ const saidToUser = (m: Message): boolean =>
  * ⚠️ **글은 안 건드린다.** 받은 자식들을 그대로 안에 넣을 뿐이라, 펴면
  * 평소와 똑같다(마크다운·활동·계획·답장 인용까지).
  */
+/** 접힌 말풍선의 받는 이 자리에 쓰는 «사용자» 표 — 봇 id 와 안 섮인다 */
+const USER_FOLD = "(사용자)";
+
 function relayFold(m: Message, r: Room | null, to: string, kids: ChildNode[]): HTMLElement {
   const nameOfBot = (id: string): string => {
+    if (id === USER_FOLD) return `@${USER_CHIP}`;
     const seen = r ? botLabel(r, id) : undefined;
     return seen ? `@${seen.name}` : "@나간 봇";
   };
@@ -8610,10 +8639,22 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       /* 붙는 화면에서도 여기로 빠진다 — 다 붙었고 막을 것도 없으면 채팅이다 */
       repaintBlock(m.room);
 
-      // **방을 만들었으면 바로 들어간다.**
-      // 생성 응답은 방 데이터만 주므로, 화면 전환은 여기서 해야 한다 —
-      // 안 하면 만들기 화면에 그대로 서 있게 된다.
-      if (stack[stack.length - 1] === "new") go("chat");
+      /*
+       * **방을 만들었으면 들어간다.** 생성 응답은 방 데이터만 주므로,
+       * 화면 전환은 여기서 해야 한다 — 안 하면 만들기 화면에 그대로 선다.
+       *
+       * ★ **붙는 화면을 거친다** (사용자, 2026-10-15): *"새로운 방 만들때,
+       * 방 진입시 로딩화면이 안뜨음, 같은 과정이 되어야될거 같은데"*.
+       *
+       * 🔴 만든 방도 **세션을 붙이는 것은 마찬가지**다(Antigravity 는 17초가
+       * 걸린다). 그동안 빈 대화창에 서 있으면 «다 된 것» 으로 보여 글을 치게
+       * 되고, 그 한 마디는 봇이 아직 없어서 **줄에 서 있다가 나중에 간다.**
+       * 들어가는 길이 둘인데 모양이 다른 것도 그 자체로 헷갈림이다.
+       */
+      if (stack[stack.length - 1] === "new") {
+        if (joined.has(m.room.id)) go("chat");
+        else { renderJoining(m.room); go("joining"); }
+      }
       if (jumpToMessageId) {
         // 막 들어온 참이라 «읽던 자리»가 없다 — 띠를 안 띄운다
         jumpTo(jumpToMessageId, false);

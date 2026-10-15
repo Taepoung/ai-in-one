@@ -215,8 +215,23 @@ function main() {
     t.$("#screen-new .actions .primary").click();
     ok(t.sent.some((m) => m.t === "createRoom"), "createRoom 전송됨");
 
+    /*
+     * ★ **만든 방도 붙는 화면을 거친다** (사용자, 2026-10-15):
+     * *"새로운 방 만들때, 방 진입시 로딩화면이 안뜨음, 같은 과정이
+     * 되어야될거 같은데"*.
+     *
+     * 🔴 만든 방도 세션을 붙이는 것은 마찬가지다(Antigravity 는 17초).
+     * 그동안 빈 대화창에 서 있으면 «다 된 것» 으로 보여 글을 치게 되고,
+     * 그 한 마디는 봇이 아직 없어 **줄에 서 있다가 나중에** 간다.
+     */
     t.send({ t: "room", room: room(), compactable: false });
-    ok(t.screenOf() === "chat", "**채팅 화면으로 전환된다**");
+    ok(t.$("#screen-joining").classList.contains("active"),
+       "★ **붙는 화면이 먼저다** — 들어가는 두 길의 모양이 같다");
+    ok(t.$("#screen-joining h1").textContent.startsWith("리팩터링"), "제목은 거기서도 보인다");
+
+    t.send({ t: "joinDone", roomId: "r1" });
+    t.send({ t: "room", room: room(), compactable: false });
+    ok(t.screenOf() === "chat", "★ 다 붙으면 채팅이다");
     ok(t.$("#screen-chat h1").textContent.startsWith("리팩터링"), "제목이 헤더에");
   }
 

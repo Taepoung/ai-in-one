@@ -14,7 +14,6 @@
  * ```
  */
 import { BotQueue } from "../src/core/botQueue.js";
-import { USER_TURN_ID } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const NL = String.fromCharCode(10);
@@ -167,7 +166,6 @@ function main(): void {
       ids.push(q.put(msg("베타", `${i}`)));
       ids.push(q.put({ kind: "permission", to: "베타", from: "알파", fromId: "a", title: "x", readOnly: true }));
     }
-    ok(!ids.includes(USER_TURN_ID), `★ 백 개를 내줘도 «${USER_TURN_ID}» 는 안 나온다`);
     ok(ids.every((id) => /^[px]\d+$/.test(id)), "★ 앞글자 + 1 부터 — 그 둘이 보장의 전부다");
   }
 

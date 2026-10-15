@@ -573,6 +573,17 @@ export interface Message {
    */
   toUser?: boolean;
   /**
+   * ★ **곁말 — 버리면서 남긴 말** (사용자, 2026-10-15).
+   *
+   * `say(to: null, …)` 은 «버린다» 다 — 아무에게도 안 가고 그 항목만 닫힌다.
+   * 그런데 **왜 버렸는지**는 사용자가 봐야 하므로 글은 남는다.
+   *
+   * 그 말은 **접히게** 선다(봇끼리 말과 같은 모양) — 사용자가 읽으려고
+   * 쓴 말이 아니라 **장부에 남는 글**이라, 펼쳐두면 대화가 그것으로 덮인다.
+   * `to: ["user"]` 로 **적어 보낸** 말은 이 칸이 없고 그냥 선다.
+   */
+  aside?: boolean;
+  /**
    * ★ **이 말이 어디서 이어진 것인가** (2026-09-28).
    *
    * 봇은 **질문 없이도 말한다** — 백그라운드로 띄운 일이 끝나면 턴이 닫힌
@@ -1159,15 +1170,19 @@ export const DEFAULT_RELAY: RelayMode = "ask";
 export const DEFAULT_DEPTH_CAP = 12;
 
 /**
- * ★ **«사용자가 방금 한 말 때문에»** — `say` 의 `id` 자리 (v3.0 4-L).
+ * ★ **처음 시작하는 `say`** — `id` 자리에 `null` 이 간다 (사용자, 2026-10-15).
  *
- * 🔴 **모든 `say` 는 무엇에 대한 반응인지를 들고 간다.** 전에는 `id` 가 없는
- * 것이 «새로 거는 것»이었는데, 그러면 갈래가 둘이고 **없는 것으로 뜻을
- * 만드는** 꼴이었다 — 빠뜨린 것과 구별이 안 된다.
+ * ⏪ **«0» 이었다** (v3.0 4-L). 🔴 그런데 그 글자가 «사용자 말에 대한 반응»
+ * 으로 설명되는 바람에 **답장해야 한다**는 느낌을 만들었다 — 사용자:
+ * *"처음 시작하는 say라고 하자. 사용자 말에 반응이 아니라"*.
  *
- * 큐 항목 id 는 `x1`·`p9` 꼴이라 이 값과 겹치지 않는다.
+ * `null` 은 **큐에서 비울 것이 없다**는 뜻이라 모양으로도 맞는다: 다른 값은
+ * 전부 «이 항목을 비운다» 인데 여기만 비울 것이 없다.
+ *
+ * 🔴 **빠뜨린 것과는 다르다.** `id` 는 여전히 필수고, 아예 없으면 오류다 —
+ * 인자를 빠뜨린 한 번이 **조용히 새 대화를 여는 것**이 되면 안 된다.
  */
-export const USER_TURN_ID = "0";
+export type SayId = string | null;
 
 /** 방 유형. 목록 아이콘이 이 값으로 갈린다 (B5) */
 export type RoomKind = "direct" | "group" | "shared";
@@ -1592,7 +1607,36 @@ export function cleanBotName(wanted: string): string {
   return wanted.replace(/[()[\]<>@]/g, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * ★ **사용자의 이름은 봇이 못 쓴다** (사용자, 2026-10-15):
+ * *"봇이름에 user금지, also_to에는 user항상 표시"*.
+ *
+ * 🔴 `also_to` 에 사용자가 **항상 `user` 로** 서게 됐다. 그런데 봇도
+ * `user` 라고 불릴 수 있으면 그 칸이 **두 가지를 가리키고**, `to` 에
+ * 적은 이름이 누구인지도 우리가 못 정한다 — 이름이 곧 주소인 설계라
+ * (§B1) 거기서 무너진다.
+ *
+ * 대소문자를 무시하고 막는다 — `User` 도 같은 말로 읽힌다.
+ */
+/**
+ * ★ **모델에게 사용자를 가리키는 이름** (사용자, 2026-10-15).
+ *
+ * `also_to` 에 항상 서고, `to` 에 이 이름만 적으면 **사용자에게만** 간다
+ * (`to: null` 과 같다). 두 길을 두는 까닭은 **`also_to` 가 그 이름을 보여주기
+ * 때문**이다 — 보여주고 써보면 거절하는 것은 왜복 한 번을 낭비하는 일이다.
+ */
+export const USER_TARGET = "user";
+
+export const RESERVED_BOT_NAMES = ["user", "사용자"];
+
+export function isReservedBotName(name: string): boolean {
+  const flat = name.trim().toLowerCase();
+  return RESERVED_BOT_NAMES.includes(flat);
+}
+
 export function uniqueBotName(wanted: string, taken: ReadonlySet<string>): string {
+  // 묶인 이름은 «이미 쓴 이름» 과 같이 다뢬다 — 뒤에 수가 붙어 «user 2» 가 된다
+  if (isReservedBotName(wanted)) return uniqueBotName(`${wanted} 2`, taken);
   if (!taken.has(wanted)) return wanted;
   for (let n = 2; ; n++) {
     const tryThis = `${wanted} ${n}`;
@@ -1768,7 +1812,13 @@ export function rosterText(room: Room, me: BotInstance): string {
   const body = {
     you: me.name,
     bots: off ? [] : others.map((b) => ({ name: b.name, does: (b.blurb ?? "").trim() })),
-    user: { sees: "모든 메세지" },
+    /*
+     * ★ **이름을 같이 적는다** (사용자, 2026-10-15): *"그럼 유저가 사용자라고
+     * 프롬프트에 명시해야될듯?"* — `also_to` 에 항상 서고 `to` 에도 쓸 수 있는
+     * 이름이니, **명단이 그 이름을 말해야** 한다. 봇 항목과 같은 모양(`name`)이라
+     * «방에 누가 있나» 가 한 줄로 읽힌다 — 이름이 곧 주소다(§B1).
+     */
+    user: { name: USER_TARGET, sees: "모든 메세지" },
     ...(off ? { relay: "off" } : {}),
   };
   return `[${ROSTER_TAG}] ${JSON.stringify(body)}`;

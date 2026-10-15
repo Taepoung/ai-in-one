@@ -104,7 +104,7 @@ async function make() {
     return JSON.parse(out.text) as {
       kind: string | null;
       use?: string;
-      item: { id: string; from: string; title?: string; command?: string } | null;
+      item: { id: string; author: string; title?: string; command?: string } | null;
     };
   };
   /** 그리고 판정한다 */
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
     const got = await t.check();
     ok(got.kind === "permission" && got.use === "verdict",
        `★ 심사 봇이 꺼내 보면 권한이 나온다 (${got.kind} · ${got.use})`);
-    ok(got.item?.from === t.asker.name, `★ 누가 하려는지 (${got.item?.from})`);
+    ok(got.item?.author === t.asker.name, `★ 누가 하려는지 (${got.item?.author})`);
 
     await t.verdict(got.item!.id, true, "되돌릴 수 있는 변경입니다.");
     const out = await pending;

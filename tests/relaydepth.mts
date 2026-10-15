@@ -24,7 +24,7 @@
  * 그리고 **모든 `say` 는 «무엇에 대한 반응인가»를 들고 온다**:
  *
  * ```
- * id = "0"   사용자가 방금 한 말 때문에   ← 사용자가 연 턴에서만
+ * id = null  처음 시작하는 say        ← 사용자가 연 턴에서만
  * id = "x7"  큐 항목 때문에
  * ```
  */
@@ -106,7 +106,7 @@ async function make(cap: number) {
   };
   /** 그 봇이 하듯 — `id` 를 안 주면 «사용자가 방금 한 말 때문에» 다 */
   const say = async (
-    from: { id: string }, to: string | string[], text: string, id = "0",
+    from: { id: string }, to: string | string[], text: string, id: string | null = null,
   ): Promise<SayOut> => {
     const out = await mgr.mcpCall(`${room.id}:${from.id}`, "say", { to, text, id });
     return out.isError ? { ok: false, reason: out.text } : JSON.parse(out.text) as SayOut;
@@ -281,7 +281,7 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[🔴 id "0" 은 사용자가 연 턴에서만]`);
+  console.log(`${NL}[🔴 처음 시작하는 say 는 사용자가 연 턴에서만]`);
   {
     /*
      * 🔴 **여기가 가지치기를 깊이 0 으로 묶는 자리다.** 사슬 깊은 데 있는
@@ -294,21 +294,21 @@ async function main(): Promise<void> {
 
     t.standAt(t.a, 0);
     ok((await t.say(t.a, "리뷰어", "사용자가 시킨 일이야")).ok,
-       "★ 사용자가 연 턴에서는 «0» 이 통한다");
+       "★ 사용자가 연 턴에서는 통한다");
 
     t.standAt(t.a, 1);   // 다른 봇이 깨운 턴
     const deep = await t.say(t.a, "리뷰어", "갑자기 딴 얘기");
-    ok(!deep.ok && (deep.reason ?? "").includes("0"),
+    ok(!deep.ok && (deep.reason ?? "").includes("처음 시작"),
        `★ 🔴 **다른 봇이 연 턴에서는 막힌다** (${deep.reason})`);
     ok((deep.reason ?? "").includes("check_queue"),
        "★ **대신 뭘 쓰라고 말해준다** — 거절은 언제나 «왜 + 어떻게»다");
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[🔴 id "0" 으로는 같은 봇에게 한 번만 — 무한 가지치기를 막는다]`);
+  console.log(`${NL}[🔴 처음 시작하는 say 는 같은 봇에게 한 번만 — 무한 가지치기를 막는다]`);
   {
     /*
-     * 🔴 **`id:"0"` 은 깊이가 1 이라 상한에 구조적으로 안 걸린다.** 묶지 않으면
+     * 🔴 **처음 시작하는 say 는 깊이가 1 이라 상한에 구조적으로 안 걸린다.** 묶지 않으면
      * 사용자 말 한 마디가 가지를 **무한히** 연다 — 재봤더니 한 턴에 스무 번이
      * 다 나갔다(상한 3 인 방에서).
      *
@@ -446,7 +446,8 @@ async function main(): Promise<void> {
     const got = t.plant(t.a, t.c, 4);
 
     const out = await t.say(t.a, ["리뷰어", "테스터"], "둘 다 봐줘", got);
-    ok(out.ok && out.to?.join("·") === "리뷰어·테스터",
+    /* ★ 돌려주는 `to` 에는 **사용자가 끝에 선다** — 언제나 받으므로 */
+    ok(out.ok && out.to?.join("·") === "리뷰어·테스터·user",
        `★ 둘에게 간다 (${JSON.stringify(out.to)}) — **우리가 고른 이름**으로 돌려준다`);
     const mine = t.newest(t.b.id)!, hers = t.newest(t.c.id)!;
     ok(t.depthOf(t.b.id, mine) === 5 && t.depthOf(t.c.id, hers) === 5,

@@ -206,7 +206,7 @@ async function round(depthLeft: number | null, tools: unknown[]): Promise<{
       prompt: [{
         type: "text",
         text: '[ai-in-one] {"you":"베타","bots":[{"name":"알파","does":"묻고 정리한다"}],"user":{"sees":"모든 메세지"}}\n\n'
-          + '[ai-in-one] {"say_id_0":"invalid","also_to":[],"queue":1,"do":"check_queue"}',
+          + '[ai-in-one] {"null_id":"invalid","also_to":[],"queue_left":1,"do":"check_queue"}',
       }],
     });
   } catch (e) {

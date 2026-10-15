@@ -80,7 +80,7 @@ async function make() {
     const bt = inner.botRuntime(room.id, asker.id);
     bt.depth = 0; bt.fromUser = true;
     const out = await mgr.mcpCall(
-      `${room.id}:${asker.id}`, "say", { to: [judge.name], text, id: "0" },
+      `${room.id}:${asker.id}`, "say", { to: [judge.name], text, id: null },
     );
     if (!out.text.includes('"ok":true')) throw new Error("FAIL: 전제가 안 섰다 — say 가 막혔다: " + out.text);
   };

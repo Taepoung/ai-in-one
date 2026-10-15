@@ -63,6 +63,9 @@ export type McpState =
 /** MCP 판. 프로브로 이 값이 오가는 것을 확인했다 */
 const PROTOCOL = "2025-06-18";
 
+/** 한 임자에게 살려두는 열쇠 수 — 다시 붙는 연결이 살아남을 만큼만 */
+const KEEP_KEYS = 4;
+
 export class McpServer {
   private server?: http.Server;
   private state: McpState = { at: "off" };
@@ -74,6 +77,10 @@ export class McpServer {
    * 근거가 사라진다.
    */
   private readonly owners = new Map<string, string>();
+  /** 열쇠 → 그 열쇠가 매인 세션 (아직 안 매였으면 없다) */
+  private readonly ties = new Map<string, string>();
+  /** 임자 → 마지막으로 내준 열쇠 — `tie` 가 이걸 매다 */
+  private readonly lastKey = new Map<string, string>();
 
   private tools: McpTool[] = [];
   private call: McpCall = async () => ({ text: "아직 아무 도구도 없습니다.", isError: true });
@@ -132,6 +139,26 @@ export class McpServer {
   issue(owner: string): string {
     const secret = `aio-${randomBytes(18).toString("base64url")}`;
     this.owners.set(secret, owner);
+    this.lastKey.set(owner, secret);
+    /*
+     * ★ **같은 임자의 열쇠를 몇 개 살려둔다** (사용자, 2026-10-15).
+     *
+     * 🔴 사용자가 받은 것: *"The MCP server 'ai-in-one' failed to
+     * initialize: … Unauthorized."* — 발급할 때마다 옆에 **옮 열쇠를
+     * 거두고** 있었는데(`revoke`), Antigravity 는 **한 프로세스가 세션
+     * 여럿을 품고** MCP 서버를 이름당 한 번 붙인다. 그러면 거둔 그
+     * 열쇠가 **아직 살아 있는 연결의 것**이라, 방이 통째로 도구를 잃는다.
+     *
+     * ★ **안전은 안 물러진다.** 열쇠는 «누구인가»만 가리킨다 — 같은
+     * 임자의 열쇠가 둘이어도 **할 수 있는 일은 똑같다.** 거두는 일은
+     * 맵이 무한히 커지는 것을 막는 것이었고, 그건 **최근 몇 개만
+     * 남기면** 같이 해결된다.
+     */
+    const mine = [...this.owners].filter(([, who]) => who === owner).map(([key]) => key);
+    for (const old of mine.slice(0, Math.max(0, mine.length - KEEP_KEYS))) {
+      this.owners.delete(old);
+      this.ties.delete(old);
+    }
     return secret;
   }
 
@@ -141,9 +168,40 @@ export class McpServer {
    * 안 지우면 죽은 세션의 비밀이 계속 먹힌다. 쓸 상대가 없으니 당장 해롭진
    * 않지만, **맵이 끝없이 자라고** «지금 살아 있는 것»을 셀 수 없게 된다.
    */
+  /**
+   * ⚠️ **다시 발급할 때는 안 부른다** (2026-10-15) — 그때 거두면 같은
+   * 프로세스에서 **아직 쓰이는 열쇠**까지 죽는다(`issue` 의 주석).
+   * 방을 나가거나 봇이 없어질 때처럼 **임자가 사라질 때** 부른다.
+   */
   revoke(owner: string): void {
     for (const [secret, who] of [...this.owners]) {
-      if (who === owner) this.owners.delete(secret);
+      if (who === owner) { this.owners.delete(secret); this.ties.delete(secret); }
+    }
+    this.lastKey.delete(owner);
+  }
+
+  /**
+   * ★ **그 임자에게 마지막으로 내준 열쇠를 이 세션에 맨다** (2026-10-15).
+   *
+   * 열쇠를 내줄 때는 세션 id 가 없다 — `session/new` 의 **인자로** 나가므로
+   * 그 답이 와야 알 수 있다. 그래서 나중에 맨다.
+   */
+  tie(owner: string, sessionId: string): void {
+    const secret = this.lastKey.get(owner);
+    if (secret) this.ties.set(secret, sessionId);
+  }
+
+  /**
+   * ★ **그 세션이 끝났다 — 거기 매인 열쇠만 거둔다** (2026-10-15).
+   *
+   * 🔴 임자 단위로 거두면 **같은 봇의 새 세션까지** 죽는다(그게
+   * Antigravity 에서 터졌던 자리다). 세션 단위면 좌비만 골라 죽는다.
+   */
+  untie(sessionId: string): void {
+    for (const [secret, sid] of [...this.ties]) {
+      if (sid !== sessionId) continue;
+      this.ties.delete(secret);
+      this.owners.delete(secret);
     }
   }
 

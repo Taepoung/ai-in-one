@@ -747,6 +747,35 @@ console.log("\n[★ say(to: null) — 사용자에게 간 말은 **산문과 따
      "★ **산문은 제 질문 바로 아래면 안 달린다** — 자명한 것을 적으면 잊힘이 된다");
 }
 
+console.log("\n[★ 버린 말은 **접혀서** 선다 (사용자, 2026-10-15)]");
+{
+  /*
+   * 사용자: *"그거는 사용자에게만 가지만, 확장형 말풍선(다른 봇에 보내는
+   * 것과 같이)로 분리하게 / to user로 명시하면 그냥 말풍선"*.
+   *
+   * 🔴 가르는 것은 **적어 보냈나**다 — `to: ["user"]` 는 사용자에게 한 말이라
+   * 그냥 서고, `to: null` 은 **버린 것**이라 장부처럼 접힌다.
+   */
+  const t = mount();
+  const aside = { id: "s1", role: "agent", text: "제 일이 아닙니다", authorBotId: "b1",
+                  deliveredTo: ["b1"], toUser: true, aside: true, createdAt: 5 };
+  const spoken = { id: "s2", role: "agent", text: "이건 들으세요", authorBotId: "b1",
+                   deliveredTo: ["b1"], toUser: true, createdAt: 6 };
+  open(t, room(BOTH, [aside, spoken]));
+
+  const boxes = t.$$("#screen-chat .msg.agent");
+  const fold = boxes[0].querySelector(".relay-fold");
+  ok(fold !== null, "★ **버린 말은 접힌다** — 사용자가 읽으라고 쓴 글이 아니다");
+  const chip = fold.querySelector(".chip.to");
+  ok(chip?.textContent === "@(사용자)",
+     `★ 칩은 **@(사용자)** (${chip?.textContent}) — 봇 칩과 같은 자리, 같은 말투`);
+  ok(fold.textContent.includes("제 일이 아닙니다"),
+     "★ **안 지운다** — 펴면 글이 그대로 있다");
+
+  ok(boxes[1].querySelector(".relay-fold") === null,
+     "★ **적어 보낸 말은 안 접는다** — 그건 사용자에게 한 말이다");
+}
+
 console.log("\n[★ 1:1 에서는 안 단다 — 받을 사람이 나뿐이다]");
 {
   /*

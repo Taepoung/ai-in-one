@@ -130,12 +130,12 @@ async function main(): Promise<void> {
     const got = await callTool(url, secret, "check_queue");
     console.log(`   ${got.text}`);
     const body = JSON.parse(got.text) as {
-      kind: string; use: string; item: { text?: string; from?: string };
+      kind: string; use: string; item: { text?: string; author?: string };
     };
     ok(body.kind === "message", `★ 종류를 말해준다 (${body.kind})`);
     ok(body.use === "say", `★ **어느 도구를 쓸지도** (${body.use})`);
     ok(body.item?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로 온다");
-    ok(body.item?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
+    ok(body.item?.author === "알파", "★ 누가 썼는지도 — 저자를 적는다");
 
     /*
      * 🔴 **우리 장부를 같이 보내지 않는다.** 큐 항목에는 `to`(봇 id)·`at`
@@ -154,7 +154,7 @@ async function main(): Promise<void> {
      * 것은 `verdict` 뿐이라 거기 숫자는 답에 쓰이지 않는다(`relaydepth`).
      */
     const keys = Object.keys(body.item as object).sort();
-    ok(keys.join() === "also_to,depth_left,from,id,text",
+    ok(keys.join() === "also_to,author,depth_left,id,text",
        `★ **봇이 알 것만 간다** (${keys.join(" · ")}) — to·at 은 우리 장부다`);
   }
 

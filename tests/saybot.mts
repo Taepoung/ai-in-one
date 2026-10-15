@@ -99,7 +99,7 @@ async function make(hold = 60) {
   /**
    * 봇이 하듯 — `say` 를 부른다.
    *
-   * `id` 를 안 주면 «사용자가 방금 한 말 때문에»(`"0"`)로 친다. 그러려면 그
+   * `id` 를 안 주면 **처음 시작하는 say**(`null`)로 친다. 그러려면 그
    * 턴을 사용자가 열었어야 하므로 **전제를 같이 세워준다** — 진짜로는
    * `runQueue` 가 세우는 값이다.
    */
@@ -107,7 +107,7 @@ async function make(hold = 60) {
     from: { id: string }, to: string, text: string, id?: string,
   ): Promise<SayOut & { isError?: boolean }> => {
     if (!id) {
-      // «0» 은 **사용자가 연 턴**에서만 통한다 — 진짜로는 `runQueue` 가 박는 값이다
+      // 처음 시작하는 say 는 **사용자가 연 턴**에서만 된다 — 진짜로는 `runQueue` 가 박는 값이다
       const bt = (mgr as unknown as {
         botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
       }).botRuntime(room.id, from.id);
@@ -116,7 +116,7 @@ async function make(hold = 60) {
     }
     const out = await mgr.mcpCall(
       `${room.id}:${from.id}`, "say",
-      { to, text, id: id ?? "0" },
+      { to, text, id: id ?? null },
     );
     if (out.isError) return { ok: false, reason: out.text, queue_left: 0, isError: true };
     return JSON.parse(out.text) as SayOut;
@@ -127,7 +127,7 @@ async function make(hold = 60) {
     return JSON.parse(out.text) as {
       kind: string | null;
       use?: string;
-      item: { id: string; from: string; text?: string; about?: string } | null;
+      item: { id: string; author: string; text?: string; about?: string } | null;
       left: number;
     };
   };
@@ -173,7 +173,7 @@ async function main(): Promise<void> {
     ok(got.kind === "message" && got.use === "say",
        `★ 받는 쪽 큐에 들어 있다 — **say 를 쓰라고** 같이 온다 (${got.use})`);
     ok(got.item?.text === "이 테스트 좀 봐줄래?", "★ 글이 그대로");
-    ok(got.item?.from === "알파", "★ 누가 걸었는지도 — 그게 답할 상대다");
+    ok(got.item?.author === "알파", "★ 누가 썼는지도 — 저자를 적는다");
     ok(got.item?.about === undefined,
        "★ **새로 거는 것에는 인용이 없다** — 인용은 답일 때만 뜻이 있다");
 
@@ -320,23 +320,23 @@ async function main(): Promise<void> {
     const turn = t.room.messages.filter((m) => m.authorBotId === t.b.id).at(-1)!;
     bt.turn = turn as unknown as { tools?: Array<{ title: string; output?: string }> };
 
-    /* 🔴 **빠뜨린 것과 구별한다** — `null` 을 적어야 넘김이다 */
+    /* 🔴 **빠뜨린 것과 구별한다** — `to` 는 언제나 있어야 한다 */
     const missed = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { text: "뭔가", id });
-    ok(missed.isError === true && missed.text.includes("`null`"),
-       `★ **to 를 빠뜨리면 오류다** — 한 번의 빠뜨림이 조용한 삭제가 되면 안 된다`);
+    ok(missed.isError === true && missed.text.includes("`to`"),
+       `★ **to 를 빠뜨리면 오류다** — 한 번의 빠뜨림이 조용한 전송이 되면 안 된다`);
 
     const asked = bubbles(t.room, t.a.id, t.b.id).at(-1)!;
     const out = await t.mgr.mcpCall(
-      `${t.room.id}:${t.b.id}`, "say", { to: null, text: "제 일이 아닙니다", id },
+      `${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "제 일이 아닙니다", id },
     );
     const body = JSON.parse(out.text) as { ok: boolean; to?: unknown; queue_left: number };
-    ok(body.ok === true && body.to === null,
+    ok(body.ok === true && JSON.stringify(body.to) === JSON.stringify(["user"]),
        `★ **들어온 모양 그대로** 돌려준다 (${out.text}) — `
-       + "한 칸이 두 모양이면 읽는 쪽이 둘 다 다뤄야 한다");
+       + "들고 나는 모양이 둘 다 «이름 리스트» 하나다");
     ok(t.inner.queue.find(t.b.id, id) === undefined,
        "★ **그 항목이 닫힌다** — 사용자에게 말하는 것도 그 항목에 대한 반응이다");
     ok(bubbles(t.room, t.b.id, t.a.id).length === 0,
-       "★ **알파에게는 안 간다** — `null` 은 «아무에게도»가 아니라 «사용자에게»다");
+       "★ **알파에게는 안 간다** — [\"user\"] 는 «아무에게도»가 아니라 «사용자에게»다");
 
     const toMe = t.room.messages.filter((m) => m.authorBotId === t.b.id && m.toUser).at(-1)!;
     ok(toMe.text === "제 일이 아닙니다" && toMe.id !== turn.id,
@@ -348,7 +348,7 @@ async function main(): Promise<void> {
        "★ 같은 턴이면 묶인다 — 산문과 이 말은 한 턴의 두 말풍선이다 (4-14)");
 
     /* 할 말이 없으면 안 받는다 — 빈 말풍선을 세울 이유가 없다 */
-    const bare = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { to: null, text: "  ", id });
+    const bare = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "  ", id });
     ok(bare.isError === true, "★ **빈 말은 못 보낸다**");
 
     /*
@@ -356,14 +356,57 @@ async function main(): Promise<void> {
      * 사슬 깊은 봇이 **아무 때나 사용자에게 새 말을 거는** 길이 생긴다.
      */
     const zero = await t.mgr.mcpCall(
-      `${t.room.id}:${t.b.id}`, "say", { to: null, text: "안녕하세요", id: "0" },
+      `${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "안녕하세요", id: null },
     );
     ok(zero.isError === true && zero.text.includes("다른 봇이 열었습니다"),
        `★ **깨어난 턴에서는 «0» 을 못 쓴다** (${zero.text.slice(0, 40)}…)`);
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_to (사용자, 2026-10-15)]`);
+  console.log(`${NL}[★ to 에 **user 를 같이** 적으면 말풍선에도 선다 (사용자, 2026-10-15)]`);
+  {
+  /*
+   * 🔴 모든 `say` 는 사용자가 **보긴 한다.** 그렇다고 칩을 다 붙이면
+   * «누구에게 한 말인가» 가 무너진다 — 칩은 **지목**이지 «본 사람 목록»이
+   * 아니다. 그래서 **적어 보냈을 때만** 단다(사용자: *"user를 to에 같이
+   * 넣었을때 말풍선 처리가 @(사용자)가 같이 안들어가는듯?"*).
+   */
+  const t = await make(); dirs.push(t.dir);
+  const bt = (t.mgr as unknown as {
+    botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+  }).botRuntime(t.room.id, t.a.id);
+  bt.depth = 0; bt.fromUser = true;
+
+  const call = t.mgr.mcpCall(
+    `${t.room.id}:${t.a.id}`, "say",
+    { to: ["베타", "user"], text: "둘 다 보세요", id: null },
+  );
+  await t.answerCard(true);
+  const out = JSON.parse((await call).text) as SayOut;
+  ok(out.ok === true, `★ 전제 — 갔다 (${out.to?.join("·")})`);
+
+  const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
+  ok(bubble.deliveredTo.includes(t.b.id), "★ 베타에게 간다");
+  ok(bubble.toUser === true,
+     "★ **사용자에게도 한 말로 선다** — 화면이 `@(사용자)` 칩을 붙이고 안 접는다");
+
+  /* 적어 보내지 않았으면 안 단다 — 칩은 지목이지 «본 사람 목록»이 아니다 */
+  const bt2 = (t.mgr as unknown as {
+    botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+  }).botRuntime(t.room.id, t.a.id);
+  bt2.depth = 0; bt2.fromUser = true;
+  const call2 = t.mgr.mcpCall(
+    `${t.room.id}:${t.a.id}`, "say", { to: ["감마"], text: "너만 봐", id: null },
+  );
+  await t.answerCard(true);
+  await call2;
+  const plain = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
+  ok(plain.toUser !== true,
+     "★ **안 적었으면 안 단다** — 보긴 봐도 «그에게 한 말» 은 아니다");
+  t.mgr.dispose();
+}
+
+console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_to (사용자, 2026-10-15)]`);
   {
     /*
      * 🔴 **모르면 한 번 더 보낸다.** 사용자: *"봇한테 온 메세지가 다른 봇한테도
@@ -380,7 +423,7 @@ async function main(): Promise<void> {
 
     const call = t.mgr.mcpCall(
       `${t.room.id}:${t.a.id}`, "say",
-      { to: ["베타", "감마"], text: "둘 다 봐줘", id: "0" },
+      { to: ["베타", "감마"], text: "둘 다 봐줘", id: null },
     );
     await t.answerCard(true);
     const out = JSON.parse((await call).text) as SayOut;
@@ -388,9 +431,9 @@ async function main(): Promise<void> {
 
     const forB = (await t.check(t.b)).item as { also_to?: string[] } | null;
     const forC = (await t.check(t.c)).item as { also_to?: string[] } | null;
-    ok(JSON.stringify(forB?.also_to) === JSON.stringify(["감마"]),
-       `★ 베타는 **감마도 받은 것을 안다** (${JSON.stringify(forB?.also_to)})`);
-    ok(JSON.stringify(forC?.also_to) === JSON.stringify(["베타"]),
+    ok(JSON.stringify(forB?.also_to) === JSON.stringify(["감마", "user"]),
+       `★ 베타는 **감마와 사용자도 받은 것을 안다** (${JSON.stringify(forB?.also_to)})`);
+    ok(JSON.stringify(forC?.also_to) === JSON.stringify(["베타", "user"]),
        `★ 감마는 베타를 (${JSON.stringify(forC?.also_to)})`);
     ok(forB?.also_to?.includes("베타") !== true,
        "★ **제 이름은 안 들어간다** — 물음은 «나 말고 누가 더»다");
@@ -509,7 +552,7 @@ async function main(): Promise<void> {
 
     const woke = (await t.prompts()).filter((p) => p.includes('"do":"check_queue"'));
     ok(woke.length >= 1, `★ **놀고 있으면 그 자리에서 프롬프트가 나간다** (${woke.length}번)`);
-    ok(woke.some((p) => /"queue":[1-9]/.test(p)),
+    ok(woke.some((p) => /"queue_left":[1-9]/.test(p)),
        "★ **몇 개인지 같이 센다** — 몫을 떼어낸 직후라 낡은 값이 아니다");
     /*
      * ⏪ 여기 «메시지는 say, 권한은 verdict» 와 «몇 다리 더» 도 실려 있었다.
@@ -517,7 +560,7 @@ async function main(): Promise<void> {
      * 수는 **보내기 직전의 참**이고, 프롬프트에 적은 것은 턴이 열릴 때 찍은
      * 값이라 그 턴 안에서 낡는다. 같은 말을 두 번 하면서 한쪽이 틀리는 것이다.
      */
-    ok(woke.every((p) => p.includes('"say_id_0":"invalid"')),
+    ok(woke.every((p) => p.includes('"null_id":"invalid"')),
        "★ **쓸 수 있나를 그대로 적는다** — 규칙을 안 외워도 된다");
     ok(woke.every((p) => p.includes("[ai-in-one] {")),
        "★ **누가 하는 말인지 이름을 댄다** — 안 대면 모델에게는 사용자 말로 보인다");

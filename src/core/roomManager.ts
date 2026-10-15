@@ -24,6 +24,9 @@ import {
   type AgentDef,
   type AnswerPolicy,
   type ReviewWait,
+  type SayId,
+  USER_TARGET,
+  isReservedBotName,
   type WaitItem,
   type Approver,
   type JoinFail,
@@ -52,7 +55,6 @@ import {
   type RelayMode,
   DEFAULT_RELAY,
   DEFAULT_DEPTH_CAP,
-  USER_TURN_ID,
   rosterText,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
@@ -1241,6 +1243,12 @@ export class RoomManager extends EventEmitter<Events> {
     );
 
     bt.sessionId = sessionId;
+    /*
+     * ★ **열쇠를 이 세션에 맨다** (2026-10-15). 내줄 때는 세션 id 가 없었다 —
+     * `session/new` 의 **인자로** 나가므로 답이 와야 알았다. 매어두면 그
+     * 세션이 바뀔 때 **그 열쇠만** 거둘 수 있다.
+     */
+    this.opts.mcp?.tie(`${room.id}:${bot.id}`, sessionId);
     this.pointAt(bot, sessionId);
     bt.roleInjected = false;
     delete bt.rosterSent;
@@ -1487,6 +1495,15 @@ export class RoomManager extends EventEmitter<Events> {
       // 말을 건 적 있는 세션만 디스크에 있다 — 없는 걸 지우려 들면 실패한다(§13.1)
       await conn?.deleteSession(sessionId, bot.sessionPrompted === true).catch(() => undefined);
     }
+
+    /*
+     * ★ **임자가 사라졌으면 열쇠를 거둔다** (2026-10-15).
+     *
+     * 🔴 새로 발급할 때 거두던 것을 물리면서(살아 있는 붙임을 끊었다)
+     * **거두는 자리가 한 군데도 안 남았다.** 내보낸 봇의 열쇠가 창이
+     * 닫힐 때까지 먹으면, 그 봇으로서 말하고 심사할 길이 열려 있다.
+     */
+    this.opts.mcp?.revoke(`${roomId}:${botId}`);
 
     room.participants.splice(at, 1);
     /*
@@ -2345,6 +2362,9 @@ export class RoomManager extends EventEmitter<Events> {
       // 에이전트 쪽 기록도 남기지 않는다.
       await conn?.deleteSession(sessionId, bot.sessionPrompted === true).catch(() => undefined);
     }
+
+    // 나간 방의 열쇠도 거둔다 — 방이 없는데 그 봇으로 먹힐 이유가 없다
+    for (const bot of room?.participants ?? []) this.opts.mcp?.revoke(`${roomId}:${bot.id}`);
 
     // 나간 방의 자리는 들고 있을 이유가 없다 — 파일도 같이 사라진다
     this.opts.locks?.release(roomId);
@@ -4797,7 +4817,8 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const flag: Record<string, unknown> = {};
     // 릴레이가 꺼진 방에서는 `say` 자체가 없는 일이라 **그 칸을 안 만든다**
-    if (relayOn) flag["say_id_0"] = bt.fromUser ? "valid" : "invalid";
+    // ⏪ `say_id_0` 이었다 — 「0」이 없어졌으므로 이름도 같이 간다
+    if (relayOn) flag["null_id"] = bt.fromUser ? "valid" : "invalid";
     /*
      * ★ **이 말을 같이 받은 봇** (사용자, 2026-10-15).
      *
@@ -4813,7 +4834,13 @@ export class RoomManager extends EventEmitter<Events> {
      * ⚠️ 깨어난 턴에는 `batch` 가 비어 있다 — 그러면 이 칸도 빈 배열이고,
      * 그게 맞다(«사용자 말이 없다»).
      */
-    if (relayOn) {
+    /*
+     * ★ **사용자 말이 있을 때만 싫는다** (사용자의 글, 2026-10-15).
+     * 깨어난 턴에는 사용자가 한 말이 없어서 «같이 받은 이» 도 없다 —
+     * 빈 배열을 실으면 «나한테만 왔다» 로 읽힐 거리가 아예 없는 것을
+     * 있는 것처럼 말하는 꼴이다.
+     */
+    if (relayOn && batch.length > 0) {
       const mates = new Set<string>();
       for (const m of batch) {
         for (const id of m.deliveredTo ?? []) {
@@ -4825,7 +4852,14 @@ export class RoomManager extends EventEmitter<Events> {
       flag["also_to"] = [...mates];
     }
     if (relayOn || waiting > 0) {
-      flag["queue"] = waiting;
+      /*
+       * ★ **`check_queue` 와 같은 이름을 쓴다** (사용자, 2026-10-15):
+       * *"queue_left랑 의미가 통하지 않아?"* — 통한다. 둘 다
+       * **«아직 안 끝낸 나머지»** 라, 턴 시작 2 → 꺼내면 1 → 0 으로
+       * 이어진다. 깃발은 **아무것도 건네기 전**이라 포함할 «현재 객체»가
+       * 없다 — 한 낱말이 두 수를 가리키는 것이 아니다.
+       */
+      flag["queue_left"] = waiting;
       flag["do"] = waiting > 0 ? "check_queue" : null;
       parts.push(`[${OUR_MCP_NAME}] ${JSON.stringify(flag)}`);
     }
@@ -5058,6 +5092,12 @@ export class RoomManager extends EventEmitter<Events> {
         `${Math.round(SESSION_MS / 1000)}초 안에 열리지 않았습니다.`,
     );
     bt.sessionId = sessionId;
+    /*
+     * ★ **열쇠를 이 세션에 맨다** (2026-10-15). 내줄 때는 세션 id 가 없었다 —
+     * `session/new` 의 **인자로** 나가므로 답이 와야 알았다. 매어두면 그
+     * 세션이 바뀔 때 **그 열쇠만** 거둘 수 있다.
+     */
+    this.opts.mcp?.tie(`${room.id}:${bot.id}`, sessionId);
     this.pointAt(bot, sessionId);
     /*
      * ★ **여기가 「새 세션」 이 참말이 되는 자리다** (2026-10-13).
@@ -5686,27 +5726,41 @@ export class RoomManager extends EventEmitter<Events> {
        * 그것이 바로 첫 줄이 막으려던 멈춤이다.
        */
       description:
-        "방의 다른 봇들에게 **비동기적으로 메세지를 보낸다** — " +
-        "**사용자에게도 함께 전송된다.**\n" +
-        "★ **단방향 전송이다** — 보낸 봇에게 전송될 뿐 답을 보장하지 않는다. " +
-        "**사용자도 이를 안다.**",
+        // ⏪ «(사용자는 이를 볼 수 있다)» 를 걷었다 — **명단이 이미 말한다**
+        "방의 다른 대상에게 **비동기로 메세지를 보낸다**\n" +
+        "★ **단방향 전송이다** (사용자도 이를 안다)",
       inputSchema: {
         type: "object",
         properties: {
           to: {
+            /*
+             * ★ **언제나 이름 리스트다** (사용자, 2026-10-15): *"say null 없애고
+             * user로만 하기"*. ⏪ `null` 이 «사용자에게» 였는데, 명단이
+             * 사용자의 이름(`user`)을 말해주고 `also_to` 에 항상 그 이름이
+             * 서게 된 뒤로는 **길이 둘일 까닭이 없다.**
+             *
+             * ⚠️ 받아주기는 한다 — 알리지 않을 뿐이다. 예전 모양으로 보낸
+             * 한 번을 거절해봐야 왜복만 버린다.
+             */
             type: ["array", "null"],
             items: { type: "string" },
-            description: "받을 봇들의 이름 리스트. `null` 이면 사용자에게만.",
+            description: "받을 대상들의 이름 리스트. `null` 이면 **버린다**",
           },
           text: {
             type: "string",
             description: "보낼 메세지.",
           },
           id: {
-            type: "string",
+            type: ["string", "null"],
+            /*
+             * ★ **«처음 시작하는 say 면 null» 을 안 적는다** (사용자, 2026-10-15):
+             * *"id : null이 비우지 않는다는 의미가 될 거 같아서 지운거야.
+             * 어짜피 valid는 알려주니까"* — 비울 것이 없으면 `null` 이라는 것은
+             * **칸 이름이 이미 말하고**, 쓸 수 있는 턴인지는 깃발(`start_say`)이
+             * 말한다. 같은 말을 세 번째로 적을 자리가 아니다.
+             */
             description:
-              "처리할 큐 메세지 id(check_queue 가 준 항목의 id). " +
-              "사용자 말 처리시 id = 0",
+              "이 호출로 **큐에서 비울** 객체 id. 처음 시작하는 say 면 `null`",
           },
         },
         required: ["to", "text", "id"],
@@ -5732,7 +5786,7 @@ export class RoomManager extends EventEmitter<Events> {
         properties: {
           id: {
             type: "string",
-            description: "판정할 큐 메세지 id(check_queue 가 준 항목의 id)",
+            description: "이 호출로 **큐에서 비울** 객체 id",
           },
           allow: { type: "boolean", description: "허용 여부" },
           reason: {
@@ -5757,17 +5811,17 @@ export class RoomManager extends EventEmitter<Events> {
        */
       description:
         "대기 큐에서 처리되지 않은 객체 하나를 확인한다.\n" +
-        "★ **큐를 0 으로 만들어라** — id에 적절한 도구로 처리시에만 제거됨.\n" +
+        "★ **큐를 0 으로 만들어라** — 객체는 올바른 동작을 통해 비울 수 있다.\n" +
         "\n" +
         "  [공통]\n" +
         "  · `kind` : [message, permission] - 객체 타입(메세지, 권한 요청)\n" +
-        "  · `use` — 처리할 도구. 메세지면 say, 권한이면 verdict\n" +
-        "  · `item.id` — 처리할 때 쓸 id\n" +
-        "  · `item.from` — 보낸 봇\n" +
-        "  · `queue_left` — 이것 말고 남은 수\n" +
+        "  · `use` — 이 항목에 쓸 도구. 메세지면 say, 권한이면 verdict\n" +
+        "  · `item.id` — 객체 id\n" +
+        "  · `item.author` — 메세지 저자\n" +
+        "  · `queue_left` — 현재 객체를 제외한 잔여 객체 수\n" +
         "\n" +
         "  [message]\n" +
-        "  · `item.also_to` — 송신자가 해당 메세지를 보낸 다른 봇들\n" +
+        "  · `item.also_to` — 해당 메세지를 같이 받은 대상\n" +
         "  · `item.text` — 메세지 내용\n" +
         "  · `item.depth_left` — 남은 전달 깊이. `null`은 무제한.\n" +
         "\n" +
@@ -5814,17 +5868,38 @@ export class RoomManager extends EventEmitter<Events> {
        * 도구를 새로 만들지 않는 이유: 사용자에게 하는 말도 **그 항목에
        * 대한 반응**이라 `id` 가 필요하고, 그 칸은 여기 이미 있다.
        */
-      const skip = a.to === null;
-      const to = typeof a.to === "string"
+      const listed = typeof a.to === "string"
         ? [a.to]
         : Array.isArray(a.to) && a.to.every((x) => typeof x === "string")
           ? (a.to as string[])
           : undefined;
+      /*
+       * ★ **`to` 에 적힌 «user» 는 사용자다** (사용자, 2026-10-15).
+       *
+       * 🔴 `also_to` 가 **항상 그 이름을 보여준다.** 보여주고 나서 써보면
+       * 거절하는 것은 왕복 한 번을 그냥 버리는 일이다 — 그래서 받아준다.
+       *
+       * 봇 이름에는 못 쓰는 이름이라(`isReservedBotName`) 누구를 가리키는지
+       * 안 갈린다. 다른 봇과 같이 적혔으면 **그냥 뺀다** — 모든 `say` 는
+       * 어차피 사용자에게 보이므로 더 할 일이 없다.
+       */
+      const to = listed?.filter((n) => !isReservedBotName(n));
+      const onlyUser = listed !== undefined && listed.length > 0 && to!.length === 0;
+      const skip = a.to === null || onlyUser;
+      /*
+       * ★ **적어 보낸 «user» 는 말풍선에도 선다** (사용자, 2026-10-15):
+       * *"user를 to에 같이 넣었을때 말풍선 처리가 @(사용자)가 같이
+       * 안들어가는듯?"*
+       *
+       * 모든 `say` 는 사용자가 **보긴 한다.** 그렇다고 칩을 다 붙이면
+       * «누구에게 한 말인가» 가 무너진다 — 칩은 **지목**이지 «본 사람
+       * 목록»이 아니다. 그래서 **적어 보냈을 때만** 단다.
+       */
+      const alsoUser = listed?.some((n) => isReservedBotName(n)) ?? false;
       if (!skip && (!to || to.length === 0)) {
         return {
           text:
-            "say 에는 `to`(봇 이름 목록)가 있어야 합니다. " +
-            "사용자에게 말하려면 `to` 를 `null` 로 적으세요.",
+            "say 에는 `to`(받을 대상들의 이름 리스트)가 있어야 합니다.",
           isError: true,
         };
       }
@@ -5838,20 +5913,26 @@ export class RoomManager extends EventEmitter<Events> {
       }
       /*
        * 🔴 **`id` 는 필수다.** 「없으면 새로 거는 것」이던 시절에는 **빠뜨린
-       * 것과 뜻한 것이 구별되지 않았다.** 지금은 «사용자가 방금 한 말 때문»도
-       * 제 자리(`USER_TURN_ID`)가 있으므로, 없는 것은 그냥 **빠뜨린 것**이다.
+       * 것과 뜻한 것이 구별되지 않았다.** 지금은 처음 시작하는 say 도 제 자리
+       * (`null`)가 있으므로, **칸 자체가 없는 것**은 그냥 빠뜨린 것이다.
+       *
+       * ⚠️ `a.id !== null` 을 먼저 본다 — `typeof null` 은 `"object"` 라
+       * 그냥 두면 **뜻한 `null` 이 오류로 떨어진다.**
        */
-      if (typeof a.id !== "string" || !a.id) {
+      if (!("id" in a) || (a.id !== null && (typeof a.id !== "string" || !a.id))) {
         return {
           text:
-            "say 에는 `id` 가 있어야 합니다 — 무엇에 대한 반응인지 적습니다. " +
-            `사용자가 방금 한 말 때문이면 «${USER_TURN_ID}», ` +
-            "다른 봇의 말 때문이면 check_queue 가 준 id 를 그대로 쓰세요.",
+            "say 에는 `id` 가 있어야 합니다 — 이 호출로 **큐에서 비울** 항목의 " +
+            "id 입니다(check_queue 가 준 id). 처음 시작하는 say 면 `null` 로 주세요.",
           isError: true,
         };
       }
-      if (skip) return await this.sayUser(roomId, botId, a.id, a.text.trim());
-      return await this.relaySay(roomId, botId, to!, a.text, a.id);
+      const sayId = a.id as string | null;
+      // ★ `to: null` 은 **버리는 것** — 적어 보낸 `["user"]` 와 모양이 갈린다
+      if (skip) {
+        return await this.sayUser(roomId, botId, sayId, a.text.trim(), a.to === null);
+      }
+      return await this.relaySay(roomId, botId, to!, a.text, sayId, alsoUser);
     }
     if (tool === "check_queue") {
       /*
@@ -6008,8 +6089,10 @@ export class RoomManager extends EventEmitter<Events> {
   private async sayUser(
     roomId: string,
     botId: string,
-    id: string,
+    id: SayId,
     text: string,
+    /** `to: null` 로 버린 것인가 — 그러면 접히게 선다 */
+    aside = false,
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     const me = room?.participants.find((b) => b.id === botId);
@@ -6018,23 +6101,23 @@ export class RoomManager extends EventEmitter<Events> {
 
     /** 무엇에 반응해서 하는 말인가 — 화면이 ««…»에 반응했습니다» 로 잇는다 */
     let cause: string[] = [];
-    if (id === USER_TURN_ID) {
+    if (id === null) {
       /*
-       * 🔴 **«0» 은 사용자가 연 턴에서만 참이다** — `relaySay` 와 같은 줄이다.
-       * 깨어난 턴에서 «0» 을 받아주면 **아무 때나 새 대화를 시작**하는 길이
+       * 🔴 **처음 시작하는 say 는 사용자가 연 턴에서만** — `relaySay` 와 같은
+       * 줄이다. 깨어난 턴에서 받아주면 **아무 때나 새 대화를 시작**하는 길이
        * 생긴다. 그 턴에도 할 말은 있지만, 그건 꺼내 본 항목에 걸어야 한다.
        */
       if (!bt.fromUser) {
         return {
           text:
-            `«${USER_TURN_ID}» 은 사용자가 방금 한 말에 대한 반응일 때만 씁니다. ` +
-            "지금 턴은 다른 봇이 열었습니다 — check_queue 로 받은 id 를 쓰세요.",
+            "처음 시작하는 say(`id: null`)는 사용자가 연 턴에서만 됩니다. " +
+            "지금 턴은 다른 봇이 열었습니다 — check_queue 가 준 id 를 쓰세요.",
           isError: true,
         };
       }
       // 사용자 말 때문이면 **그 턴의 산문이 답하는 것**과 같은 것에 답한다
       cause = bt.turn?.replyToIds ?? [];
-      return await this.userBubble(room, me, text, cause);
+      return await this.userBubble(room, me, text, cause, aside);
     }
 
     const item = this.queue.find(botId, id);
@@ -6064,7 +6147,7 @@ export class RoomManager extends EventEmitter<Events> {
     this.queue.answer(botId, id);
     this.noteClosed(id, "사용자에게 전했습니다");
     // 그 말이 적힌 말풍선에 **반응으로 건다**
-    return await this.userBubble(room, me, text, item.srcId ? [item.srcId] : []);
+    return await this.userBubble(room, me, text, item.srcId ? [item.srcId] : [], aside);
   }
 
   /**
@@ -6081,6 +6164,7 @@ export class RoomManager extends EventEmitter<Events> {
     me: BotInstance,
     text: string,
     cause: string[],
+    aside = false,
   ): Promise<McpResult> {
     const bubble: Message = {
       id: messageId(),
@@ -6090,6 +6174,7 @@ export class RoomManager extends EventEmitter<Events> {
       // 받는 이는 사용자다 — 봇 칩이 아니라 `@(사용자)` 가 붙는 자리(§7)
       deliveredTo: [me.id],
       toUser: true,
+      ...(aside ? { aside: true } : {}),
       createdAt: Date.now(),
       // 빈 배열은 안 넣는다 — «가리킬 것이 없다» 와 «없다» 는 같은 뜻이다
       ...(cause.length > 0 ? { replyToIds: cause } : {}),
@@ -6116,7 +6201,7 @@ export class RoomManager extends EventEmitter<Events> {
     return {
       text: JSON.stringify({
         ok: true,
-        to: null,
+        to: [USER_TARGET],
         queue_left: this.queue.shareLeft(me.id),
       }),
     };
@@ -6146,7 +6231,9 @@ export class RoomManager extends EventEmitter<Events> {
     fromId: string,
     to: string[],
     rawText: string,
-    id: string,
+    id: SayId,
+    /** `to` 에 «user» 를 같이 적었나 — 그러면 말풍선에 `@(사용자)` 도 선다 */
+    alsoUser = false,
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     if (!room) {
@@ -6225,7 +6312,7 @@ export class RoomManager extends EventEmitter<Events> {
     /** 그 항목의 임자 — **그 봇에게 가는 몫에만** 인용을 붙인다 */
     let owner: string | undefined;
 
-    if (id === USER_TURN_ID) {
+    if (id === null) {
       /*
        * 🔴 **사용자가 연 턴에서만 참이다.** 안 그러면 사슬 깊은 데 있는 봇이
        * **아무 때나 새 대화를 시작**할 수 있고, 그러면 가지가 갈려 턴이 곱셈으로
@@ -6234,8 +6321,8 @@ export class RoomManager extends EventEmitter<Events> {
        */
       if (!bt.fromUser) {
         return no(
-          "«0» 은 사용자가 방금 한 말에 대한 반응일 때만 씁니다. " +
-            "지금 턴은 다른 봇이 열었습니다 — check_queue 로 받은 id 를 쓰세요.",
+          "처음 시작하는 say(`id: null`)는 사용자가 연 턴에서만 됩니다. " +
+            "지금 턴은 다른 봇이 열었습니다 — check_queue 가 준 id 를 쓰세요.",
         );
       }
       /*
@@ -6272,7 +6359,7 @@ export class RoomManager extends EventEmitter<Events> {
             reason: why
               ? `«${id}» 는 ${why}. 더 할 일이 없습니다.`
               : `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요. ` +
-                `사용자가 방금 한 말 때문이면 id 를 «${USER_TURN_ID}» 로 주세요.`,
+                "처음 시작하는 say 면 id 를 `null` 로 주세요.",
             ...(why ? {} : { items: this.queue.pending(fromId).map(wireItem) }),
             queue_left: this.queue.shareLeft(fromId),
           }),
@@ -6331,7 +6418,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     // ★ **같은 봇에게 두 번은 없다** — 문을 다 지난 뒤에 적는다(거절은 안 센다)
-    if (id === USER_TURN_ID) {
+    if (id === null) {
       const said = (bt.saidZero ??= new Set<string>());
       for (const b of targets) said.add(b.id);
     }
@@ -6392,6 +6479,8 @@ export class RoomManager extends EventEmitter<Events> {
       authorBotId: me.id,
       text,
       deliveredTo: targets.map((b) => b.id),
+      // 적어 보냈으면 사용자에게도 한 말이다 — 화면이 칩을 붙이고 **안 접는다**
+      ...(alsoUser ? { toUser: true } : {}),
       createdAt: Date.now(),
       // 빈 배열은 안 넣는다 — «가리킬 것이 없다» 와 «없다» 는 같은 뜻이다
       ...(cause.length > 0 ? { replyToIds: cause } : {}),
@@ -6420,7 +6509,8 @@ export class RoomManager extends EventEmitter<Events> {
     return {
       text: JSON.stringify({
         ok: true,
-        to: targets.map((b) => b.name),
+        // ★ **받은 이를 전부 적는다** — 사용자는 언제나 받으므로 끝에 선다
+        to: [...targets.map((b) => b.name), USER_TARGET],
         queue_left: this.queue.shareLeft(fromId),
       }),
     };
@@ -6543,8 +6633,17 @@ export class RoomManager extends EventEmitter<Events> {
     const at = server?.current();
     if (!server || at?.at !== "ready") return [];
     const owner = `${room.id}:${bot.id}`;
-    // 지난 세션의 열쇠는 거둔다 — 안 거두면 죽은 세션 것이 계속 먹는다
-    server.revoke(owner);
+    /*
+     * ⏪ **여기서 지난 열쇠를 거두던 것을 물렀다** (사용자, 2026-10-15).
+     *
+     * 🔴 Antigravity 가 뱉었다: *"The MCP server 'ai-in-one' failed to
+     * initialize: … Unauthorized."* — 그쪽은 **한 프로세스가 세션 여럿을
+     * 품고** MCP 서버를 이름당 한 번 붙인다. 새 세션을 여느라 열쇠를
+     * 바꿔 끼우면, **아직 살아 있는 그 붙임**이 통째로 도구를 잃는다.
+     *
+     * 지금은 `issue` 가 **최근 몇 개만 남기고** 오래된 것부터 걷는다 —
+     * 맵은 안 커지고, 같은 임자의 열쇠는 둘이어도 권한이 똑같다.
+     */
     return [{
       type: "http",
       name: OUR_MCP_NAME,
@@ -7129,9 +7228,10 @@ const RELAY_REJECT = "aio-relay-reject";
 
 function wireItem(item: QueueItem): Record<string, unknown> {
   const { id, from } = item;
+  // ★ **`from` 은 나갈 때 `author` 다** (사용자, 2026-10-15) — «딴지»지 «상대»가 아니다
   if (item.kind === "permission") {
     return {
-      id, from,
+      id, author: from,
       title: item.title,
       ...(item.tool ? { tool: item.tool } : {}),
       ...(item.command ? { command: item.command } : {}),
@@ -7141,17 +7241,18 @@ function wireItem(item: QueueItem): Record<string, unknown> {
     };
   }
   return {
-    id, from,
+    id, author: from,
     ...(item.about ? { about: item.about } : {}),
     /*
      * ★ **같이 받은 이는 빈 것도 적는다** (사용자, 2026-10-15).
      *
      * 🔴 `about` 처럼 «있을 때만» 두면 **없는 것과 안 적은 것이 같아 보인다** —
      * 모델은 그 자리에서 «나한테만 온 건가, 칸이 빠진 건가» 를 한 번 묻게 된다.
-     * 빈 배열은 **«당신에게만 왔다»는 답**이다(`check_queue` 의 `use`·`item` 을
-     * `null` 로 남긴 것과 같은 줄).
+     * ★ **사용자는 항상 들어 있다** (사용자, 2026-10-15): *"also_to에는 user
+     * 항상 표시"*. 모든 `say` 는 사용자에게도 보이므로 — 고르는 바로 그
+     * 자리에서 그 사실을 다시 읽게 된다. 그래서 **빈 배열은 이제 없다.**
      */
-    also_to: item.alsoTo ?? [],
+    also_to: [...(item.alsoTo ?? []), USER_TARGET],
     text: item.text,
   };
 }

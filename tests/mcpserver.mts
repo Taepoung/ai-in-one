@@ -107,6 +107,50 @@ async function main(): Promise<void> {
        "★ **폐기하면 막힌다** — 죽은 세션의 열쇠가 계속 먹으면 안 된다");
   }
 
+  console.log(`${NL}[🔴 다시 발급해도 **앞 열쇠가 살아있다** (사용자, 2026-10-15)]`);
+  {
+    /*
+     * 사용자가 받은 것: *"The MCP server 'ai-in-one' failed to initialize:
+     * … Unauthorized."* — Antigravity 는 **한 프로세스가 세션 여럿을 품고**
+     * MCP 서버를 이름당 한 번 붙인다. 새 세션을 여느라 열쇠를 바꿔 끼우면
+     * **아직 쓰이는 붙임**이 통째로 도구를 잃었다.
+     *
+     * ★ 안전은 안 물러진다 — 열쇠는 «누구인가»만 가리키므로 같은 임자의
+     * 열쇠가 둘이어도 할 수 있는 일은 똑같다. 좌비는 **최근 몇 개만** 남겨 막는다.
+     */
+    const first = server.issue("덱타");
+    const second = server.issue("덱타");
+    ok((await rpc(url, second, "initialize")).status === 200, "새 열쇠는 당연히 먹는다");
+    ok((await rpc(url, first, "initialize")).status === 200,
+       "★ **앞 열쇠도 그대로 먹는다** — 살아 있는 붙임을 끊지 않는다");
+
+    /* 다만 끝없이 쌓이지는 않는다 — 최근 네 개까지다 */
+    for (let i = 0; i < 5; i++) server.issue("덱타");
+    ok((await rpc(url, first, "initialize")).status === 401,
+       "★ **오래된 것부터 걷힌다** — 맵이 무한히 커지면 안 된다");
+    server.revoke("덱타");
+  }
+
+  console.log(`${NL}[★ 세션이 바뀜면 **그 세션 열쇠만** 거둔다 (2026-10-15)]`);
+  {
+    /*
+     * 임자 단위로 거두면 **같은 봇의 새 세션까지** 죽는다 — 그게
+     * Antigravity 가 *"Unauthorized"* 를 뱉던 자리다. 세션 단위면 **좌비만**
+     * 골라 죽고, 살아 있는 붙임은 그대로 둔다.
+     */
+    const oldKey = server.issue("엡스");
+    server.tie("엡스", "sess-1");
+    const newKey = server.issue("엡스");
+    server.tie("엡스", "sess-2");
+
+    server.untie("sess-1");
+    ok((await rpc(url, oldKey, "initialize")).status === 401,
+       "★ **끝난 세션의 열쇠는 죽는다** — 좌비가 그 봇으로 말할 수 없게");
+    ok((await rpc(url, newKey, "initialize")).status === 200,
+       "★ **살아 있는 세션은 멀줦하다** — 같은 봇이라고 같이 죽이지 않는다");
+    server.revoke("엡스");
+  }
+
   console.log(`${NL}[★ 할 줄 아는 말 셋]`);
   {
     const key = server.issue("알파");
