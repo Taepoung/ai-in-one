@@ -3313,16 +3313,11 @@ export class RoomManager extends EventEmitter<Events> {
        * 뒤라면, 다시 확인해봐야 그 항목은 영영 안 나온다.
        */
       const why = this.closed.get(id);
-      return {
-        text: why
-          ? `«${id}» 는 ${why}. 더 할 일이 없습니다.`
-          : `«${id}» 는 지금 당신이 판정할 거리가 아닙니다. check_queue 로 다시 확인하세요.`,
-        isError: true,
-      };
+      return deny(why ? "already handled" : "id error");
     }
     this.noteClosed(id, "당신에 의해 이미 응답되었습니다");
     const held = this.queued.get(id);
-    if (!held) return { text: `«${id}» 는 이미 답이 난 것입니다.`, isError: true };
+    if (!held) return deny("already handled");
 
     this.settleQueued(id, {
       outcome: "selected",
@@ -5964,19 +5959,10 @@ export class RoomManager extends EventEmitter<Events> {
        */
       const alsoUser = listed?.some((n) => isReservedBotName(n)) ?? false;
       if (!skip && (!to || to.length === 0)) {
-        return {
-          text:
-            "say 에는 `to`(받을 대상들의 이름 리스트)가 있어야 합니다.",
-          isError: true,
-        };
+        return deny("to is unvalid form(list or null)");
       }
       if (typeof a.text !== "string" || !a.text.trim()) {
-        return {
-          text: skip
-            ? "사용자에게 말하려면 `text` 에 **할 말**을 적어야 합니다."
-            : "say 에는 `text`(할 말)가 있어야 합니다.",
-          isError: true,
-        };
+        return deny("text is empty");
       }
       /*
        * 🔴 **`id` 는 필수다.** 「없으면 새로 거는 것」이던 시절에는 **빠뜨린
@@ -5987,12 +5973,7 @@ export class RoomManager extends EventEmitter<Events> {
        * 그냥 두면 **뜻한 `null` 이 오류로 떨어진다.**
        */
       if (!("id" in a) || (a.id !== null && (typeof a.id !== "string" || !a.id))) {
-        return {
-          text:
-            "say 에는 `id` 가 있어야 합니다 — 이 호출로 **큐에서 비울** 항목의 " +
-            "id 입니다(check_queue 가 준 id). 처음 시작하는 say 면 `null` 로 주세요.",
-          isError: true,
-        };
+        return deny("id is not valid (valid id or null)");
       }
       const sayId = a.id as string | null;
       // ★ `to: null` 은 **버리는 것** — 적어 보낸 `["user"]` 와 모양이 갈린다
@@ -6015,12 +5996,7 @@ export class RoomManager extends EventEmitter<Events> {
        * **거짓말**이다 — 그쪽은 아래 `relaySay`·`sayUser` 가 제 말로 답한다.
        */
       if (sayId === null && skip && this.botRuntime(roomId, botId).fromUser) {
-        return {
-          text:
-            "사용자가 연 턴입니다 — 사용자에게 할 말은 **이 턴의 글로** 쓰세요. " +
-            "`say` 는 다른 대상에게 보낼 때 씁니다.",
-          isError: true,
-        };
+        return deny("cannot say to user on user turn");
       }
       if (skip) {
         return await this.sayUser(roomId, botId, sayId, a.text.trim(), a.to === null);
@@ -6150,17 +6126,17 @@ export class RoomManager extends EventEmitter<Events> {
        * 🔴 **모양이 안 맞으면 지어내지 않는다.** `allow` 가 없다고 false 로
        * 읽으면 **우리가 막은 것**이 되고, true 로 읽으면 더 나쁘다.
        */
-      if (typeof a.id !== "string" || typeof a.allow !== "boolean") {
-        return {
-          text: "verdict 에는 `id`(문자열)와 `allow`(참/거짓)가 있어야 합니다.",
-          isError: true,
-        };
+      if (typeof a.id !== "string") {
+        return deny("id is not valid (string)");
+      }
+      if (typeof a.allow !== "boolean") {
+        return deny("allow is not valid (boolean)");
       }
       return await this.giveVerdict(
         botId, a.id, a.allow, typeof a.reason === "string" ? a.reason : "",
       );
     }
-    return { text: `그런 도구가 없습니다: ${tool}`, isError: true };
+    return deny("unvalid tool");
   }
 
   /**
@@ -6190,7 +6166,7 @@ export class RoomManager extends EventEmitter<Events> {
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     const me = room?.participants.find((b) => b.id === botId);
-    if (!room || !me) return { text: "방이 닫혔습니다.", isError: true };
+    if (!room || !me) return deny("room is closed");
     const bt = this.botRuntime(roomId, botId);
 
     /** 무엇에 반응해서 하는 말인가 — 화면이 ««…»에 반응했습니다» 로 잇는다 */
@@ -6202,12 +6178,7 @@ export class RoomManager extends EventEmitter<Events> {
        * 생긴다. 그 턴에도 할 말은 있지만, 그건 꺼내 본 항목에 걸어야 한다.
        */
       if (!bt.fromUser) {
-        return {
-          text:
-            "처음 시작하는 say(`id: null`)는 사용자가 연 턴에서만 됩니다. " +
-            "지금 턴은 다른 봇이 열었습니다 — check_queue 가 준 id 를 쓰세요.",
-          isError: true,
-        };
+        return deny("id null is only for user turn");
       }
       // 사용자 말 때문이면 **그 턴의 산문이 답하는 것**과 같은 것에 답한다
       cause = bt.turn?.replyToIds ?? [];
@@ -6217,21 +6188,13 @@ export class RoomManager extends EventEmitter<Events> {
     const item = this.queue.find(botId, id);
     if (!item) {
       const was = this.closed.get(id);
-      return {
-        text: JSON.stringify({
-          ok: false,
-          reason: was
-            ? `«${id}» 는 ${was}. 더 할 일이 없습니다.`
-            : `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요.`,
-          queue_left: this.queue.shareLeft(botId),
-        }),
-      };
+      return deny(was ? "already handled" : "id error", {
+        ...(was ? {} : { items: this.queue.pending(botId).map(wireItem) }),
+        queue_left: this.queue.shareLeft(botId),
+      });
     }
     if (item.kind !== "message") {
-      return {
-        text: `«${id}» 는 권한 요청입니다 — verdict 로 답하세요(허용하거나 막거나).`,
-        isError: true,
-      };
+      return deny("permission item: use verdict");
     }
     /*
      * ★ **꺼낸 것은 닫힌다** — 사용자에게 말하는 것도 **그 항목에 대한
@@ -6331,10 +6294,10 @@ export class RoomManager extends EventEmitter<Events> {
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     if (!room) {
-      return { text: "그 방은 지금 열려 있지 않습니다.", isError: true };
+      return deny("room is not open");
     }
     const me = room.participants.find((b) => b.id === fromId);
-    if (!me) return { text: "당신은 이 방의 참여자가 아닙니다.", isError: true };
+    if (!me) return deny("not a participant");
 
     /*
      * ★ **거절은 언제나 «왜 + 부를 수 있는 목록»이다** (v3.0 2-E).
@@ -6343,11 +6306,8 @@ export class RoomManager extends EventEmitter<Events> {
      * 수습법만 알면 된다. 그리고 목록이 곧 답이라 되묻는 왕복이 준다.
      */
     const canCall = room.participants.filter((b) => b.id !== fromId).map((b) => b.name);
-    const no = (reason: string): McpResult => ({
-      text: JSON.stringify({
-        ok: false, reason, can_call: canCall, queue_left: this.queue.shareLeft(fromId),
-      }),
-    });
+    const no = (reason: string): McpResult =>
+      deny(reason, { can_call: canCall, queue_left: this.queue.shareLeft(fromId) });
 
     /*
      * ★ **여러 명에게 한 번에 보낸다** (v3.0 4-J).
@@ -6361,15 +6321,21 @@ export class RoomManager extends EventEmitter<Events> {
       const want = botKey(one);
       const hit = room.participants.filter((b) => botKey(b.name) === want);
       if (hit.length > 1) {
-        return no(`«${one}» 라는 이름의 봇이 둘입니다. 이름을 바꿔야 부를 수 있습니다.`);
+        return no("ambiguous name");
       }
       const found = hit[0];
-      if (!found) return no(`«${one}» 는 이 방에 없습니다.`);
+      if (!found) return no("unknown name");
       // 자기에게 거는 것은 말 걸기가 아니라 **혼잣말**이고, 턴만 하나 더 쓴다
-      if (found.id === fromId) return no("자기 자신에게는 말을 걸 수 없습니다.");
+      if (found.id === fromId) return no("cannot say to self");
       if (!targets.some((b) => b.id === found.id)) targets.push(found);
     }
-    if (targets.length === 0) return no("받을 봇을 한 명 이상 적어야 합니다.");
+    /*
+     * ★ **여기서 «비었다» 를 또 보지 않는다** (사용자, 2026-10-15).
+     *
+     * 🔴 `to` 가 비어 오는 길은 **부르는 자리에서 이미 막혀 있다**
+     * (`to is unvalid form`). 여기 문지기를 하나 더 두면 **영영 안 열리는 문**이
+     * 되고, 안 열리는 문은 읽는 사람에게 «열릴 수도 있다» 고 거짓말을 한다.
+     */
 
     const text = rawText.trim();
 
@@ -6414,10 +6380,7 @@ export class RoomManager extends EventEmitter<Events> {
        * 때문»이라고 적는 것을 믿으면 그 한 줄로 규칙이 빠져나간다.
        */
       if (!bt.fromUser) {
-        return no(
-          "처음 시작하는 say(`id: null`)는 사용자가 연 턴에서만 됩니다. " +
-            "지금 턴은 다른 봇이 열었습니다 — check_queue 가 준 id 를 쓰세요.",
-        );
+        return no("id null is only for user turn");
       }
       /*
        * ★ **같은 봇에게는 한 번** (2026-10-12).
@@ -6440,28 +6403,21 @@ export class RoomManager extends EventEmitter<Events> {
       const twice = targets.filter((b) => said.has(b.id));
       if (twice.length > 0) {
         // **«이 턴에»를 남긴다** — 빼면 «영영 못 보낸다»로 읽혀 포기해 버린다
-        return no(`${twice.map((b) => b.name).join("·")}에게 이 턴에 이미 전송했습니다.`);
+        return no("duplicated sending error");
       }
     } else {
       const item = this.queue.find(fromId, id);
       // ① 없는 id — 거절하고 **지금 들고 있는 것을 다시 실어준다**
       if (!item) {
         const why = this.closed.get(id);
-        return {
-          text: JSON.stringify({
-            ok: false,
-            reason: why
-              ? `«${id}» 는 ${why}. 더 할 일이 없습니다.`
-              : `«${id}» 는 당신의 큐에 없습니다. check_queue 로 다시 확인하세요. ` +
-                "처음 시작하는 say 면 id 를 `null` 로 주세요.",
-            ...(why ? {} : { items: this.queue.pending(fromId).map(wireItem) }),
-            queue_left: this.queue.shareLeft(fromId),
-          }),
-        };
+        return deny(why ? "already handled" : "id error", {
+          ...(why ? {} : { items: this.queue.pending(fromId).map(wireItem) }),
+          queue_left: this.queue.shareLeft(fromId),
+        });
       }
       // ③ 종류가 어긋남 — 도구를 나눠둔 덕에 검사가 한 줄이다
       if (item.kind !== "message") {
-        return { text: `«${id}» 는 권한 요청입니다. verdict 로 답하세요.`, isError: true };
+        return deny("permission item: use verdict");
       }
       from = item.depth;
       answering = item.id;
@@ -6480,7 +6436,7 @@ export class RoomManager extends EventEmitter<Events> {
     const mode = room.relay ?? DEFAULT_RELAY;
     // ── 문 ① 대화 기능이 켜져 있나 ────────────────────────────────
     if (mode === "off") {
-      return no("이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.");
+      return no("relay is off");
     }
     /*
      * ── 문 ② 깊이 — «무조건 허용» 에서만 ─────────────────────────
@@ -6491,15 +6447,12 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const cap = room.depthCap ?? DEFAULT_DEPTH_CAP;
     if (mode === "always" && cap > 0 && depth > cap) {
-      return no(
-        `봇끼리 이어지는 깊이 상한(${cap})에 닿았습니다 — 이 말은 ${depth}다리째입니다. ` +
-          "더 가려면 사용자가 말을 걸어야 합니다. 사용자에게 지금까지를 알리세요.",
-      );
+      return no("max depths error");
     }
     // ── 문 ③ 승인 — «물어봄» 은 **답까지 전부** 묻는다 ───────────
     if (mode === "ask" && !(await this.askRelay(me, targets, text, depth))) {
       // 설명에서 걷은 «거절되면 사용자에게» 를 **거절하는 자리**로 옮겼다
-      return no("사용자가 이 호출을 허락하지 않았습니다. 할 말이 있으면 사용자에게 직접 말하세요.");
+      return no("user denied");
     }
     /*
      * ⚠️ **기다리는 사이에 방이 바뀔 수 있다.** 승인 카드는 사람을 기다리고,
@@ -6508,7 +6461,7 @@ export class RoomManager extends EventEmitter<Events> {
      */
     const gone = targets.filter((b) => !room.participants.some((p) => p.id === b.id));
     if (gone.length > 0) {
-      return no(`${gone.map((b) => b.name).join("·")}은(는) 그사이 방을 떠났습니다.`);
+      return no("left the room");
     }
 
     // ★ **같은 봇에게 두 번은 없다** — 문을 다 지난 뒤에 적는다(거절은 안 센다)
@@ -7319,6 +7272,21 @@ const CLOSED_MEMORY = 300;
 /** 릴레이 승인 카드의 선택지 id — 답을 되읽는 자리와 한 글자도 안 어긋나게 */
 const RELAY_ALLOW = "aio-relay-allow";
 const RELAY_REJECT = "aio-relay-reject";
+
+/**
+ * ★ **거절은 한 모양이다** (사용자, 2026-10-15).
+ *
+ * 🔴 예전에는 둘이었다 — 호출 모양이 틀리면 **맨글 + `isError`**, 규칙이
+ * 막으면 **`{ok:false}` JSON**. 모델이 읽는 규칙이 둘이면 **수습법도 둘**이
+ * 되고, 둘 중 하나는 반드시 덜 배운다. 지금은 **무엇이 틀렸든 같은 봉투**다:
+ * 본문은 `{"isError":true,"reason":…}` 이고 깃발도 `isError` 다.
+ *
+ * 고를 거리(`can_call`·`items`·`queue_left`)는 **있을 때만** 얹는다 —
+ * 없는 칸을 `null` 로 채우면 매 거절마다 읽을 것이 는다.
+ */
+function deny(reason: string, extra?: Record<string, unknown>): McpResult {
+  return { text: JSON.stringify({ isError: true, reason, ...(extra ?? {}) }), isError: true };
+}
 
 function wireItem(item: QueueItem): Record<string, unknown> {
   const { id, from } = item;

@@ -177,7 +177,7 @@ async function main(): Promise<void> {
     const blocked = await t.mgr.mcpCall(
       `${t.room.id}:${t.asker.id}`, "say", { to: [t.judge.name], text: "들려?", id: "0" },
     );
-    if (!blocked.text.includes('"ok":false')) {
+    if (!blocked.isError) {
       throw new Error("FAIL: 전제가 안 섰다 — 「끔」인데 say 가 나갔다");
     }
 

@@ -118,7 +118,7 @@ async function make(hold = 60) {
       `${room.id}:${from.id}`, "say",
       { to, text, id: id ?? null },
     );
-    if (out.isError) return { ok: false, reason: out.text, queue_left: 0, isError: true };
+    // ★ 거절도 성공도 **JSON 한 모양**이다 — 갈라 받을 것이 없다
     return JSON.parse(out.text) as SayOut;
   };
   /** 그 봇의 몫을 꺼내 본다 */
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
     await t.answerCard(false);
     const out = await sent;
     ok(!out.ok, "★ 안 간다");
-    ok((out.reason ?? "").includes("허락하지"), `★ 왜인지 말한다 (${out.reason})`);
+    ok(out.reason === "user denied", `★ 왜인지 말한다 (${out.reason})`);
     ok((out.can_call ?? []).join() === "베타,감마",
        `★ **부를 수 있는 목록이 같이 온다** (${out.can_call?.join(" · ")}) — 이름이 틀렸을 때와 같은 모양`);
     ok(t.inner.queue.pending(t.b.id).length === 0, "★ 큐에도 안 들어간다");
@@ -322,7 +322,8 @@ async function main(): Promise<void> {
 
     /* 🔴 **빠뜨린 것과 구별한다** — `to` 는 언제나 있어야 한다 */
     const missed = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { text: "뭔가", id });
-    ok(missed.isError === true && missed.text.includes("`to`"),
+    ok(missed.isError === true
+       && JSON.parse(missed.text).reason === "to is unvalid form(list or null)",
        `★ **to 를 빠뜨리면 오류다** — 한 번의 빠뜨림이 조용한 전송이 되면 안 된다`);
 
     const asked = bubbles(t.room, t.a.id, t.b.id).at(-1)!;
@@ -358,7 +359,8 @@ async function main(): Promise<void> {
     const zero = await t.mgr.mcpCall(
       `${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "안녕하세요", id: null },
     );
-    ok(zero.isError === true && zero.text.includes("다른 봇이 열었습니다"),
+    ok(zero.isError === true
+       && JSON.parse(zero.text).reason === "id null is only for user turn",
        `★ **깨어난 턴에서는 «0» 을 못 쓴다** (${zero.text.slice(0, 40)}…)`);
     t.mgr.dispose();
   }
@@ -380,8 +382,14 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     const only = await t.mgr.mcpCall(
       `${t.room.id}:${t.a.id}`, "say", { to: ["user"], text: "다 했습니다", id: null },
     );
-    ok(only.isError === true && only.text.includes("이 턴의 글"),
-       `★ **거절하고 대신 뭐를 할지 말한다** (${only.text.slice(0, 40)}…)`);
+    /*
+     * ⚠️ **«대신 뭘 할지» 는 이제 글에 없다** (사용자, 2026-10-15). `reason` 이
+     * 정해진 한 마디가 되면서 «이 턴의 글로 쓰세요» 가 빠졌다 — 지켜야 할 것은
+     * **사용자에게 두 번 말하지 않는다**는 것이고, 그건 거절되는 것으로 선다.
+     */
+    ok(only.isError === true
+       && JSON.parse(only.text).reason === "cannot say to user on user turn",
+       `★ **사용자가 연 턴에는 사용자에게 say 를 못 쓴다** (${only.text})`);
 
     const dropped = await t.mgr.mcpCall(
       `${t.room.id}:${t.a.id}`, "say", { to: null, text: "버립니다", id: null },
@@ -543,7 +551,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     const t = await make(); dirs.push(t.dir);
     t.room.relay = "off";
     const out = await t.say(t.a, "베타", "이것 좀");
-    ok(!out.ok && (out.reason ?? "").includes("꺼져"), `★ 돌려보낸다 (${out.reason})`);
+    ok(!out.ok && out.reason === "relay is off", `★ 돌려보낸다 (${out.reason})`);
     ok(t.cards.length === 0,
        "★ **사람을 안 깨운다** — 싼 문이 앞에 있어서 어차피 거절될 것으로 안 묻는다");
     t.mgr.dispose();
@@ -568,7 +576,9 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
        `★ **자기에게는 못 건다** (${self.reason})`);
 
     const none = await t.say(t.a, "델타", "없는 봇");
-    ok(!none.ok && (none.reason ?? "").includes("델타"), `★ 없는 이름 (${none.reason})`);
+    ok(!none.ok && none.reason === "unknown name", `★ 없는 이름 (${none.reason})`);
+    // 🔴 **글이 짧아진 몫은 칸이 진다** — «델타» 대신 부를 수 있는 목록이 답이다
+    ok((none.can_call ?? []).join() === "베타,감마", `★ 부를 수 있는 목록 (${none.can_call})`);
 
     const ghost = await t.say(t.a, "베타", "답인 척", "x999");
     ok(!ghost.ok, `★ 없는 id (${ghost.reason})`);

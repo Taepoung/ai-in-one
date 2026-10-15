@@ -109,7 +109,7 @@ async function make(cap: number) {
     from: { id: string }, to: string | string[], text: string, id: string | null = null,
   ): Promise<SayOut> => {
     const out = await mgr.mcpCall(`${room.id}:${from.id}`, "say", { to, text, id });
-    return out.isError ? { ok: false, reason: out.text } : JSON.parse(out.text) as SayOut;
+    return JSON.parse(out.text) as SayOut;   // 거절도 성공도 **JSON 한 모양**
   };
   /** 「이 봇은 지금 N다리째 턴을 돌고 있다」를 세워둔다 — 진짜로는 `runQueue` 가 한다 */
   const standAt = (bot: { id: string }, depth: number) => {
@@ -191,10 +191,12 @@ async function main(): Promise<void> {
     const out = await t.say(t.a, "리뷰어", "한 다리 더", held);
 
     ok(!out.ok, `★ **거절된다** (${out.reason})`);
-    ok((out.reason ?? "").includes("3") && (out.reason ?? "").includes("4다리째"),
-       "★ **상한과 지금 몇 다리째인지를 같이 말해준다**");
-    ok((out.reason ?? "").includes("사용자"),
-       "★ **어떻게 풀리는지도** — 사용자가 말을 걸면 깊이가 0 부터 다시다");
+    ok(out.reason === "max depths error", `★ **무엇이 막았는지 한 마디** (${out.reason})`);
+    /*
+     * ⚠️ **옛 글은 상한과 «몇 다리째»와 «사용자에게 말하라» 를 같이 실었다.**
+     * 짧게 간 대가로 그게 빠졌다 — 남은 수습 거리는 `can_call` 뿐이다.
+     */
+    ok((out.can_call ?? []).length > 0, "★ 부를 수 있는 목록은 그대로 온다");
     ok(t.cards.length === 0,
        "★ 🔴 **카드가 안 뜬다** — 부르는 순간 알 수 있어 사람을 안 깨운다");
     ok(t.inner.queue.pending(t.b.id).length === 0,
@@ -298,10 +300,10 @@ async function main(): Promise<void> {
 
     t.standAt(t.a, 1);   // 다른 봇이 깨운 턴
     const deep = await t.say(t.a, "리뷰어", "갑자기 딴 얘기");
-    ok(!deep.ok && (deep.reason ?? "").includes("처음 시작"),
+    ok(!deep.ok && deep.reason === "id null is only for user turn",
        `★ 🔴 **다른 봇이 연 턴에서는 막힌다** (${deep.reason})`);
-    ok((deep.reason ?? "").includes("check_queue"),
-       "★ **대신 뭘 쓰라고 말해준다** — 거절은 언제나 «왜 + 어떻게»다");
+    ok(typeof deep.queue_left === "number",
+       "★ **남은 큐가 같이 온다** — 대신 할 일은 글이 아니라 칸이 가리킨다");
     t.mgr.dispose();
   }
 
@@ -320,7 +322,7 @@ async function main(): Promise<void> {
 
     ok((await t.say(t.a, "리뷰어", "한 번")).ok, "★ 한 번은 간다");
     const again = await t.say(t.a, "리뷰어", "또");
-    ok(!again.ok && (again.reason ?? "").includes("이미 전송"),
+    ok(!again.ok && again.reason === "duplicated sending error",
        `★ 🔴 **두 번째는 막힌다** (${again.reason})`);
 
     // 다른 봇에게는 된다 — 묶이는 것은 «같은 봇» 이다
@@ -329,7 +331,7 @@ async function main(): Promise<void> {
 
     // 한 번에 여럿도 된다 — 중복만 걸러진다
     const both = await t.say(t.a, ["리뷰어", "테스터"], "둘 다");
-    ok(!both.ok && (both.reason ?? "").includes("리뷰어"),
+    ok(!both.ok && both.reason === "duplicated sending error",
        `★ 섞여 있으면 **통째로 거절** (${both.reason}) — 반만 가면 알릴 길이 는다`);
 
     // 🔴 턴이 새로 열리면 다시 샌다 — 사용자가 또 말했으니까
@@ -409,7 +411,7 @@ async function main(): Promise<void> {
 
     // ② 그런데 8다리짜리에 답하는 것은 **9다리째** — 상한 3 에 걸린다
     const old8 = await t.say(t.b, "구현", "아까 그거 말인데", deep);
-    ok(!old8.ok && (old8.reason ?? "").includes("9다리째"),
+    ok(!old8.ok && old8.reason === "max depths error",
        `★ 🔴 **옛 사슬은 그대로 깊다** (${old8.reason}) — 한 마디로 안 되살아난다`);
     t.mgr.dispose();
   }
@@ -514,7 +516,7 @@ async function main(): Promise<void> {
     t.room.relay = "off";
     t.standAt(t.b, 1);
     const out = await t.say(t.b, "구현", "답입니다", t.newest(t.b.id));
-    ok(!out.ok && (out.reason ?? "").includes("꺼져"),
+    ok(!out.ok && out.reason === "relay is off",
        `★ **답도 안 나간다** (${out.reason}) — «대화 기능 off» 가 말 그대로다`);
     ok(t.cards.length === 0, "★ 사람도 안 깨운다");
     t.mgr.dispose();

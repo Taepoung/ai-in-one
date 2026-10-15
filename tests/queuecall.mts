@@ -175,7 +175,11 @@ async function main(): Promise<void> {
   {
     const secret = mcp.issue(owner);
     const got = await callTool(url, secret, "없는_도구");
-    ok(got.status === 200 && got.text.includes("없는_도구"),
+    /*
+     * ⚠️ **이름을 되비춰 주지는 않는다** — `reason` 이 정해진 한 마디가 되면서
+     * «없는_도구» 가 빠졌다. 도구가 셋뿐이라 고를 거리는 설명에 이미 있다.
+     */
+    ok(got.status === 200 && JSON.parse(got.text).reason === "unvalid tool",
        `★ 오류가 아니라 결과다 — 모델이 읽고 다른 길을 찾는다 (${got.text})`);
   }
 

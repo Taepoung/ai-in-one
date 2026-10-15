@@ -19,6 +19,48 @@
 
 ---
 
+## ⓪ 전수표 — **오가는 것 전부**
+
+| 방향 | 무엇 | 언제 | 칸 |
+| --- | --- | --- | --- |
+| 우리 → 모델 | MCP 서버 항목 | 세션을 열 때 **한 번** | 이름 `ai-in-one` · 주소 · 비밀 |
+| 우리 → 모델 | 도구 설명 셋 | **부를 때마다** | `say` · `verdict` · `check_queue` (설명 + 입력 스키마) |
+| 우리 → 모델 | 명단 한 줄 | 방이 바뀔 때만 | `[ai-in-one] {you, bots, user, relay?}` |
+| 우리 → 모델 | 깃발 한 줄 | **매 턴** | `[ai-in-one] {null_id, also_to?, queue_left, do}` |
+| 모델 → 우리 | `say` | 봇이 부를 때 | `to`(리스트 또는 null) · `text` · `id`(문자열 또는 null) |
+| 모델 → 우리 | `verdict` | 봇이 부를 때 | `id`(문자열) · `allow`(참/거짓) · `reason`(글, 없어도 됨) |
+| 모델 → 우리 | `check_queue` | 봇이 부를 때 | 인자 없음 |
+| 우리 → 모델 | `say` 의 답 | 부른 직후 | 성공 **4갈래** / 거절은 아래 표 |
+| 우리 → 모델 | `verdict` 의 답 | 부른 직후 | 성공 **2갈래**(허용·막음) / 거절은 아래 표 |
+| 우리 → 모델 | `check_queue` 의 답 | 부른 직후 | 메세지 / 권한 / 빈 큐 — **셋 다 칸이 같다** |
+
+🔴 **비싼 자리는 ②뿐이다.** 설명은 **부를 때마다** 통째로 읽히고, 명단은
+바뀔 때만, 깃발은 한 줄이다. 그래서 길게 쓸 말은 ③④ 로 내리고 ② 는 줄인다.
+
+⚠️ **`outputSchema` 는 안 쓴다** — 돌려주는 것은 `content` 한 덩어리(JSON
+글자)다. 그래서 **답의 모양을 모델이 아는 길은 설명뿐**이고, 이 문서가
+그 설명과 어긋나면 모델이 틀린 모양을 믿는다.
+
+### 입력 — 우리가 받는 칸
+
+| 도구 | 칸 | 타입 | 필수 | 빠지거나 틀리면 |
+| --- | --- | --- | --- | --- |
+| `say` | `to` | `string[]` 또는 `null` | ✔ | `to is unvalid form(list or null)` |
+| `say` | `text` | `string` (공백만이면 빈 것) | ✔ | `text is empty` |
+| `say` | `id` | `string` 또는 `null` | ✔ | `id is not valid (valid id or null)` |
+| `verdict` | `id` | `string` | ✔ | `id is not valid (string)` |
+| `verdict` | `allow` | `boolean` | ✔ | `allow is not valid (boolean)` |
+| `verdict` | `reason` | `string` | ✘ | **조용히 빈 글**이 된다 — 거절하지 않는다 |
+| `check_queue` | — | — | — | 인자를 줘도 **무시한다** |
+
+★ **문자열 하나도 받는다** — `to: "베타"` 는 `["베타"]` 로 읽는다. 모델이
+흔히 그렇게 쓰는데, 거절해 봐야 왕복만 는다.
+
+★ **`to` 의 `user` 는 사용자다.** 봇 이름으로는 못 쓰는 이름이라 안 갈린다.
+다른 봇과 같이 적으면 그 봇에게 보내고 **칩만** 하나 더 단다.
+
+---
+
 ## ① MCP 서버
 
 `session/new`·`resume`·`load`·`fork` **넷 다**에 실린다 — 한 군데만 빠져도
@@ -195,85 +237,156 @@
 빈 배열(`paths`)은 **빠진다** — 지키는 것은 «모델이 그때마다 읽는 칸»이고,
 비어 있으면 말해 줄 것이 없는 곁가지는 안 싣는다.
 
-### 거절 — 두 모양이다
+### 거절 — 한 모양이다
 
-가르는 선은 **무엇이 틀렸나**다.
+**무엇이 틀렸든 봉투가 같다** — 본문은 JSON, 깃발도 `isError` 다.
 
 ```
-A  글 + isError   호출을 잘못 만들었다   — 고쳐 다시 부르면 된다
-B  JSON ok:false   규칙이 막았다        — 다른 길을 골라야 한다
+{"isError": true, "reason": "<한 마디>", …고를 거리}
 ```
 
-B 에만 `can_call`·`queue_left`·`items` 가 실리는 까닭이 그것이다 — **고를 거리**를
-같이 주어야 다른 길을 찾는다.
+예전에는 둘이었다(호출 모양이 틀리면 맨글, 규칙이 막으면 `{"ok":false}`).
+모델이 읽는 규칙이 둘이면 **수습법도 둘**이 되고 둘 중 하나는 덜 배운다.
 
-#### A — 호출 모양 (진짜로 불러서 받은 글)
+가르는 선은 이제 **무엇이 틀렸나**가 아니라 **뒤에 뭐가 붙나**다 —
+`can_call`·`queue_left`·`items` 는 **고를 거리**이므로, 고를 것이 있을 때만 붙는다.
+
+🔴 **`reason` 은 정해진 한 마디다.** 사람이 읽는 설명이 아니라 **갈래 이름**이라,
+모델은 글을 뜯지 않고 **같은지만 본다.** 대신 «그래서 뭘 하나» 는 글이 아니라
+같이 오는 칸이 진다.
+
+#### 진짜로 불러서 받은 것
 
 **say — `to` 가 없다**
 
-```
-isError: true
-reason: `to` is not valid (list or null)
+```json
+{"isError":true,"reason":"to is unvalid form(list or null)"}
 ```
 
 **say — `text` 가 비었다**
 
-```
-isError: true
-reason: text is empty
+```json
+{"isError":true,"reason":"text is empty"}
 ```
 
 **say — `id` 가 없다**
 
+```json
+{"isError":true,"reason":"id is not valid (valid id or null)"}
 ```
-isError: true
-reason: `to` is not valid (valid id or null)
+
+**verdict — `id` 가 문자열이 아니다**
+
+```json
+{"isError":true,"reason":"id is not valid (string)"}
 ```
 
 **verdict — `allow` 가 없다**
 
+```json
+{"isError":true,"reason":"allow is not valid (boolean)"}
 ```
-isError: true
-reason: text is not valid (boolean)
-```
-
-🔴 **지어내지 않는다.** `allow` 가 없다고 `false` 로 읽으면 **우리가 막은 것**이
-되고, `true` 로 읽으면 더 나쁘다.
 
 **모르는 도구**
 
-```
-isError: true
-reason: unvalid tool
+```json
+{"isError":true,"reason":"unvalid tool"}
 ```
 
-★ **오류가 아니라 결과다** — 모델이 읽고 다른 길을 찾는다.
+🔴 **지어내지 않는다.** `allow` 가 없다고 `false` 로 읽으면 **우리가 막은 것**이
+되고, `true` 로 읽으면 더 나쁘다. 그래서 칸마다 따로 답한다.
 
-#### B — 규칙 (방과 봇이 있어야 나오므로 적어만 둔다)
+★ **오류가 아니라 결과다** — 모델이 읽고 다른 길을 찾는다. 모르는 도구까지
+같은 봉투로 돌아오므로, 모델이 갈래를 더 배울 일이 없다.
+
+#### 거절 하나하나 — **언제 나오고, 뭐가 같이 오나**
+
+| 도구 | `reason` | 언제 | 같이 오는 칸 | 고칠 길 |
+| --- | --- | --- | --- | --- |
+| say | `to is unvalid form(list or null)` | `to` 가 빠졌거나 리스트도 `null` 도 아니다 | — | 칸을 채워 다시 부른다 |
+| say | `text is empty` | `text` 가 없거나 공백뿐이다 | — | 할 말을 적는다 |
+| say | `id is not valid (valid id or null)` | `id` 칸 자체가 없다 (뜻한 `null` 은 통과) | — | 큐의 id, 아니면 `null` |
+| say | `cannot say to user on user turn` | **사용자가 연 턴**에 사용자에게 걸었다 | — | 그 턴의 **산문**으로 쓴다 |
+| say | `id null is only for user turn` | **깨어난 턴**에서 `id:null` 을 줬다 | `can_call`·`queue_left` | `check_queue` 가 준 id 를 쓴다 |
+| say | `permission item: use verdict` | 집은 id 가 **권한 요청**이었다 | — | 같은 id 로 `verdict` |
+| say | `ambiguous name` | 그 이름의 봇이 방에 둘이다 | `can_call`·`queue_left` | 이름을 바꿔야 부를 수 있다 |
+| say | `unknown name` | `to` 의 이름이 방에 없다 | `can_call`·`queue_left` | 목록에서 고른다 |
+| say | `cannot say to self` | 자기 이름을 `to` 에 넣었다 | `can_call`·`queue_left` | 다른 대상을 고른다 |
+| say | `duplicated sending error` | **이 턴에 그 봇에게 이미** 보냈다 (`id:null` 일 때만) | `can_call`·`queue_left` | 다른 봇에게 걸거나 턴을 끝낸다 |
+| say | `relay is off` | 방이 **봇끼리 부르기 끔**이다 | `can_call`·`queue_left` | 🔴 **사용자에게** 말한다 |
+| say | `max depths error` | 「무조건 허용」에서 **깊이 상한**을 넘었다 | `can_call`·`queue_left` | 🔴 **사용자에게** 말한다 |
+| say | `user denied` | 「물어봄」에서 **사용자가 카드를 막았다** | `can_call`·`queue_left` | 🔴 **사용자에게** 말한다 |
+| say | `left the room` | 승인을 기다리는 사이에 받을 봇이 **나갔다** | `can_call`·`queue_left` | 남은 사람을 고른다 |
+| 둘 다 | `id error` | 그 id 가 **내 큐에 없다** | `items`·`queue_left` | 실려 온 `items` 에서 고른다 |
+| 둘 다 | `already handled` | 그 id 는 **이미 답이 났다** | `queue_left` | 🔴 **아무것도 안 해도 된다** |
+| verdict | `id is not valid (string)` | `id` 가 문자열이 아니다 | — | 칸을 채워 다시 부른다 |
+| verdict | `allow is not valid (boolean)` | `allow` 가 참/거짓이 아니다 | — | 🔴 **지어내지 않는다** |
+| 아무때 | `unvalid tool` | 그런 이름의 도구가 없다 | — | 세 도구 중에서 고른다 |
+| 아무때 | `room is closed` / `room is not open` | 방이 닫혔다 / 지금 열려 있지 않다 | — | **이 턴에 더 할 것이 없다** |
+| 아무때 | `not a participant` | 그 방의 참여자가 아니다 | — | **이 턴에 더 할 것이 없다** |
+
+**`items` 는 `id error` 에만 붙는다.** 틀린 까닭이 «엉뚱한 id» 일 때는 **지금
+들고 있는 것을 통째로 다시 실어준다** — `check_queue` 로 되묻는 왕복이 통째로
+준다. 나머지 거절은 id 가 맞았으므로 다시 보여줄 것이 없다.
+
+**`can_call` 은 `say` 의 규칙 거절에만 붙는다.** 호출 모양이 틀린 것(`to`·`text`·
+`id` 칸)은 **방을 보기 전에** 걸러지므로 목록을 만들 자리가 없고, 만들어줘 봐야
+고칠 곳은 제 호출이지 상대가 아니다.
+
+⚠️ **한 `reason` 이 두 자리에서 나온다.** `id null is only for user turn` 은
+사용자에게 걸 때와 봇에게 걸 때 둘 다, `already handled` 는 `say`·`verdict`
+양쪽에서 나온다. 모델에게는 같은 한 마디라 상관없지만, **고칠 때 두 곳을 고쳐야
+한다** — 한 자리로 모을 거리다.
+
+⚠️ **짧아지면서 «대신 뭘 할지» 가 글에서 사라졌다.** `items`·`can_call` 이 받는
+것은 괜찮은데, **`relay is off`·`max depths error`·`user denied`** 셋은 받을
+칸이 없다 — 옛 글에 있던 «사용자에게 말하라» 와 깊이 상한의 수가 통째로 빠졌다.
+표의 🔴 가 그 자리다. 이 셋만은 한 마디로 안 되는지 다시 볼 값이 있다.
+
+⚠️ **표의 «고칠 길» 칸은 모델에게 안 간다.** 여기 적힌 것은 우리가 읽는
+것이고, 봇이 받는 것은 왼쪽 한 마디와 같이 오는 칸뿐이다 — 둘을 섞어
+읽으면 «말해줬다» 고 착각하게 된다.
+
+#### 방이 있어야 나오는 거절 — **진짜 방에서 받았다**
 
 ```json
-{"ok":false,"reason":"이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.",
- "can_call":["베타","감마"],"queue_left":0}
-{"ok":false,"reason":"봇끼리 이어지는 깊이 상한(3)에 닿았습니다 — 이 말은 4다리째입니다. …"}
-{"ok":false,"reason":"사용자가 이 호출을 허락하지 않았습니다. …"}
-{"ok":false,"reason":"베타에게 이 턴에 이미 전송했습니다."}
-{"ok":false,"reason":"«x9» 는 당신의 큐에 없습니다. …","items":[…],"queue_left":1}
+{"isError":true,"reason":"cannot say to self","can_call":["베타","감마"],"queue_left":0}
+{"isError":true,"reason":"unknown name","can_call":["베타","감마"],"queue_left":0}
+{"isError":true,"reason":"to is unvalid form(list or null)"}
+{"isError":true,"reason":"id error","items":[],"queue_left":0}
 ```
 
-⚠️ 이 두 모양은 **모델이 읽는 규칙을 둘로** 만든다 — 하나로 모으려면 A 도
-`{"ok":false,"reason":…}` 로 싸고 `isError` 는 그대로 두면 된다.
+★ **`id error` 에만 `items` 가 붙는다** — 틀린 것이 «id» 일 때만 다시 보여줄
+것이 있다. 지금은 큐가 비어 빈 목록이지만, 들고 있으면 통째로 실린다.
+
+```json
+{"isError":true,"reason":"relay is off","can_call":["베타","감마"],"queue_left":0}
+```
 
 ### 보낸 뒤 — 성공한 답
 
-```
-say     (봇에게)   {"ok":true,"to":["베타","감마","user"],"queue_left":0}
-say     (사용자)   {"ok":true,"to":["user"],"queue_left":0}
-verdict            {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")
+`say` 는 **네 갈래**다. 넷 다 `to` 에 `user` 가 선다 — 모든 말이 사용자에게
+보이므로, 답이 그걸 말해주면 봇이 «또 알려야 하나»를 안 묻는다.
+
+```json
+봇에게       {"ok":true,"to":["감마","user"],"queue_left":0}
+봇 + 사용자  {"ok":true,"to":["베타","user"],"queue_left":0}
+사용자에게   {"ok":true,"to":["user"],"queue_left":1}
+버린다       {"ok":true,"to":["user"],"queue_left":1}
 ```
 
+★ **«버린다»(`to: null`)도 사용자에게는 간다** — 돌려주는 답이 `["user"]` 로
+같다. 갈리는 것은 화면 쪽이다(접혀 선다).
+
+```
+verdict   {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")
+```
+
+⚠️ **`verdict` 의 성공만은 적어둔 것이다** — 진짜 권한 카드가 떠야 나오므로
+여기서 못 만든다. 모양은 `judgeflow` 가 지킨다.
+
 ★ **답마다 `queue_left` 를 싣는다** — 답한 **직후**가 «또 꺼낼까»를 정하는
-자리라, 그 판단에 쓸 수를 그 자리에서 준다. (이 셋은 방과 봇이 있어야 나오므로
-여기서는 적어만 둔다 — 모양은 `saybot`·`judgeflow` 가 지킨다.)
+자리라, 그 판단에 쓸 수를 그 자리에서 준다.
 
 ---
 
