@@ -27,6 +27,7 @@ import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
 import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
 import { OUR_MCP_NAME } from "../../src/core/acpConnection.js";
+import { rosterText } from "../../src/core/types.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";
 
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-tools-"));
@@ -213,12 +214,25 @@ say();
 say("이름·설명·구성·릴레이 토글 중 **무엇이 바뀌어도** 통째로 다시 나간다.");
 say("차분을 안 보낸다 — 모델이 머릿속에서 합쳐야 하고, 틀려도 우리가 못 본다.");
 say();
+/* 🔴 **여기도 적어두지 않는다** — `rosterText` 를 진짜로 불러서 찍는다 */
+const fakeRoom = (relay: string) => ({
+  participants: [
+    { id: "b1", name: "리뷰어" },
+    { id: "b2", name: "구현", blurb: "코드를 쓰고 고친다" },
+  ],
+  relay,
+}) as unknown as Parameters<typeof rosterText>[0];
+const fakeMe = { id: "b1", name: "리뷰어" } as unknown as Parameters<typeof rosterText>[1];
+
 say("```");
-say('[ai-in-one-roster] {"you":"리뷰어","bots":[{"name":"구현","does":"코드를 쓰고 고친다"}]}');
+say(rosterText(fakeRoom("always"), fakeMe));
 say("```");
 say();
-say("릴레이가 꺼진 방은 **빈 목록 + 왜**다 — `{\"you\":…,\"bots\":[],\"relay\":\"off\"}`.");
-say("«아무도 없는 방»과 구별되어야 한다.");
+say("릴레이가 꺼진 방은 **빈 목록 + 왜**다 — «아무도 없는 방»과 구별되어야 한다:");
+say();
+say("```");
+say(rosterText(fakeRoom("off"), fakeMe));
+say("```");
 say();
 say("## ④ 깃발 — 매 턴");
 say();

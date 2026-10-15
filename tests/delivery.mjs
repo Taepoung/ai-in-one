@@ -424,8 +424,21 @@ console.log("\n[★ 중단은 **대화 위에 떠 있는 한 자리** — 그리
    */
   ok(t.$("#screen-chat .composer .stop") === null,
      "★ **입력줄 안이 아니다** — 뜨고 질 때 입력창이 밀리면 안 된다");
-  ok(t.$("#screen-chat .stop-row").nextElementSibling.classList.contains("composer"),
-     "★ **입력창 바로 위**에 받침이 선다");
+  /*
+   * ★ **받침은 대화 목록 바로 뒤다** (사용자, 2026-10-15).
+   *
+   * ⏪ 입력창 바로 위였다. 🔴 그런데 단추는 받침에서 **위로** 뜨므로, 아래에서
+   * 띠가 올라오면(승인 줄 · 「맨 아래로」) **그 위에 포개졌다** — 사용자:
+   * *"아래 바가 올라와도 위치가 고정되어서 가리는 문제가 있어"*.
+   *
+   * 목록 뒤에 두면 띠가 설 때마다 목록이 줄고 받침도 같이 올라간다. px 로
+   * 자리를 계산하는 길은 **띠가 늘 때마다 또 고쳐야 해서** 안 썼다.
+   */
+  ok(t.$("#screen-chat .stop-row").previousElementSibling.classList.contains("messages"),
+     "★ **대화 목록 바로 뒤**에 받침이 선다 — 띠가 올라오면 같이 올라간다");
+  const afterStop = [...t.$$("#screen-chat .stop-row ~ *")].map((n) => n.className);
+  ok(afterStop.includes("approvals") && afterStop.some((c) => c.includes("back-jump")),
+     `★ **띠들은 받침 아래에 선다** (${afterStop.join(" · ")}) — 포개지지 않는다`);
 
   stopBot.click();
   const sent = t.sent.find((m) => m.t === "stopAll");

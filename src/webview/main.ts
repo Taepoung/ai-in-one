@@ -1666,6 +1666,19 @@ function labelOf(o: ConfigOptionBrief): string {
 
 let draftTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * ★ **지금 보는 방이 «기록만 읽기» 인가** (사용자, 2026-10-15).
+ *
+ * 🔴 세션을 안 붙이고 연 방에서 **입력창과 단추들이 평소처럼 서 있었다** —
+ * 눌러도 될 것처럼 보이는데 보낼 곳이 없다. 사용자: *"기록만 읽기 방에서
+ * 입력창 제거. 참여자 서랍 버튼, 분기버튼, ...버튼 제거, 뒤로가기랑 방
+ * 정보만 보이게"*.
+ *
+ * 방 id 로 들고 있는다 — 옆 방으로 가면 저절로 풀린다. 「들어가기」로 다시
+ * 열면 `openRoom` 이 지운다.
+ */
+let peeking: string | null = null;
+
 function openRoom(roomId: string): void {
   // 뷰는 **그 방 안의 상태**다 — 다른 방에 들고 가면 엉뚱한 봇을 가리킨다
   viewBotId = null;
@@ -1680,6 +1693,8 @@ function openRoom(roomId: string): void {
   shownCount = PAGE;
   joinFails = new Map();
   joinSteps = new Map();
+  // 제대로 들어가는 길이다 — 「기록만」 표시는 여기서 풀린다
+  peeking = null;
   post({ t: "open", roomId });
   /*
    * ★ **붙는 동안은 붙는 화면에 선다** (2026-10-13).
@@ -1700,6 +1715,8 @@ function openRoom(roomId: string): void {
 function peekRoom(roomId: string): void {
   viewBotId = null;
   joinFails = new Map();
+  shownCount = PAGE;
+  peeking = roomId;
   post({ t: "peek", roomId });
   go("chat");
 }
@@ -3389,6 +3406,20 @@ function mountChat(r: Room): void {
     head,
     clash,
     list,
+    /*
+     * ★ **대화의 바닥에 떠 있는다** (사용자, 2026-10-15).
+     *
+     * 높이 0 이라 **자리를 안 먹고**, 떠 있는 단추만 대화 위로 올라온다.
+     *
+     * ⏪ 받침을 **입력창 바로 위**에 뒀다가 물렀다 — 사용자: *"전부 중단
+     * 알약이 아래 바가 올라와도 (승인 바 혹은 아래로 내리기 바) 위치가
+     * 고정되어서 가리는 문제가 있어"*. 🔴 단추는 받침에서 **위로** 뜨는데
+     * 받침이 띠들 **아래**에 있어서, 띠가 서면 그 위에 포개졌다.
+     *
+     * 목록 바로 뒤에 두면 띠가 설 때마다 목록이 줄고 받침도 **같이 올라간다**
+     * — 자리를 손으로 계산하지 않아도 늘 «대화의 바닥»이다.
+     */
+    stopRow,
     back,
     down,
     status,
@@ -3397,11 +3428,16 @@ function mountChat(r: Room): void {
     chips,
     /* ★ **승인은 입력창 바로 위** (§5-M) — 눈이 가 있는 자리다 */
     queue,
-    /* 높이 0 — **자리를 안 먹는다.** 떠 있는 단추만 대화 위로 올라온다 */
-    stopRow,
+    /*
+     * ★ **기록만 읽는 방에는 입력창이 없다** (사용자, 2026-10-15).
+     *
+     * 🔴 **지우지 않고 감춘다.** `chat.box` 를 여러 곳이 들여다보므로
+     * (초안·멘션·보내기 단추) 아예 안 만들면 거기서 터진다. 감추면 자리도
+     * 안 먹고 손도 안 닿는다 — «있는데 안 되는 것»이 아니라 **없는 것**이다.
+     */
     el(
       "div",
-      { class: "composer" },
+      { class: "composer", hidden: peeking === r.id },
       el(
         "button",
         { class: "icon", title: "첨부", onclick: () => post({ t: "pickAttachment", roomId: r.id }) },
@@ -3815,11 +3851,26 @@ function paintChat(r: Room): void {
         el("span", {
           class: "sub",
           title: r.cwd,
-          text: `${agent?.label ?? "?"} · ${shortenPath(r.cwd)}`,
+          /*
+           * ★ **«기록만» 이라고 적는다** (2026-10-15). 입력창과 단추를 걷어낸
+           * 자리에 아무 말도 없으면 **고장 난 것처럼** 보인다 — 왜 없는지
+           * 한 마디가 방 정보 줄에 붙는다.
+           */
+          text: `${agent?.label ?? "?"} · ${shortenPath(r.cwd)}`
+            + (peeking === r.id ? " · 기록만" : ""),
         }),
       ),
+      /*
+       * ★ **기록만 읽는 방에는 여기까지다** (사용자, 2026-10-15) —
+       * 뒤로가기와 방 정보만.
+       *
+       * 🔴 참여자·분기·⋮ 는 전부 **방에 붙어 있어야** 뜻이 있는 것들이다.
+       * 세션을 안 붙이고 연 방에서 눌리면 «왜 아무 일도 안 일어나지»가 되고,
+       * 어떤 것은 **붙이는 일을 몰래 시작**한다 — 17초를 피하려고 들어온
+       * 자리에서 그러면 들어온 까닭이 사라진다.
+       */
       // 참여자 서랍 — 봇에 관한 것이 모이는 자리 (§4.2.1)
-      el(
+      peeking === r.id ? null : el(
         "button",
         { class: "icon with-count", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
         icon("organization"),
@@ -3838,8 +3889,8 @@ function paintChat(r: Room): void {
       ),
       // 분기는 서랍 옆에 — «지금 여기서 갈라진다»는 대화를 보며 정하는 것이라
       // ⋮ 안에 두면 떠올리기 어렵다. 모든 조건은 ⋮의 «여기서 분기»와 같다.
-      forkHeadButton(r),
-      el(
+      peeking === r.id ? null : forkHeadButton(r),
+      peeking === r.id ? null : el(
         "button",
         { class: "icon", title: "메뉴", onclick: (e: Event) => toggleMenu(e, r) },
         icon("kebab-vertical"),

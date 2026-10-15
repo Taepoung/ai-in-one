@@ -489,6 +489,35 @@ function main() {
     ok(t.sent.some((m) => m.t === "peek" && m.roomId === "r1"),
        "★ **붙이지 말라고 말한다** — open 이 아니다");
     ok(t.screenOf() === "chat", "★ 그리고 바로 채팅이다 — 기다릴 것이 없다");
+
+    /*
+     * ★ **보기만 하는 방에는 손댈 것이 없다** (사용자, 2026-10-15):
+     * *"기록만 읽기 방에서 입력창 제거. 참여자 서랍 버튼, 분기버튼, ...버튼
+     * 제거, 뒤로가기랑 방 정보만 보이게"*.
+     *
+     * 🔴 셋 다 **방에 붙어 있어야** 뜻이 있다. 눌리면 «왜 아무 일도 안
+     * 일어나지»가 되고, 어떤 것은 붙이는 일을 몰래 시작한다 — 17초를
+     * 피하려고 들어온 자리에서 그러면 들어온 까닭이 사라진다.
+     */
+    t.send({ t: "room", room: room(), compactable: false });
+    const bar = t.$("#screen-chat .bar");
+    const icons = [...bar.querySelectorAll("button")].map((b) => b.title);
+    ok(icons.join() === "목록", `★ **뒤로가기 하나뿐** (${icons.join(" · ")})`);
+    ok(bar.querySelector("h1") !== null, "★ 방 정보는 남는다");
+    ok(t.$("#screen-chat .composer").hidden === true,
+       "★ **입력창이 없다** — 보낼 곳이 없는데 서 있으면 눌러 보게 된다");
+    ok(bar.querySelector("h1 .sub").textContent.includes("기록만"),
+       `★ **왜 없는지 적는다** (${bar.querySelector("h1 .sub").textContent}) — 아니면 고장으로 보인다`);
+
+    /* 제대로 들어가면 도로 생긴다 — 표시는 방에 붙는 것이 아니라 «지금 보는 길»이다 */
+    t.$("#screen-chat .bar button").click();
+    t.$(".room").click();
+    t.send({ t: "joinDone", roomId: "r1" });
+    t.send({ t: "room", room: room(), compactable: false });
+    ok(t.$("#screen-chat .composer").hidden === false,
+       "★ 들어가면 입력창이 돌아온다");
+    ok([...t.$$("#screen-chat .bar button")].length > 1,
+       "★ 단추들도 돌아온다");
   }
 
   console.log("\n[스트리밍 중 입력창이 살아 있다]");
