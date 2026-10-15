@@ -179,14 +179,33 @@ say();
 say("빈 배열(`paths`)은 **빠진다** — 지키는 것은 «모델이 그때마다 읽는 칸»이고,");
 say("비어 있으면 말해 줄 것이 없는 곁가지는 안 싣는다.");
 say();
-say("### 거절 — 모양이 안 맞을 때");
+say("### 거절 — 두 모양이다");
 say();
-say("**글로 간다**(JSON 이 아니다). 모델이 그대로 읽는 자리라, 무엇이 빠졌는지와");
-say("**무엇을 하면 되는지**를 같이 적는다.");
+say("가르는 선은 **무엇이 틀렸나**다.");
 say();
 say("```");
-say(await callErr("say", { text: "뭔가", id: "x1" }));
+say("A  글 + isError   호출을 잘못 만들었다   — 고쳐 다시 부르면 된다");
+say("B  JSON ok:false   규칙이 막았다        — 다른 길을 골라야 한다");
 say("```");
+say();
+say("B 에만 `can_call`·`queue_left`·`items` 가 실리는 까닭이 그것이다 — **고를 거리**를");
+say("같이 주어야 다른 길을 찾는다.");
+say();
+say("#### A — 호출 모양 (진짜로 불러서 받은 글)");
+say();
+for (const [what, args] of [
+  ["say — `to` 가 없다", { text: "뭔가", id: "x1" }],
+  ["say — `text` 가 비었다", { to: ["알파"], text: "  ", id: "x1" }],
+  ["say — `id` 가 없다", { to: ["알파"], text: "뭔가" }],
+] as Array<[string, unknown]>) {
+  say("**" + what + "**");
+  say();
+  say("```");
+  say(await callErr("say", args));
+  say("```");
+  say();
+}
+say("**verdict — `allow` 가 없다**");
 say();
 say("```");
 say(await callErr("verdict", { id: "p1" }));
@@ -194,6 +213,28 @@ say("```");
 say();
 say("🔴 **지어내지 않는다.** `allow` 가 없다고 `false` 로 읽으면 **우리가 막은 것**이");
 say("되고, `true` 로 읽으면 더 나쁘다.");
+say();
+say("**모르는 도구**");
+say();
+say("```");
+say(await callErr("없는_도구", {}));
+say("```");
+say();
+say("★ **오류가 아니라 결과다** — 모델이 읽고 다른 길을 찾는다.");
+say();
+say("#### B — 규칙 (방과 봇이 있어야 나오므로 적어만 둔다)");
+say();
+say("```json");
+say('{"ok":false,"reason":"이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.",');
+say(' "can_call":["베타","감마"],"queue_left":0}');
+say('{"ok":false,"reason":"봇끼리 이어지는 깊이 상한(3)에 닿았습니다 — 이 말은 4다리째입니다. …"}');
+say('{"ok":false,"reason":"사용자가 이 호출을 허락하지 않았습니다. …"}');
+say('{"ok":false,"reason":"베타에게 이 턴에 이미 전송했습니다."}');
+say('{"ok":false,"reason":"«x9» 는 당신의 큐에 없습니다. …","items":[…],"queue_left":1}');
+say("```");
+say();
+say("⚠️ 이 두 모양은 **모델이 읽는 규칙을 둘로** 만든다 — 하나로 모으려면 A 도");
+say("`{\"ok\":false,\"reason\":…}` 로 싸고 `isError` 는 그대로 두면 된다.");
 say();
 say("### 보낸 뒤 — 성공한 답");
 say();

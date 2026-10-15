@@ -34,6 +34,15 @@ export type AgentEvent =
        * 실패했는지는 여기 있다.
        */
       output?: string;
+      /**
+       * ★ **우리 MCP 도구인가** (사용자, 2026-10-15).
+       *
+       * 🔴 Antigravity 는 제목에 **`ai-in-one_say` 를 그대로** 쓴다 —
+       * 알약이 길고, 읽는 사람에게는 서버 이름이 군더더기다. 그런데
+       * **우리 도구라는 것은 우리가 안다**(`mcpIdentity`) — 그러면 이름도
+       * 우리가 달 수 있다.
+       */
+      mcp?: { server: string; tool: string };
     }
   /** 파일 변경 전/후 전문 (E2~E4). `tool_call.content[]`의 `type: "diff"` */
   | { type: "diff"; path: string; oldText: string | null; newText: string }
@@ -1485,6 +1494,11 @@ function translate(update: acp.SessionUpdate): AgentEvent[] {
           ...(() => {
             const out = outputOf(("content" in update && update.content) || []);
             return out ? { output: out } : {};
+          })(),
+          // **우리 것인가** — 이름을 우리가 달 때 쓴다
+          ...(() => {
+            const who = mcpIdentity(update as Parameters<typeof mcpIdentity>[0]);
+            return who ? { mcp: who } : {};
           })(),
         },
       ];

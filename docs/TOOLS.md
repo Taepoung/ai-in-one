@@ -195,23 +195,73 @@
 빈 배열(`paths`)은 **빠진다** — 지키는 것은 «모델이 그때마다 읽는 칸»이고,
 비어 있으면 말해 줄 것이 없는 곁가지는 안 싣는다.
 
-### 거절 — 모양이 안 맞을 때
+### 거절 — 두 모양이다
 
-**글로 간다**(JSON 이 아니다). 모델이 그대로 읽는 자리라, 무엇이 빠졌는지와
-**무엇을 하면 되는지**를 같이 적는다.
+가르는 선은 **무엇이 틀렸나**다.
+
+```
+A  글 + isError   호출을 잘못 만들었다   — 고쳐 다시 부르면 된다
+B  JSON ok:false   규칙이 막았다        — 다른 길을 골라야 한다
+```
+
+B 에만 `can_call`·`queue_left`·`items` 가 실리는 까닭이 그것이다 — **고를 거리**를
+같이 주어야 다른 길을 찾는다.
+
+#### A — 호출 모양 (진짜로 불러서 받은 글)
+
+**say — `to` 가 없다**
 
 ```
 isError: true
-say 에는 `to`(받을 대상들의 이름 리스트)가 있어야 합니다.
+reason: `to` is not valid (list or null)
 ```
+
+**say — `text` 가 비었다**
 
 ```
 isError: true
-verdict 에는 `id`(문자열)와 `allow`(참/거짓)가 있어야 합니다.
+reason: text is empty
+```
+
+**say — `id` 가 없다**
+
+```
+isError: true
+reason: `to` is not valid (valid id or null)
+```
+
+**verdict — `allow` 가 없다**
+
+```
+isError: true
+reason: text is not valid (boolean)
 ```
 
 🔴 **지어내지 않는다.** `allow` 가 없다고 `false` 로 읽으면 **우리가 막은 것**이
 되고, `true` 로 읽으면 더 나쁘다.
+
+**모르는 도구**
+
+```
+isError: true
+reason: unvalid tool
+```
+
+★ **오류가 아니라 결과다** — 모델이 읽고 다른 길을 찾는다.
+
+#### B — 규칙 (방과 봇이 있어야 나오므로 적어만 둔다)
+
+```json
+{"ok":false,"reason":"이 방은 봇끼리 부르기가 꺼져 있습니다. 사용자에게 말하세요.",
+ "can_call":["베타","감마"],"queue_left":0}
+{"ok":false,"reason":"봇끼리 이어지는 깊이 상한(3)에 닿았습니다 — 이 말은 4다리째입니다. …"}
+{"ok":false,"reason":"사용자가 이 호출을 허락하지 않았습니다. …"}
+{"ok":false,"reason":"베타에게 이 턴에 이미 전송했습니다."}
+{"ok":false,"reason":"«x9» 는 당신의 큐에 없습니다. …","items":[…],"queue_left":1}
+```
+
+⚠️ 이 두 모양은 **모델이 읽는 규칙을 둘로** 만든다 — 하나로 모으려면 A 도
+`{"ok":false,"reason":…}` 로 싸고 `isError` 는 그대로 두면 된다.
 
 ### 보낸 뒤 — 성공한 답
 

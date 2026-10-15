@@ -1304,6 +1304,17 @@ function renderNew(error?: string): void {
     if (needsFolder()) return;
     create.disabled = true;
     create.textContent = "여는 중…";
+    /*
+     * ★ **누르는 순간 붙는 화면으로** (사용자, 2026-10-15):
+     * *"새 대화방 만들기 -> 열기 누를 때 로딩창으로 이동 -> 방으로
+     * 들어가짐 이 흐름으로 / 1대1 만들때는 만드는 창에서 좀 대기하는"*.
+     *
+     * 🔴 방이 **돌아와야** 화면이 움직였다 — 그사이 만들기 창에 그대로
+     * 서 있으니 **누른 것이 먹혔나** 싶어진다. 기다리는 것은 같아도
+     * «어디서 기다리나» 는 다르다 — 붙는 화면은 그 기다림이 **제 일**이다.
+     */
+    renderOpening(title.value.trim());
+    go("joining");
     post({
       t: "createRoom",
       agentId: draftBots[0]?.agentId ?? "",
@@ -1916,6 +1927,26 @@ function renderAuth(): void {
  * 보면 그 사이에 다른 봇도 걸려 있다. 다 끝난 뒤에 `fix` 에서 한 번에
  * 정한다(`joinDone`).
  */
+/**
+ * ★ **방이 아직 없을 때의 붙는 화면** (사용자, 2026-10-15).
+ *
+ * 만들기를 누른 순간에는 **방이 없다** — 그런데도 화면은 옮겨야 한다.
+ * 제목만 들고 같은 자리에 선다 — 방이 오면 `renderJoining` 이 그 위에 다시
+ * 그린다(봇 줄까지). 두 화면이 아니라 **한 화면의 이른 모습**이다.
+ */
+function renderOpening(title: string): void {
+  const host = screens.joining;
+  host.replaceChildren(
+    el("header", { class: "bar" },
+      el("button", { class: "icon", title: "뒤로", onclick: () => { go("list"); } }, icon("arrow-left")),
+      el("h1", { text: title || "새 대화방" }),
+    ),
+    el("div", { class: "auth-box" },
+      el("p", { class: "auth-head", text: "방을 여는 중입니다…" }),
+    ),
+  );
+}
+
 function renderJoining(r: Room): void {
   const host = screens.joining;
   host.replaceChildren();
@@ -4662,12 +4693,24 @@ function messageNode(
    * 가 흐려진다. 토큰은 «누구에게»를 말하는 머리고, 글은 그 다음이다.
    */
   /*
-   * 🔴 **봇끼리 보낸 말은 여기서 토큰 줄을 안 만든다** (2026-10-14).
+   * 🔴 **접히는 말은 여기서 토큰 줄을 안 만든다** (2026-10-14 · 2026-10-15).
    *
    * 그 칩은 **접는 머리로** 올라간다(`relayFold`) — 거기 이미 «누구에게»가
-   * 있는데 안에서 또 적으면 펴는 순간 **같은 칩이 두 번** 보인다.
+   * 있는데 안에서 또 적으면 **같은 칩이 두 번** 보인다.
+   *
+   * 🔴 버린 말(`aside`)에서 실제로 그렇게 떴다 (사용자, 2026-10-15):
+   *
+   * ```
+   * >@(사용자)      ← 접는 머리
+   * @(사용자)       ← 말풍선 안 토큰 줄 (중복)
+   * 봇2 자기소개 수신 완료
+   * ```
+   *
+   * 봇끼리 말은 `toUser` 가 아니라 안 걸렸고, 버린 말은 **`toUser` 라** 걸렸다 —
+   * 가르는 것은 «봇에게인가»가 아니라 **«접히는가»** 였다.
    */
-  if (room && !botToBot(m)) {
+  const folded = botToBot(m) || (m.aside === true && m.toUser === true);
+  if (room && !folded) {
     const to = deliveryChips(m, room);
     if (to) wrap.append(el("div", { class: "to-line" }, to));
   }

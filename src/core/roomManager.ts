@@ -742,6 +742,18 @@ function uniqueName(wanted: string, others: BotInstance[]): string {
   return uniqueBotName(wanted, new Set(others.map((b) => b.name)));
 }
 
+/**
+ * ★ **우리 도구의 한글 이름** — 활동 알약에 설 글자 (사용자, 2026-10-15).
+ *
+ * 알약은 말풍선보다 옵으로 더 나가면 안 되므로 **짧아야** 한다(§5 활동 알약).
+ * 모르는 이름이 오면 그대로 둔다 — 지어내지 않는다.
+ */
+const OUR_TOOL_LABEL: Record<string, string> = {
+  say: "말 전함",
+  check_queue: "큐 확인",
+  verdict: "심사",
+};
+
 function configKeyOf(roomId: string, botId: string): string {
   return `${roomId}:${botId}`;
 }
@@ -972,6 +984,10 @@ export class RoomManager extends EventEmitter<Events> {
    * 영수증만 들고 있으면 되므로 작게 묶어둔다 — 넘치면 **오래된 것부터** 버린다.
    */
   private readonly closed = new Map<string, string>();
+  /** 우리 도구가 돌려준 진짜 답 — `방:봇:도구` 마다 줄로 (활동에 붙인다)
+   *
+   * 저쪽이 실어 보내는 것은 자리표시 글일 수 있다(Antigravity 실측). */
+  private readonly ourOut = new Map<string, string[]>();
 
   /**
    * 큐에 든 권한 요청의 **답을 넣을 손** — id → 푸는 함수.
@@ -4457,17 +4473,45 @@ export class RoomManager extends EventEmitter<Events> {
     const status = ev.status as ToolActivity["status"];
     const at = tools.findIndex((t) => t.id === ev.toolCallId);
 
+    /*
+     * ★ **우리 도구는 이름을 우리가 단다** (사용자, 2026-10-15): *"title같게
+     * 안맞아서 알약이 길고"* — Antigravity 는 `ai-in-one_say` 를 그대로 쓰고,
+     * Claude 는 `mcp__ai-in-one__say` 를 쓴다. 둘 다 **서버 이름이 군더더기**다 —
+     * 읽는 사람은 «무엇을 했나»만 알면 된다.
+     *
+     * 저쪽 이름을 긁지 않는 까닭: **우리 것인지 알아본 뒤에만** 갈아끼운다
+     * (`mcpIdentity`). 모르면 저쪽 이름 그대로 — 넘겨짚지 않는다.
+     */
+    const mine = ev.mcp?.server === OUR_MCP_NAME
+      ? (OUR_TOOL_LABEL[ev.mcp.tool] ?? ev.mcp.tool)
+      : undefined;
+
+    /*
+     * ★ **결과도 우리 것을 붙인다** — 끝났을 때 한 번만.
+     * 저쪽이 실어 보낸 자리표시 글보다 **진짜 답**이 낫다.
+     */
+    const done = ev.status === "completed" || ev.status === "failed";
+    const ourOut = mine && done && ev.mcp
+      ? this.ourOut.get(`${room.id}:${reply.authorBotId}:${ev.mcp.tool}`)?.shift()
+      : undefined;
+
     const next: ToolActivity = {
       id: ev.toolCallId,
       // 갱신 이벤트는 제목을 안 줄 수도 있다. 먼저 온 걸 지키자.
-      title: ev.title || tools[at]?.title || "도구 사용",
+      title: mine || ev.title || tools[at]?.title || "도구 사용",
       ...(ev.kind ? { kind: ev.kind } : tools[at]?.kind ? { kind: tools[at]!.kind! } : {}),
       status,
       ...(ev.paths.length > 0 ? { paths: ev.paths } : tools[at]?.paths ? { paths: tools[at]!.paths! } : {}),
       // **명령은 첫 이벤트에만 실려 온다** — 갱신에는 없으니 들고 있던 걸 지킨다
       ...(ev.command ? { command: ev.command } : tools[at]?.command ? { command: tools[at]!.command! } : {}),
       // 결과는 **나중에** 온다 (갱신). 오면 갈아 끼우고, 없으면 있던 걸 지킨다.
-      ...(ev.output ? { output: ev.output } : tools[at]?.output ? { output: tools[at]!.output! } : {}),
+      ...(ourOut
+        ? { output: ourOut }
+        : ev.output
+          ? { output: ev.output }
+          : tools[at]?.output
+            ? { output: tools[at]!.output! }
+            : {}),
       // 언제 시작했나. 타임라인으로 읽으려면 시각이 있어야 한다
       ...(tools[at]?.at ? { at: tools[at]!.at! } : { at: Date.now() }),
       // **글의 어디쯤이었나.** 처음 본 시점을 지킨다 — 갱신 때 옮기면 순서가 흐트러진다
@@ -5841,6 +5885,29 @@ export class RoomManager extends EventEmitter<Events> {
    * 이것이 «남의 큐를 들여다보는 것»을 막는 뿌리다.
    */
   async mcpCall(owner: string, tool: string, args: unknown): Promise<McpResult> {
+    const out = await this.mcpAnswer(owner, tool, args);
+    /*
+     * ★ **진짜 결과를 활동에 붙이려고 받아둔다** (사용자, 2026-10-15):
+     * *"툴 output이 안나옴"*.
+     *
+     * 🔴 **저쪽이 주는 것은 우리 결과가 아니다.** Antigravity 는
+     * `tool_call_update` 에 *"Call say on ai-in-one server"* 같은 **자리표시
+     * 글**을 실어 보낸다(`probes/mcpagy.cjs` 실측). 그걸 그대로 보여주면
+     * «무엇이 나왔나» 에 거짓으로 답하는 셋이다.
+     *
+     * 우리 도구의 답은 **우리가 들고 있으므로**, 같은 봇·같은 도구의
+     * 활동이 끝날 때 그걸 붙인다. 줄로 두는 까닭: 한 턴에 여러 번 부를
+     * 수 있고, 갱신은 **부른 순서대로** 온다.
+     */
+    const line = (this.ourOut.get(`${owner}:${tool}`) ?? []);
+    line.push(out.text);
+    if (line.length > 8) line.shift();
+    this.ourOut.set(`${owner}:${tool}`, line);
+    return out;
+  }
+
+  /** 진짜 일을 하는 자리 — 위는 결과를 받아두는 껍질이다 */
+  private async mcpAnswer(owner: string, tool: string, args: unknown): Promise<McpResult> {
     const cut = owner.indexOf(":");
     const roomId = owner.slice(0, cut);
     const botId = owner.slice(cut + 1);
@@ -5929,10 +5996,37 @@ export class RoomManager extends EventEmitter<Events> {
       }
       const sayId = a.id as string | null;
       // ★ `to: null` 은 **버리는 것** — 적어 보낸 `["user"]` 와 모양이 갈린다
+      /*
+       * ★ **사용자가 연 턴에서는 사용자에게 say 를 안 쓴다** (사용자,
+       * 2026-10-15): *"사용자에 반응해서 산문도 쓰면서 이것도 쓰는 경우가
+       * 있는듯"*.
+       *
+       * 🔴 `id: null` 은 **사용자가 열었다는 뜻**이고, 그 턴의 산문은
+       * 어차피 사용자에게 간다. 거기에 또 사용자를 가리키면 **같은 사람에게
+       * 두 번** 말하게 된다 — 화면에는 상자가 둘 서고, 읽는 사람은 어느
+       * 쪽이 답인지부터 골라야 한다.
+       *
+       * ⚠️ 봇과 같이 적은 경우(`["베타","user"]`)는 거절하지 않고 **사용자만
+       * 뺀다** — 베타에게 보내려는 것은 제대로 된 일이다.
+       */
+      /*
+       * ⚠️ **사용자가 연 턴일 때만 이 말을 한다.** 깨어난 턴에서 `id: null`
+       * 은 그 자체로 틀린 것이고, 거기서 «사용자가 연 턴입니다» 라고 답하면
+       * **거짓말**이다 — 그쪽은 아래 `relaySay`·`sayUser` 가 제 말로 답한다.
+       */
+      if (sayId === null && skip && this.botRuntime(roomId, botId).fromUser) {
+        return {
+          text:
+            "사용자가 연 턴입니다 — 사용자에게 할 말은 **이 턴의 글로** 쓰세요. " +
+            "`say` 는 다른 대상에게 보낼 때 씁니다.",
+          isError: true,
+        };
+      }
       if (skip) {
         return await this.sayUser(roomId, botId, sayId, a.text.trim(), a.to === null);
       }
-      return await this.relaySay(roomId, botId, to!, a.text, sayId, alsoUser);
+      // 사용자가 연 턴이면 «user» 는 빼고 보낸다 — 산문이 이미 거기로 간다
+      return await this.relaySay(roomId, botId, to!, a.text, sayId, alsoUser && sayId !== null);
     }
     if (tool === "check_queue") {
       /*

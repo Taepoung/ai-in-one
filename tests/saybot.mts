@@ -363,50 +363,103 @@ async function main(): Promise<void> {
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ to 에 **user 를 같이** 적으면 말풍선에도 선다 (사용자, 2026-10-15)]`);
+console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 못 쓴다** (사용자, 2026-10-15)]`);
   {
-  /*
-   * 🔴 모든 `say` 는 사용자가 **보긴 한다.** 그렇다고 칩을 다 붙이면
-   * «누구에게 한 말인가» 가 무너진다 — 칩은 **지목**이지 «본 사람 목록»이
-   * 아니다. 그래서 **적어 보냈을 때만** 단다(사용자: *"user를 to에 같이
-   * 넣었을때 말풍선 처리가 @(사용자)가 같이 안들어가는듯?"*).
-   */
-  const t = await make(); dirs.push(t.dir);
-  const bt = (t.mgr as unknown as {
-    botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
-  }).botRuntime(t.room.id, t.a.id);
-  bt.depth = 0; bt.fromUser = true;
+    /*
+     * 사용자: *"사용자에 반응해서 산문도 쓰면서 이것도 쓰는 경우가 있는듯"*.
+     *
+     * 🔴 `id: null` 은 **사용자가 열었다는 뜻**이고 그 턴의 산문은 어차피
+     * 사용자에게 간다 — 거기에 또 사용자를 가리키면 **같은 사람에게 두 번**이다.
+     */
+    const t = await make(); dirs.push(t.dir);
+    const bt = (t.mgr as unknown as {
+      botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+    }).botRuntime(t.room.id, t.a.id);
+    bt.depth = 0; bt.fromUser = true;
 
-  const call = t.mgr.mcpCall(
-    `${t.room.id}:${t.a.id}`, "say",
-    { to: ["베타", "user"], text: "둘 다 보세요", id: null },
-  );
-  await t.answerCard(true);
-  const out = JSON.parse((await call).text) as SayOut;
-  ok(out.ok === true, `★ 전제 — 갔다 (${out.to?.join("·")})`);
+    const only = await t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say", { to: ["user"], text: "다 했습니다", id: null },
+    );
+    ok(only.isError === true && only.text.includes("이 턴의 글"),
+       `★ **거절하고 대신 뭐를 할지 말한다** (${only.text.slice(0, 40)}…)`);
 
-  const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
-  ok(bubble.deliveredTo.includes(t.b.id), "★ 베타에게 간다");
-  ok(bubble.toUser === true,
-     "★ **사용자에게도 한 말로 선다** — 화면이 `@(사용자)` 칩을 붙이고 안 접는다");
+    const dropped = await t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say", { to: null, text: "버립니다", id: null },
+    );
+    ok(dropped.isError === true,
+       "★ `to: null` + `id: null` 도 마찬가지 — **비울 것도 없고** 보낼 곣도 없다");
 
-  /* 적어 보내지 않았으면 안 단다 — 칩은 지목이지 «본 사람 목록»이 아니다 */
-  const bt2 = (t.mgr as unknown as {
-    botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
-  }).botRuntime(t.room.id, t.a.id);
-  bt2.depth = 0; bt2.fromUser = true;
-  const call2 = t.mgr.mcpCall(
-    `${t.room.id}:${t.a.id}`, "say", { to: ["감마"], text: "너만 봐", id: null },
-  );
-  await t.answerCard(true);
-  await call2;
-  const plain = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
-  ok(plain.toUser !== true,
-     "★ **안 적었으면 안 단다** — 보긴 봐도 «그에게 한 말» 은 아니다");
-  t.mgr.dispose();
-}
+    /*
+     * ★ **사용자가 열었어도 큐에는 메세지가 있을 수 있다** (사용자,
+     * 2026-10-15): *"ㄴㄴ 사용자가 열어도 큐에 메세지가 있을 수 있지"*.
+     *
+     * 🔴 막는 것은 **`id` 까지 `null` 일 때** 하나뿐이다. 큐 항목을 가리키면
+     * 사용자가 연 턴에서도 버릴 수 있어야 한다 — 그 항목은 그 턴과 상관없이
+     * 쌓여 있던 것이다.
+     */
+    const mine = t.inner.queue.put({
+      kind: "message", to: t.a.id, from: t.b.name, fromId: t.b.id,
+      text: "옮 부탁", depth: 1,
+    });
+    t.inner.queue.startTurn(t.a.id);
+    const tossed = await t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say", { to: null, text: "제 일이 아닙니다", id: mine },
+    );
+    ok(!tossed.isError && tossed.text.includes('"ok":true'),
+       `★ **큐 항목은 사용자 턴에서도 버릴 수 있다** (${tossed.text})`);
+    ok(t.inner.queue.find(t.a.id, mine) === undefined, "★ 그 항목이 비었다");
 
-console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_to (사용자, 2026-10-15)]`);
+    /* 봇과 같이 적은 것은 거절 안 한다 — 사용자만 뺀다 */
+    const call = t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say", { to: ["베타", "user"], text: "봐줘", id: null },
+    );
+    await t.answerCard(true);
+    const out = JSON.parse((await call).text) as SayOut;
+    ok(out.ok === true, `★ 베타에게는 간다 (${out.to?.join("·")})`);
+    const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
+    ok(bubble.toUser !== true,
+       "★ **사용자 칩은 안 달린다** — 이 턴의 산문이 이미 사용자에게 간다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ 깨어난 턴에서 to 에 **user 를 같이** 적으면 말풍선에도 선다]`);
+  {
+    /*
+     * ★ 가르는 것은 **적어 보냈나**다(사용자, 2026-10-15). 모든 `say` 는
+     * 사용자가 보긴 하지만, 칩은 **지목**이지 «본 사람 목록»이 아니다.
+     *
+     * ⚠️ 사용자가 연 턴은 아니다 — 거기서는 산문이 이미 사용자에게 가므로
+     * `user` 를 뺀다(바로 위 칸). 여기는 **깨어난 턴**이라 달린다.
+     */
+    const t = await make(); dirs.push(t.dir);
+    const bt = (t.mgr as unknown as {
+      botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+    }).botRuntime(t.room.id, t.a.id);
+    bt.depth = 1; bt.fromUser = false;
+
+    /* 베타가 알파에게 물어둔 것으로 두고 — 답이라 승인은 면제다 */
+    const id = t.inner.queue.put({
+      kind: "message", to: t.a.id, from: t.b.name, fromId: t.b.id,
+      text: "이거 봐줄래?", depth: 1,
+    });
+    t.inner.queue.startTurn(t.a.id);
+
+    /* ⚠️ «물어봄» 방은 **답까지 전부** 묻는다 — 카드에 답해줘야 한다 */
+    const call = t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say", { to: ["베타", "user"], text: "둘 다 보세요", id },
+    );
+    await t.answerCard(true);
+    const out = JSON.parse((await call).text) as SayOut;
+    ok(out.ok === true, `★ 전제 — 갔다 (${out.to?.join("·")})`);
+
+    const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
+    ok(bubble.deliveredTo.includes(t.b.id), "★ 베타에게 간다");
+    ok(bubble.toUser === true,
+       "★ **사용자에게도 한 말로 선다** — 화면이 `@(사용자)` 칩을 붙이고 안 접는다");
+    t.mgr.dispose();
+  }
+
+  console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_to (사용자, 2026-10-15)]`);
   {
     /*
      * 🔴 **모르면 한 번 더 보낸다.** 사용자: *"봇한테 온 메세지가 다른 봇한테도

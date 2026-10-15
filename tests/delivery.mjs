@@ -772,6 +772,21 @@ console.log("\n[★ 버린 말은 **접혀서** 선다 (사용자, 2026-10-15)]"
   ok(fold.textContent.includes("제 일이 아닙니다"),
      "★ **안 지운다** — 펴면 글이 그대로 있다");
 
+  /*
+   * 🔴 **칩은 한 번만** (사용자, 2026-10-15). 접는 머리에 칩을 올려놓고
+   * 말풍선 안에도 토큰 줄을 두면 이렇게 보였다:
+   *
+   * ```
+   * >@(사용자)
+   * @(사용자)        ← 중복
+   * 봇2 자기소개 수신 완료
+   * ```
+   */
+  ok(boxes[0].querySelectorAll(".chip.to").length === 1,
+     `★ **칩은 한 번만 선다** (${boxes[0].querySelectorAll(".chip.to").length}개)`);
+  ok(boxes[0].querySelector(".bubble > .to-line") === null,
+     "★ 말풍선 안에는 토큰 줄을 안 만든다 — 접는 머리가 이미 말했다");
+
   ok(boxes[1].querySelector(".relay-fold") === null,
      "★ **적어 보낸 말은 안 접는다** — 그건 사용자에게 한 말이다");
 }
