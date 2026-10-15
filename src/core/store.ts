@@ -491,6 +491,23 @@ export class RoomStore {
     }
   }
 
+  /**
+   * ★ **밀린 쓰기가 다 내려앉을 때까지 기다린다** (2026-10-15).
+   *
+   * 🔴 **아무도 안 기다리는 쓰기가 있다.** 말풍선 저장은 대개
+   * `void this.saveMessage(…)` 로 나가므로(스트리밍이 매 조각마다 기다릴
+   * 수는 없다), 방을 닫은 **뒤에도** 체인에 남아 있을 수 있다. 그 사이에
+   * 폴더가 사라지면 `rename` 이 `ENOENT` 로 터지고, **아무도 안 받는
+   * 거절**이라 프로세스가 통째로 죽는다 — `judgequeue` 가 세 번 그렇게
+   * 흔들렸다(§7.9, 2026-10-15 에 스택을 잡았다).
+   *
+   * 실패는 **삼키지 않는다** — 체인은 이미 삼킨 사본으로 이어져 있고
+   * (`serialize`), 여기서는 «끝났나»만 본다.
+   */
+  async flush(): Promise<void> {
+    await this.writeChain;
+  }
+
   private serialize<T>(op: () => Promise<T>): Promise<T> {
     const next = this.writeChain.then(op, op);
     // 실패가 체인을 끊지 않도록 삼킨 사본을 이어붙인다

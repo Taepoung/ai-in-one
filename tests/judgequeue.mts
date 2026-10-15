@@ -94,15 +94,25 @@ async function make(hold: number) {
     mgr.mcpCall(`${room.id}:${judge.id}`, "verdict", { id, allow, reason: "그래서요" });
 
   return {
-    dir, mgr, mcp, room, inner, seen, settle, until, check, verdict,
+    dir, mgr, mcp, store, room, inner, seen, settle, until, check, verdict,
     asker, judge, other: room.participants[2]!, userAsks: () => askedUser,
   };
 }
 
 async function main(): Promise<void> {
   const dirs: string[] = [];
-  const bye = (t: { mgr: RoomManager; mcp: McpServer; dir: string }) => {
-    t.mcp.close(); t.mgr.dispose(); dirs.push(t.dir);
+  /*
+   * 🔴 **지우기 전에 밀린 쓰기를 내려놓는다** (2026-10-15).
+   *
+   * 말풍선 저장은 `void this.saveMessage(…)` 로 나가므로 **방을 닫은 뒤에도**
+   * 체인에 남아 있을 수 있다. 그 사이에 임시 폴더를 지우면 `rename` 이
+   * `ENOENT` 로 터지고, **아무도 안 받는 거절**이라 검사가 다 통과하고도
+   * 프로세스가 죽는다 — 세 번 흔들리던 그 자리다(§7.9).
+   */
+  const bye = async (t: { mgr: RoomManager; mcp: McpServer; dir: string; store: RoomStore }) => {
+    t.mcp.close(); t.mgr.dispose();
+    await t.store.flush();
+    dirs.push(t.dir);
   };
 
   console.log(`${NL}[★ 심사 봇이 바빠도 바로 들어간다 — 줄 설 이유가 없다]`);
@@ -144,7 +154,7 @@ async function main(): Promise<void> {
     );
     ok((reply?.text ?? "").length > 0,
        "★ **하던 일도 멀쩡히 끝났다** — 턴을 안 가로채므로 끊을 일이 없다");
-    bye(t);
+    await bye(t);
   }
 
   console.log(`${NL}[★ 「봇끼리 부르기 — 끔」이어도 심사는 돈다]`);
@@ -182,7 +192,7 @@ async function main(): Promise<void> {
     const out = await pending;
     ok(out.outcome === "selected",
        `★ **판정도 그대로 돌아간다** (${JSON.stringify(out)}) — 두 축이 독립이다`);
-    bye(t);
+    await bye(t);
   }
 
   console.log(`${NL}[★ 기다리는 동안 화면에 보인다]`);
@@ -210,7 +220,7 @@ async function main(): Promise<void> {
     ok(t.mgr.reviewsIn(t.room.id).length === 0, "★ 답이 나면 띠에서 빠진다");
     ok(t.seen.some((l) => l.length === 1) && t.seen.at(-1)!.length === 0,
        "★ **바뀔 때마다 알린다** — 빈 것도 보내야 표시가 걷힌다");
-    bye(t);
+    await bye(t);
   }
 
   console.log(`${NL}[★ 둘이 쌓이면 한 번에 나온다 — 차례를 기다리지 않는다]`);
@@ -254,7 +264,7 @@ async function main(): Promise<void> {
     const outs = await Promise.all([one, two]);
     ok(outs.every((o) => o.outcome === "selected"), "★ **둘 다 봇이 판단했다**");
     ok(t.userAsks() === 0, "★ 사람을 한 번도 안 깨웠다");
-    bye(t);
+    await bye(t);
   }
 
   for (const d of dirs) {
