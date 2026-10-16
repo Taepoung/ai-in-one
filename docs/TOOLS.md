@@ -306,8 +306,9 @@
 | say | `to is unvalid form(list or null)` | `to` 가 빠졌거나 리스트도 `null` 도 아니다 | — | 칸을 채워 다시 부른다 |
 | say | `text is empty` | `text` 가 없거나 공백뿐이다 | — | 할 말을 적는다 |
 | say | `id is not valid (valid id or null)` | `id` 칸 자체가 없다 (뜻한 `null` 은 통과) | — | 큐의 id, 아니면 `null` |
-| say | `cannot say to user on user turn` | **사용자가 연 턴**에 사용자에게 걸었다 | — | 그 턴의 **산문**으로 쓴다 |
+| say | `id null and to (user only or null) cannot be used together` | 사용자가 연 턴에 `id: null` 로 **사용자에게**(`to: null` 또는 `["user"]`) 걸었다 | — | 그 턴의 **산문**으로 쓴다 |
 | say | `id null is only for user turn` | **깨어난 턴**에서 `id:null` 을 줬다 | `can_call`·`queue_left` | `check_queue` 가 준 id 를 쓴다 |
+| say | `to user only is not allowed (use to null)` | `to` 에 **`user` 만** 적었다 (id 와 무관) | — | `to: null` 로 바꾼다 |
 | say | `permission item: use verdict` | 집은 id 가 **권한 요청**이었다 | — | 같은 id 로 `verdict` |
 | say | `ambiguous name` | 그 이름의 봇이 방에 둘이다 | `can_call`·`queue_left` | 이름을 바꿔야 부를 수 있다 |
 | say | `unknown name` | `to` 의 이름이 방에 없다 | `can_call`·`queue_left` | 목록에서 고른다 |
@@ -365,18 +366,24 @@
 
 ### 보낸 뒤 — 성공한 답
 
-`say` 는 **네 갈래**다. 넷 다 `to` 에 `user` 가 선다 — 모든 말이 사용자에게
+`say` 는 **세 갈래**다. 셋 다 `to` 에 `user` 가 선다 — 모든 말이 사용자에게
 보이므로, 답이 그걸 말해주면 봇이 «또 알려야 하나»를 안 묻는다.
 
 ```json
 봇에게       {"ok":true,"to":["감마","user"],"queue_left":0}
 봇 + 사용자  {"ok":true,"to":["베타","user"],"queue_left":0}
 사용자에게   {"ok":true,"to":["user"],"queue_left":1}
-버린다       {"ok":true,"to":["user"],"queue_left":1}
 ```
 
-★ **«버린다»(`to: null`)도 사용자에게는 간다** — 돌려주는 답이 `["user"]` 로
-같다. 갈리는 것은 화면 쪽이다(접혀 선다).
+★ **단독 `["user"]` 는 막는다** — 턴의 산문이 이미 사용자에게 가므로 그 호출은
+언제나 **두 번째 말**이다. 사용자에게 가는 길은 `to: null` 하나다:
+
+```json
+{"isError":true,"reason":"to user only is not allowed (use to null)"}
+```
+
+★ **사용자에게 가는 say 는 접혀 선다** — 화면에서 산문과 안 겹치게. 할 말은
+산문이 나르고, 이 호출이 하는 일은 **항목을 비우는 것**이다.
 
 ```
 verdict   {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")

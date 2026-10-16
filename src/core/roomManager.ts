@@ -5996,10 +5996,27 @@ export class RoomManager extends EventEmitter<Events> {
        * **거짓말**이다 — 그쪽은 아래 `relaySay`·`sayUser` 가 제 말로 답한다.
        */
       if (sayId === null && skip && this.botRuntime(roomId, botId).fromUser) {
-        return deny("cannot say to user on user turn");
+        return deny("id null and to (user only or null) cannot be used together");
+      }
+      /*
+       * ★ **단독 «user» 는 막는다** (사용자, 2026-10-16): *"단독 user도 막을까?"*
+       *
+       * 🔴 **산문이 언제나 사용자에게 간다.** 턴의 답에는 늘 `toUser` 가 붙으므로
+       * (깨어난 턴에도 — 에이전트는 턴을 말로 닫는다), `say(to:["user"])` 는
+       * **언제나 그 산문과 겹치는 두 번째 말**이다. 모델에 따라 둘 다 쓰는 것이
+       * 실제로 보였고, 그러면 사용자는 말풍선 둘 중 어느 쪽이 답인지부터 고른다.
+       *
+       * 남는 쓸모는 «항목을 비운다» 하나뿐이고 그건 `to: null` 이 한다 — 그래서
+       * 길을 하나로 줄인다. 리스트에 섞인 «user» 는 그대로다(칩만 하나 더 단다).
+       *
+       * ⚠️ **위 거절보다 뒤에 둔다.** 앞에 두면 `id: null` 과 겹칠 때 이쪽이
+       * 먼저 잡아, 위의 «user only» 라는 말이 **영영 안 나오는 글**이 된다.
+       */
+      if (onlyUser) {
+        return deny("to user only is not allowed (use to null)");
       }
       if (skip) {
-        return await this.sayUser(roomId, botId, sayId, a.text.trim(), a.to === null);
+        return await this.sayUser(roomId, botId, sayId, a.text.trim());
       }
       // 사용자가 연 턴이면 «user» 는 빼고 보낸다 — 산문이 이미 거기로 간다
       return await this.relaySay(roomId, botId, to!, a.text, sayId, alsoUser && sayId !== null);
@@ -6161,8 +6178,6 @@ export class RoomManager extends EventEmitter<Events> {
     botId: string,
     id: SayId,
     text: string,
-    /** `to: null` 로 버린 것인가 — 그러면 접히게 선다 */
-    aside = false,
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     const me = room?.participants.find((b) => b.id === botId);
@@ -6182,7 +6197,7 @@ export class RoomManager extends EventEmitter<Events> {
       }
       // 사용자 말 때문이면 **그 턴의 산문이 답하는 것**과 같은 것에 답한다
       cause = bt.turn?.replyToIds ?? [];
-      return await this.userBubble(room, me, text, cause, aside);
+      return await this.userBubble(room, me, text, cause);
     }
 
     const item = this.queue.find(botId, id);
@@ -6204,7 +6219,7 @@ export class RoomManager extends EventEmitter<Events> {
     this.queue.answer(botId, id);
     this.noteClosed(id, "사용자에게 전했습니다");
     // 그 말이 적힌 말풍선에 **반응으로 건다**
-    return await this.userBubble(room, me, text, item.srcId ? [item.srcId] : [], aside);
+    return await this.userBubble(room, me, text, item.srcId ? [item.srcId] : []);
   }
 
   /**
@@ -6221,7 +6236,6 @@ export class RoomManager extends EventEmitter<Events> {
     me: BotInstance,
     text: string,
     cause: string[],
-    aside = false,
   ): Promise<McpResult> {
     const bubble: Message = {
       id: messageId(),
@@ -6231,7 +6245,8 @@ export class RoomManager extends EventEmitter<Events> {
       // 받는 이는 사용자다 — 봇 칩이 아니라 `@(사용자)` 가 붙는 자리(§7)
       deliveredTo: [me.id],
       toUser: true,
-      ...(aside ? { aside: true } : {}),
+      // ★ **사용자에게 가는 say 는 언제나 접혀 선다** — 할 말은 산문이 나른다
+      aside: true,
       createdAt: Date.now(),
       // 빈 배열은 안 넣는다 — «가리킬 것이 없다» 와 «없다» 는 같은 뜻이다
       ...(cause.length > 0 ? { replyToIds: cause } : {}),

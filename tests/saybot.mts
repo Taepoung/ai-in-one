@@ -327,13 +327,28 @@ async function main(): Promise<void> {
        `★ **to 를 빠뜨리면 오류다** — 한 번의 빠뜨림이 조용한 전송이 되면 안 된다`);
 
     const asked = bubbles(t.room, t.a.id, t.b.id).at(-1)!;
-    const out = await t.mgr.mcpCall(
+
+    /*
+     * 🔴 **단독 «user» 는 막힌다** (사용자, 2026-10-16). 턴의 산문이 이미
+     * 사용자에게 가므로 그 호출은 **언제나 두 번째 말**이다 — 모델에 따라 둘 다
+     * 쓰는 것이 실제로 보였다. 비울 거리만 남기고 길은 `to: null` 하나로 줄인다.
+     */
+    const solo = await t.mgr.mcpCall(
       `${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "제 일이 아닙니다", id },
+    );
+    ok(solo.isError === true
+       && JSON.parse(solo.text).reason === "to user only is not allowed (use to null)",
+       `★ **단독 user 는 막는다** (${solo.text})`);
+    ok(t.inner.queue.find(t.b.id, id) !== undefined,
+       "★ **막힌 호출은 큐를 안 건드린다** — 거절하고 나서 비우면 되돌릴 길이 없다");
+
+    const out = await t.mgr.mcpCall(
+      `${t.room.id}:${t.b.id}`, "say", { to: null, text: "제 일이 아닙니다", id },
     );
     const body = JSON.parse(out.text) as { ok: boolean; to?: unknown; queue_left: number };
     ok(body.ok === true && JSON.stringify(body.to) === JSON.stringify(["user"]),
-       `★ **들어온 모양 그대로** 돌려준다 (${out.text}) — `
-       + "들고 나는 모양이 둘 다 «이름 리스트» 하나다");
+       `★ **to: null 도 사용자에게 간 것으로 답한다** (${out.text}) — `
+       + "돌려주는 모양은 봇에게 보낼 때와 같은 «이름 리스트» 하나다");
     ok(t.inner.queue.find(t.b.id, id) === undefined,
        "★ **그 항목이 닫힌다** — 사용자에게 말하는 것도 그 항목에 대한 반응이다");
     ok(bubbles(t.room, t.b.id, t.a.id).length === 0,
@@ -349,15 +364,17 @@ async function main(): Promise<void> {
        "★ 같은 턴이면 묶인다 — 산문과 이 말은 한 턴의 두 말풍선이다 (4-14)");
 
     /* 할 말이 없으면 안 받는다 — 빈 말풍선을 세울 이유가 없다 */
-    const bare = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "  ", id });
-    ok(bare.isError === true, "★ **빈 말은 못 보낸다**");
+    const bare = await t.mgr.mcpCall(`${t.room.id}:${t.b.id}`, "say", { to: null, text: "  ", id });
+    ok(bare.isError === true
+       && JSON.parse(bare.text).reason === "text is empty",
+       "★ **빈 말은 못 보낸다** — 글자 검사가 먼저라 «비었다»로 답한다");
 
     /*
      * 🔴 **«0» 은 사용자가 연 턴에서만** — 여기 턴은 알파가 열었다. 받아주면
      * 사슬 깊은 봇이 **아무 때나 사용자에게 새 말을 거는** 길이 생긴다.
      */
     const zero = await t.mgr.mcpCall(
-      `${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "안녕하세요", id: null },
+      `${t.room.id}:${t.b.id}`, "say", { to: null, text: "안녕하세요", id: null },
     );
     ok(zero.isError === true
        && JSON.parse(zero.text).reason === "id null is only for user turn",
@@ -388,7 +405,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
      * **사용자에게 두 번 말하지 않는다**는 것이고, 그건 거절되는 것으로 선다.
      */
     ok(only.isError === true
-       && JSON.parse(only.text).reason === "cannot say to user on user turn",
+       && JSON.parse(only.text).reason === "id null and to (user only or null) cannot be used together",
        `★ **사용자가 연 턴에는 사용자에게 say 를 못 쓴다** (${only.text})`);
 
     const dropped = await t.mgr.mcpCall(
