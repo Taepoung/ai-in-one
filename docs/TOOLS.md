@@ -106,7 +106,7 @@
       "items": {
         "type": "string"
       },
-      "description": "받을 대상들의 이름 리스트. `null` 이면 **버린다**"
+      "description": "받을 대상들의 이름 리스트."
     },
     "text": {
       "type": "string",
