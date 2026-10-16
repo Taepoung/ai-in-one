@@ -306,7 +306,7 @@
 | say | `to is unvalid form(list or null)` | `to` 가 빠졌거나 리스트도 `null` 도 아니다 | — | 칸을 채워 다시 부른다 |
 | say | `text is empty` | `text` 가 없거나 공백뿐이다 | — | 할 말을 적는다 |
 | say | `id is not valid (valid id or null)` | `id` 칸 자체가 없다 (뜻한 `null` 은 통과) | — | 큐의 id, 아니면 `null` |
-| say | `id null and to null cannot be used together` | 사용자가 연 턴에 `id: null` + `to: null` 로 **사용자에게** 걸었다 | — | 그 턴의 **산문**으로 쓴다 |
+| say | `id null and to null cannot be used together` | 사용자가 연 턴에 **비울 것도 없이**(`id: null`) 비우려(`to: null`) 했다 | — | 그 턴의 **산문**으로 쓴다 |
 | say | `id null is only for user turn` | **깨어난 턴**에서 `id:null` 을 줬다 | `can_call`·`queue_left` | `check_queue` 가 준 id 를 쓴다 |
 | say | `user is not callable` | `to` 에 `user` 가 **끼어 있다** (단독이든 섞였든, id 와 무관) | — | `to: null` 로 바꾼다 |
 | say | `permission item: use verdict` | 집은 id 가 **권한 요청**이었다 | — | 같은 id 로 `verdict` |
@@ -375,19 +375,20 @@
 
 ```json
 봇에게       {"ok":true,"got":["감마","user"],"queue_left":0}
-두 봇에게    {"isError":true,"reason":"duplicated sending error","can_call":["베타","감마"],"queue_left":0}
-사용자에게   {"ok":true,"got":["user"],"queue_left":0}
+두 봇에게    {"ok":true,"got":["베타","감마","user"],"queue_left":0}
+비운다       {"ok":true,"got":["user"],"queue_left":1}
 ```
 
 ★ **`to` 의 `user` 는 막는다** — 턴의 산문이 이미 사용자에게 가므로 그 호출은
-언제나 **두 번째 말**이다. 사용자에게 가는 길은 `to: null` 하나다:
+언제나 **두 번째 말**이다:
 
 ```json
 {"isError":true,"reason":"user is not callable"}
 ```
 
-★ **사용자에게 가는 say 는 접혀 선다** — 화면에서 산문과 안 겹치게. 할 말은
-산문이 나르고, 이 호출이 하는 일은 **항목을 비우는 것**이다.
+★ **`to: null` 은 «보낸다» 가 아니라 «비운다» 다.** 답할 거리가 아닌 항목을
+비우는 동작이고, 거기 적은 글은 **접힌 말풍선**으로 사용자 눈에 남는다 —
+그래서 `got` 에 `user` 가 선다. 할 말이 있으면 그건 **산문**이 나른다.
 
 ```
 verdict   {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")

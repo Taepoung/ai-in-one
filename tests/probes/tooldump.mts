@@ -72,7 +72,9 @@ const liveRoom = await live.createRoom({
 });
 const [LA, LB, LC] = liveRoom.participants as Array<{ id: string; name: string }>;
 const liveInner = live as unknown as {
-  botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+  botRuntime(r: string, b: string): {
+    depth?: number; fromUser?: boolean; saidZero?: Set<string>;
+  };
   queue: { put(item: unknown): string };
 };
 /** 그 봇 몫에 **답할 거리** 하나를 깔아둔다 — 사용자에게 하는 say 는 id 가 든다 */
@@ -80,10 +82,16 @@ const plant = (bot: { id: string }, text: string) => liveInner.queue.put({
   kind: "message", to: bot.id, from: "알파", fromId: LA!.id,
   text, depth: 1, srcId: "m-live", alsoTo: [],
 });
-/** 그 봇을 **사용자가 연 턴**에 세운다 — `id: null` 이 유효해지는 자리 */
+/**
+ * 그 봇을 **사용자가 연 턴**에 세운다 — `id: null` 이 유효해지는 자리.
+ *
+ * 🔴 `saidZero` 도 같이 비운다. 진짜로는 `runQueue` 가 턴을 열 때 깔아주는
+ * 칸인데, 안 비우면 **앞 호출이 다음 턴까지 따라와** 둘째 호출이
+ * `duplicated sending error` 로 떨어진다(여기서 실제로 그랬다).
+ */
 const standUser = (bot: { id: string }) => {
   const bt = liveInner.botRuntime(liveRoom.id, bot.id);
-  bt.depth = 0; bt.fromUser = true;
+  bt.depth = 0; bt.fromUser = true; bt.saidZero = new Set<string>();
 };
 /** 진짜로 불러서 **한 줄로** 받아온다 */
 const hit = async (tool: string, args: unknown, who = LA!) =>
@@ -321,7 +329,7 @@ say("| --- | --- | --- | --- | --- |");
 say("| say | `to is unvalid form(list or null)` | `to` 가 빠졌거나 리스트도 `null` 도 아니다 | — | 칸을 채워 다시 부른다 |");
 say("| say | `text is empty` | `text` 가 없거나 공백뿐이다 | — | 할 말을 적는다 |");
 say("| say | `id is not valid (valid id or null)` | `id` 칸 자체가 없다 (뜻한 `null` 은 통과) | — | 큐의 id, 아니면 `null` |");
-say("| say | `id null and to null cannot be used together` | 사용자가 연 턴에 `id: null` + `to: null` 로 **사용자에게** 걸었다 | — | 그 턴의 **산문**으로 쓴다 |");
+say("| say | `id null and to null cannot be used together` | 사용자가 연 턴에 **비울 것도 없이**(`id: null`) 비우려(`to: null`) 했다 | — | 그 턴의 **산문**으로 쓴다 |");
 say("| say | `id null is only for user turn` | **깨어난 턴**에서 `id:null` 을 줬다 | `can_call`·`queue_left` | `check_queue` 가 준 id 를 쓴다 |");
 say("| say | `user is not callable` | `to` 에 `user` 가 **끼어 있다** (단독이든 섞였든, id 와 무관) | — | `to: null` 로 바꾼다 |");
 say("| say | `permission item: use verdict` | 집은 id 가 **권한 요청**이었다 | — | 같은 id 로 `verdict` |");
@@ -398,19 +406,20 @@ say("봇에게       " + await hit("say", { to: [LC!.name], text: "봇에게", i
 standUser(LA!);
 say("두 봇에게    " + await hit("say", { to: [LB!.name, LC!.name], text: "둘 다", id: null }));
 const toss = plant(LB!, "이것도");
-say("사용자에게   " + await hit("say", { to: null, text: "읽었습니다", id: toss }, LB!));
+say("비운다       " + await hit("say", { to: null, text: "읽었습니다", id: toss }, LB!));
 say("```");
 say();
 say("★ **`to` 의 `user` 는 막는다** — 턴의 산문이 이미 사용자에게 가므로 그 호출은");
-say("언제나 **두 번째 말**이다. 사용자에게 가는 길은 `to: null` 하나다:");
+say("언제나 **두 번째 말**이다:");
 say();
 say("```json");
 const solo = plant(LB!, "그리고 이것도");
 say(await hit("say", { to: ["user"], text: "두 번째 말", id: solo }, LB!));
 say("```");
 say();
-say("★ **사용자에게 가는 say 는 접혀 선다** — 화면에서 산문과 안 겹치게. 할 말은");
-say("산문이 나르고, 이 호출이 하는 일은 **항목을 비우는 것**이다.");
+say("★ **`to: null` 은 «보낸다» 가 아니라 «비운다» 다.** 답할 거리가 아닌 항목을");
+say("비우는 동작이고, 거기 적은 글은 **접힌 말풍선**으로 사용자 눈에 남는다 —");
+say("그래서 `got` 에 `user` 가 선다. 할 말이 있으면 그건 **산문**이 나른다.");
 say();
 say("```");
 say('verdict   {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")');

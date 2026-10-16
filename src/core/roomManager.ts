@@ -5955,7 +5955,9 @@ export class RoomManager extends EventEmitter<Events> {
        * `user: {description}`). **보여주지 않는 이름을 받아줄 까닭도 없다** —
        * 받아주면 길이 둘이 되고, 둘이면 또 어느 쪽이 참인지 정해야 한다.
        *
-       * 사용자에게 갈 길은 `to: null` 하나다.
+       * ★ **`to: null` 은 «보낸다» 가 아니라 «비운다» 다.** 답할 거리가 아닌
+       * 항목을 비우는 동작이고, 거기 적은 글은 **접힌 말풍선**으로 사용자 눈에
+       * 남는다 — 할 말이 있으면 그건 이 턴의 **산문**이 나른다.
        */
       const to = listed;
       const hasUser = listed?.some((n) => isReservedBotName(n)) ?? false;
