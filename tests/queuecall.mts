@@ -130,7 +130,7 @@ async function main(): Promise<void> {
     const got = await callTool(url, secret, "check_queue");
     console.log(`   ${got.text}`);
     const body = JSON.parse(got.text) as {
-      kind: string; use: string; item: { text?: string; author?: string };
+      kind: string; use: string; item: { text?: string; author?: string; also_got?: string[] };
     };
     ok(body.kind === "message", `★ 종류를 말해준다 (${body.kind})`);
     ok(body.use === "say", `★ **어느 도구를 쓸지도** (${body.use})`);
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
      * 실린다» 고 적어뒀는데 그건 **우리가 알기 편하려고** 둔 칸이었다.
      */
     /*
-     * ★ **`also_to` 와 `depth_left` 가 늘었다** (사용자, 2026-10-15).
+     * ★ **`also_got` 과 `depth_left` 가 늘었다** (사용자, 2026-10-15).
      * «이 말을 같이 받은 다른 봇» 과 «여기서 몇 다리 더». 둘 다 우리 장부가
      * 아니라 **모델이 고를 때 쓰는 값**이다.
      *
@@ -156,6 +156,15 @@ async function main(): Promise<void> {
     const keys = Object.keys(body.item as object).sort();
     ok(keys.join() === "also_got,author,depth_left,id,text",
        `★ **봇이 알 것만 간다** (${keys.join(" · ")}) — to·at 은 우리 장부다`);
+    /*
+     * ★ **혼자 받은 것에도 `user` 가 선다** (사용자, 2026-10-16).
+     *
+     * 🔴 이 항목은 **받는 봇이 하나뿐**이라 «같이 받은 이» 가 빌 뻔한
+     * 자리다. 그래도 사용자는 늘 보므로 늘 적는다 — 비었다 찼다 하면
+     * 모델이 «이번엔 사용자가 안 보나» 를 묻게 된다.
+     */
+    ok(JSON.stringify(body.item.also_got) === JSON.stringify(["user"]),
+       `★ **사용자는 언제나 거기 있다** (${JSON.stringify(body.item.also_got)})`);
   }
 
   console.log(`${NL}[★ 남의 비밀로는 남의 큐가 안 보인다]`);
