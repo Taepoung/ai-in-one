@@ -492,7 +492,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_to (사용자, 2026-10-15)]`);
+  console.log(`${NL}[★ **같이 받은 이**를 적어 보낸다 — also_got (사용자, 2026-10-15)]`);
   {
     /*
      * 🔴 **모르면 한 번 더 보낸다.** 사용자: *"봇한테 온 메세지가 다른 봇한테도
@@ -515,13 +515,13 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     const out = JSON.parse((await call).text) as SayOut;
     ok(out.ok === true, `★ 전제 — 둘에게 갔다 (${out.got?.join("·")})`);
 
-    const forB = (await t.check(t.b)).item as { also_to?: string[] } | null;
-    const forC = (await t.check(t.c)).item as { also_to?: string[] } | null;
-    ok(JSON.stringify(forB?.also_to) === JSON.stringify(["감마", "user"]),
-       `★ 베타는 **감마와 사용자도 받은 것을 안다** (${JSON.stringify(forB?.also_to)})`);
-    ok(JSON.stringify(forC?.also_to) === JSON.stringify(["베타", "user"]),
-       `★ 감마는 베타를 (${JSON.stringify(forC?.also_to)})`);
-    ok(forB?.also_to?.includes("베타") !== true,
+    const forB = (await t.check(t.b)).item as { also_got?: string[] } | null;
+    const forC = (await t.check(t.c)).item as { also_got?: string[] } | null;
+    ok(JSON.stringify(forB?.also_got) === JSON.stringify(["감마", "user"]),
+       `★ 베타는 **감마와 사용자도 받은 것을 안다** (${JSON.stringify(forB?.also_got)})`);
+    ok(JSON.stringify(forC?.also_got) === JSON.stringify(["베타", "user"]),
+       `★ 감마는 베타를 (${JSON.stringify(forC?.also_got)})`);
+    ok(forB?.also_got?.includes("베타") !== true,
        "★ **제 이름은 안 들어간다** — 물음은 «나 말고 누가 더»다");
     t.mgr.dispose();
   }
@@ -536,7 +536,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     await t.mgr.send(t.room.id, "셋 다 보세요");
     await t.settle();
     const ps = await t.prompts();
-    const two = ps.filter((p) => /"also_to":\["[^"]+","[^"]+"\]/.test(p));
+    const two = ps.filter((p) => /"also_got":\["[^"]+","[^"]+"\]/.test(p));
     ok(two.length >= 1,
        `★ **같이 받은 둘이 적혀 간다** (${two.length}개) — 그 칸이 없으면 «나한테만 왔다»로 읽는다`);
     t.mgr.dispose();

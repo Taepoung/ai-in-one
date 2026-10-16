@@ -24,8 +24,8 @@ import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 
 /** 명단 줄의 모양 — `relay` 는 **꺼진 방에만** 붙는다 */
-interface Roster { you: string; bots: Array<{ name: string; does: string }>; relay?: string }
-const names = (r: Roster | null) => (r?.bots ?? []).map((b) => b.name).join(",");
+interface Roster { you: string; callable: Array<{ name: string; does: string }>; relay?: string }
+const names = (r: Roster | null) => (r?.callable ?? []).map((b) => b.name).join(",");
 const NL = String.fromCharCode(10);
 const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -125,9 +125,9 @@ async function main(): Promise<void> {
     console.log(`   ${sent.split(NL).slice(0, 8).join(" / ")}`);
 
     const r = t.roster(sent);
-    ok(r?.bots[0]?.name === "구현" && r.bots[0].does === "코드를 쓰고 고친다",
-       `★ 이름과 설명이 한 칸에 (${JSON.stringify(r?.bots[0])})`);
-    ok(r?.bots[1]?.does === "검사를 돌린다", "★ 셋째도");
+    ok(r?.callable[0]?.name === "구현" && r.callable[0].does === "코드를 쓰고 고친다",
+       `★ 이름과 설명이 한 칸에 (${JSON.stringify(r?.callable[0])})`);
+    ok(r?.callable[1]?.does === "검사를 돌린다", "★ 셋째도");
     ok(names(r) === "구현,테스터",
        `★ **자기는 목록에서 빠진다** (${names(r)}) — 목록이 곧 답이라 추론이 없다`);
     ok(r?.you === "리뷰어",
@@ -143,7 +143,7 @@ async function main(): Promise<void> {
       title: "빈 칸", bots: [{ agentId: "alpha", name: "구현" }, { agentId: "beta", name: "리뷰어" }],
     });
     const sent = await t.turn(room.id, "안녕", room.participants[1]!.id);
-    ok(t.roster(sent)?.bots[0]?.does === "",
+    ok(t.roster(sent)?.callable[0]?.does === "",
        "★ 칸은 남고 값이 빈다 — «(설명 없음)» 같은 글자를 안 쓴다");
     t.mgr.dispose();
   }
@@ -174,13 +174,13 @@ async function main(): Promise<void> {
 
     await t.mgr.setBlurb(room.id, "코드를 쓰고 고친다", other.id);
     const afterBlurb = await t.turn(room.id, "설명 뒤", me.id);
-    ok(t.roster(afterBlurb)?.bots[0]?.does === "코드를 쓰고 고친다",
+    ok(t.roster(afterBlurb)?.callable[0]?.does === "코드를 쓰고 고친다",
        "★ **설명을 고치면 다시** — 빼두면 낡은 설명만 남는다");
 
     await t.mgr.addBot(room.id, { agentId: "gamma", name: "테스터" });
     const afterAdd = await t.turn(room.id, "부른 뒤", me.id);
     ok(names(t.roster(afterAdd)).includes("테스터"), "★ **봇이 늘면 다시**");
-    ok(t.roster(afterAdd)?.bots.some((b) => b.does === "코드를 쓰고 고친다") === true,
+    ok(t.roster(afterAdd)?.callable.some((b) => b.does === "코드를 쓰고 고친다") === true,
        "★ 🔴 **차분이 아니라 전체다** — 모델이 합치게 하면 틀려도 우리가 못 본다");
     t.mgr.dispose();
   }

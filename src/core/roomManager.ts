@@ -4867,7 +4867,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 상대는 두 번 일한다. 그리고 그 두 번째는 **우리 상한(4-L)을 한 칸
      * 쓰면서** 간다.
      *
-     * 큐 항목의 `also_to` 와 **같은 이름, 같은 뜻**이다 — 한 낱말이 두 군데서
+     * 큐 항목의 `also_got` 과 **같은 이름, 같은 뜻**이다 — 한 낱말이 두 군데서
      * 다르게 읽히면 규칙을 두 번 외워야 한다.
      *
      * ⚠️ 깨어난 턴에는 `batch` 가 비어 있다 — 그러면 이 칸도 빈 배열이고,
@@ -4888,7 +4888,7 @@ export class RoomManager extends EventEmitter<Events> {
           if (other) mates.add(other.name);
         }
       }
-      flag["also_to"] = [...mates];
+      flag["also_got"] = [...mates];
     }
     if (relayOn || waiting > 0) {
       /*
@@ -5867,7 +5867,7 @@ export class RoomManager extends EventEmitter<Events> {
         "  · `queue_left` — 현재 객체를 제외한 잔여 객체 수\n" +
         "\n" +
         "  [message]\n" +
-        "  · `item.also_to` — 해당 메세지를 같이 받은 대상\n" +
+        "  · `item.also_got` — 해당 메세지를 같이 받은 대상\n" +
         "  · `item.text` — 메세지 내용\n" +
         "  · `item.depth_left` — 남은 전달 깊이. `null`은 무제한.\n" +
         "\n" +
@@ -7348,7 +7348,14 @@ function wireItem(item: QueueItem): Record<string, unknown> {
      * 항상 표시"*. 모든 `say` 는 사용자에게도 보이므로 — 고르는 바로 그
      * 자리에서 그 사실을 다시 읽게 된다. 그래서 **빈 배열은 이제 없다.**
      */
-    also_to: [...(item.alsoTo ?? []), USER_TARGET],
+    /*
+     * ★ **이름이 `also_got` 이다** (사용자, 2026-10-16). ⏪ `also_to` 였다.
+     *
+     * 🔴 **보낼 칸과 받은 칸을 이름으로 가른다** — 답의 `got` 과 같은 줄이다.
+     * `also_to` 는 `to` 와 한 글자 차이라 «여기 적힌 이름은 `to` 에 쓰는
+     * 것» 으로 읽혔고, 그래서 거기 늘 서 있는 `user` 를 써보게 됐다.
+     */
+    also_got: [...(item.alsoTo ?? []), USER_TARGET],
     text: item.text,
   };
 }

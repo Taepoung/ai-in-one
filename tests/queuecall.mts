@@ -154,7 +154,7 @@ async function main(): Promise<void> {
      * 것은 `verdict` 뿐이라 거기 숫자는 답에 쓰이지 않는다(`relaydepth`).
      */
     const keys = Object.keys(body.item as object).sort();
-    ok(keys.join() === "also_to,author,depth_left,id,text",
+    ok(keys.join() === "also_got,author,depth_left,id,text",
        `★ **봇이 알 것만 간다** (${keys.join(" · ")}) — to·at 은 우리 장부다`);
   }
 

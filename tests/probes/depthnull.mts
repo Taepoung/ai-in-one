@@ -109,7 +109,7 @@ async function round(depthLeft: number | null, tools: unknown[]): Promise<{
                 kind: "message",
                 use: "say",
                 item: {
-                  id: "x1", from: "알파", also_to: [],
+                  id: "x1", from: "알파", also_got: [],
                   text: "이 숫자 좀 봐줄래? 1+1 이 2 가 맞는지 한 줄로 답해줘.",
                 },
                 queue_left: 0,
@@ -206,7 +206,7 @@ async function round(depthLeft: number | null, tools: unknown[]): Promise<{
       prompt: [{
         type: "text",
         text: '[ai-in-one] {"you":"베타","bots":[{"name":"알파","does":"묻고 정리한다"}],"user":{"sees":"모든 메세지"}}\n\n'
-          + '[ai-in-one] {"null_id":"invalid","also_to":[],"queue_left":1,"do":"check_queue"}',
+          + '[ai-in-one] {"null_id":"invalid","also_got":[],"queue_left":1,"do":"check_queue"}',
       }],
     });
   } catch (e) {

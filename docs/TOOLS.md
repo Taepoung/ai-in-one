@@ -25,8 +25,8 @@
 | --- | --- | --- | --- |
 | 우리 → 모델 | MCP 서버 항목 | 세션을 열 때 **한 번** | 이름 `ai-in-one` · 주소 · 비밀 |
 | 우리 → 모델 | 도구 설명 셋 | **부를 때마다** | `say` · `verdict` · `check_queue` (설명 + 입력 스키마) |
-| 우리 → 모델 | 명단 한 줄 | 방이 바뀔 때만 | `[ai-in-one] {you, bots, user, relay?}` |
-| 우리 → 모델 | 깃발 한 줄 | **매 턴** | `[ai-in-one] {null_id, also_to?, queue_left, do}` |
+| 우리 → 모델 | 명단 한 줄 | 방이 바뀔 때만 | `[ai-in-one] {you, callable, user, relay?}` |
+| 우리 → 모델 | 깃발 한 줄 | **매 턴** | `[ai-in-one] {null_id, also_got?, queue_left, do}` |
 | 모델 → 우리 | `say` | 봇이 부를 때 | `to`(리스트 또는 null) · `text` · `id`(문자열 또는 null) |
 | 모델 → 우리 | `verdict` | 봇이 부를 때 | `id`(문자열) · `allow`(참/거짓) · `reason`(글, 없어도 됨) |
 | 모델 → 우리 | `check_queue` | 봇이 부를 때 | 인자 없음 |
@@ -173,7 +173,7 @@
   · `queue_left` — 현재 객체를 제외한 잔여 객체 수
 
   [message]
-  · `item.also_to` — 해당 메세지를 같이 받은 대상
+  · `item.also_got` — 해당 메세지를 같이 받은 대상
   · `item.text` — 메세지 내용
   · `item.depth_left` — 남은 전달 깊이. `null`은 무제한.
 
@@ -224,7 +224,7 @@
 ### `check_queue` — 답하고 나면 다음이 나온다
 
 ```json
-{"kind":"message","use":"say","item":{"id":"x1","author":"알파","also_to":["감마","user"],"text":"이 테스트 좀 봐줄래?","depth_left":null},"queue_left":0}
+{"kind":"message","use":"say","item":{"id":"x1","author":"알파","also_got":["감마","user"],"text":"이 테스트 좀 봐줄래?","depth_left":null},"queue_left":0}
 ```
 
 ⚠️ **여기 `depth_left` 가 `null` 인 것은 이 뽑기에 방이 없어서다.** 수는 릴레이가
@@ -407,24 +407,24 @@ verdict   {"ok":true,"result":"허용","queue_left":1}   (막으면 "막음")
 차분을 안 보낸다 — 모델이 머릿속에서 합쳐야 하고, 틀려도 우리가 못 본다.
 
 ```
-[ai-in-one] {"you":"리뷰어","bots":[{"name":"구현","does":"코드를 쓰고 고친다"}],"user":{"name":"user","sees":"모든 메세지"}}
+[ai-in-one] {"you":"리뷰어","callable":[{"name":"구현","does":"코드를 쓰고 고친다"}],"user":{"description":"사용자, 모든 say를 볼 수 있음"}}
 ```
 
 릴레이가 꺼진 방은 **빈 목록 + 왜**다 — «아무도 없는 방»과 구별되어야 한다:
 
 ```
-[ai-in-one] {"you":"리뷰어","bots":[],"user":{"name":"user","sees":"모든 메세지"},"relay":"off"}
+[ai-in-one] {"you":"리뷰어","callable":[],"user":{"description":"사용자, 모든 say를 볼 수 있음"},"relay":"off"}
 ```
 
 ## ④ 깃발 — 매 턴
 
 ```
-[ai-in-one] {"null_id":"valid","also_to":["베타","감마"],"queue_left":1,"do":"check_queue"}
+[ai-in-one] {"null_id":"valid","also_got":["베타","감마"],"queue_left":1,"do":"check_queue"}
 ```
 
 ```
 null_id    "valid" 면 `id: null`을 쓸 수 있다
-also_to    사용자의 이 말을 **같이 받은** 봇들 (사용자 말이 있을 경우에만 존재)
+also_got   사용자의 이 말을 **같이 받은** 봇들 (사용자 말이 있을 경우에만 존재)
 queue_left 큐 내부 객체의 수
 do         할 일. 없으면 null
 ```
