@@ -338,8 +338,8 @@ async function main(): Promise<void> {
       `${t.room.id}:${t.b.id}`, "say", { to: ["user"], text: "제 일이 아닙니다", id },
     );
     ok(solo.isError === true
-       && JSON.parse(solo.text).reason === "to user only is not allowed (use to null)",
-       `★ **단독 user 는 막는다** (${solo.text})`);
+       && JSON.parse(solo.text).reason === "user is not callable",
+       `★ **to 의 user 는 막는다** (${solo.text})`);
     ok(t.inner.queue.find(t.b.id, id) !== undefined,
        "★ **막힌 호출은 큐를 안 건드린다** — 거절하고 나서 비우면 되돌릴 길이 없다");
 
@@ -405,7 +405,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     bt.depth = 0; bt.fromUser = true;
 
     const only = await t.mgr.mcpCall(
-      `${t.room.id}:${t.a.id}`, "say", { to: ["user"], text: "다 했습니다", id: null },
+      `${t.room.id}:${t.a.id}`, "say", { to: null, text: "다 했습니다", id: null },
     );
     /*
      * ⚠️ **«대신 뭘 할지» 는 이제 글에 없다** (사용자, 2026-10-15). `reason` 이
@@ -413,7 +413,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
      * **사용자에게 두 번 말하지 않는다**는 것이고, 그건 거절되는 것으로 선다.
      */
     ok(only.isError === true
-       && JSON.parse(only.text).reason === "id null and to (user only or null) cannot be used together",
+       && JSON.parse(only.text).reason === "id null and to null cannot be used together",
        `★ **사용자가 연 턴에는 사용자에게 say 를 못 쓴다** (${only.text})`);
 
     const dropped = await t.mgr.mcpCall(
@@ -442,53 +442,43 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
        `★ **큐 항목은 사용자 턴에서도 버릴 수 있다** (${tossed.text})`);
     ok(t.inner.queue.find(t.a.id, mine) === undefined, "★ 그 항목이 비었다");
 
-    /* 봇과 같이 적은 것은 거절 안 한다 — 사용자만 뺀다 */
-    const call = t.mgr.mcpCall(
+    /*
+     * 🔴 **봇과 같이 적어도 거절한다** (사용자, 2026-10-16). ⏪ 한때는 받아주고
+     * 사용자만 뺐다. 명단이 더는 그 이름을 안 보여주므로(`callable`) **받아줄
+     * 까닭도 없다** — 받아주면 사용자에게 가는 길이 둘이 된다.
+     */
+    const mixed = await t.mgr.mcpCall(
       `${t.room.id}:${t.a.id}`, "say", { to: ["베타", "user"], text: "봐줘", id: null },
     );
-    await t.answerCard(true);
-    const out = JSON.parse((await call).text) as SayOut;
-    ok(out.ok === true, `★ 베타에게는 간다 (${out.got?.join("·")})`);
-    const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
-    ok(bubble.toUser !== true,
-       "★ **사용자 칩은 안 달린다** — 이 턴의 산문이 이미 사용자에게 간다");
+    ok(mixed.isError === true
+       && JSON.parse(mixed.text).reason === "user is not callable",
+       `★ **섞어 적어도 막는다** (${mixed.text})`);
+    ok(t.cards.length === 0, "★ **카드도 안 뜬다** — 문 앞에서 끝난다");
     t.mgr.dispose();
   }
 
-  console.log(`${NL}[★ 깨어난 턴에서 to 에 **user 를 같이** 적으면 말풍선에도 선다]`);
+  console.log(`${NL}[★ 깨어난 턴에서도 to 의 user 는 막힌다 (사용자, 2026-10-16)]`);
   {
     /*
-     * ★ 가르는 것은 **적어 보냈나**다(사용자, 2026-10-15). 모든 `say` 는
-     * 사용자가 보긴 하지만, 칩은 **지목**이지 «본 사람 목록»이 아니다.
-     *
-     * ⚠️ 사용자가 연 턴은 아니다 — 거기서는 산문이 이미 사용자에게 가므로
-     * `user` 를 뺀다(바로 위 칸). 여기는 **깨어난 턴**이라 달린다.
+     * 🔴 **턴을 누가 열었는지와 무관하다.** 사용자에게 가는 길이 `to: null`
+     * 하나라는 것은 방의 규칙이지 턴의 규칙이 아니다 — 턴마다 갈리면 모델이
+     * «지금은 되나» 를 매번 따져야 한다.
      */
-    const t = await make(); dirs.push(t.dir);
-    const bt = (t.mgr as unknown as {
-      botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
-    }).botRuntime(t.room.id, t.a.id);
-    bt.depth = 1; bt.fromUser = false;
-
-    /* 베타가 알파에게 물어둔 것으로 두고 — 답이라 승인은 면제다 */
-    const id = t.inner.queue.put({
-      kind: "message", to: t.a.id, from: t.b.name, fromId: t.b.id,
+    const t = await make("ask"); dirs.push(t.dir);
+    const mine = t.inner.queue.put({
+      kind: "message", to: t.a.id, from: "베타", fromId: t.b.id, srcId: "m-x",
       text: "이거 봐줄래?", depth: 1,
     });
     t.inner.queue.startTurn(t.a.id);
 
-    /* ⚠️ «물어봄» 방은 **답까지 전부** 묻는다 — 카드에 답해줘야 한다 */
-    const call = t.mgr.mcpCall(
-      `${t.room.id}:${t.a.id}`, "say", { to: ["베타", "user"], text: "둘 다 보세요", id },
+    const mixed = await t.mgr.mcpCall(
+      `${t.room.id}:${t.a.id}`, "say", { to: ["베타", "user"], text: "둘 다 보세요", id: mine },
     );
-    await t.answerCard(true);
-    const out = JSON.parse((await call).text) as SayOut;
-    ok(out.ok === true, `★ 전제 — 갔다 (${out.got?.join("·")})`);
-
-    const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
-    ok(bubble.deliveredTo.includes(t.b.id), "★ 베타에게 간다");
-    ok(bubble.toUser === true,
-       "★ **사용자에게도 한 말로 선다** — 화면이 `@(사용자)` 칩을 붙이고 안 접는다");
+    ok(mixed.isError === true
+       && JSON.parse(mixed.text).reason === "user is not callable",
+       `★ **깨어난 턴에서도 막는다** (${mixed.text})`);
+    ok(t.inner.queue.find(t.a.id, mine) !== undefined,
+       "★ **큐는 그대로다** — 거절하고 나서 비우면 되돌릴 길이 없다");
     t.mgr.dispose();
   }
 

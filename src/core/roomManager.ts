@@ -5943,28 +5943,23 @@ export class RoomManager extends EventEmitter<Events> {
           ? (a.to as string[])
           : undefined;
       /*
-       * ★ **`to` 에 적힌 «user» 는 사용자다** (사용자, 2026-10-15).
+       * ★ **`to` 에 «user» 가 끼면 거절한다** (사용자, 2026-10-16):
+       * *"to: [\"베타\",\"user\"] 이것도 거절해 null이 있으니까"*.
        *
-       * 🔴 `also_to` 가 **항상 그 이름을 보여준다.** 보여주고 나서 써보면
-       * 거절하는 것은 왕복 한 번을 그냥 버리는 일이다 — 그래서 받아준다.
+       * ⏪ 길게 돌아온 자리다. 한때는 **받아주고 몰래 뺐다** — `also_got` 이
+       * 그 이름을 늘 보여주니 거절하면 왕복만 버린다고 봤다. 그러다 섞어
+       * 적으면 칩을 달았고(10-15), 단독은 막았고, 답의 칸 이름을 갈랐다.
        *
-       * 봇 이름에는 못 쓰는 이름이라(`isReservedBotName`) 누구를 가리키는지
-       * 안 갈린다. 다른 봇과 같이 적혔으면 **그냥 뺀다** — 모든 `say` 는
-       * 어차피 사용자에게 보이므로 더 할 일이 없다.
+       * 🔴 **셋 다 뒤에서 막는 일이었다.** 뿌리는 «사용자가 주소처럼 보인다»
+       * 는 것이고, 그건 명단에서 이름을 걷어 고쳤다(`callable` ·
+       * `user: {description}`). **보여주지 않는 이름을 받아줄 까닭도 없다** —
+       * 받아주면 길이 둘이 되고, 둘이면 또 어느 쪽이 참인지 정해야 한다.
+       *
+       * 사용자에게 갈 길은 `to: null` 하나다.
        */
-      const to = listed?.filter((n) => !isReservedBotName(n));
-      const onlyUser = listed !== undefined && listed.length > 0 && to!.length === 0;
-      const skip = a.to === null || onlyUser;
-      /*
-       * ★ **적어 보낸 «user» 는 말풍선에도 선다** (사용자, 2026-10-15):
-       * *"user를 to에 같이 넣었을때 말풍선 처리가 @(사용자)가 같이
-       * 안들어가는듯?"*
-       *
-       * 모든 `say` 는 사용자가 **보긴 한다.** 그렇다고 칩을 다 붙이면
-       * «누구에게 한 말인가» 가 무너진다 — 칩은 **지목**이지 «본 사람
-       * 목록»이 아니다. 그래서 **적어 보냈을 때만** 단다.
-       */
-      const alsoUser = listed?.some((n) => isReservedBotName(n)) ?? false;
+      const to = listed;
+      const hasUser = listed?.some((n) => isReservedBotName(n)) ?? false;
+      const skip = a.to === null;
       if (!skip && (!to || to.length === 0)) {
         return deny("to is unvalid form(list or null)");
       }
@@ -6002,8 +5997,13 @@ export class RoomManager extends EventEmitter<Events> {
        * 은 그 자체로 틀린 것이고, 거기서 «사용자가 연 턴입니다» 라고 답하면
        * **거짓말**이다 — 그쪽은 아래 `relaySay`·`sayUser` 가 제 말로 답한다.
        */
+      /*
+       * ⚠️ **«user only» 가 글에서 빠졌다** (2026-10-16). 섞여 적힌 것까지
+       * 거절하게 되면서 이 자리에 `["user"]` 로 닿는 길이 **없어졌다** — 그
+       * 말을 남겨두면 영영 안 나오는 글이 된다.
+       */
       if (sayId === null && skip && this.botRuntime(roomId, botId).fromUser) {
-        return deny("id null and to (user only or null) cannot be used together");
+        return deny("id null and to null cannot be used together");
       }
       /*
        * ★ **단독 «user» 는 막는다** (사용자, 2026-10-16): *"단독 user도 막을까?"*
@@ -6019,14 +6019,14 @@ export class RoomManager extends EventEmitter<Events> {
        * ⚠️ **위 거절보다 뒤에 둔다.** 앞에 두면 `id: null` 과 겹칠 때 이쪽이
        * 먼저 잡아, 위의 «user only» 라는 말이 **영영 안 나오는 글**이 된다.
        */
-      if (onlyUser) {
-        return deny("to user only is not allowed (use to null)");
+      if (hasUser) {
+        return deny("user is not callable");
       }
       if (skip) {
         return await this.sayUser(roomId, botId, sayId, a.text.trim());
       }
       // 사용자가 연 턴이면 «user» 는 빼고 보낸다 — 산문이 이미 거기로 간다
-      return await this.relaySay(roomId, botId, to!, a.text, sayId, alsoUser && sayId !== null);
+      return await this.relaySay(roomId, botId, to!, a.text, sayId);
     }
     if (tool === "check_queue") {
       /*
@@ -6311,8 +6311,6 @@ export class RoomManager extends EventEmitter<Events> {
     to: string[],
     rawText: string,
     id: SayId,
-    /** `to` 에 «user» 를 같이 적었나 — 그러면 말풍선에 `@(사용자)` 도 선다 */
-    alsoUser = false,
   ): Promise<McpResult> {
     const room = this.open.get(roomId);
     if (!room) {
@@ -6548,8 +6546,6 @@ export class RoomManager extends EventEmitter<Events> {
       authorBotId: me.id,
       text,
       deliveredTo: targets.map((b) => b.id),
-      // 적어 보냈으면 사용자에게도 한 말이다 — 화면이 칩을 붙이고 **안 접는다**
-      ...(alsoUser ? { toUser: true } : {}),
       createdAt: Date.now(),
       // 빈 배열은 안 넣는다 — «가리킬 것이 없다» 와 «없다» 는 같은 뜻이다
       ...(cause.length > 0 ? { replyToIds: cause } : {}),

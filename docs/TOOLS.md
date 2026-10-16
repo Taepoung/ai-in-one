@@ -56,8 +56,8 @@
 ★ **문자열 하나도 받는다** — `to: "베타"` 는 `["베타"]` 로 읽는다. 모델이
 흔히 그렇게 쓰는데, 거절해 봐야 왕복만 는다.
 
-★ **`to` 의 `user` 는 사용자다.** 봇 이름으로는 못 쓰는 이름이라 안 갈린다.
-다른 봇과 같이 적으면 그 봇에게 보내고 **칩만** 하나 더 단다.
+🔴 **`to` 에는 `user` 를 못 적는다.** 단독이든 섞였든 거절한다 — 명단이
+(`callable`) 보여주지 않는 이름이고, 사용자에게 갈 길은 `to: null` 하나다.
 
 ---
 
@@ -306,9 +306,9 @@
 | say | `to is unvalid form(list or null)` | `to` 가 빠졌거나 리스트도 `null` 도 아니다 | — | 칸을 채워 다시 부른다 |
 | say | `text is empty` | `text` 가 없거나 공백뿐이다 | — | 할 말을 적는다 |
 | say | `id is not valid (valid id or null)` | `id` 칸 자체가 없다 (뜻한 `null` 은 통과) | — | 큐의 id, 아니면 `null` |
-| say | `id null and to (user only or null) cannot be used together` | 사용자가 연 턴에 `id: null` 로 **사용자에게**(`to: null` 또는 `["user"]`) 걸었다 | — | 그 턴의 **산문**으로 쓴다 |
+| say | `id null and to null cannot be used together` | 사용자가 연 턴에 `id: null` + `to: null` 로 **사용자에게** 걸었다 | — | 그 턴의 **산문**으로 쓴다 |
 | say | `id null is only for user turn` | **깨어난 턴**에서 `id:null` 을 줬다 | `can_call`·`queue_left` | `check_queue` 가 준 id 를 쓴다 |
-| say | `to user only is not allowed (use to null)` | `to` 에 **`user` 만** 적었다 (id 와 무관) | — | `to: null` 로 바꾼다 |
+| say | `user is not callable` | `to` 에 `user` 가 **끼어 있다** (단독이든 섞였든, id 와 무관) | — | `to: null` 로 바꾼다 |
 | say | `permission item: use verdict` | 집은 id 가 **권한 요청**이었다 | — | 같은 id 로 `verdict` |
 | say | `ambiguous name` | 그 이름의 봇이 방에 둘이다 | `can_call`·`queue_left` | 이름을 바꿔야 부를 수 있다 |
 | say | `unknown name` | `to` 의 이름이 방에 없다 | `can_call`·`queue_left` | 목록에서 고른다 |
@@ -366,7 +366,7 @@
 
 ### 보낸 뒤 — 성공한 답
 
-`say` 는 **세 갈래**다. 셋 다 `got` 에 `user` 가 선다 — 모든 말이 사용자에게
+`say` 는 **두 갈래**다. 둘 다 `got` 에 `user` 가 선다 — 모든 말이 사용자에게
 보이므로, 답이 그걸 말해주면 봇이 «또 알려야 하나»를 안 묻는다.
 
 🔴 **받은 이를 적는 칸은 `got` 이다 — 보낼 때의 `to` 와 이름을 가른다.** 같으면
@@ -375,15 +375,15 @@
 
 ```json
 봇에게       {"ok":true,"got":["감마","user"],"queue_left":0}
-봇 + 사용자  {"ok":true,"got":["베타","user"],"queue_left":0}
-사용자에게   {"ok":true,"got":["user"],"queue_left":1}
+두 봇에게    {"isError":true,"reason":"duplicated sending error","can_call":["베타","감마"],"queue_left":0}
+사용자에게   {"ok":true,"got":["user"],"queue_left":0}
 ```
 
-★ **단독 `["user"]` 는 막는다** — 턴의 산문이 이미 사용자에게 가므로 그 호출은
+★ **`to` 의 `user` 는 막는다** — 턴의 산문이 이미 사용자에게 가므로 그 호출은
 언제나 **두 번째 말**이다. 사용자에게 가는 길은 `to: null` 하나다:
 
 ```json
-{"isError":true,"reason":"to user only is not allowed (use to null)"}
+{"isError":true,"reason":"user is not callable"}
 ```
 
 ★ **사용자에게 가는 say 는 접혀 선다** — 화면에서 산문과 안 겹치게. 할 말은
