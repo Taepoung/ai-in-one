@@ -6280,7 +6280,7 @@ export class RoomManager extends EventEmitter<Events> {
     return {
       text: JSON.stringify({
         ok: true,
-        to: [USER_TARGET],
+        got: [USER_TARGET],
         queue_left: this.queue.shareLeft(me.id),
       }),
     };
@@ -6578,8 +6578,20 @@ export class RoomManager extends EventEmitter<Events> {
     return {
       text: JSON.stringify({
         ok: true,
-        // ★ **받은 이를 전부 적는다** — 사용자는 언제나 받으므로 끝에 선다
-        to: [...targets.map((b) => b.name), USER_TARGET],
+        /*
+         * ★ **이름이 `to` 가 아니라 `got` 이다** (사용자, 2026-10-16):
+         * *"got이 좋긴 하겠다"*.
+         *
+         * 🔴 **한 이름이 두 일을 지고 있었다.** 보낼 때의 `to` 는 «누구에게»
+         * 고, 답의 그것은 «누가 받았나» 다. 이름이 같으면 성공한 답이
+         * **입력 예시처럼 읽힌다** — 그래서 `{"ok":true,"to":["user"]}` 를 본
+         * 모델이 다음 턴에 `say(to:["user"])` 를 써보고 막힌다. 우리가 거절할
+         * 모양을 **잘했다는 답에 실어 보내는** 꼴이었다.
+         *
+         * 이름만 가르면 «누가 받았나» 라는 참을 안 깎고도 베껴 쓸 모양이
+         * 아니게 된다. 받은 이를 전부 적는다 — 사용자는 언제나 받으므로 끝에.
+         */
+        got: [...targets.map((b) => b.name), USER_TARGET],
         queue_left: this.queue.shareLeft(fromId),
       }),
     };

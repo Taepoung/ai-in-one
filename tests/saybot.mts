@@ -32,7 +32,8 @@ interface SayOut {
   ok: boolean;
   reason?: string;
   can_call?: string[];
-  to?: string[];
+  /** 누가 받았나 — 보낼 때의 `to` 와 **다른 이름**이다 (2026-10-16) */
+  got?: string[];
   queue_left: number;
   items?: Array<{ id: string }>;
 }
@@ -345,10 +346,17 @@ async function main(): Promise<void> {
     const out = await t.mgr.mcpCall(
       `${t.room.id}:${t.b.id}`, "say", { to: null, text: "제 일이 아닙니다", id },
     );
-    const body = JSON.parse(out.text) as { ok: boolean; to?: unknown; queue_left: number };
-    ok(body.ok === true && JSON.stringify(body.to) === JSON.stringify(["user"]),
-       `★ **to: null 도 사용자에게 간 것으로 답한다** (${out.text}) — `
-       + "돌려주는 모양은 봇에게 보낼 때와 같은 «이름 리스트» 하나다");
+    const body = JSON.parse(out.text) as
+      { ok: boolean; to?: unknown; got?: unknown; queue_left: number };
+    /*
+     * 🔴 **답의 이름은 `got` 이다** — 보낼 때의 `to` 와 가른다(2026-10-16).
+     * 같으면 성공한 답이 **입력 예시처럼** 읽혀, 우리가 거절할 `["user"]` 를
+     * 잘했다는 답에 실어 보내는 꼴이 된다.
+     */
+    ok(body.ok === true && body.to === undefined
+       && JSON.stringify(body.got) === JSON.stringify(["user"]),
+       `★ **누가 받았는지는 got 이 말한다** (${out.text}) — `
+       + "보낼 때의 to 와 이름이 갈려 베껴 쓸 모양이 아니다");
     ok(t.inner.queue.find(t.b.id, id) === undefined,
        "★ **그 항목이 닫힌다** — 사용자에게 말하는 것도 그 항목에 대한 반응이다");
     ok(bubbles(t.room, t.b.id, t.a.id).length === 0,
@@ -440,7 +448,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     );
     await t.answerCard(true);
     const out = JSON.parse((await call).text) as SayOut;
-    ok(out.ok === true, `★ 베타에게는 간다 (${out.to?.join("·")})`);
+    ok(out.ok === true, `★ 베타에게는 간다 (${out.got?.join("·")})`);
     const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
     ok(bubble.toUser !== true,
        "★ **사용자 칩은 안 달린다** — 이 턴의 산문이 이미 사용자에게 간다");
@@ -475,7 +483,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     );
     await t.answerCard(true);
     const out = JSON.parse((await call).text) as SayOut;
-    ok(out.ok === true, `★ 전제 — 갔다 (${out.to?.join("·")})`);
+    ok(out.ok === true, `★ 전제 — 갔다 (${out.got?.join("·")})`);
 
     const bubble = t.room.messages.filter((m) => m.authorBotId === t.a.id).at(-1)!;
     ok(bubble.deliveredTo.includes(t.b.id), "★ 베타에게 간다");
@@ -505,7 +513,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
     );
     await t.answerCard(true);
     const out = JSON.parse((await call).text) as SayOut;
-    ok(out.ok === true, `★ 전제 — 둘에게 갔다 (${out.to?.join("·")})`);
+    ok(out.ok === true, `★ 전제 — 둘에게 갔다 (${out.got?.join("·")})`);
 
     const forB = (await t.check(t.b)).item as { also_to?: string[] } | null;
     const forC = (await t.check(t.c)).item as { also_to?: string[] } | null;

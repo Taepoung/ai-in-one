@@ -43,7 +43,7 @@ const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const here = path.dirname(fileURLToPath(import.meta.url));
 const busy = (s: string) => !["idle", "error"].includes(s);
 
-interface SayOut { ok: boolean; reason?: string; to?: string[] }
+interface SayOut { ok: boolean; reason?: string; queue_left?: number; got?: string[] }
 
 async function make(cap: number) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-depth-"));
@@ -433,7 +433,7 @@ async function main(): Promise<void> {
 
     // **임자(테스터)가 아니라 제3자(리뷰어)에게** 반응한다
     const out = await t.say(t.a, "리뷰어", "테스터 말 때문인데", got);
-    ok(out.ok, `★ 제3자에게 보낼 수 있다 (${JSON.stringify(out.to)})`);
+    ok(out.ok, `★ 제3자에게 보낼 수 있다 (${JSON.stringify(out.got)})`);
     ok(t.inner.queue.find(t.a.id, got) === undefined,
        "★ 🔴 **그래도 닫힌다** — 들고 있어 봐야 그 턴에서 할 수 있는 것이 없다");
 
@@ -449,8 +449,8 @@ async function main(): Promise<void> {
 
     const out = await t.say(t.a, ["리뷰어", "테스터"], "둘 다 봐줘", got);
     /* ★ 돌려주는 `to` 에는 **사용자가 끝에 선다** — 언제나 받으므로 */
-    ok(out.ok && out.to?.join("·") === "리뷰어·테스터·user",
-       `★ 둘에게 간다 (${JSON.stringify(out.to)}) — **우리가 고른 이름**으로 돌려준다`);
+    ok(out.ok && out.got?.join("·") === "리뷰어·테스터·user",
+       `★ 둘에게 간다 (${JSON.stringify(out.got)}) — **우리가 고른 이름**으로 돌려준다`);
     const mine = t.newest(t.b.id)!, hers = t.newest(t.c.id)!;
     ok(t.depthOf(t.b.id, mine) === 5 && t.depthOf(t.c.id, hers) === 5,
        "★ **깊이는 같다** — 한 번의 반응이니까");
