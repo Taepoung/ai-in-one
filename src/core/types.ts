@@ -1856,6 +1856,31 @@ export function rosterText(room: Room, me: BotInstance): string {
 export const ROSTER_TAG = "ai-in-one";
 
 /**
+ * ★ **에이전트 하나의 구독 잔량** (사용자, 2026-10-19).
+ *
+ * ⚠️ **`RoomUsage` 와 다른 물건이다.** 저쪽은 «이 세션 컨텍스트가 얼마나
+ * 찼나» 라 압축하면 **내려가고**, 이쪽은 «구독이 얼마나 남았나» 다. 한때
+ * 둘 다 «사용량» 이라 불러서 `usageOf` 가 두 번 선언되는 데까지 갔다 —
+ * 코드에서는 `quota` 로 가른다(화면 글자는 「사용량」 그대로다).
+ *
+ * 🔴 **글 그대로 들고 다닌다.** 어댑터마다 모양이 달라서(`docs/SLASH.md`)
+ * 숫자로 뜯는 자리를 코어에 두면 핀을 올릴 때마다 조용히 깨진다 — 뜯는 것은
+ * **읽는 쪽**이 하고, 못 뜯으면 받은 글을 그대로 보여주면 된다.
+ */
+export interface AgentQuota {
+  agentId: string;
+  label: string;
+  /** 어댑터가 돌려준 글 (markdown) */
+  text?: string;
+  /** 무엇을 불러서 받았나 — `usage` 인지 `status` 인지 */
+  cmd?: string;
+  /** 못 받았으면 왜 */
+  why?: string;
+  /** 언제 받은 것인가 — 팝업이 «몇 분 전» 을 적는다 */
+  at: number;
+}
+
+/**
  * 상대 경로면 방의 작업 폴더를 앞에 붙인다 (E9).
  *
  * 구분자는 «/» 로 잇는다 — Windows 도 섞인 구분자를 받는다.

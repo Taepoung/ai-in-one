@@ -56,6 +56,7 @@ import {
   DEFAULT_RELAY,
   DEFAULT_DEPTH_CAP,
   rosterText,
+  type AgentQuota,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
 
@@ -336,6 +337,16 @@ const SAVE_INTERVAL_MS = 2000;
  * 처음 받는 npm 패키지를 감안해 넉넉히 주되, **끝은 있다.**
  */
 const CONFIG_PROBE_MS = 90_000;
+
+/**
+ * ★ **잔량을 물어볼 명령** (`docs/SLASH.md`, 2026-10-19 실측).
+ *
+ * 어댑터마다 이름이 다르다 — Claude·Antigravity 는 `usage`, Codex 는
+ * `status`. 앞엣것부터 찾아 **그 세션이 광고한 것** 중에서 고른다.
+ */
+const USAGE_COMMANDS = ["usage", "status"] as const;
+/** 세션을 새로 열고 한 턴을 묻는 길이라 설정 조회보다 넉넉히 둔다 */
+const USAGE_PROBE_MS = 120_000;
 
 /**
  * ★ **붙는 데 걸 한도 — 둘로 가른다** (2026-10-13).
@@ -3660,6 +3671,38 @@ export class RoomManager extends EventEmitter<Events> {
     const pkg = this.opts.agents.find((a) => a.id === agentId)?.pkg;
     if (!root || !pkg) return;
     await keepOptions(dirFor(root, agentId), pkg, options);
+  }
+
+  /**
+   * ★ **에이전트마다 구독 잔량을 물어온다** (사용자, 2026-10-19).
+   *
+   * 🔴 **방을 안 거친다.** `send` 로 보내면 읽던 대화에 말풍선이 둘 남는데,
+   * 잔량 조회는 «대화의 사건» 이 아니다. `AcpConnection.probeUsage` 가
+   * 조회용 세션을 따로 열고 닫는다.
+   *
+   * ★ **묶음은 에이전트다.** 잔량은 계정에 붙는 값이라 방마다 다르지 않고,
+   * 한 방에 Claude 봇이 둘 있어도 **물어볼 것은 한 번**이다.
+   *
+   * 🔴 **하나가 터져도 나머지는 돌려준다.** 셋 중 하나가 로그인이 풀렸다고
+   * 전부 빈손이 되면, 멀쩡한 둘을 보려고 그걸 먼저 고쳐야 한다.
+   */
+  async quotaOf(agentIds: readonly string[]): Promise<AgentQuota[]> {
+    const seen = [...new Set(agentIds)];
+    return await Promise.all(seen.map(async (agentId): Promise<AgentQuota> => {
+      const label = this.opts.agents.find((a) => a.id === agentId)?.label ?? agentId;
+      try {
+        const got = await withTimeout(
+          this.connection(agentId).probeUsage(
+            this.opts.host.defaultCwd(), USAGE_COMMANDS,
+          ),
+          USAGE_PROBE_MS,
+          `${label}이(가) ${Math.round(USAGE_PROBE_MS / 1000)}초 안에 응답하지 않았습니다.`,
+        );
+        return { agentId, label, at: Date.now(), ...got };
+      } catch (e) {
+        return { agentId, label, at: Date.now(), why: (e as Error).message };
+      }
+    }));
   }
 
   private async refreshConfigOptions(agentId: string): Promise<acp.SessionConfigOption[]> {

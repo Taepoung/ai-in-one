@@ -12,6 +12,7 @@ import type {
   WaitItem,
   ToolActivity,
   Clash,
+  AgentQuota,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
 import type { McpState } from "../core/mcpServer.js";
@@ -1689,6 +1690,17 @@ let draftTimer: ReturnType<typeof setTimeout> | undefined;
  * 열면 `openRoom` 이 지운다.
  */
 let peeking: string | null = null;
+
+/**
+ * ★ **마지막에 받아둔 구독 잔량** (사용자, 2026-10-19).
+ *
+ * 🔴 **들고 있는다.** 한 번 받는 데 최대 20초(Antigravity)라, 팝업을 열
+ * 때마다 빈 화면부터 보여주면 «눌러도 아무 일이 없다» 가 된다. 지난 것을
+ * 먼저 세우고 **언제 받은 것인지**를 같이 적는다 — 낡은 수를 새 수인 척
+ * 보여주지만 않으면 된다.
+ */
+let quota: AgentQuota[] | null = null;
+let quotaBusy = false;
 
 function openRoom(roomId: string): void {
   // 뷰는 **그 방 안의 상태**다 — 다른 방에 들고 가면 엉뚱한 봇을 가리킨다
@@ -3881,6 +3893,21 @@ function paintChat(r: Room): void {
        * ```
        */
       forkHeadButton(r, seen.id),
+      /*
+       * ★ **사용량 — 참여자 바로 왼쪽** (사용자, 2026-10-19).
+       *
+       * 🔴 **봇에 관한 것들 옆에 둔다.** 잔량은 계정에 붙는 값이지만, 사람이
+       * «얼마 남았지» 를 떠올리는 순간은 **이 방에서 일을 시키다가**다 —
+       * 에이전트 설정 화면까지 가야 보이면 그때 길이 끊긴다.
+       *
+       * ⚠️ 수를 **달고 있지 않는다.** 머리에 늘 띄우는 것은 한 번 걷어낸
+       * 길이다(ROADMAP B14: «노이즈다»). 누를 때만 보여준다.
+       */
+      el(
+        "button",
+        { class: "icon", title: "사용량", onclick: () => openQuota(r) },
+        icon("pulse"),
+      ),
       el(
         "button",
         { class: "icon with-count", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
@@ -3920,6 +3947,12 @@ function paintChat(r: Room): void {
        * 자리에서 그러면 들어온 까닭이 사라진다.
        */
       // 참여자 서랍 — 봇에 관한 것이 모이는 자리 (§4.2.1)
+      // 사용량 — 참여자 바로 왼쪽. 「기록만」 방에는 안 세운다(물을 세션이 없다)
+      peeking === r.id ? null : el(
+        "button",
+        { class: "icon", title: "사용량", onclick: () => openQuota(r) },
+        icon("pulse"),
+      ),
       peeking === r.id ? null : el(
         "button",
         { class: "icon with-count", title: `참여자 ${r.participants.length}`, onclick: () => toggleDrawer(r) },
@@ -6971,6 +7004,85 @@ function showModal(node: HTMLElement, where: HTMLElement = screens.chat): void {
   );
 }
 
+/**
+ * ★ **구독 잔량 팝업** (사용자, 2026-10-19).
+ *
+ * 🔴 **대화를 안 건드린다.** 잔량은 어댑터의 슬래시 명령으로만 알 수 있는데
+ * (`docs/SLASH.md`), 그걸 방으로 보내면 읽던 대화에 말풍선이 둘 남는다.
+ * 저쪽은 조회용 세션을 따로 열고 닫는다 — 모델도 그 턴을 기억하지 않는다.
+ *
+ * ⚠️ **열자마자 안 묻는다.** 들고 있는 것이 있으면 그걸 먼저 보여주고,
+ * 새로 받는 것은 **새로고침을 눌렀을 때**다. 열 때마다 물으면 팝업을 두 번
+ * 여는 것만으로 세션이 둘 뜬다.
+ */
+function openQuota(r: Room): void {
+  showModal(quotaCard(r));
+  if (quota === null) askQuota(r);
+}
+
+function askQuota(r: Room): void {
+  quotaBusy = true;
+  post({ t: "quotaAsk", roomId: r.id });
+  paintQuota();
+}
+
+/** 떠 있는 팝업만 갈아끼운다 — 열려 있지 않으면 아무 일도 안 한다 */
+function paintQuota(): void {
+  const old = document.querySelector(".quota-card");
+  if (!old || !room) return;
+  old.replaceWith(quotaCard(room));
+}
+
+function quotaCard(r: Room): HTMLElement {
+  /** 이 방이 쓰는 에이전트만 — 잔량은 계정에 붙지 방에 붙지 않는다 */
+  const mine = [...new Set(r.participants.map((b) => b.agentId))];
+  const rows = mine.map((id) => {
+    const got = quota?.find((q) => q.agentId === id);
+    const label = agentRows.find((a) => a.id === id)?.label ?? id;
+    if (quotaBusy && !got) {
+      return el("div", { class: "quota-row" },
+        el("div", { class: "quota-name" }, label),
+        el("div", { class: "quota-why" }, "받는 중…"));
+    }
+    if (!got) {
+      return el("div", { class: "quota-row" },
+        el("div", { class: "quota-name" }, label),
+        el("div", { class: "quota-why" }, "아직 안 받았습니다"));
+    }
+    return el("div", { class: "quota-row" },
+      el("div", { class: "quota-name" }, label,
+        el("span", { class: "sub", text: got.cmd ? ` /${got.cmd}` : "" })),
+      /*
+       * 🔴 **글 그대로 세운다.** 어댑터마다 모양이 달라서(`SLASH.md`)
+       * 숫자로 뜯으면 핀을 올릴 때마다 조용히 깨진다 — 사람이 읽을 수
+       * 있는 글이 이미 와 있는데 그걸 버릴 이유가 없다.
+       */
+      got.text
+        ? el("pre", { class: "quota-text", text: got.text })
+        : el("div", { class: "quota-why" }, got.why ?? "빈손으로 왔습니다"),
+      el("div", { class: "quota-at", text: `${new Date(got.at).toLocaleTimeString()} 기준` }));
+  });
+
+  return el(
+    "div",
+    { class: "card quota-card" },
+    el("div", { class: "card-title" }, icon("pulse"), " 사용량"),
+    el("div", { class: "card-body" }, ...rows),
+    el(
+      "div",
+      { class: "card-actions" },
+      el("button", { text: "닫기", onclick: () => closeModal() }),
+      /* 강조는 **권하는 쪽**이 맨 오른쪽 — 여기서는 다시 받아오는 것이다 */
+      el("button", {
+        class: "primary",
+        text: quotaBusy ? "받는 중…" : "새로고침",
+        disabled: quotaBusy,
+        onclick: () => askQuota(r),
+      }),
+    ),
+  );
+}
+
 /** 팝업과 덮개를 함께 걷는다 — **어느 화면에 떠 있든** */
 function closeModal(): void {
   for (const n of document.querySelectorAll(".modal-veil, .modal")) n.remove();
@@ -8797,6 +8909,20 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
         }
       }
       break;
+
+    /*
+     * ★ **구독 잔량** (사용자, 2026-10-19).
+     *
+     * 팝업이 떠 있을 때만 다시 그린다 — 닫고 나서 늦게 온 답이 화면을
+     * 흔들 이유가 없다. 다음에 열면 **마지막에 받은 것**이 먼저 서고,
+     * 언제 받은 것인지는 줄마다 적힌다.
+     */
+    case "quota": {
+      quota = m.list;
+      quotaBusy = false;
+      if (document.querySelector(".quota-card")) paintQuota();
+      break;
+    }
 
     case "agents": {
       agentRows = m.list;

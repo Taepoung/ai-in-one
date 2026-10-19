@@ -609,6 +609,22 @@ export class ChatPanel implements AskTarget {
         case "agentsAsk":
           this.sendAgents();
           break;
+        /*
+         * ★ **구독 잔량** (사용자, 2026-10-19).
+         *
+         * 🔴 **그 방의 에이전트만** 묻는다. 잔량은 계정에 붙는 값이지만,
+         * 단추가 방 머리에 있으므로 **지금 보는 방이 쓰는 것**을 묻는 게
+         * 맞다 — 안 쓰는 에이전트까지 깨우면 세션 셋이 괜히 뜬다.
+         *
+         * ⚠️ 한 번에 20초(Antigravity)까지 걸린다. 화면은 먼저 팝업을
+         * 띄우고 **빈 자리에 «받는 중»** 을 세운다.
+         */
+        case "quotaAsk": {
+          const here = await this.rooms.openRoom(m.roomId);
+          const ids = here.participants.map((b) => b.agentId);
+          this.post({ t: "quota", list: await this.rooms.quotaOf(ids) });
+          break;
+        }
         // **못 물어본 것만** 다시 — 이미 답한 줄을 또 묻지 않는다
         case "ready":
           this.onReady();

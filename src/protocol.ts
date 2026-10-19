@@ -16,6 +16,7 @@ import type {
   RoomMeta,
   RoomStatus,
   RoomUsage,
+  AgentQuota,
 } from "./core/types.js";
 import type { ComposeToken } from "./core/mentions.js";
 import type { McpState } from "./core/mcpServer.js";
@@ -129,6 +130,8 @@ export type ToWebview =
    * `stale` 일 때도 로그인 상태를 같이 보여주기 위해서다 — 낡음이 앞서질
    * 뿐 다른 걸 못 보게 될 이유는 없다.
    */
+  /** 받아온 잔량 — 어댑터가 준 **글 그대로**다 (`AgentQuota`) */
+  | { t: "quota"; list: AgentQuota[] }
   | {
       t: "agents";
       list: {
@@ -537,6 +540,17 @@ export type FromWebview =
    * 지금 상태를 달라는 요청. 받기·지우기 뒤에도 이걸 다시 보낸다.
    */
   | { t: "agentsAsk" }
+  /**
+   * ★ **구독 잔량을 물어온다** (사용자, 2026-10-19).
+   *
+   * 🔴 **방을 거치지 않는다.** 조회용 세션을 따로 열어 `/usage` 를 한 번
+   * 묻는다 — `send` 로 보내면 읽던 대화에 말풍선이 둘 남는다. 모델은 그
+   * 턴을 기억하지 않으므로(`docs/SLASH.md`) 맥락은 안 먹는다.
+   *
+   * 방 id 를 주는 것은 **누구에게 물을지**를 정하기 위해서다 — 그 방의
+   * 참여자가 쓰는 에이전트만 깨운다.
+   */
+  | { t: "quotaAsk"; roomId: string }
   /**
    * 그 에이전트에 무언가를 한다.
    *

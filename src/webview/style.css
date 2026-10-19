@@ -4101,3 +4101,27 @@ fieldset.bot .bot-drop.danger:hover {
 .cap-row.off {
   opacity: 0.5;
 }
+
+/*
+ * ★ **사용량 팝업** (사용자, 2026-10-19).
+ *
+ * 🔴 **글을 그대로 세운다.** 어댑터마다 모양이 달라서(`docs/SLASH.md`)
+ * 숫자로 뜯지 않는다 — `pre` 로 두면 저쪽이 맞춰 보낸 줄바꿈과 막대가
+ * 그대로 읽힌다. 대신 **접히게** 해서 긴 것이 팝업을 밀어내지 않게 한다.
+ */
+.quota-row { padding: 8px 0; border-bottom: 1px solid var(--vscode-widget-border); }
+.quota-row:last-child { border-bottom: none; }
+.quota-name { font-weight: 600; }
+.quota-name .sub { font-weight: 400; opacity: 0.6; }
+.quota-text {
+  margin: 6px 0 2px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 0.92em;
+  opacity: 0.9;
+}
+.quota-why { margin: 6px 0 2px; opacity: 0.7; }
+.quota-at { font-size: 0.85em; opacity: 0.55; }

@@ -1153,6 +1153,61 @@ export class AcpConnection {
    * 방 만들기 화면에서 **목록이 처음부터 다 보이도록** 조회용 세션을 열어 읽고 닫는다.
    * `session/new`는 프롬프트를 보내지 않으므로 **토큰 소모가 0**이다.
    */
+  /**
+   * ★ **조회용 세션에서 `/usage` 를 한 번 묻는다** (사용자, 2026-10-19).
+   *
+   * 🔴 **구독 잔량은 우리가 쥔 숫자에 없다.** `usage_update` 의 `used/size` 는
+   * «이 세션 컨텍스트가 얼마나 찼나» 라 압축하면 되레 내려간다. 남은 양은
+   * 어댑터 쪽에만 있고, 그 길은 슬래시 명령뿐이다(`docs/SLASH.md`).
+   *
+   * ★ **방을 안 거친다.** `RoomManager.send` 로 보내면 `role:"user"` 메세지가
+   * 하나 붙어 **읽던 대화에 찌꺼기**가 남는다 — 압축은 «대화의 사건» 이라
+   * 남는 게 맞지만 잔량 조회는 아니다. 바로 위 `probeConfigOptions` 와 같은
+   * 꼴로, 열고·묻고·닫는다.
+   *
+   * ⚠️ **저쪽 디스크에는 남는다.** `probeConfigOptions` 는 프롬프트를 안
+   * 보내서 기록이 아예 안 생기는데, 이쪽은 한 번 보내므로 세션 파일이
+   * 하나 생긴다. 담긴 것은 `/usage` 한 줄이다.
+   *
+   * 🔴 **글 그대로 돌려준다.** 어댑터마다 모양이 달라서(`SLASH.md`) 여기서
+   * 뜯지 않는다 — 뜯는 자리는 하나여야 하고, 그건 읽는 쪽이다.
+   */
+  async probeUsage(
+    cwd: string,
+    want: readonly string[],
+  ): Promise<{ cmd: string; text: string }> {
+    const { sessionId } = await this.newSession(cwd, []);
+    let names: string[] = [];
+    let said = "";
+    try {
+      this.listen(sessionId, (ev) => {
+        if (ev.type === "commands") names = ev.names;
+        else if (ev.type === "text") said += ev.delta;
+      });
+      /*
+       * 목록을 기다린다 — 세션을 열면 곧 온다(실측: Claude 7초 · Codex 7초 ·
+       * Antigravity 19초). 기다리는 까닭은 **이름이 어댑터마다 달라서**다
+       * (`usage` 와 `status`).
+       */
+      for (let i = 0; i < 160 && names.length === 0; i++) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      const cmd = want.find((w) => names.includes(w));
+      if (!cmd) {
+        throw new Error(
+          names.length === 0
+            ? "쓸 수 있는 명령을 알려주지 않았습니다."
+            : "사용량을 물어볼 명령이 없습니다.",
+        );
+      }
+      await this.prompt(sessionId, `/${cmd}`);
+      return { cmd, text: said.trim() };
+    } finally {
+      this.unlisten(sessionId);
+      await this.closeSession(sessionId).catch(() => undefined);
+    }
+  }
+
   async probeConfigOptions(cwd: string): Promise<acp.SessionConfigOption[]> {
     // 조회용이라 도구를 안 실는다 — 말을 건 적이 없는 세션이다
     const { sessionId, configOptions } = await this.newSession(cwd, []);
