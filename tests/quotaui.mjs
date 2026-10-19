@@ -115,14 +115,21 @@ console.log(NL + "[★ 에이전트마다 한 줄 — 봇 수가 아니다]");
   open(t, [bot("b1", "claude"), bot("b2", "claude"), bot("b3", "codex")]);
   t.$("button.icon[title='사용량']").click();
   t.send({ t: "quota", list: [
-    { agentId: "claude", label: "Claude", cmd: "usage", at: 1, text: "5-hour limit — 3%" },
+    { agentId: "claude", label: "Claude", cmd: "usage", at: 1,
+      text: "**5-hour limit** — **3%** · Resets Oct 19, 7:20 PM GMT+9" },
     { agentId: "codex", label: "Codex", at: 1, why: "로그인이 필요합니다" },
   ] });
 
   const rows = t.$$(".quota-row");
   ok(rows.length === 2, `★ **두 줄이다** (봇은 셋, 에이전트는 둘 — ${rows.length})`);
-  ok(/3%/.test(rows[0].textContent),
-     "★ **받은 글을 그대로** 세운다 — 어댑터마다 모양이 달라 숫자로 안 뜯는다");
+  /*
+   * 🔴 **Claude 의 «3%» 는 «쓴 양»이다** — 막대는 «남은 양»으로 맞춰야 한다.
+   * 그대로 세우면 멀쩡한 계정이 거의 비어 보인다.
+   */
+  ok(/97% 남음/.test(rows[0].textContent),
+     `★ **쓴 양을 남은 양으로 뒤집어** 세운다 (${rows[0].querySelector(".quota-bar-num")?.textContent})`);
+  ok(rows[0].querySelector(".quota-raw pre")?.textContent?.includes("3%") === true,
+     "★ **받은 글은 접어서 그대로** 남는다 — 뜯기가 틀려도 참은 한 번 더 누르면 나온다");
   ok(/\/usage/.test(rows[0].textContent), "★ 무엇을 불러서 받았는지도 적는다");
   ok(/로그인이 필요합니다/.test(rows[1].textContent),
      "★ **못 받은 것은 왜인지** 적힌다 — 하나가 터져도 나머지는 보인다");

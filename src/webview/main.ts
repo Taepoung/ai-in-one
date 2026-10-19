@@ -15,6 +15,7 @@ import type {
   AgentQuota,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
+import { parseQuota, leftOf, type QuotaLine } from "../core/quotaParse.js";
 import type { McpState } from "../core/mcpServer.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
@@ -7033,6 +7034,45 @@ function paintQuota(): void {
   old.replaceWith(quotaCard(room));
 }
 
+/**
+ * 뜯은 한도를 **막대 줄**로 세운다. 못 뜯으면 **아무것도 안 세운다** —
+ * 그 자리는 아래 «받은 글» 이 받아준다.
+ *
+ * 🔴 **언제나 «남은 양»으로 맞춘다.** Claude 는 «얼마나 썼나»를, 나머지 둘은
+ * «얼마나 남았나»를 주는데(`quotaParse`), 그대로 나란히 세우면 **3% 가 거의
+ * 다 쓴 것처럼** 보인다 — 정반대다.
+ */
+function quotaBars(text: string): HTMLElement[] {
+  return parseQuota(text).map((line: QuotaLine) => {
+    const left = leftOf(line);
+    return el(
+      "div",
+      { class: "quota-bar" },
+      el(
+        "div",
+        { class: "quota-bar-head" },
+        el("span", { class: "quota-bar-name", text: line.label }),
+        el("span", { class: "quota-bar-num", text: `${Math.round(left)}% 남음` }),
+      ),
+      el(
+        "div",
+        { class: "quota-track" },
+        /*
+         * ⚠️ **적게 남았을 때 눈에 띄어야 한다.** 20% 아래를 가른다 —
+         * 색만으로 말하지 않으려고 수를 **늘 옆에 적어둔다**(C9).
+         */
+        el("div", {
+          class: `quota-fill${left <= 20 ? " low" : ""}`,
+          style: { width: `${left}%` },
+        }),
+      ),
+      ...(line.resets
+        ? [el("div", { class: "quota-at", text: `${line.resets} 에 다시 찹니다` })]
+        : []),
+    );
+  });
+}
+
 function quotaCard(r: Room): HTMLElement {
   /** 이 방이 쓰는 에이전트만 — 잔량은 계정에 붙지 방에 붙지 않는다 */
   const mine = [...new Set(r.participants.map((b) => b.agentId))];
@@ -7053,12 +7093,21 @@ function quotaCard(r: Room): HTMLElement {
       el("div", { class: "quota-name" }, label,
         el("span", { class: "sub", text: got.cmd ? ` /${got.cmd}` : "" })),
       /*
-       * 🔴 **글 그대로 세운다.** 어댑터마다 모양이 달라서(`SLASH.md`)
-       * 숫자로 뜯으면 핀을 올릴 때마다 조용히 깨진다 — 사람이 읽을 수
-       * 있는 글이 이미 와 있는데 그걸 버릴 이유가 없다.
+       * ★ **뜯은 것은 더하기만 한다** (사용자, 2026-10-19).
+       *
+       * 🔴 모양은 저쪽 판이 바뀌면 같이 바뀌므로 `parseQuota` 는 **언젠가
+       * 반드시 틀린다.** 그래서 받은 글을 **버리지 않고 접어서** 들고
+       * 있는다 — 막대가 안 서면 한 번 더 눌러 진짜 글을 본다. 잃는 것이
+       * «막대» 뿐이면 틀려도 괜찮은 기능이 된다.
        */
+      ...(got.text ? quotaBars(got.text) : []),
       got.text
-        ? el("pre", { class: "quota-text", text: got.text })
+        ? el(
+            "details",
+            { class: "quota-raw" },
+            el("summary", { text: "받은 글" }),
+            el("pre", { class: "quota-text", text: got.text }),
+          )
         : el("div", { class: "quota-why" }, got.why ?? "빈손으로 왔습니다"),
       el("div", { class: "quota-at", text: `${new Date(got.at).toLocaleTimeString()} 기준` }));
   });
