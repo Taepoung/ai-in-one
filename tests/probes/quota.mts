@@ -18,9 +18,14 @@
  *
  * ⚠️ **턴을 쓴다** — 에이전트마다 한 번씩. 손으로만 돌린다.
  *
+ * `--plain` 은 슬래시 대신 **보통 질문**을 보낸다. ③ 이 «슬래시 턴이라 안 온
+ * 것» 인지 «아예 안 오는 것» 인지 가르는 자리다 — 안 오면 컨텍스트 게이지도
+ * 압축 버튼도 **영영 안 뜬다**(둘 다 `usage.contextSize` 가 있어야 선다).
+ *
  * ```
  * npx tsx tests/probes/quota.mts
  * npx tsx tests/probes/quota.mts claude
+ * npx tsx tests/probes/quota.mts claude --plain
  * ```
  */
 import * as os from "node:os";
@@ -37,7 +42,9 @@ const WANTED = ["usage", "usage-credits", "status"];
 const ROOT = process.env.AIO_AGENT_ROOT
   ?? path.join(os.homedir(), "AppData", "Roaming", "Code", "User",
                "globalStorage", "taein-yoon.ai-in-one");
-const only = process.argv[2];
+const only = process.argv.slice(2).find((a) => !a.startsWith("--"));
+/** 슬래시 말고 보통 질문을 보낸다 — `usage_update` 가 오나 보려고 */
+const plain = process.argv.includes("--plain");
 const nap = (t: number) => new Promise((r) => setTimeout(r, t));
 const busy = (s: string) => !["idle", "error"].includes(s);
 
@@ -68,12 +75,12 @@ for (const agent of DEFAULT_AGENTS.map((a) => withInstalled(a, ROOT))
       if (names.length > 0) break;
       await nap(250);
     }
-    const cmd = WANTED.find((w) => names.includes(w));
+    const cmd = plain ? "1 더하기 1은? 숫자만." : WANTED.find((w) => names.includes(w));
     if (!cmd) { console.log(`  ① 그런 명령을 안 판다 (${names.length}개 중)`); }
     else {
-      console.log(`  부른다: /${cmd}`);
+      console.log(plain ? `  보통 질문을 보낸다 (광고한 명령 ${names.length}개)` : `  부른다: /${cmd}`);
       const before = room.messages.length;
-      await mgr.send(room.id, `/${cmd}`, undefined, bot.id);
+      await mgr.send(room.id, plain ? cmd : `/${cmd}`, undefined, bot.id);
       for (let i = 0; i < 480; i++) {
         if (!busy(mgr.statusOf(room.id))) break;
         await nap(250);
