@@ -271,7 +271,7 @@ async function main() {
     const inner = m4 as unknown as {
       runtimes: Map<string, { bots: Map<string, { sessionId?: string }> }>;
       config: { forget(roomId: string, botId: string): void };
-      buildPrompt(r: Room, b: unknown, rt: unknown, batch: Message[]): Promise<Array<{ text?: string }>>;
+      prompts: { build(r: Room, b: unknown, rt: unknown, batch: Message[]): Promise<Array<{ text?: string }>> };
     };
 
     /*
@@ -327,7 +327,7 @@ async function main() {
       id: "u2", role: "user", text: "이번엔 B", deliveredTo: [], createdAt: 3,
     };
     room.messages.push(next);
-    const blocks = await inner.buildPrompt(addressed(room), room.participants[0], { roleInjected: true }, [next]);
+    const blocks = await inner.prompts.build(addressed(room), room.participants[0], { roleInjected: true }, [next]);
     const text = blocks.map((b) => b.text ?? "").join("\n");
 
     ok(text.includes("A를 고쳐줘") && text.includes("고쳤습니다"), "**이전 대화가 들어간다**");
@@ -356,7 +356,7 @@ async function main() {
       id: "u3", role: "user", text: "그다음", deliveredTo: [], createdAt: 9,
     };
     room.messages.push(next2);
-    const b2 = await inner.buildPrompt(addressed(room), room.participants[0], { roleInjected: true }, [next2]);
+    const b2 = await inner.prompts.build(addressed(room), room.participants[0], { roleInjected: true }, [next2]);
     const t2 = b2.map((b) => b.text ?? "").join("\n");
 
     ok(t2.includes("[이전 요약] A를 고쳤다"), "**요약이 앞머리로 들어간다**");
@@ -372,7 +372,7 @@ async function main() {
     await m4.decideRefeed(room.id, true);
     const next3: Message = { id: "u4", role: "user", text: "C", deliveredTo: [], createdAt: 10 };
     room.messages.push(next3);
-    const t3 = (await inner.buildPrompt(addressed(room), room.participants[0], { roleInjected: true }, [next3]))
+    const t3 = (await inner.prompts.build(addressed(room), room.participants[0], { roleInjected: true }, [next3]))
       .map((b) => b.text ?? "").join(" ");
     ok(t3.includes("A를 고쳤다") && t3.includes("B도 손봤다"),
        "**둘 다 들어간다** — 겹침은 토큰 몇, 누락은 맥락이다");
@@ -417,7 +417,7 @@ async function main() {
       room7.messages.push(last);
 
       await m4.decideRefeed(room7.id, true);
-      const out = (await inner.buildPrompt(addressed(room7), room7.participants[0], { roleInjected: true }, []))
+      const out = (await inner.prompts.build(addressed(room7), room7.participants[0], { roleInjected: true }, []))
         .map((b) => b.text ?? "").join(" ");
 
       ok(!out.includes("이건 못 보냈다"),
