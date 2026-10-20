@@ -3774,7 +3774,7 @@ fieldset.bot .bot-drop.danger:hover {
   display: none;
 }
 
-/* ─── 에이전트 설정 화면 (docs/core/install.md) ─────────────────────────── */
+/* ─── 에이전트 설정 화면 (src/core/install/README.md) ─────────────────────────── */
 
 #screen-agents {
   overflow-y: auto;
@@ -3976,7 +3976,7 @@ fieldset.bot .bot-drop.danger:hover {
   font-size: var(--fs-12);
 }
 
-/* 막음 화면의 «내보내기» — 봇 빼기와 같은 무게다 (docs/core/install.md) */
+/* 막음 화면의 «내보내기» — 봇 빼기와 같은 무게다 (src/core/install/README.md) */
 .fix-bot .ghost.danger {
   border-color: var(--danger);
   color: var(--danger);
