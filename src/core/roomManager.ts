@@ -15,6 +15,7 @@ import { Runtimes, type RuntimesPort } from "./room/runtimes.js";
 import { AgentPool, type PoolPort } from "./session/pool.js";
 import { SessionConfig, type ConfigPort } from "./session/config.js";
 import { Sessions, type SessionsPort } from "./session/sessions.js";
+import { Joins, type JoinPort } from "./session/join.js";
 import { Activity, type ActivityPort } from "./turn/activity.js";
 import { Prompts, type PromptPort } from "./turn/prompt.js";
 import { Forks, type ForkOptions, type ForkPort } from "./room/fork.js";
@@ -193,24 +194,6 @@ function uniqueName(wanted: string, others: BotInstance[]): string {
   return uniqueBotName(wanted, new Set(others.map((b) => b.name)));
 }
 
-/**
- * 오류 한 줄에서 **고치는 길**을 읽어낸다 (2026-10-13).
- *
- * ⚠️ **글자로 가른다.** ACP 는 오류에 종류를 안 싣는다 — `newSession` 이
- * auth 를 이미 우리 말로 바꿔두고(«…에 로그인이 필요합니다»), 안 받은
- * 에이전트는 `withInstalled` 가 «아직 받지 않았습니다» 로 바꿔둔다. 그
- * 두 자리가 **우리가 쓴 글**이라 여기서 알아볼 수 있다.
- *
- * 🔴 모르면 `other` 다 — 그쪽이 **[다시 시도]** 를 다는 쪽이라, 잘못 맞혀도
- * 사용자가 할 수 있는 일이 남는다. 거꾸로 `auth` 로 잘못 몰면 **로그인하라고
- * 보내놓고 아무것도 안 고쳐진다.**
- */
-function whyJoin(say: string): JoinFail {
-  if (say.includes("받지 않았습니다") || say.includes("알 수 없는 에이전트")) return "gone";
-  if (say.includes("로그인")) return "auth";
-  return "other";
-}
-
 type Events = {
   /** 목록 화면 갱신 */
   metas: [RoomMeta[]];
@@ -334,14 +317,14 @@ export class RoomManager extends EventEmitter<Events> {
    * 붙이기 · 되살리기 · 이어가기. 분기는 이걸 쓰는 손님이다.
    */
   private readonly sessions = new Sessions(this.sessionsPort());
+  /** ★ **방에 붙이기** — `core/session/join.ts` (리팩토링 ⑩, 2026-10-20). 세션층의 손님이다 */
+  private readonly joins = new Joins(this.joinPort());
   /** ★ **분기** — `core/room/fork.ts` (리팩토링 ⑨, 2026-10-20). 세션층의 손님이다 */
   private readonly forks = new Forks(this.forkPort());
   /** ★ **턴** — `core/turn/turns.ts` (리팩토링 ⑨, 2026-10-20). 아래층이 다 여기 모인다 */
   private readonly turns = new Turns(this.turnPort());
   /** ★ **보내기 · 예약 · 초안** — `core/room/outbox.ts` (리팩토링 ⑨, 2026-10-20) */
   private readonly outbox = new Outbox(this.outboxPort());
-  /** 세션을 붙이는 중인 방들. 방을 빠르게 오가도 CLI를 두 번 부르지 않는다 */
-  private readonly sessionFlight = new Map<string, Promise<void>>();
   /**
    * 사용자가 지금 보고 있는 방.
    *
@@ -535,6 +518,22 @@ export class RoomManager extends EventEmitter<Events> {
       releaseIfUnseen: (roomId) => this.maybeReleaseRoom(roomId),
       emitMessage: (roomId, message) => { this.emit("message", roomId, message); },
       emitRoom: (room) => { this.emit("room", room); },
+    };
+  }
+
+  private joinPort(): JoinPort {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
+    const self = this;
+    return {
+      get locks() { return self.opts.locks; },
+      get rooms() { return self.rooms; },
+      get runtimes() { return self.runtimes; },
+      get pool() { return self.pool; },
+      get sessions() { return self.sessions; },
+      emitRoom: (room) => { this.emit("room", room); },
+      emitJoinStep: (roomId, botId, step) => { this.emit("joinStep", roomId, botId, step); },
+      emitJoinFail: (roomId, botId, why, line) => { this.emit("joinFail", roomId, botId, why, line); },
+      emitJoinDone: (roomId) => { this.emit("joinDone", roomId); },
     };
   }
 
@@ -1343,40 +1342,14 @@ export class RoomManager extends EventEmitter<Events> {
    *
    * 셸이 불러줘야 한다 — core는 어느 화면이 떠 있는지 모른다.
    */
-  /**
-   * ★ **방에 들어간다 — 자리를 잡고** (v3.0 2-G).
-   *
-   * 🔴 **남이 쓰는 중이면 막는다.** `ensureSession` 은 「세션이 사라졌다」와
-   * 「남이 쓰는 중이다」를 **안 가려서**, 둘 다 «못 붙었다»로 읽고 새 세션을
-   * 열어 `bot.sessionId` 를 덮는다 — **먼저 쓰던 창의 세션이 고아가 된다.**
-   *
-   * ★ **빠져나갈 단추를 안 둔다.** «그래도 열기» 를 주면 그 순간 그 고아
-   * 세션이 생기고, 사용자는 무엇이 잘못됐는지 모른 채 두 화면이 어긋나는
-   * 것만 본다. **껐다 켜면 저절로 풀리는 것**이 출구다.
-   */
+  /** 방에 들어간다 — 자물쇠를 잡는다 (`Joins.enterRoom`) */
   async enterRoom(roomId: string): Promise<{ ok: true; room: Room } | { ok: false; why: string }> {
-    const got = this.opts.locks?.take(roomId) ?? { ok: true as const };
-    if (!got.ok) {
-      return {
-        ok: false,
-        why: `이 방은 «${got.held.window}» 에서 열려 있습니다. ` +
-          `같은 방을 두 곳에서 열면 세션이 어긋나므로 막습니다 — 그쪽 창을 닫고 다시 열어보세요.`,
-      };
-    }
-    return { ok: true, room: await this.rooms.openRoom(roomId) };
+    return this.joins.enterRoom(roomId);
   }
 
-  /**
-   * **자리를 놓는다** — 목록으로 나왔을 때.
-   *
-   * 🔴 **도는 중이면 안 놓는다.** 방을 나와도 봇은 계속 일하고(§4.3), 그
-   * 세션은 여전히 이 창 것이다 — 여기서 놓으면 옆 창이 들어와 같은 세션을
-   * 집는다. 조용해지면 `closeIdle` 쪽에서 놓는다.
-   */
+  /** 도는 턴이 없으면 자물쇠를 놓는다 (`Joins.releaseRoom`) */
   releaseRoom(roomId: string): void {
-    if (!this.opts.locks?.holds(roomId)) return;
-    if (isBusy(this.runtimes.statusOf(roomId)) === true) return;
-    this.opts.locks.release(roomId);
+    this.joins.releaseRoom(roomId);
   }
 
   async setActiveRoom(roomId: string | null): Promise<void> {
@@ -1390,104 +1363,13 @@ export class RoomManager extends EventEmitter<Events> {
       const room = await this.rooms.openRoom(roomId);
       this.markRead(room);
       // **방을 보고 있으면 세션도 붙어 있어야 한다** (B1)
-      void this.bindSession(room);
+      void this.joins.bindSession(room);
     }
   }
 
-  /**
-   * 보고 있는 방의 세션을 붙인다 (B1).
-   *
-   * **«방 하나 = 세션 하나»가 계속 참이어야 한다.** 방을 만들 때는 열어 두는데
-   * 창을 껐다 켜면 그 연결이 사라지고, 예전에는 **첫 전송 때까지** 안 붙었다.
-   * 그 사이가 거짓말하는 구간이었다 — 목록의 모델, 시트의 권한 모드가 전부
-   * «이 방의 값»이 아니라 에이전트 기본값이었고, 로그인이 풀린 것도 첫 메시지를
-   * 보내고 나서야 알았다.
-   *
-   * **목록을 훑는 것만으로는 안 붙인다.** 보고 있는 방 하나뿐이라 세션 수는
-   * 예전과 같다 — 시점만 당겼다.
-   *
-   * 화면을 막지 않는다. 실패는 방 오류로 알리고, 다음 전송이 다시 시도한다.
-   */
-  private bindSession(room: Room): Promise<void> {
-    // **참여자 전부**를 붙인다 — 단체방에서는 봇마다 세션이 하나씩이다(B1).
-    const need = room.participants.filter(
-      (b) => !this.runtimes.bot(room.id, b.id).sessionId,
-    );
-    if (need.length === 0) {
-      // 붙일 것이 없으면 **그 자리에서 끝난 것**이다 — 화면을 세워두지 않는다
-      this.emit("joinDone", room.id);
-      return Promise.resolve();
-    }
-
-    const running = this.sessionFlight.get(room.id);
-    if (running) return running;
-
-    for (const b of need) this.runtimes.setStatus(room.id, "connecting", b.id);
-    /*
-     * ★ **봇마다 따로 받는다** (2026-10-13).
-     *
-     * 🔴 여기가 `Promise.all` 하나에 `catch` 하나였다. 봇 셋 중 하나가
-     * 터지면 **누가 터졌는지가 거기서 사라지고**, 나머지가 멀쩡히 붙었는지도
-     * 알 수 없었다. 화면은 «세션에 붙지 못했습니다» 한 줄만 받았다.
-     *
-     * 그리고 그 한 줄이 **말풍선으로** 남았다 — 대화 기록에 박혀서 다음에
-     * 열어도 그대로 있다. 세션이 붙고 말고는 **우리 사정**이지 대화가 아니다.
-     */
-    const work = Promise.all(need.map((b) => this.joinOne(room, b)))
-      .then(() => {
-        // 붙고 나면 화면이 들고 있는 값이 낡았다 — 이 방의 진짜 값으로 갈아준다
-        this.emit("room", room);
-        this.emit("joinDone", room.id);
-      })
-      .finally(() => this.sessionFlight.delete(room.id));
-
-    this.sessionFlight.set(room.id, work);
-    return work;
-  }
-
-  /**
-   * 한 봇을 방에 붙인다 — **터져도 나머지를 안 끈다** (2026-10-13).
-   *
-   * 까닭을 갈라 알려주는 것이 여기서 하는 일의 절반이다. 화면이 달 단추가
-   * 종류마다 다르기 때문이다(`JoinFail`).
-   */
-  private async joinOne(room: Room, bot: BotInstance): Promise<void> {
-    const bt = this.runtimes.bot(room.id, bot.id);
-    try {
-      /*
-       * ★ **두 칸을 따로 밟는다** (2026-10-13).
-       *
-       * 이미 붙어 있으면 둘 다 건너뛴다 — `ensureSession` 첫 줄이 그렇고,
-       * `ensureStarted` 도 «떠 있으면 바로 돌아온다». 그래서 **두 번째 방부터는
-       * ① 이 그냥 지나가고**, 화면도 그걸 그대로 보여준다.
-       */
-      if (!bt.sessionId) {
-        this.emit("joinStep", room.id, bot.id, "start");
-        await this.pool.start(room.id, bot.agentId);
-        this.emit("joinStep", room.id, bot.id, "session");
-      }
-      await this.sessions.ensure(room, bot);
-      this.runtimes.setStatus(room.id, "idle", bot.id);
-    } catch (err) {
-      const why = describe(err);
-      this.runtimes.setStatus(room.id, "error", bot.id);
-      this.emit("joinFail", room.id, bot.id, whyJoin(why), why);
-    }
-  }
-
-  /**
-   * ★ **못 붙은 봇을 다시 붙여본다** — 화면의 [다시 시도] (2026-10-13).
-   *
-   * 자동으로 되풀이하지 않는다. 「몇 초마다」 라는 숫자가 하나 생기는데 그
-   * 숫자는 아무도 고를 수 없다 — MCP 쪽과 같은 규칙이다.
-   */
+  /** 못 붙은 봇을 다시 붙여 본다 (`Joins.retryJoin`) */
   async retryJoin(roomId: string, botId: string): Promise<void> {
-    const room = await this.rooms.openRoom(roomId);
-    const bot = room.participants.find((b) => b.id === botId);
-    if (!bot) return;
-    this.runtimes.setStatus(room.id, "connecting", bot.id);
-    await this.joinOne(room, bot);
-    this.emit("room", room);
+    return this.joins.retryJoin(roomId, botId);
   }
 
   /** 쓰다 만 글을 적어 둔다 — `Outbox.setDraft` */
@@ -1895,7 +1777,7 @@ export class RoomManager extends EventEmitter<Events> {
     const known = this.config.ofBot(room.id, bot.id);
     if (known) return known;
 
-    await this.bindSession(room);
+    await this.joins.bindSession(room);
     const after = this.config.ofBot(room.id, bot.id);
     if (after) return after;
 

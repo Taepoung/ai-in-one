@@ -14,6 +14,7 @@ L3  session/sessions.ts  열기 · 되살리기 · 이어가기 · MCP 붙이기
     turn/activity.ts     도구 · 파일 변경을 대화에 · 같은 파일 부딪힘
     turn/prompt.ts       한 턴에 보낼 글과 첨부 (되먹임 기록 포함)
     room/fork.ts         대화 가르기 — 세션층의 손님
+    session/join.ts      방에 붙이기 · 창 사이 자물쇠 — 세션층의 손님
 L4  turn/turns.ts        보내고 받는 흐름 · 턴 밖 발화 · 깨우기
 L5  room/outbox.ts       사용자의 말이 들어오는 문 · 예약 · 초안
 
@@ -21,7 +22,7 @@ L5  room/outbox.ts       사용자의 말이 들어오는 문 · 예약 · 초�
     review/              권한 카드 · 봇 심사 · 사람이 가로채기
     install/             받기 · 풀기 · 지우기 — 어느 에이전트든 같은 기계
 
-    roomManager.ts       화면이 부르는 앞문 — 방 조작 · 붙이기 · 층을 엮는 포트
+    roomManager.ts       화면이 부르는 앞문 — 방 조작 · 죽음 뒷정리 · 층을 엮는 포트
 ```
 
 **린트가 지킨다**(`eslint.config.mjs`) — 아래층이 위층을 import 하면, 어느 층이든
