@@ -18,13 +18,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** 창을 껐다 켠 것처럼 **그 방 봇들의 세션 연결만** 떼어낸다 (B1) */
 type Inner = {
   runtimes: Map<string, { bots: Map<string, { sessionId?: string }> }>;
-  roomConfigs: Map<string, unknown>;
+  config: { forget(roomId: string, botId: string): void };
 };
 function unbind(inner: Inner, room: Room): void {
   for (const b of room.participants) {
     const bt = inner.runtimes.get(room.id)?.bots.get(b.id);
     if (bt) delete bt.sessionId;
-    inner.roomConfigs.delete(`${room.id}:${b.id}`);
+    inner.config.forget(room.id, b.id);
   }
 }
 
@@ -91,11 +91,11 @@ async function main() {
     // 세션은 **봇 런타임**에 있다 (B1)
     const inner = mgr as unknown as {
       runtimes: Map<string, { bots: Map<string, { sessionId?: string }> }>;
-      roomConfigs: Map<string, unknown>;
+      config: { forget(roomId: string, botId: string): void };
     };
     const botId = room.participants[0]!.id;
     delete inner.runtimes.get(room.id)!.bots.get(botId)!.sessionId;
-    inner.roomConfigs.delete(`${room.id}:${botId}`);
+    inner.config.forget(room.id, botId);
 
     const opts = await mgr.roomConfigOptions(room.id);
     ok(current(opts, "model") === "sonnet",
@@ -198,7 +198,7 @@ async function main() {
     const empty = await m2.createRoom({ agentId: "fake", title: "말 안 건 방" });
     const inner = m2 as unknown as {
       runtimes: Map<string, { bots: Map<string, { sessionId?: string }> }>;
-      roomConfigs: Map<string, unknown>;
+      config: { forget(roomId: string, botId: string): void };
     };
 
     // 창을 껐다 켠 것과 같은 상태 — 저장된 id는 있고 런타임에는 없다
@@ -270,7 +270,7 @@ async function main() {
     m4.on("roomError", () => {});
     const inner = m4 as unknown as {
       runtimes: Map<string, { bots: Map<string, { sessionId?: string }> }>;
-      roomConfigs: Map<string, unknown>;
+      config: { forget(roomId: string, botId: string): void };
       buildPrompt(r: Room, b: unknown, rt: unknown, batch: Message[]): Promise<Array<{ text?: string }>>;
     };
 
@@ -623,10 +623,10 @@ async function main() {
     // 창을 껐다 켠 것처럼 런타임만 떼고, 복구는 실패하게 해둔다
     const inner10 = m10 as unknown as {
       runtimes: Map<string, { bots: Map<string, { sessionId?: string }> }>;
-      roomConfigs: Map<string, unknown>;
+      config: { forget(roomId: string, botId: string): void };
     };
     delete inner10.runtimes.get(r16.id)!.bots.get(room16.participants[0]!.id)!.sessionId;
-    inner10.roomConfigs.delete(`${r16.id}:${room16.participants[0]!.id}`);
+    inner10.config.forget(r16.id, room16.participants[0]!.id);
     await m10.roomConfigOptions(r16.id);
 
     ok(room16.contextLost === true, "어긋났다고 알린다");
