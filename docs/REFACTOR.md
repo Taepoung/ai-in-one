@@ -285,7 +285,7 @@ L3 세션          ~480   저장 · 연결 풀 · 봇 상태 · 설정 · MCP ·
 ⑨-5 4ee11cb 보내기·예약·초안 → core/room/outbox.ts         동작 그대로                2,713 → 2,351
      (린트) 층은 아래만 본다 — 위반 여섯 가지를 넣어 다 잡히는 것을 봤다
 ⑩   fcca1bf 방에 붙이기 → core/session/join.ts             동작 그대로                2,351 → 2,232
-⑪   (이번) webview main.ts 9,323 → 창 공통(common/) + 창 별 26 모듈   동작 그대로
+⑪   37a8ad0 webview main.ts 9,323 → 창 공통(common/) + 창 별 26 모듈   동작 그대로
 ```
 
 **⑪ webview 는 손으로 안 잘랐다.** TypeScript 컴파일러 API 로 최상위 문장마다 «무엇을
@@ -300,6 +300,29 @@ L3 세션          ~480   저장 · 연결 풀 · 봇 상태 · 설정 · MCP ·
 도는 코드가 부르는 함수를 끝까지 따라가 state 밖에 닿으면 멈추게. 최상위에서 도는 문장
 16개는 `main.ts` 에만 둔다. 화면 쪽 `participants.length > 1` 열넷도 이때 `hasManyBots`
 로 모았다(정확한 수를 쓰는 여섯은 남겼다).
+
+### 5.2 진짜로 돌려 본 것 (2026-10-20, 37a8ad0)
+
+```
+Windows 11   npm test 86 · typecheck · lint · build
+Linux        (WSL Ubuntu 26.04 · Node 24.21.0 핀 · 해시 맞춤 · 브랜치를 Linux 디스크에 clone)
+             npm test 86 · typecheck · lint · build — Windows 와 같다
+macOS        못 돌렸다 — 이 자리에 맥이 없다
+
+진짜 CLI (Windows · 로그인된 계정)
+  pinned.cjs   셋 다 애드온 파일에서 판을 읽는다
+  pins         Node 6판 · Antigravity 6판 주소 · 해시 전부 맞음
+  realinstall  18/18 — 받기 → 우리 자리에서 띄우기 → 세션 → 답 → 나가며 정리 → 지우기
+  smokereal    4/4  — 진짜 Claude 로 방 · 턴 · 모델 · 설정 · 나가기
+  quota        셋 다 /usage(Codex 는 /status) 글이 오고 수가 뜯긴다
+  slashlist    Claude 66 · Codex 28 · Antigravity 3
+  killresume   셋 다 — CLI 를 죽이면 뒷정리가 알리고, 새 관리자로 이어받아 답한다
+  agysay       2/6 — 🔴 원본(master)에서도 글자 하나 안 다르게 2/6. 리팩토링이 아니라
+               say 말씨를 바꾼 뒤 프로브(또는 Antigravity 의 다루는 법)가 안 맞춰진 것
+```
+
+⚠️ **typecheck 의 검사 오류 둘은 원본에도 있다** — `relaydepth.mts` 의 `SayOut.can_call`,
+`saybot.mts` 의 id 형. 리팩토링 전부터다.
 
 **⑨ 도 같은 방법으로 갔다** — 남은 것에서 «아무 위층도 안 빌리는 것» 을 찾아
 아래부터. 활동·프롬프트가 맨 아래였고, 분기는 세션층이 서자 문 21칸이 객체 넷 +
