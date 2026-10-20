@@ -99,6 +99,22 @@ export interface AgentDef {
    * 양이다 — 반대로 짐작하면 멀쩡한 계정이 빨갛게 보인다(`docs/SLASH.md`).
    */
   quota?: { command: string; sense: "used" | "left" };
+  /**
+   * ★ **우리 MCP 도구인지 어디서 알아보나** (리팩토링 ⑤, 2026-10-20).
+   *
+   * 자리가 에이전트마다 다르다 — Claude 는 도구 이름(`mcp__ai-in-one__say`),
+   * Antigravity 는 `_meta.mcp`, Codex 는 `rawInput` (2026-10-08 실측).
+   *
+   * 🔴 **선언하면 그 자리만 본다 — 이게 안전 장치다.** 이 판정이 «우리 것» 이면
+   * 사람에게 안 묻고 `allow_once` 를 고른다(`acpConnection` 의 `mine`). 그런데
+   * `rawInput` 은 **모델이 써 넣는 도구 인자**다. 셋 다 뒤지면, Claude 나
+   * Antigravity 에서 어떤 도구가 마침 `{server:"ai-in-one"}` 를 인자로 받을 때
+   * 우리 것으로 읽혀 **자동 승인**될 길이 열린다. 제 자리만 보면 그 길이 닫힌다.
+   *
+   * 안 적은 에이전트(설정으로 넣은 낯선 것)는 예전처럼 셋 다 본다 — 그래야
+   * 처음 보는 에이전트에서도 봇끼리 말하기가 돈다.
+   */
+  mcpIdentity?: "name" | "meta" | "rawInput";
 }
 
 /**

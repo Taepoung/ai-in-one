@@ -123,4 +123,6 @@ export const claude: AgentDef = {
    * 뜻이 반대라, 선언 없이 짐작하면 멀쩡한 계정이 «3% 남음» 으로 빨갛게 보인다.
    */
   quota: { command: "usage", sense: "used" },
+  // ★ 우리 도구는 **이름**으로 안다 — `mcp__ai-in-one__say` (리팩토링 ⑤)
+  mcpIdentity: "name",
 };

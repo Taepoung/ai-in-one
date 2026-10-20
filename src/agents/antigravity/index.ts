@@ -175,4 +175,6 @@ export const antigravity: AgentDef = {
    * (2026-10-19 실측). 묶음 이름(Gemini / Claude·GPT)은 뜯는 기계가 앞에 붙인다.
    */
   quota: { command: "usage", sense: "left" },
+  // ★ 우리 도구는 **`_meta.mcp`** 로 안다 — 이름은 `ai-in-one_say` 꼴이라 못 쓴다 (리팩토링 ⑤)
+  mcpIdentity: "meta",
 };

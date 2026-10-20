@@ -1097,7 +1097,7 @@ export class AcpConnection {
   }
 
   private dispatch(note: acp.SessionNotification): void {
-    let events = translate(note.update);
+    let events = translate(note.update, this.agent.mcpIdentity);
     // 재생 중이면 이미 우리가 갖고 있는 대화다 — `resumeSession` 참조
     if (this.replaying.has(note.sessionId)) {
       const kept = events.filter((ev) => !this.isReplayed(ev));
@@ -1256,7 +1256,7 @@ export class AcpConnection {
       ...describeToolCall(params.toolCall),
       // **신원은 버리지 않는다** — «우리 도구인가»를 물을 자리가 여기뿐이다
       ...(() => {
-        const who = mcpIdentity(params.toolCall);
+        const who = mcpIdentity(params.toolCall, this.agent.mcpIdentity);
         return who ? { mcp: who } : {};
       })(),
       options: params.options.map((o) => ({
@@ -1343,10 +1343,17 @@ export class AcpConnection {
  */
 export function mcpIdentity(
   tc: { name?: string | null; rawInput?: unknown; _meta?: { [k: string]: unknown } | null },
+  /**
+   * ★ **애드온이 선언한 자리** (리팩토링 ⑤). 주면 **그 자리만** 본다 —
+   * `AgentDef.mcpIdentity` 의 주석에 왜 그래야 하는지 있다. 안 주면 셋 다.
+   */
+  only?: "name" | "meta" | "rawInput",
 ): { server: string; tool: string } | undefined {
+  const look = (where: "name" | "meta" | "rawInput") => !only || only === where;
+
   // ① Claude — 이름 하나에 둘을 담는다. 서버 이름에 `__` 가 들어가면 못 가르므로
   //    **처음 둘만** 쪼갠다 (도구 이름에 `__` 가 있어도 안 잘린다)
-  const name = typeof tc.name === "string" ? tc.name : "";
+  const name = look("name") && typeof tc.name === "string" ? tc.name : "";
   if (name.startsWith("mcp__")) {
     const rest = name.slice("mcp__".length);
     const at = rest.indexOf("__");
@@ -1356,12 +1363,12 @@ export function mcpIdentity(
   }
 
   // ② Antigravity — `_meta` 에 따로 담는다
-  const meta = tc._meta?.["mcp"];
-  const fromMeta = pair(meta, "server", "tool");
+  const fromMeta = look("meta") ? pair(tc._meta?.["mcp"], "server", "tool") : undefined;
   if (fromMeta) return fromMeta;
 
-  // ③ Codex — 도구의 입력 자체에 들어 있다
-  const fromRaw = pair(tc.rawInput, "server", "tool");
+  // ③ Codex — 도구의 입력 자체에 들어 있다. 🔴 모델이 써 넣는 자리다 — 선언한
+  //    에이전트에서는 Codex 만 여기를 본다
+  const fromRaw = look("rawInput") ? pair(tc.rawInput, "server", "tool") : undefined;
   if (fromRaw) return fromRaw;
 
   return undefined;
@@ -1507,7 +1514,11 @@ const KNOWN_UPDATES = new Set([
 ]);
 
 /** ACP 업데이트 하나를 우리 이벤트 0~N개로 번역한다 */
-function translate(update: acp.SessionUpdate): AgentEvent[] {
+function translate(
+  update: acp.SessionUpdate,
+  /** 우리 도구를 어디서 알아보나 — `AgentDef.mcpIdentity` */
+  mcpWhere?: "name" | "meta" | "rawInput",
+): AgentEvent[] {
   switch (update.sessionUpdate) {
     /*
      * `user_message_chunk` — **우리가 방금 보낸 말이 돌아오는 것**이다.
@@ -1552,7 +1563,7 @@ function translate(update: acp.SessionUpdate): AgentEvent[] {
           })(),
           // **우리 것인가** — 이름을 우리가 달 때 쓴다
           ...(() => {
-            const who = mcpIdentity(update as Parameters<typeof mcpIdentity>[0]);
+            const who = mcpIdentity(update as Parameters<typeof mcpIdentity>[0], mcpWhere);
             return who ? { mcp: who } : {};
           })(),
         },

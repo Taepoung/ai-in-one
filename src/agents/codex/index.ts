@@ -178,4 +178,6 @@ export const codex: AgentDef = {
    * `**codex Weekly limit:** 100% left` 꼴로 **남은 양**이다 (2026-10-19 실측).
    */
   quota: { command: "status", sense: "left" },
+  // ★ 우리 도구는 **`rawInput`** 으로 안다 — Codex 는 MCP 를 애초에 안 묻는다 (리팩토링 ⑤)
+  mcpIdentity: "rawInput",
 };
