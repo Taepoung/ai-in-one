@@ -111,8 +111,8 @@ async function make(hold = 60) {
     if (!id) {
       // 처음 시작하는 say 는 **사용자가 연 턴**에서만 된다 — 진짜로는 `runQueue` 가 박는 값이다
       const bt = (mgr as unknown as {
-        botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
-      }).botRuntime(room.id, from.id);
+        runtimes: { bot(r: string, b: string): { depth?: number; fromUser?: boolean } };
+      }).runtimes.bot(room.id, from.id);
       bt.depth = 0;
       bt.fromUser = true;
     }
@@ -317,8 +317,8 @@ async function main(): Promise<void> {
 
     /* 넘기는 줄이 붙을 **턴**을 세워준다 — 진짜로는 `runQueue` 가 깔아둔다 */
     const bt = (t.mgr as unknown as {
-      botRuntime(r: string, b: string): { turn?: { tools?: Array<{ title: string; output?: string }> } };
-    }).botRuntime(t.room.id, t.b.id);
+      runtimes: { bot(r: string, b: string): { turn?: { tools?: Array<{ title: string; output?: string }> } } };
+    }).runtimes.bot(t.room.id, t.b.id);
     const turn = t.room.messages.filter((m) => m.authorBotId === t.b.id).at(-1)!;
     bt.turn = turn as unknown as { tools?: Array<{ title: string; output?: string }> };
 
@@ -401,8 +401,8 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
      */
     const t = await make(); dirs.push(t.dir);
     const bt = (t.mgr as unknown as {
-      botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
-    }).botRuntime(t.room.id, t.a.id);
+      runtimes: { bot(r: string, b: string): { depth?: number; fromUser?: boolean } };
+    }).runtimes.bot(t.room.id, t.a.id);
     bt.depth = 0; bt.fromUser = true;
 
     const only = await t.mgr.mcpCall(
@@ -494,8 +494,8 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
      */
     const t = await make(); dirs.push(t.dir);
     const bt = (t.mgr as unknown as {
-      botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
-    }).botRuntime(t.room.id, t.a.id);
+      runtimes: { bot(r: string, b: string): { depth?: number; fromUser?: boolean } };
+    }).runtimes.bot(t.room.id, t.a.id);
     bt.depth = 0; bt.fromUser = true;
 
     const call = t.mgr.mcpCall(

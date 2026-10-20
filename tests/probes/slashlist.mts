@@ -93,13 +93,13 @@ for (const agent of picked) {
     const room = await mgr.createRoom({ title: "슬래시", bots: [{ agentId: agent.id }] });
     const bot = room.participants[0]!;
     const inner = mgr as unknown as {
-      botRuntime(r: string, b: string): { commands?: string[] };
+      runtimes: { bot(r: string, b: string): { commands?: string[] } };
     };
 
     /* ② **언제 오나** — 올 때까지 기다리되, 얼마나 걸렸는지 적는다 */
     let names: string[] = [];
     for (let i = 0; i < WAIT_MS / 250; i++) {
-      names = inner.botRuntime(room.id, bot.id).commands ?? [];
+      names = inner.runtimes.bot(room.id, bot.id).commands ?? [];
       if (names.length > 0) break;
       await nap(250);
     }
@@ -110,7 +110,7 @@ for (const agent of picked) {
       const began2 = Date.now();
       await mgr.send(room.id, "1 더하기 1은? 숫자만.", undefined, bot.id);
       for (let i = 0; i < WAIT_MS / 250; i++) {
-        names = inner.botRuntime(room.id, bot.id).commands ?? [];
+        names = inner.runtimes.bot(room.id, bot.id).commands ?? [];
         if (names.length > 0) break;
         await nap(250);
       }

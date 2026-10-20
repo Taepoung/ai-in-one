@@ -15,6 +15,7 @@ import { BotQueue } from "./mcp/botQueue.js";
 import { McpCalls, type McpPort } from "./mcp/calls.js";
 import { Review, type ReviewPort } from "./review/review.js";
 import { Rooms, rollUpLost, whose, type RoomsPort } from "./room/rooms.js";
+import { Runtimes, type BotRuntime, type ClashState, type RuntimesPort } from "./room/runtimes.js";
 import { messageId } from "./ids.js";
 import {
   parseCompose,
@@ -169,162 +170,6 @@ export interface ForkedSession {
   options: acp.SessionConfigOption[];
   /** 폴백으로 간 이유. 네이티브면 없다 */
   reason?: string;
-}
-
-/**
- * **봇 하나**의 실행 상태 (B1).
- *
- * 세션이 봇 단위이므로 세션에 딸린 것은 전부 여기 있다. v2.0 단체방에서
- * 봇이 여럿이면 **봇마다 자기 세션·자기 큐·자기 턴**을 갖는다 — 지금은
- * 하나뿐이라 결과가 같지만, **모양을 먼저 맞춰두면 나중에 다시 짜지 않는다.**
- *
- * 디스크에 저장하지 않는다 — 껐다 켜면 전부 비어 있고 `bot.sessionId`로 복구한다.
- */
-export interface BotRuntime {
-  /** 지금 붙어 있는 ACP 세션. 복구했든 새로 만들었든 여기 담긴다 */
-  sessionId?: string;
-  /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
-  roleInjected: boolean;
-  /**
-   * ★ **이 턴이 사용자에게서 몇 다리 건너왔나** (v3.0 4-L).
-   *
-   * 사용자가 연 턴은 `0`. 이 봇이 이 턴에 거는 말은 전부 `depth + 1` 이다.
-   *
-   * **턴에 붙는 값**이라 `say` 의 인자로는 못 흔든다. 그게 요점이다.
-   */
-  depth?: number;
-  /**
-   * ★ **이 턴의 사용자 말에 대해 이미 보낸 봇들** (v3.0 4-L, 2026-10-12).
-   *
-   * 🔴 `say(id: "0")` 은 **깊이가 1 이라 상한에 구조적으로 안 걸린다.** 그리고
-   * 한 턴에 몇 번이든 부를 수 있었다 — 실측에서 **스무 번이 다 나갔다.**
-   * 사용자 말 한 마디가 가지를 **무한히** 열 수 있었다는 뜻이다.
-   *
-   * 「같은 봇에게 한 번」으로 묶으면 **방의 봇 수가 곧 상한**이 되고, 숫자를
-   * 하나도 안 늘린다. 여럿에게는 `to` 가 목록이라 손해도 없다.
-   */
-  saidZero?: Set<string>;
-  /**
-   * ★ **이 턴을 사용자가 열었나** (v3.0 4-L) — `say(id: "0")` 이 여기에 걸린다.
-   *
-   * ⏪ 한때 `depth === 0` 으로 갈음했다. **깨졌다** — 사용자가 끼어들면 밀린
-   * 항목들의 깊이를 0 으로 되돌리는데(`resetDepth`), 그러면 **봇이 깨운 턴도**
-   * 깊이 0 이 되어 «사용자가 열었다»로 읽힌다. 그 길로 사슬 깊은 데 있는 봇이
-   * 새 가닥을 시작할 수 있다.
-   *
-   * **둘은 다른 질문이다** — «얼마나 멀리 왔나»와 «누가 열었나».
-   */
-  fromUser?: boolean;
-  /**
-   * ★ **마지막으로 보낸 명단 글** (v3.0 4-K).
-   *
-   * 🔴 **«언제 다시 보내나» 를 목록으로 관리하지 않는다.** 이름 · 설명 ·
-   * 구성 · 릴레이 토글 — 무효화할 자리를 하나씩 적어두면 **새로 생기는 자리를
-   * 반드시 빠뜨린다.** 대신 **지은 글을 그대로 들고** 있다가 달라졌을 때만
-   * 보낸다. «표에 적히는 것이 바뀌면 다시» 가 저절로 지켜진다.
-   *
-   * `undefined` 는 **한 번도 안 보냈다**는 뜻이고, 그 구별이 필요하다 —
-   * 처음부터 꺼진 방에는 «못 겁니다» 조차 안 보낸다(봇은 누가 있는지도 모른다).
-   */
-  rosterSent?: string;
-  /** 그 **세션이** 광고한 슬래시 명령. 압축(C11) 버튼을 여기서 찾는다 */
-  commands: string[];
-  /** 스트리밍 중 emit을 솎아내기 위한 마지막 발행 시각 */
-  lastEmit: number;
-  /** 스트리밍 중 디스크 저장을 솎아내기 위한 마지막 저장 시각 */
-  lastSave: number;
-  /**
-   * **이 봇이 지금 뭐 하는중** (v2.0 준비).
-   *
-   * 방의 상태는 이것들을 합친 것이다(`mergeStatus`). 따로 들고 있으면
-   * 둘이 어긋난다 — «방은 idle인데 봇은 도는 중» 같은 게 생긴다.
-   */
-  status: RoomStatus;
-  /** 턴 밖 발화를 담고 있는 메시지 (A11) */
-  idle?: { message: Message; at: number };
-  /**
-   * **지금 도는 턴의 응답 자리.**
-   *
-   * 있으면 들어오는 것이 그 턴의 말이고, 없으면 턴 밖 발화다(A11).
-   * 리스너를 갈아끼우는 대신 이 값으로 가르는 이유는 `watchIdle`에.
-   */
-  turn?: Message;
-  /**
-   * ★ **사용자가 방금 끊었다** (전체 중지).
-   *
-   * 다음 프롬프트 앞에 **무슨 일이 있었는지 한 줄**을 얹으라는 표시다.
-   *
-   * 🔴 ACP 의 `session/cancel` 은 턴을 끊을 뿐 **«왜»를 안 알려준다**(실측
-   * 2026-09-23). 그 빈칸을 모델이 **추측으로 메우는데 그 추측이 판마다 다르다** —
-   * 한 판은 «권한이 거부돼서»라고 지어냈다. 그러면 우회를 시도하거나 «권한을
-   * 열어달라»는 엉뚱한 말을 한다. **빈칸은 우리가 채운다.**
-   *
-   * ⏪ 원래는 «끼어들기» 가 세우던 표시였다. 끼어들기는 없앴지만(v3.0 1-D)
-   * **이 한 줄은 중지에도 그대로 필요하다** — 끊긴 이유를 모르는 건 똑같다.
-   */
-  interrupted?: boolean;
-  /** 턴을 놓기까지의 유예 타이머. `releaseTurn` 참조 */
-  tail?: ReturnType<typeof setTimeout>;
-  /**
-   * ★ **턴 밖 발화를 닫는 타이머** (2026-09-28).
-   *
-   * 봇이 스스로 깨어나 말할 때도 «끝»이 있어야 한다 — 상태를 내리고 미읽음을
-   * 센다. `closeIdle` 참조.
-   */
-  idleClose?: ReturnType<typeof setTimeout>;
-  /**
-   * **줄을 빼내는 중인가** (2026-09-28).
-   *
-   * 빼는 자리가 둘이 되었으므로(`send` 와 `closeIdle`) 겹치면 **한 묶음이 두
-   * 턴으로** 돌 수 있다. 하나만 돌게 한다.
-   */
-  /**
-   * ★ **이 봇이 아직 못 적은 blob 쓰기들** (E6).
-   *
-   * 파일 변경 전문은 대화에 안 담는다 — 100KB짜리를 스무 번 고치면 방 파일이
-   * 4MB가 되어 열기도 검색도 망가진다. 대신 `blobs/<sha256>` 에 쓰고 **해시만**
-   * 기록한다. 그 쓰기가 비동기라, **끝나기 전에 메시지를 저장하면 해시가 빈
-   * 채로 남아 diff를 영영 못 본다.**
-   *
-   * 🔴 예전에는 `RoomRuntime` 에 있었다. 봇이 나란히 돌면 **한 봇이 «다
-   * 기다렸다»며 목록을 비울 때 다른 봇의 영수증까지 지웠다** — 그 봇은
-   * 기다릴 것이 없다고 보고 해시가 빈 채로 저장할 수 있었다.
-   */
-  pendingWrites: Promise<unknown>[];
-  /**
-   * ★ **이 세션을 열 때 우리 MCP 를 실어 보냈나** (리팩토링 ⑦-2, 2026-10-20).
-   *
-   * 🔴 도구는 **세션을 열 때** 붙는다. MCP 가 꺼져 있던 때 연 세션은, 나중에
-   * MCP 가 살아나도 `say`·`check_queue`·`verdict` 가 **없다.** 심사 봇에게 권한을
-   * 넘길 때 «세션이 열렸나» 만 보면, 판정할 길이 없는 봇에게 넘겨 요청한 봇의
-   * 턴이 얼어붙는다 — 사람이 가로채야 풀린다. `mcpFor` 가 적는다.
-   */
-  mcpOffered?: boolean;
-}
-
-/**
- * **방 하나**의 실행 상태 — 봇과 무관한 것만 남긴다.
- *
- * 화면에 뜨는 상태는 방 단위다(«작업 중» 표시가 하나). v2.0에서 봇이 병렬로
- * 돌면 여기서 **봇들의 상태를 합쳐** 정하게 된다.
- */
-interface RoomRuntime {
-  status: RoomStatus;
-  /** 봇별 상태. 열쇠는 `BotInstance.id` */
-  bots: Map<string, BotRuntime>;
-  /**
-   * **지금 부딪히고 있는 파일들** — 열쇠는 경로 (§4.3).
-   *
-   * 한 파일을 스무 줄 고치면 이벤트도 여러 번 온다. 그때마다 적으면 대화가
-   * 경고로 덮이므로 **파일마다 하나만** 들고 상태만 갱신한다.
-   */
-  clashes: Map<string, ClashState>;
-}
-
-/** 방 안에서만 쓰는 여벌 — 「이미 기록했나」는 화면에 보낼 것이 아니다 */
-interface ClashState extends Clash {
-  /** 시스템 메시지를 이미 남겼나 — 같은 부딪힘으로 두 번 적지 않는다 */
-  noted?: boolean;
 }
 
 /** 스트리밍 델타마다 전체 방을 내보내면 웹뷰가 감당하지 못한다 */
@@ -718,34 +563,6 @@ function retryable(reason: string): boolean {
   return /closed|crash|\uc885\ub8cc|overload|rate.?limit|usage limit|quota|\ud55c\ub3c4|too many|timeout|\uc2dc\uac04 \ucd08\uacfc|econnreset|epipe|socket|temporar|unavailable|5\d\d/.test(s);
 }
 
-/**
- * 봇들의 상태를 **방 하나의 상태로** 합친다 (v2.0 준비).
- *
- * 순서는 «화면이 무엇을 말해야 하나»다 — 사람을 기다리는 것이 가장 급하고,
- * 그다음이 도는 중, 마지막이 조용함.
- *
- * 🔴 **`error`는 `idle`보다만 높다.** 한 봇이 실패했다고 다른 봇이 도는 걸
- * 가릴 수는 없다 — «답하는 중»이 안 뜨면 사용자는 멈춘 줄 안다. 반대로
- * 아무도 안 돌 때는 실패를 보여줘야 한다.
- */
-const STATUS_RANK: RoomStatus[] = [
-  "permission",
-  "tool",
-  "streaming",
-  "waiting",
-  "connecting",
-  "error",
-  "idle",
-];
-
-function mergeStatus(all: RoomStatus[]): RoomStatus {
-  if (all.length === 0) return "idle";
-  for (const s of STATUS_RANK) {
-    if (all.includes(s)) return s;
-  }
-  return "idle";
-}
-
 /** 설정 캐시의 열쇠. **방 하나 안에서도 봇마다 다르다** (B1) */
 /**
  * 방 안에서 **겹치지 않는 봇 이름**을 만든다.
@@ -899,7 +716,11 @@ type Events = {
  */
 export class RoomManager extends EventEmitter<Events> {
   private readonly connections = new Map<string, AcpConnection>();
-  private readonly runtimes = new Map<string, RoomRuntime>();
+  /**
+   * ★ **봇 상태** — `core/room/runtimes.ts` (리팩토링 ⑧ L1, 2026-10-20).
+   * 저장(L0) 바로 위층이다.
+   */
+  private readonly runtimes = new Runtimes(this.runtimesPort());
   /**
    * ★ **열린 방 · 저장** — `core/room/rooms.ts` (리팩토링 ⑧ L0, 2026-10-20).
    *
@@ -1003,6 +824,15 @@ export class RoomManager extends EventEmitter<Events> {
     };
   }
 
+  private runtimesPort(): RuntimesPort {
+    return {
+      roomById: (roomId) => this.rooms.open.get(roomId),
+      openRooms: () => this.rooms.open.values(),
+      emitStatus: (roomId, status, bots) => { this.emit("status", roomId, status, bots); },
+      emitClashes: (roomId) => { this.emit("clashes", roomId, this.clashesIn(roomId)); },
+    };
+  }
+
   private reviewPort(): ReviewPort {
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
     const self = this;
@@ -1013,10 +843,10 @@ export class RoomManager extends EventEmitter<Events> {
       mcpHttp: (agentId) => this.connection(agentId).mcpHttp,
       roomById: (roomId) => this.rooms.open.get(roomId),
       openRooms: () => this.rooms.open.values(),
-      botRuntime: (roomId, botId) => this.botRuntime(roomId, botId),
-      botForSession: (sessionId) => this.botForSession(sessionId),
-      statusOf: (roomId, botId) => this.statusOf(roomId, botId),
-      setStatus: (roomId, status, botId) => this.setStatus(roomId, status, botId),
+      botRuntime: (roomId, botId) => this.runtimes.bot(roomId, botId),
+      botForSession: (sessionId) => this.runtimes.botForSession(sessionId),
+      statusOf: (roomId, botId) => this.runtimes.statusOf(roomId, botId),
+      setStatus: (roomId, status, botId) => this.runtimes.setStatus(roomId, status, botId),
       noteRoom: (room, text, kind, about) => this.rooms.noteRoom(room, text, kind, about),
       maybeWake: (room, botId) => this.maybeWake(room, botId),
       emitNotice: (roomId, text) => { this.emit("notice", roomId, text); },
@@ -1032,7 +862,7 @@ export class RoomManager extends EventEmitter<Events> {
       get queue() { return self.queue; },
       get host() { return self.opts.host; },
       roomById: (roomId) => this.rooms.open.get(roomId),
-      botRuntime: (roomId, botId) => this.botRuntime(roomId, botId),
+      botRuntime: (roomId, botId) => this.runtimes.bot(roomId, botId),
       append: (room, message) => this.rooms.append(room, message),
       saveMessage: (room, patch) => this.rooms.saveMessage(room, patch),
       saveNewMessage: (room, message) => this.rooms.saveNewMessage(room, message),
@@ -1103,12 +933,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 방의 상태, 또는 **그 봇의** 상태 (v2.0 준비) */
   statusOf(roomId: string, botId?: string): RoomStatus {
-    if (botId) return this.runtimes.get(roomId)?.bots.get(botId)?.status ?? "idle";
-    return this.statusOfRoom(roomId);
-  }
-
-  private statusOfRoom(roomId: string): RoomStatus {
-    return this.runtimes.get(roomId)?.status ?? "idle";
+    return this.runtimes.statusOf(roomId, botId);
   }
 
   /** 상태 표시줄 배지용 (F1) */
@@ -1206,7 +1031,7 @@ export class RoomManager extends EventEmitter<Events> {
           //
           // ★ **한 봇이 안 열려도 나머지는 산다** — Codex 로그인이 풀렸다고
           // Claude와의 대화까지 못 하게 만들 이유가 없다.
-          this.setStatus(room.id, "error", bot.id);
+          this.runtimes.setStatus(room.id, "error", bot.id);
           this.rooms.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
                         "error", [bot.id]);
         }
@@ -1257,9 +1082,9 @@ export class RoomManager extends EventEmitter<Events> {
     configValues?: Record<string, string | boolean>,
   ): Promise<void> {
     const conn = this.connection(bot.agentId);
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
 
-    this.setStatus(room.id, "connecting", bot.id);
+    this.runtimes.setStatus(room.id, "connecting", bot.id);
     const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
       this.emit(
         "notice",
@@ -1294,7 +1119,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     await this.rooms.saveProps(room, { participants: room.participants });
-    this.setStatus(room.id, "idle", bot.id);
+    this.runtimes.setStatus(room.id, "idle", bot.id);
   }
 
   /** 다음 방의 기본값이 되도록 에이전트별 마지막 선택을 남긴다 (F6) */
@@ -1392,7 +1217,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     bot.rolePrompt = rolePrompt || undefined;
     // 역할은 프롬프트 프리픽스라 **그 봇의** 세션에 다시 넣어야 한다
-    this.botRuntime(roomId, bot.id).roleInjected = false;
+    this.runtimes.bot(roomId, bot.id).roleInjected = false;
 
     await this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
@@ -1453,7 +1278,7 @@ export class RoomManager extends EventEmitter<Events> {
     try {
       await this.openSession(room, bot, spec.configValues);
     } catch (err) {
-      this.setStatus(room.id, "error", bot.id);
+      this.runtimes.setStatus(room.id, "error", bot.id);
       this.rooms.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
                     "error", [bot.id]);
     }
@@ -1678,11 +1503,11 @@ export class RoomManager extends EventEmitter<Events> {
     const before = this.opts.agents.find((a) => a.id === bot.agentId)?.label ?? bot.agentId;
 
     // 돌고 있으면 바꾸지 않는다 — 답이 오는 중에 세션을 갈면 그 답은 갈 곳이 없다
-    if (this.statusOf(roomId, botId) !== "idle" && this.statusOf(roomId, botId) !== "error") {
+    if (this.runtimes.statusOf(roomId, botId) !== "idle" && this.runtimes.statusOf(roomId, botId) !== "error") {
       throw new Error("답하는 중에는 에이전트를 바꿀 수 없습니다.");
     }
 
-    const bt = this.botRuntime(roomId, botId);
+    const bt = this.runtimes.bot(roomId, botId);
     const old = bt.sessionId ?? bot.sessionId ?? undefined;
     /* 아래에서 `agentId` 와 `sessionPrompted` 를 갈아끼우므로 **먼저** 적어둔다 */
     const fromAgent = bot.agentId;
@@ -1862,7 +1687,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 상관이 없고(그 말은 이 봇 뷰에 안 들어온다), 막으면 «남이 일하는 동안
      * 내 갈래를 못 딴다»가 된다.
      */
-    if (isBusy(only ? this.statusOf(roomId, only.id) : this.statusOf(roomId))) {
+    if (isBusy(only ? this.runtimes.statusOf(roomId, only.id) : this.runtimes.statusOf(roomId))) {
       throw new Error("진행 중인 턴이 끝난 뒤에 분기할 수 있습니다.");
     }
 
@@ -2028,7 +1853,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     const failed = room.participants.filter((b) => b.forkFallback);
     if (failed.length === 0) return { ok: false, reason: "다시 할 분기가 없습니다." };
-    if (isBusy(this.statusOf(roomId))) {
+    if (isBusy(this.runtimes.statusOf(roomId))) {
       return { ok: false, reason: "응답이 끝난 뒤에 다시 시도할 수 있습니다." };
     }
 
@@ -2065,7 +1890,7 @@ export class RoomManager extends EventEmitter<Events> {
       if (!got.ok) continue;
 
       // 폴백으로 열었던 세션은 **빈 것**이라 지울 것도 없다 — 놓기만 한다
-      const bt = this.botRuntime(room.id, bot.id);
+      const bt = this.runtimes.bot(room.id, bot.id);
       if (bt.sessionId) {
         await this.connections.get(bot.agentId)?.closeSession(bt.sessionId).catch(() => undefined);
       }
@@ -2231,7 +2056,7 @@ export class RoomManager extends EventEmitter<Events> {
       const fresh = room.participants[n]!;
       // ★ **폴백한 봇에게만** 되먹임 약속 — 네이티브는 이미 다 물려받았다
       if (fallback !== "fresh" && !forked.native) fresh.refeedPending = true;
-      const bt = this.botRuntime(room.id, fresh.id);
+      const bt = this.runtimes.bot(room.id, fresh.id);
       bt.sessionId = forked.sessionId;
       // 네이티브 분기는 역할을 이미 알고 있다 — 원본이 들은 것을 그대로 물려받았다
       bt.roleInjected = forked.native;
@@ -2432,7 +2257,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   releaseRoom(roomId: string): void {
     if (!this.opts.locks?.holds(roomId)) return;
-    if (isBusy(this.statusOf(roomId)) === true) return;
+    if (isBusy(this.runtimes.statusOf(roomId)) === true) return;
     this.opts.locks.release(roomId);
   }
 
@@ -2468,7 +2293,7 @@ export class RoomManager extends EventEmitter<Events> {
   private bindSession(room: Room): Promise<void> {
     // **참여자 전부**를 붙인다 — 단체방에서는 봇마다 세션이 하나씩이다(B1).
     const need = room.participants.filter(
-      (b) => !this.botRuntime(room.id, b.id).sessionId,
+      (b) => !this.runtimes.bot(room.id, b.id).sessionId,
     );
     if (need.length === 0) {
       // 붙일 것이 없으면 **그 자리에서 끝난 것**이다 — 화면을 세워두지 않는다
@@ -2479,7 +2304,7 @@ export class RoomManager extends EventEmitter<Events> {
     const running = this.sessionFlight.get(room.id);
     if (running) return running;
 
-    for (const b of need) this.setStatus(room.id, "connecting", b.id);
+    for (const b of need) this.runtimes.setStatus(room.id, "connecting", b.id);
     /*
      * ★ **봇마다 따로 받는다** (2026-10-13).
      *
@@ -2509,7 +2334,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 종류마다 다르기 때문이다(`JoinFail`).
    */
   private async joinOne(room: Room, bot: BotInstance): Promise<void> {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     try {
       /*
        * ★ **두 칸을 따로 밟는다** (2026-10-13).
@@ -2524,10 +2349,10 @@ export class RoomManager extends EventEmitter<Events> {
         this.emit("joinStep", room.id, bot.id, "session");
       }
       await this.ensureSession(room, bot);
-      this.setStatus(room.id, "idle", bot.id);
+      this.runtimes.setStatus(room.id, "idle", bot.id);
     } catch (err) {
       const why = describe(err);
-      this.setStatus(room.id, "error", bot.id);
+      this.runtimes.setStatus(room.id, "error", bot.id);
       this.emit("joinFail", room.id, bot.id, whyJoin(why), why);
     }
   }
@@ -2542,7 +2367,7 @@ export class RoomManager extends EventEmitter<Events> {
     const room = await this.rooms.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
-    this.setStatus(room.id, "connecting", bot.id);
+    this.runtimes.setStatus(room.id, "connecting", bot.id);
     await this.joinOne(room, bot);
     this.emit("room", room);
   }
@@ -2617,7 +2442,7 @@ export class RoomManager extends EventEmitter<Events> {
       this.rooms.noteRoom(room, "올려둔 글이 먼저 나가야 합니다.", "error");
       return;
     }
-    if (isBusy(this.statusOf(roomId, bot.id)) === true) {
+    if (isBusy(this.runtimes.statusOf(roomId, bot.id)) === true) {
       await this.holdBack(room, [{ kind: "text", text }], attachments, [bot.name]);
       return;
     }
@@ -2715,7 +2540,7 @@ export class RoomManager extends EventEmitter<Events> {
       return parsed;
     }
     const busy = [...new Set(parsed.blocks.flatMap((b) => b.botIds))]
-      .filter((id) => isBusy(this.statusOf(roomId, id)) === true)
+      .filter((id) => isBusy(this.runtimes.statusOf(roomId, id)) === true)
       .map((id) => room.participants.find((b) => b.id === id)?.name ?? id);
     if (busy.length > 0) {
       await this.holdBack(room, tokens, attachments, busy);
@@ -2901,7 +2726,7 @@ export class RoomManager extends EventEmitter<Events> {
        * 안 알려주고, 모델은 그 빈칸을 추측으로 메운다 — 한 판은 «권한이
        * 거부돼서»라고 지어냈다(실측 2026-09-23).
        */
-      if (isBusy(this.statusOf(roomId, bot.id)) === true) bt.interrupted = true;
+      if (isBusy(this.runtimes.statusOf(roomId, bot.id)) === true) bt.interrupted = true;
       await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
     }
     /*
@@ -3077,7 +2902,7 @@ export class RoomManager extends EventEmitter<Events> {
       void this.unstage(room.id);
       return;
     }
-    if (live.some((id) => isBusy(this.statusOf(room.id, id)) === true)) return;
+    if (live.some((id) => isBusy(this.runtimes.statusOf(room.id, id)) === true)) return;
 
     this.firing.add(room.id);
     delete room.staged;
@@ -3132,7 +2957,7 @@ export class RoomManager extends EventEmitter<Events> {
     if (!cmd) throw new Error(`${bot.name}은(는) 압축을 지원하지 않습니다.`);
     await this.send(roomId, `/${cmd}`, undefined, bot.id);
     // 압축되면 역할이 요약에 안 남을 수 있다. 다음 턴에 다시 주입한다 (B3).
-    const after = this.botRuntime(room.id, bot.id);
+    const after = this.runtimes.bot(room.id, bot.id);
     after.roleInjected = false;
     // 명단도 요약에 안 남는다 — 같은 이유로 같이 거둔다 (4-K)
     delete after.rosterSent;
@@ -3166,13 +2991,13 @@ export class RoomManager extends EventEmitter<Events> {
     // 복구하지 않기 때문이다(복구는 첫 전송에서 일어난다). 그 상태로 설정을 바꾸면
     // 없는 세션에 대고 부르게 된다. `ensureSession`이 복구까지 책임진다.
     // 턴이 도는 중에도 모드를 바꿀 수 있다 — 그 상태를 덮어쓰면 안 된다
-    const before = this.statusOf(room.id);
-    if (before === "idle") this.setStatus(room.id, "connecting", bot.id);
+    const before = this.runtimes.statusOf(room.id);
+    if (before === "idle") this.runtimes.setStatus(room.id, "connecting", bot.id);
     let sessionId: string;
     try {
       sessionId = await this.ensureSession(room, bot);
     } finally {
-      if (before === "idle") this.setStatus(room.id, "idle", bot.id);
+      if (before === "idle") this.runtimes.setStatus(room.id, "idle", bot.id);
     }
 
     const conn = this.connection(bot.agentId);
@@ -3491,12 +3316,12 @@ export class RoomManager extends EventEmitter<Events> {
     // 단체방에서는 **멘션된 봇마다** 이 함수가 돈다. 지금은 하나뿐이다.
     const bot = (botId ? room.participants.find((b) => b.id === botId) : undefined)
       ?? room.participants[0]!;
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     const conn = this.connection(bot.agentId);
 
     let sessionId: string;
     try {
-      this.setStatus(room.id, "connecting", bot.id);
+      this.runtimes.setStatus(room.id, "connecting", bot.id);
       sessionId = await this.ensureSession(room, bot);
     } catch (err) {
       /*
@@ -3513,7 +3338,7 @@ export class RoomManager extends EventEmitter<Events> {
       // 🔴 **가짜 묶음에는 안 적는다** — `markNotSent` 는 디스크에 한 줄을
       // 쓰는데, 그 메시지는 `room.messages` 에 없다. 다시 열면 **빈 말풍선**이다.
       if (!wake) for (const m of batch) await this.rooms.markNotSent(room, m, bot.id, reason);
-      this.setStatus(room.id, "error", bot.id);
+      this.runtimes.setStatus(room.id, "error", bot.id);
       this.emit("roomError", room.id, reason);
       return undefined;
     }
@@ -3592,7 +3417,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 실제로는 전송됐고 에이전트가 답까지 했는데 `↻`를 누르면 같은 질문이 두 번 간다.
     await this.rooms.saveNewMessage(room, reply);
 
-    this.setStatus(room.id, "waiting", bot.id);
+    this.runtimes.setStatus(room.id, "waiting", bot.id);
 
     // 앞 턴이 유예 중이면 **확정하고** 자리를 받는다 — 그냥 밀어내면 디스크에만 빠진다
     this.releaseTurn(room, bot);
@@ -3618,7 +3443,7 @@ export class RoomManager extends EventEmitter<Events> {
     } catch (err) {
       const reason = describe(err);
       reply.error = reason;
-      this.setStatus(room.id, "error", bot.id);
+      this.runtimes.setStatus(room.id, "error", bot.id);
 
       /*
        * ★ **다시 해볼 만한 실패에는 `↻`를 붙인다.**
@@ -3680,7 +3505,7 @@ export class RoomManager extends EventEmitter<Events> {
     // **마지막에 놓는다.** 응답보다 늦게 오는 조각이 있어서 — `releaseTurn` 참조
     this.scheduleRelease(room, bot, reply);
     // ★ **이 봇이** 실패한 게 아니면 놓는다 — 다른 봇의 실패가 이 봇을 묶지 않는다
-    if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
+    if (this.runtimes.statusOf(room.id, bot.id) !== "error") this.runtimes.setStatus(room.id, "idle", bot.id);
     /*
      * ★ **턴 중에 들어온 것은 여기서 깨운다** (v3.0 4-J).
      *
@@ -3752,7 +3577,7 @@ export class RoomManager extends EventEmitter<Events> {
     switch (ev.type) {
       case "text":
         reply.text += ev.delta;
-        this.setStatus(room.id, "streaming", reply.authorBotId);
+        this.runtimes.setStatus(room.id, "streaming", reply.authorBotId);
         break;
 
       case "thought":
@@ -3760,7 +3585,7 @@ export class RoomManager extends EventEmitter<Events> {
         break;
 
       case "tool":
-        this.setStatus(room.id, "tool", reply.authorBotId);
+        this.runtimes.setStatus(room.id, "tool", reply.authorBotId);
         this.recordActivity(room, reply, ev);
         break;
 
@@ -3775,7 +3600,7 @@ export class RoomManager extends EventEmitter<Events> {
 
       case "commands":
         // 슬래시 명령은 **그 세션이** 광고한 것이다
-        if (reply.authorBotId) this.botRuntime(room.id, reply.authorBotId).commands = ev.names;
+        if (reply.authorBotId) this.runtimes.bot(room.id, reply.authorBotId).commands = ev.names;
         break;
 
       // 🔴 **압축은 «대화의 사건»이다** (C11). 이 지점부터 에이전트가 아는 건
@@ -3927,7 +3752,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 그것들이 한 말풍선에 뭉친다.
    */
   private scheduleRelease(room: Room, bot: BotInstance, reply: Message): void {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     if (bt.turn !== reply) return;
     clearTimeout(bt.tail);
     bt.tail = setTimeout(() => this.releaseTurn(room, bot, reply), TURN_TAIL_MS);
@@ -3947,7 +3772,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 산다 — JSONL은 같은 id를 병합하고 주기적으로 정리한다(`maybeCompact`).
    */
   private releaseTurn(room: Room, bot: BotInstance, only?: Message): void {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     const pending = bt.turn;
     if (!pending) return;
     // 예약이 걸린 뒤 다른 턴이 자리를 가져갔으면, 그 예약은 남의 것이다
@@ -3962,7 +3787,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   private watchIdle(room: Room, bot: BotInstance, sessionId: string): void {
     this.connection(bot.agentId).listen(sessionId, (ev) => {
-      const turn = this.botRuntime(room.id, bot.id).turn;
+      const turn = this.runtimes.bot(room.id, bot.id).turn;
       if (turn) this.applyEvent(room, turn, ev);
       else this.onIdleEvent(room, bot, ev);
     });
@@ -3995,7 +3820,7 @@ export class RoomManager extends EventEmitter<Events> {
   private onIdleEvent(room: Room, bot: BotInstance, ev: AgentEvent): void {
     switch (ev.type) {
       case "commands":
-        this.botRuntime(room.id, bot.id).commands = ev.names;
+        this.runtimes.bot(room.id, bot.id).commands = ev.names;
         this.emit("room", room);
         break;
 
@@ -4085,13 +3910,13 @@ export class RoomManager extends EventEmitter<Events> {
    * 1.5초 조용하면 끝난 것으로 본다.
    */
   private scheduleIdleClose(room: Room, bot: BotInstance, message: Message): void {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     clearTimeout(bt.idleClose);
     bt.idleClose = setTimeout(() => this.closeIdle(room, bot, message), TURN_TAIL_MS);
   }
 
   private closeIdle(room: Room, bot: BotInstance, message: Message): void {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     bt.idleClose = undefined;
     // 그새 진짜 턴이 시작됐으면 그쪽이 주인이다 — 상태를 가로채면 안 된다
     if (bt.turn) return;
@@ -4105,7 +3930,7 @@ export class RoomManager extends EventEmitter<Events> {
     void this.rooms.saveMessage(room, message);
     void this.rooms.saveProps(room, { unread: room.unread });
     this.emit("message", room.id, message);
-    if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
+    if (this.runtimes.statusOf(room.id, bot.id) !== "error") this.runtimes.setStatus(room.id, "idle", bot.id);
 
     /*
      * ★ **올려둔 것도 여기서 본다** (2026-09-28 의 이어달리기 고리가 있던 자리).
@@ -4138,7 +3963,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 시각이 거짓말을 한다.
    */
   private idleReply(room: Room, bot: BotInstance): Message {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     const now = Date.now();
     if (bt.idle && now - bt.idle.at < IDLE_BURST_MS) {
       bt.idle.at = now;
@@ -4198,7 +4023,7 @@ export class RoomManager extends EventEmitter<Events> {
   private saveThrottled(room: Room, reply: Message): void {
     // **봇마다 따로 솎는다.** 단체방에서 둘이 동시에 답하면 서로의 저장을
     // 밀어내게 되고, 그러면 한쪽 응답이 중간 저장 없이 통째로 날아갈 수 있다.
-    const bt = this.botRuntime(room.id, reply.authorBotId ?? "");
+    const bt = this.runtimes.bot(room.id, reply.authorBotId ?? "");
     const now = Date.now();
     if (now - bt.lastSave < SAVE_INTERVAL_MS) return;
     bt.lastSave = now;
@@ -4215,7 +4040,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private emitThrottled(room: Room, message: Message): void {
     // 같은 이유로 봇마다 따로 (위)
-    const bt = this.botRuntime(room.id, message.authorBotId ?? "");
+    const bt = this.runtimes.bot(room.id, message.authorBotId ?? "");
     const now = Date.now();
     if (now - bt.lastEmit < EMIT_INTERVAL_MS) return;
     bt.lastEmit = now;
@@ -4345,7 +4170,7 @@ export class RoomManager extends EventEmitter<Events> {
       await this.rooms.saveMessage(room, { id: reply.id, files: reply.files });
     })().catch((err) => this.opts.host.log(`blob 저장 실패: ${describe(err)}`));
 
-    if (reply.authorBotId) this.botRuntime(room.id, reply.authorBotId).pendingWrites.push(write);
+    if (reply.authorBotId) this.runtimes.bot(room.id, reply.authorBotId).pendingWrites.push(write);
   }
 
   /**
@@ -4381,7 +4206,7 @@ export class RoomManager extends EventEmitter<Events> {
        *
        * 실제로 도는지는 상태가 말한다.
        */
-      if (isBusy(this.statusOf(room.id, id)) !== true) continue;
+      if (isBusy(this.runtimes.statusOf(room.id, id)) !== true) continue;
       const touched = (bt.turn.files ?? []).some(
         (f) => f.path === filePath && f.kind !== "read",
       );
@@ -4432,7 +4257,7 @@ export class RoomManager extends EventEmitter<Events> {
       const others: string[] = [];
       for (const [id, bt] of rt.bots) {
         if (id === mine || !bt.turn) continue;
-        if (isBusy(this.statusOf(room.id, id)) !== true) continue;
+        if (isBusy(this.runtimes.statusOf(room.id, id)) !== true) continue;
         const touched = (bt.turn.files ?? []).some(
           (f) => f.path === filePath && f.kind !== "read",
         );
@@ -4494,7 +4319,7 @@ export class RoomManager extends EventEmitter<Events> {
     const live: Clash[] = [];
     for (const [path, c] of rt.clashes) {
       const busy = c.botIds.filter(
-        (id) => isBusy(this.statusOf(roomId, id)) === true,
+        (id) => isBusy(this.runtimes.statusOf(roomId, id)) === true,
       );
       if (busy.length < 2) continue;
       const { noted: _drop, ...rest } = c;
@@ -4755,7 +4580,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 도구 이력까지 살아난다. 새로 만들면 대화 텍스트조차 모르는 상태가 된다.
    */
   private async ensureSession(room: Room, bot: BotInstance): Promise<string> {
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     if (bt.sessionId) return bt.sessionId;
 
     const conn = this.connection(bot.agentId);
@@ -5034,7 +4859,7 @@ export class RoomManager extends EventEmitter<Events> {
       return false;
     }
 
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     bt.sessionId = lost;
     bt.roleInjected = true;
     bot.sessionId = lost;
@@ -5289,11 +5114,11 @@ export class RoomManager extends EventEmitter<Events> {
    * **예전처럼 한 줄로 남긴다** — 어느 쪽이든 §0대로 버리지는 않는다.
    */
   private recordDecision(sessionId: string, note: DecisionNote): void {
-    const found = this.botForSession(sessionId);
+    const found = this.runtimes.botForSession(sessionId);
     if (!found) return;
     const { room, bot } = found;
 
-    const turn = this.botRuntime(room.id, bot.id).turn;
+    const turn = this.runtimes.bot(room.id, bot.id).turn;
     const hit = note.toolCallId
       ? (turn?.tools ?? []).find((t) => t.id === note.toolCallId)
       : undefined;
@@ -5412,7 +5237,7 @@ export class RoomManager extends EventEmitter<Events> {
         }
 
         const live = bt.turn;
-        if (live && this.statusOf(roomId, b.id) !== "idle") {
+        if (live && this.runtimes.statusOf(roomId, b.id) !== "idle") {
           live.streaming = false;
           live.truncated = true;
           if (!live.text && !live.error) live.error = "응답이 중단되었습니다.";
@@ -5431,8 +5256,8 @@ export class RoomManager extends EventEmitter<Events> {
        * 그러면 «프로세스가 종료되었다»를 안 적게 된다 — 실제로 그렇게 깨졌다.
        * 기준은 «바쁜가»가 아니라 **«조용하지 않았나»**다.
        */
-      if (hit.some((b) => this.statusOf(roomId, b.id) !== "idle")) {
-        for (const b of hit) this.setStatus(roomId, "error", b.id);
+      if (hit.some((b) => this.runtimes.statusOf(roomId, b.id) !== "idle")) {
+        for (const b of hit) this.runtimes.setStatus(roomId, "error", b.id);
         /*
          * ★ **기록에 안 남긴다** (2026-10-13).
          *
@@ -5511,7 +5336,7 @@ export class RoomManager extends EventEmitter<Events> {
     for (const bot of who) {
       if (this.queue.waiting(bot.id) === 0) continue;
       // 바쁘면 안 깨운다 — 지금 도는 턴이 끝나면서 여기를 다시 부른다
-      if (isBusy(this.statusOf(room.id, bot.id))) continue;
+      if (isBusy(this.runtimes.statusOf(room.id, bot.id))) continue;
       /*
        * ★ **말풍선을 안 만든다** (§4.2.2 가 걱정한 그것).
        *
@@ -5570,7 +5395,7 @@ export class RoomManager extends EventEmitter<Events> {
     const server = this.opts.mcp;
     const at = server?.current();
     // ★ 무엇을 실어 보냈는지 적는다 — 심사 봇에게 넘길 수 있나가 이걸 본다(⑦-2)
-    const bt = this.botRuntime(room.id, bot.id);
+    const bt = this.runtimes.bot(room.id, bot.id);
     if (!server || at?.at !== "ready") {
       bt.mcpOffered = false;
       return [];
@@ -5697,38 +5522,6 @@ export class RoomManager extends EventEmitter<Events> {
     }
   }
 
-  private runtime(roomId: string): RoomRuntime {
-    let rt = this.runtimes.get(roomId);
-    if (!rt) {
-      rt = { status: "idle", bots: new Map(), clashes: new Map() };
-      this.runtimes.set(roomId, rt);
-    }
-    return rt;
-  }
-
-  /**
-   * 그 **봇의** 실행 상태 (B1).
-   *
-   * 1:1에서는 방에 하나뿐이라 `runtime(roomId)`과 같은 말이지만, 세션에 딸린
-   * 것을 여기서 읽어두면 **단체방에서 봇을 늘릴 때 부르는 쪽을 안 고친다.**
-   */
-  private botRuntime(roomId: string, botId: string): BotRuntime {
-    const rt = this.runtime(roomId);
-    let bt = rt.bots.get(botId);
-    if (!bt) {
-      bt = {
-        status: "idle",
-        roleInjected: false,
-      pendingWrites: [],
-        commands: [],
-        lastEmit: 0,
-        lastSave: 0,
-      };
-      rt.bots.set(botId, bt);
-    }
-    return bt;
-  }
-
   /**
    * 방의 **유일한** 봇 — 봇이 정확히 하나일 때만 (리팩토링 ⑥, 2026-10-20).
    *
@@ -5746,49 +5539,6 @@ export class RoomManager extends EventEmitter<Events> {
     if (room.participants.length === 1) return room.participants[0];
     if (hasManyBots(room)) {
       this.opts.host.log(`[${room.id}] 봇을 지목하지 않은 부름 — 단체방이라 아무에게도 안 건다`);
-    }
-    return undefined;
-  }
-
-  /**
-   * 상태를 바꾼다 — **봇 단위로** (v2.0 준비).
-   *
-   * 🔴 예전에는 방에 상태가 하나뿐이었다. 봇이 하나일 때는 같은 말이지만,
-   * 여럿이 각자 턴을 돌면 **누가 답하는 중인지 말할 수가 없다.** 세션이 봇
-   * 단위이므로(B1) 상태도 봇 단위여야 맞다.
-   *
-   * `botId`를 안 주면 **방의 모든 봇**에 건다 — 세션을 붙이거나 방이 통째로
-   * 실패할 때처럼 진짜 방 단위인 일들이 있다.
-   *
-   * 방의 상태는 **봇들에서 파생된다**(`mergeStatus`) — 따로 들고 있으면 둘이
-   * 어긋난다.
-   */
-  private setStatus(roomId: string, status: RoomStatus, botId?: string): void {
-    const rt = this.runtime(roomId);
-    const room = this.rooms.open.get(roomId);
-    const ids = botId
-      ? [botId]
-      : (room?.participants.map((b) => b.id) ?? [...rt.bots.keys()]);
-
-    for (const id of ids) this.botRuntime(roomId, id).status = status;
-
-    const bots: Record<string, RoomStatus> = {};
-    for (const [id, bt] of rt.bots) bots[id] = bt.status;
-    const merged = mergeStatus(Object.values(bots));
-
-    // 방 상태가 그대로여도 **봇별 상태는 바뀌었을 수 있다** — 화면이 알아야 한다
-    const same = rt.status === merged;
-    rt.status = merged;
-    if (!same || botId !== undefined) this.emit("status", roomId, merged, bots);
-    // 띠가 살아 있는지는 **상태가 정한다**(`clashesIn`) — 바뀌었으면 다시 알린다
-    this.emit("clashes", roomId, this.clashesIn(roomId));
-  }
-
-  /** 세션 하나는 봇 하나에 속한다 (B1). 방까지 함께 돌려준다 */
-  private botForSession(sessionId: string): { room: Room; bot: BotInstance } | undefined {
-    for (const room of this.rooms.open.values()) {
-      const bot = room.participants.find((b) => b.sessionId === sessionId);
-      if (bot) return { room, bot };
     }
     return undefined;
   }

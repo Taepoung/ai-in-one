@@ -88,9 +88,9 @@ async function make(cap: number) {
     [typeof room.participants[0], typeof room.participants[0], typeof room.participants[0]];
   const inner = mgr as unknown as {
     queue: BotQueue;
-    botRuntime(roomId: string, botId: string): {
+    runtimes: { bot(roomId: string, botId: string): {
       depth?: number; fromUser?: boolean; saidZero?: Set<string>;
-    };
+    } };
   };
 
   const settle = async () => {
@@ -113,7 +113,7 @@ async function make(cap: number) {
   };
   /** 「이 봇은 지금 N다리째 턴을 돌고 있다」를 세워둔다 — 진짜로는 `runQueue` 가 한다 */
   const standAt = (bot: { id: string }, depth: number) => {
-    const bt = inner.botRuntime(room.id, bot.id);
+    const bt = inner.runtimes.bot(room.id, bot.id);
     bt.depth = depth;
     // «누가 열었나»는 «얼마나 멀리»와 **다른 질문**이다 — 0 이면 사용자가 연 턴
     bt.fromUser = depth === 0;
@@ -336,7 +336,7 @@ async function main(): Promise<void> {
 
     // 🔴 턴이 새로 열리면 다시 샌다 — 사용자가 또 말했으니까
     t.standAt(t.a, 0);
-    (t.inner.botRuntime(t.room.id, t.a.id) as { saidZero?: Set<string> }).saidZero = new Set();
+    (t.inner.runtimes.bot(t.room.id, t.a.id) as { saidZero?: Set<string> }).saidZero = new Set();
     ok((await t.say(t.a, "리뷰어", "새 턴에서")).ok,
        "★ **턴이 바뀌면 다시 샌다** — 사용자가 또 말한 것이다");
     t.mgr.dispose();

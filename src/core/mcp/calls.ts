@@ -24,7 +24,7 @@ import {
   type SayId,
 } from "../types.js";
 import type { WorkspaceHost } from "../workspaceHost.js";
-import type { BotRuntime } from "../roomManager.js";
+import type { BotRuntime } from "../room/runtimes.js";
 import { messageId } from "../ids.js";
 
 /**

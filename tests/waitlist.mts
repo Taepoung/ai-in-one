@@ -68,7 +68,7 @@ async function make() {
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
-    botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean };
+    runtimes: { bot(r: string, b: string): { depth?: number; fromUser?: boolean } };
     queue: BotQueue;
   };
   const room = await mgr.createRoom({
@@ -83,7 +83,7 @@ async function make() {
   const judge = room.participants[1]!;
   /** 봇이 하듯 — 알파가 베타에게 말을 건다 */
   const say = async (text: string) => {
-    const bt = inner.botRuntime(room.id, asker.id);
+    const bt = inner.runtimes.bot(room.id, asker.id);
     bt.depth = 0; bt.fromUser = true;
     const out = await mgr.mcpCall(
       `${room.id}:${asker.id}`, "say", { to: [judge.name], text, id: null },

@@ -19,7 +19,7 @@ import { CLOSED_MEMORY, type BotQueue } from "../mcp/botQueue.js";
 import { deny } from "../mcp/calls.js";
 import type { McpResult } from "../mcpServer.js";
 import type { WorkspaceHost } from "../workspaceHost.js";
-import type { BotRuntime } from "../roomManager.js";
+import type { BotRuntime } from "../room/runtimes.js";
 import {
   ASK_USER,
   type BotInstance,

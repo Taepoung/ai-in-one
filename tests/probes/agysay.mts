@@ -117,8 +117,8 @@ async function main(): Promise<void> {
    * 구현은 가짜라 **사용자가 연 턴**을 손으로 세워준다 — 진짜로는 `runQueue`
    * 가 박는 값이다. `id: "0"` 은 그 턴에서만 통한다.
    */
-  (mgr as unknown as { botRuntime(r: string, b: string): { depth?: number; fromUser?: boolean } })
-    .botRuntime(room.id, impl.id).fromUser = true;
+  (mgr as unknown as { runtimes: { bot(r: string, b: string): { depth?: number; fromUser?: boolean } } })
+    .runtimes.bot(room.id, impl.id).fromUser = true;
   const sent = await mgr.mcpCall(`${room.id}:${impl.id}`, "say", {
     to: ["리뷰어"],
     text: "로그인 핸들러에서 토큰 만료를 안 보고 있는 것 같은데, 맞아?",

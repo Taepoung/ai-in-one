@@ -72,9 +72,9 @@ const liveRoom = await live.createRoom({
 });
 const [LA, LB, LC] = liveRoom.participants as Array<{ id: string; name: string }>;
 const liveInner = live as unknown as {
-  botRuntime(r: string, b: string): {
+  runtimes: { bot(r: string, b: string): {
     depth?: number; fromUser?: boolean; saidZero?: Set<string>;
-  };
+  } };
   queue: { put(item: unknown): string };
 };
 /** 그 봇 몫에 **답할 거리** 하나를 깔아둔다 — 사용자에게 하는 say 는 id 가 든다 */
@@ -90,7 +90,7 @@ const plant = (bot: { id: string }, text: string) => liveInner.queue.put({
  * `duplicated sending error` 로 떨어진다(여기서 실제로 그랬다).
  */
 const standUser = (bot: { id: string }) => {
-  const bt = liveInner.botRuntime(liveRoom.id, bot.id);
+  const bt = liveInner.runtimes.bot(liveRoom.id, bot.id);
   bt.depth = 0; bt.fromUser = true; bt.saidZero = new Set<string>();
 };
 /** 진짜로 불러서 **한 줄로** 받아온다 */

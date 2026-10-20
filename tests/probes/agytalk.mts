@@ -118,8 +118,8 @@ async function main(): Promise<void> {
   const ask = async (text: string, replyTo?: string): Promise<string> => {
     const seen = back.length;
     const bt = (mgr as unknown as {
-      botRuntime(r: string, b: string): { fromUser?: boolean; saidZero?: Set<string> };
-    }).botRuntime(room.id, impl.id);
+      runtimes: { bot(r: string, b: string): { fromUser?: boolean; saidZero?: Set<string> } };
+    }).runtimes.bot(room.id, impl.id);
     bt.fromUser = true;
     bt.saidZero = new Set<string>();
     const out = await mgr.mcpCall(`${room.id}:${impl.id}`, "say", {

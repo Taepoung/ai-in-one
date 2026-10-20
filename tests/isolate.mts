@@ -74,15 +74,15 @@ async function main() {
 
   console.log("\n[상태·미읽음·초안]");
   {
-    const setStatus = (mgr as unknown as { setStatus(id: string, s: string): void }).setStatus;
-    setStatus.call(mgr, A.id, "streaming");
+    const { runtimes } = mgr as unknown as { runtimes: { setStatus(id: string, s: string): void } };
+    runtimes.setStatus(A.id, "streaming");
     ok(mgr.statusOf(A.id) === "streaming" && mgr.statusOf(B.id) === "idle", "작업 중 표시는 방마다");
 
     mgr.setDraft(A.id, "A에 쓰던 글");
     await mgr.flushDraft();
     ok(inner.rooms.open.get(A.id)!.draft === "A에 쓰던 글", "A에 초안이 남고");
     ok(inner.rooms.open.get(B.id)!.draft === undefined, "**B는 비어 있다**");
-    setStatus.call(mgr, A.id, "idle");
+    runtimes.setStatus(A.id, "idle");
   }
 
   console.log("\n[압축 — `compactionId`는 세션 안에서만 유일하다]");
