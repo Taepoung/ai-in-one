@@ -36,7 +36,7 @@ import * as fs from "node:fs/promises";
 import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
 import { DEFAULT_AGENTS } from "../../src/agents/index.js";
-import { withInstalled } from "../../src/core/agentInstaller.js";
+import { withInstalled } from "../../src/core/install/agentInstaller.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";
 import type { Room } from "../../src/core/types.js";
 

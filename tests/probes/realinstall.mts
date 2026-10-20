@@ -24,7 +24,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import {
   dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, findOne, realNpm, withInstalled,
-} from "../../src/core/agentInstaller.js";
+} from "../../src/core/install/agentInstaller.js";
 import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";

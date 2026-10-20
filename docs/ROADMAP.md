@@ -1929,7 +1929,7 @@ ACP `ContentBlock`은 5종이다: `text` · `image` · `audio` · `resource`(내
 | `src/agents/*/index.ts` | 에이전트 애드온 — 하나에 하나 (리팩토링 ①) | ✅ |
 | `src/agents/index.ts` | 기본 목록 + 설정 병합 (`resolveAgents`) | ✅ |
 | `src/core/agent-api.ts` | 애드온이 core 에서 보는 유일한 문 | ✅ |
-| `src/core/nodePin.ts` | 우리가 받는 Node 판 | ✅ |
+| `src/core/install/nodePin.ts` | 우리가 받는 Node 판 | ✅ |
 | `src/core/acpConnection.ts` | ACP 연결 / 세션 / 턴 실행 | ✅ |
 | `src/core/roomManager.ts` | 방 상태 · unread · 영속화 | ✅ |
 | `src/vscode/extension.ts` | 활성화 · 커맨드 · 상태표시줄 | ✅ |

@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import {
   authPlan, authStatus, cmdPath, dirFor, dropOptions, freeInstall, holdInstall, install,
   landingFor, realNpm, remove, stateOf,
-} from "../core/agentInstaller.js";
+} from "../core/install/agentInstaller.js";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { RoomManager } from "../core/roomManager.js";
 import type { RoomStore } from "../core/store.js";

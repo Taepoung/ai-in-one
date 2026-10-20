@@ -32,9 +32,9 @@ import {
   landingFor,
   install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn,
   haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, authPlan, type Run,
-} from "../src/core/agentInstaller.js";
+} from "../src/core/install/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../src/agents/index.js";
-import { NODE_PIN } from "../src/core/nodePin.js";
+import { NODE_PIN } from "../src/core/install/nodePin.js";
 import type { AgentDef } from "../src/core/types.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };

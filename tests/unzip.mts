@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path";
 import * as fs from "node:fs"; import * as fsp from "node:fs/promises";
 import * as zlib from "node:zlib";
-import { unzip, modeIn } from "../src/core/unzip.js";
+import { unzip, modeIn } from "../src/core/install/unzip.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 

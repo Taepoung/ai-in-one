@@ -8,7 +8,7 @@ import {
   describe,
   OUR_MCP_NAME,
 } from "./acpConnection.js";
-import { cachedOptions, dirFor, keepOptions } from "./agentInstaller.js";
+import { cachedOptions, dirFor, keepOptions } from "./install/agentInstaller.js";
 import type { McpResult, McpServer, McpState, McpTool } from "./mcpServer.js";
 import type { RoomLocks } from "./roomLock.js";
 import { BotQueue } from "./mcp/botQueue.js";

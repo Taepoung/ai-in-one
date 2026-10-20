@@ -14,7 +14,7 @@
 import * as os from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { DEFAULT_AGENTS } from "../../src/agents/index.js";
-import { dirFor, cmdPath, statusOf } from "../../src/core/agentInstaller.js";
+import { dirFor, cmdPath, statusOf } from "../../src/core/install/agentInstaller.js";
 
 const mark = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, m); return c; };
 const ROOT = os.homedir() + "/AppData/Roaming/Code/User/globalStorage/taein-yoon.ai-in-one";

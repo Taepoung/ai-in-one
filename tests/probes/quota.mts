@@ -34,7 +34,7 @@ import * as fs from "node:fs/promises";
 import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
 import { DEFAULT_AGENTS } from "../../src/agents/index.js";
-import { withInstalled } from "../../src/core/agentInstaller.js";
+import { withInstalled } from "../../src/core/install/agentInstaller.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";
 
 /** 어느 명령이 «한도» 를 말해줄 법한가 — 광고 목록에서 고른다 */

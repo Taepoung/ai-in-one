@@ -21,7 +21,7 @@ import * as fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
 import {
   dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, pickBinary, hostKey, realNpm, withInstalled,
-} from "../../src/core/agentInstaller.js";
+} from "../../src/core/install/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../../src/agents/index.js";
 
 const mark = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, m); return c; };

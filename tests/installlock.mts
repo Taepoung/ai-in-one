@@ -17,7 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
-import { holdInstall, freeInstall, ensureNode } from "../src/core/agentInstaller.js";
+import { holdInstall, freeInstall, ensureNode } from "../src/core/install/agentInstaller.js";
 
 const NL = "\n";
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };

@@ -6,9 +6,9 @@ import * as fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { unzip } from "./unzip.js";
-import { alive } from "./roomLock.js";
+import { alive } from "../roomLock.js";
 import { NODE_PIN } from "./nodePin.js";
-import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
+import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "../types.js";
 
 /**
  * **에이전트를 우리 자리에 받아둔다** (2026-10-01).

@@ -19,7 +19,7 @@ import * as fsp from "node:fs/promises";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
 import { DEFAULT_AGENTS } from "../src/agents/index.js";
-import { dirFor, splitSpec } from "../src/core/agentInstaller.js";
+import { dirFor, splitSpec } from "../src/core/install/agentInstaller.js";
 import type { AgentDef } from "../src/core/types.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 

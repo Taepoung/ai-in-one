@@ -23,7 +23,7 @@
  * (`adapter-pin-is-the-model`).
  */
 import { DEFAULT_AGENTS } from "../../src/agents/index.js";
-import { NODE_PIN } from "../../src/core/nodePin.js";
+import { NODE_PIN } from "../../src/core/install/nodePin.js";
 
 const mark = (okay: boolean) => (okay ? "OK" : "🔴");
 let bad = 0;
