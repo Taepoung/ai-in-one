@@ -86,7 +86,6 @@ async function make(opts: { mcpOn?: boolean; mcpAfterRoom?: boolean; judgeNoHttp
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
-    judging: Set<string>;
     queue: BotQueue;
     /** 그 에이전트의 CLI 를 죽일 때 쓴다 (2026-10-14) */
     connections: Map<string, { proc?: { kill(sig?: string): boolean } }>;
@@ -295,11 +294,35 @@ async function main(): Promise<void> {
 
   console.log(`${NL}[★ 심사를 맡고 있는 봇의 요청은 사람에게 — 재귀 금지]`);
   {
+    /*
+     * ★ **진짜 고리를 만든다** (리팩토링 ⑦-3, 2026-10-20). ⏪ 예전엔
+     * `inner.judging.add(...)` 로 **손수 채워 넣었다** — 그런데 제품 코드는
+     * `baacde7`(권한을 큐로 넘긴 커밋) 뒤로 그 칸을 **한 번도 안 채웠다.** 막은
+     * 늘 비어 있었고, 검사만 그걸 몰랐다.
+     *
+     * 알파는 베타에게, 베타는 알파에게 심사를 맡긴다. 알파의 요청이 베타 큐에 든
+     * 채로 베타가 제 권한을 요청하면 — 알파에게 넘기면 알파는 제 판정을 기다리며
+     * 얼어 있으니 **서로를 영영 기다린다.** 사람에게 가야 한다.
+     */
     const t = await make();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
-    t.inner.judging.add(t.asker.id);
-    await t.inner.askApprover(t.asker.sessionId!, REQ());
-    ok(t.userAsks() === 1, "★ **사람에게** — A가 B에게, B가 A에게 묻는 고리를 막는다");
+    await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.asker.id } }, t.judge.id);
+    void t.inner.askApprover(t.asker.sessionId!, REQ());   // 알파 → 베타 (베타가 심사 중이 된다)
+    await t.untilQueued();
+    const before = t.userAsks();
+    await t.inner.askApprover(t.judge.sessionId!, REQ({ title: "베타의 요청" }));
+    ok(t.userAsks() === before + 1,
+       "★ **심사 중인 봇의 요청은 사람에게** — A가 B에게, B가 A에게 묻는 고리를 막는다");
+    /*
+     * 🔴 **까닭까지 본다.** 막이 비어 있던 옛 코드에서도 위 단언은 통과했다 — 베타의
+     * 요청이 알파 큐로 가 고리가 생겼는데, 검사 환경에서 알파 프로세스가 내려가
+     * «심사 봇이 끊겨» 뒷정리 길로 풀렸다. 막이 일했다면 까닭이 «심사를 맡고 있는
+     * 중» 이어야 한다.
+     */
+    ok(t.notices.some((n) => n.includes("심사를 맡고 있는 중")),
+       `★ **막이 일했다** — 까닭이 «심사를 맡고 있는 중» 이다 («${t.notices.at(-1)}»)`);
+    ok(t.inner.queue.pending(t.asker.id).every((i) => (i as { kind?: string }).kind !== "permission"),
+       "★ 알파 큐에 **안 넣는다** — 알파는 베타의 판정을 기다리며 얼어 있다");
     bye(t);
   }
 

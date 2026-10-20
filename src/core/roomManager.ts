@@ -955,14 +955,6 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private readonly left = new Set<string>();
   /**
-   * 지금 **심사를 맡고 있는 봇들** (§4.2.2).
-   *
-   * 심사를 재귀시키지 않으려고 둔다 — 심사 중인 봇이 스스로 권한을
-   * 요청하면 그 요청은 사용자에게 간다. 안 그러면 A가 B에게, B가 A에게
-   * 묻는 고리가 생긴다.
-   */
-  private readonly judging = new Set<string>();
-  /**
    * **줄 서 있는 심사들.** 열쇠는 `ReviewWait.id`.
    *
    * 사람이 가로채면 여기서 `takenOver` 를 세우고, 기다리던 쪽이 그걸 보고
@@ -6339,7 +6331,21 @@ export class RoomManager extends EventEmitter<Events> {
      * 심사를 맡고 있는 봇이 스스로 권한을 요청하면 그 요청은 **사용자에게**
      * 간다. 안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다.
      */
-    if (this.judging.has(asker.id)) return hand("심사를 맡고 있는 중이라");
+    /*
+     * ★ **심사 중인 봇의 요청은 사람에게 — 재귀 금지** (§4.2.2).
+     *
+     * 안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다 — 서로의 판정을 기다리며
+     * 둘 다 얼어붙는다.
+     *
+     * 🔴 **예전엔 `judging` 이라는 칸을 따로 들었는데, 아무도 안 채웠다**
+     * (리팩토링 ⑦-3 에서 찾았다). `baacde7`(권한을 큐로 넘긴 커밋)에서 넣던 줄이
+     * 같이 걷혀, 그 뒤로 막이 **늘 비어 있었다.** 검사는 그 칸을 손수 채워 통과했다.
+     *
+     * ★ 이제 **큐에서 읽는다** — 그 봇 큐에 남이 맡긴 권한 항목이 남아 있으면 심사
+     * 중이다. 따로 적는 칸이 없으니 **적는 걸 잊을 일도 없다.**
+     */
+    const judging = this.queue.pending(asker.id).some((i) => i.kind === "permission");
+    if (judging) return hand("심사를 맡고 있는 중이라");
     /*
      * ★ **심사 봇이 정말 답할 수 있나** (리팩토링 ⑦-2, 2026-10-20).
      *
