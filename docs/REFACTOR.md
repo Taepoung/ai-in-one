@@ -317,12 +317,14 @@ macOS        못 돌렸다 — 이 자리에 맥이 없다
   quota        셋 다 /usage(Codex 는 /status) 글이 오고 수가 뜯긴다
   slashlist    Claude 66 · Codex 28 · Antigravity 3
   killresume   셋 다 — CLI 를 죽이면 뒷정리가 알리고, 새 관리자로 이어받아 답한다
-  agysay       2/6 — 🔴 원본(master)에서도 글자 하나 안 다르게 2/6. 리팩토링이 아니라
-               say 말씨를 바꾼 뒤 프로브(또는 Antigravity 의 다루는 법)가 안 맞춰진 것
+  agysay       6/6 (5827679 뒤) — 처음엔 2/6 이었고 원본도 같았다. 프로브의 첫 say 가 옛 규칙
+               `id: "0"` 이라 거절돼 리뷰어가 깨어날 거리가 없었다. `id: null` 로 고쳤다
+               (같은 낡은 자리가 judgequeue 의 전제에도 있었다 — 엉뚱한 까닭으로 서고 있었다)
 ```
 
-⚠️ **typecheck 의 검사 오류 둘은 원본에도 있다** — `relaydepth.mts` 의 `SayOut.can_call`,
-`saybot.mts` 의 id 형. 리팩토링 전부터다.
+**typecheck 의 검사 오류 둘**(원본에도 있던 것)은 16ef4fa 에서 고쳤다 — `relaydepth` 는 검사
+안의 형에 `can_call` 이 빠졌고, `saybot` 은 `make()` 에 지연(ms) 대신 릴레이 모드 이름을 넘기고
+있었다. 이제 typecheck 0.
 
 **⑨ 도 같은 방법으로 갔다** — 남은 것에서 «아무 위층도 안 빌리는 것» 을 찾아
 아래부터. 활동·프롬프트가 맨 아래였고, 분기는 세션층이 서자 문 21칸이 객체 넷 +
