@@ -21,7 +21,7 @@ async function main() {
   const mgr = new RoomManager({ host, store, agents: DEFAULT_AGENTS });
   const inner = mgr as unknown as {
     askApprover(id: string, req: unknown): Promise<unknown>;
-    recordActivity(room: unknown, reply: unknown, ev: unknown): void;
+    activity: { recordActivity(room: unknown, reply: unknown, ev: unknown): void };
     rooms: { open: Map<string, Room> };
   };
 
@@ -129,7 +129,7 @@ async function main() {
     const reply = { id: "a1", role: "agent", text: "", deliveredTo: [], createdAt: 1 } as never;
     // **막힌 수정**을 보려면 방을 알아야 한다 (§4.3) — 여기서는 봇이 없는 빈 방
     const roomStub = { id: "r1", participants: [] } as never;
-    const rec = (ev: unknown) => inner.recordActivity(roomStub, reply, ev);
+    const rec = (ev: unknown) => inner.activity.recordActivity(roomStub, reply, ev);
 
     rec({ type: "tool", toolCallId: "t1", title: "Bash", kind: "execute", status: "pending",
           paths: [], command: "npm test" });
@@ -160,7 +160,7 @@ async function main() {
   {
     // 에이전트 모드가 알아서 승인하면 권한 요청 자체가 안 온다. 활동은 남아야 한다.
     const reply = { id: "a2", role: "agent", text: "", deliveredTo: [], createdAt: 1 } as never;
-    inner.recordActivity({ id: "r1", participants: [] } as never, reply, {
+    inner.activity.recordActivity({ id: "r1", participants: [] } as never, reply, {
       type: "tool", toolCallId: "x", title: "Bash(rm -rf build)", kind: "execute",
       status: "completed", paths: [],
     });
