@@ -5,7 +5,7 @@
 > 이 문서: Codex 의 핀과 엔진 · 세션 뒷정리 (옛 PIN §F4~F7)
 
 세션 뒷정리가 **왜** 조용히 깨지는지(§F1~F3)는 셋에 걸리는 이야기라
-`docs/agents/README.md` 에 있다.
+`src/agents/README.md` 에 있다.
 
 ## F4. ✅ `codex-acp` 에도 핀을 박았다 — **엔진까지** (2026-10-01)
 
@@ -157,7 +157,7 @@ codex.exe -c features.code_mode_host=true app-server --analytics-default-enabled
 
 ## 올릴 때
 
-밟는 순서와 점검표는 **셋이 같다** — `docs/agents/README.md` 의 «에이전트를 올릴 때».
+밟는 순서와 점검표는 **셋이 같다** — `src/agents/README.md` 의 «에이전트를 올릴 때».
 
 올릴 때 Codex 만 하나 더 — 모델 목록과 세 판이 벌어진 폭을 본다:
 

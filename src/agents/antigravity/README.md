@@ -5,7 +5,7 @@
 > 이 문서: zip · agy · 지우는 길 · MCP 신원 (옛 PIN §G4~G7-1)
 
 새 에이전트를 볼 때 묻는 순서(§G1~G3)는 셋에 걸리는 이야기라
-`docs/agents/README.md` 에 있다.
+`src/agents/README.md` 에 있다.
 
 ## G4. 받는 것과 **그 안에 든 것**은 다르다
 
@@ -519,7 +519,7 @@ Get-ChildItem -Path "…\.gemini\antigravity-acp\brain\<세션 id>" -Recurse
 
 ## 올릴 때
 
-밟는 순서와 점검표는 **셋이 같다** — `docs/agents/README.md` 의 «에이전트를 올릴 때».
+밟는 순서와 점검표는 **셋이 같다** — `src/agents/README.md` 의 «에이전트를 올릴 때».
 
 올릴 때 Antigravity 만 더 보는 것 — 점검표의 ⑤(로그인 길이 ACP 뿐)와
 ⑭(지우는 길이 생겼나)다. 둘 다 공통 점검표에 이 에이전트를 짚어 적혀 있다.

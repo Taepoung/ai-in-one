@@ -116,7 +116,7 @@ npm run watch      # esbuild watch
 
 > 🔴 **어느 쪽인지 짐작하면 안 된다.** Antigravity 는 `agy` 라는 터미널 CLI 가
 > **있는데도** 그 길이 아니다 — `agy` 와 ACP 서버가 서로 다른 자리를 본다.
-> 자세한 것은 `docs/agents/antigravity/` §G4-2.
+> 자세한 것은 `src/agents/antigravity/README.md` §G4-2.
 
 터미널 CLI 를 따로 쓰고 있다면 그쪽 **판은** 낡아도 상관없다. 다만 **로그인
 자리**(`~/.codex`·`~/.claude`)는 공유하므로 거기서는 만나야 한다.
@@ -130,10 +130,10 @@ npm run watch      # esbuild watch
 | **`docs/ROADMAP.md`** | 버전별 기능 계획 · 설계 결정 · 리스크 |
 | **`docs/USAGE.md`** | 사용법. 버전을 낼 때마다 갱신한다 |
 | **`docs/RELEASE.md`** | 배포와 설치 — `.vsix` · 마켓플레이스 · Open VSX |
-| **`docs/agents/README.md`** | 에이전트 공통 — 올릴 때 점검표 · 세션 뒷정리 · 셋을 맞댄 표 |
-| **`docs/agents/<id>/`** | 에이전트마다 — 핀 내력 · 다른 점 · 슬래시 (claude · codex · antigravity) |
+| **`src/agents/README.md`** | 에이전트 공통 — 올릴 때 점검표 · 세션 뒷정리 · 셋을 맞댄 표 |
+| **`src/agents/<id>/README.md`** | 에이전트마다 — 핀 내력 · 다른 점 · 슬래시 (claude · codex · antigravity) |
 | **`docs/core/install.md`** | 에이전트를 우리 자리에 받아두는 설계 |
-| **`docs/core/mcp.md`** | 봇이 받는 글 전부 — `tooldump` 가 뽑는 생성물 |
+| **`src/core/mcp/README.md`** | 봇이 받는 글 전부 — `tooldump` 가 뽑는 생성물 |
 | **`docs/core/quota.md`** | 방 머리의 「사용량」 |
 
 ---

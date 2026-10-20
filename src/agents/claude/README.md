@@ -407,7 +407,7 @@ npm error path …\@openai\codex-win32-x64\…\codex.exe
 
 ## 올릴 때
 
-밟는 순서와 점검표는 **셋이 같다** — `docs/agents/README.md` 의 «에이전트를 올릴 때».
+밟는 순서와 점검표는 **셋이 같다** — `src/agents/README.md` 의 «에이전트를 올릴 때».
 
 ## 슬래시
 

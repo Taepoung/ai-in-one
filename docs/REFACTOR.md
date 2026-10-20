@@ -282,6 +282,20 @@ SLASH 0줄이 빠졌고, PIN 은 §H(«점검표는 BUMP.md 에 있다» 다섯 
 내자고 했는데, 열어 보니 점검표 사이사이에 **문장 단위로** 박혀 있어서 떼면
 점검표가 조각난다. 각 에이전트 문서의 «올릴 때» 가 그 에이전트만의 항목을 가리킨다.
 
+★ **그 뒤 코드 옆으로 한 번 더 옮겼다** (사용자, 2026-10-20: *«docs/agents가 아니라
+실제 폴더에 갖다놓는거는 어때?»*). 「한 에이전트를 올릴 때 한 폴더만 연다」 였는데
+코드는 `src/agents/codex/`, 문서는 `docs/agents/codex/` 로 두 군데였다. 기준은
+**한 모듈의 문서는 그 폴더에, 여러 모듈에 걸친 기능의 문서는 `docs/` 에** 다:
+
+```
+src/agents/README.md · src/agents/<id>/README.md    에이전트 (공통 · 저마다)
+src/core/mcp/README.md                              봇이 받는 글 — tooldump 생성물
+docs/core/install.md · docs/core/quota.md           여러 모듈에 걸친 기능
+```
+
+`src/**` 는 포장(`.vscodeignore`)에서 통째로 빠지므로 확장에 안 실린다.
+아래 표의 «docs/agents/…» 는 처음 옮길 때의 계획이다.
+
 ### 6.1 지금 문서가 어디로 가나 — 절 단위로
 
 🔴 **PIN · BUMP · SLASH 는 통째로 못 옮긴다.** 셋 다 에이전트 이야기와 공통

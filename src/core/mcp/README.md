@@ -5,7 +5,7 @@
 > 이 파일은 없느니만 못하다.
 >
 > ```
-> npx tsx tests/probes/tooldump.mts > docs/core/mcp.md
+> npx tsx tests/probes/tooldump.mts > src/core/mcp/README.md
 > ```
 
 모델이 보는 면은 **넷**이다. 아래 순서가 곧 읽히는 순서다.
