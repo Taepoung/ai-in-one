@@ -7,10 +7,9 @@
  * **넷 다 동작은 멀쩡해서** `tsc` 도 검사 83개도 아무 말을 안 했다. 눈으로
  * 읽어야 보이는 것들이라, **읽기 좋은 꼴로 뽑는 길**을 둔다.
  *
- * ⚠️ **찍은 것을 저장소에 두지 않는다** (사용자, 2026-10-15). 한때 이것을
- * `docs/TOOLS.md` 로 받아 두었는데, **참은 코드**라 그 사본은 손댈 때마다
- * 갈린다 — 갈린 순간부터 없느니만 못하다. 고칠 글이 있으면 여기 찍어 읽고,
- * 고치는 것은 `RoomManager.mcpTools()` 쪽이다.
+ * ★ **찍은 것은 `docs/core/mcp.md` 에 둔다** (리팩토링 §6, 2026-10-20 — 옛
+ * `docs/TOOLS.md`). **참은 코드**라 그 사본은 손으로 고치지 않는다 — 고칠 글이
+ * 있으면 코드(`core/mcp/calls.ts`)를 고치고 **다시 뽑는다.** 갈리면 없느니만 못하다.
  *
  * ```
  * npx tsx tests/probes/tooldump.mts            화면으로
@@ -107,7 +106,7 @@ say("> 여기서 글을 고쳤으면 **코드로 옮긴 뒤 다시 뽑아** 맞�
 say("> 이 파일은 없느니만 못하다.");
 say(">");
 say("> ```");
-say("> npx tsx tests/probes/tooldump.mts > docs/TOOLS.md");
+say("> npx tsx tests/probes/tooldump.mts > docs/core/mcp.md");
 say("> ```");
 say();
 say("모델이 보는 면은 **넷**이다. 아래 순서가 곧 읽히는 순서다.");

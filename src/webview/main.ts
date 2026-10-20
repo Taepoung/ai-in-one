@@ -207,7 +207,7 @@ function dropCard(id: string): boolean {
 const agentById = new Map(boot.agents.map((a) => [a.id, a]));
 
 /**
- * ★ **지금 쓸 수 있는 에이전트** (2026-10-01) — `docs/INSTALL.md`.
+ * ★ **지금 쓸 수 있는 에이전트** (2026-10-01) — `docs/core/install.md`.
  *
  * 안 받은 것은 방 만들기 목록에 안 뜨고, 이미 쓰던 방은 막힌다.
  * `boot` 으로 시작해서 설정 화면이 줄 `agents` 로 갱신된다 — 받자마자
@@ -254,7 +254,7 @@ function screenEl(id: string): HTMLElement {
 
 const screens: Record<ScreenName, HTMLElement> = {
   list: screenEl("screen-list"),
-  /** 에이전트를 받고·지우고·로그인하는 자리 (`docs/INSTALL.md`) */
+  /** 에이전트를 받고·지우고·로그인하는 자리 (`docs/core/install.md`) */
   agents: screenEl("screen-agents"),
   new: screenEl("screen-new"),
   chat: screenEl("screen-chat"),
@@ -1815,7 +1815,7 @@ function mb(n: number): string {
 }
 
 /**
- * ★ **에이전트 설정 화면** (2026-10-01) — `docs/INSTALL.md`.
+ * ★ **에이전트 설정 화면** (2026-10-01) — `docs/core/install.md`.
  *
  * 단추는 **전부 `state` 가 정한다.** 여기서 다시 판단하지 않는다 —
  * 계산은 `agentInstaller.stateOf` 한 자리에만 둔다:

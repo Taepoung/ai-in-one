@@ -27,7 +27,7 @@ export interface AgentBrief {
   label: string;
   description?: string;
   /**
-   * ★ **받아두었나** (2026-10-01) — `docs/INSTALL.md`.
+   * ★ **받아두었나** (2026-10-01) — `docs/core/install.md`.
    *
    * 안 받은 에이전트는 **방 만들기 목록에 안 뜨고**, 이미 그걸 쓰던
    * 방은 모델이 없어졌을 때처럼 **막고 고르게 한다.**
@@ -126,7 +126,7 @@ export type ToWebview =
   /**
    * ★ **에이전트마다 지금 어느 칸에 있나** (2026-10-01).
    *
-   * 단추는 `state` 가 정한다(`docs/INSTALL.md`). `loggedIn` 을 따로 주는 것은
+   * 단추는 `state` 가 정한다(`docs/core/install.md`). `loggedIn` 을 따로 주는 것은
    * `stale` 일 때도 로그인 상태를 같이 보여주기 위해서다 — 낡음이 앞서질
    * 뿐 다른 걸 못 보게 될 이유는 없다.
    */
@@ -535,7 +535,7 @@ export type FromWebview =
    */
   | { t: "needConfig"; agentId: string; roomId?: string; botId?: string }
   /**
-   * ★ **에이전트 설정 화면** (2026-10-01) — `docs/INSTALL.md`.
+   * ★ **에이전트 설정 화면** (2026-10-01) — `docs/core/install.md`.
    *
    * 지금 상태를 달라는 요청. 받기·지우기 뒤에도 이걸 다시 보낸다.
    */
