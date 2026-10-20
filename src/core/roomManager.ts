@@ -2,7 +2,6 @@ import { EventEmitter } from "node:events";
 import type * as acp from "@agentclientprotocol/sdk";
 
 import {
-  AcpConnection,
   type AgentEvent,
   type DecisionNote,
   describe,
@@ -16,6 +15,8 @@ import { McpCalls, type McpPort } from "./mcp/calls.js";
 import { Review, type ReviewPort } from "./review/review.js";
 import { Rooms, rollUpLost, whose, type RoomsPort } from "./room/rooms.js";
 import { Runtimes, type BotRuntime, type ClashState, type RuntimesPort } from "./room/runtimes.js";
+import { AgentPool, type PoolPort } from "./session/pool.js";
+import { withTimeout } from "./time.js";
 import { messageId } from "./ids.js";
 import {
   parseCompose,
@@ -197,28 +198,6 @@ const CONFIG_PROBE_MS = 90_000;
 /** 세션을 새로 열고 한 턴을 묻는 길이라 설정 조회보다 넉넉히 둔다 */
 const USAGE_PROBE_MS = 120_000;
 
-/**
- * ★ **붙는 데 걸 한도 — 둘로 가른다** (2026-10-13).
- *
- * 🔴 **여태 하나도 없었다.** `ensureStarted` 도 `newSession` 도 끝을 안 둬서,
- * 저쪽이 답을 안 하면 **영영 기다린다** — 붙는 화면에 「여는 중…」이 선 채로
- * 멈추고, 실패 신호가 안 오니 [다시 시도] 도 안 생긴다. 오늘 다섯 자리에서
- * 고친 것과 같은 종류다: *끝이 안 난다.*
- *
- * 둘을 따로 재는 까닭은 **단위가 다르기 때문**이다 — CLI 는 **에이전트마다
- * 하나**고 같은 에이전트의 봇들이 그 하나를 같이 쓴다. 세션은 봇마다다.
- *
- * ```
- * 실측            띄우기            세션
- * Claude            375ms           962ms
- * Codex             585ms         1,662ms
- * Antigravity    12,505ms         5,056ms   ← 398MB 네이티브 서버
- * ```
- *
- * 제일 느린 것에 서너 배 여유를 뒀다. 넘겼다는 것은 그 자체로 «뭔가
- * 잘못됐다» 는 신호고, 그때는 **다시 해볼 길**을 주는 것이 할 일이다.
- */
-const START_MS = 60_000;
 const SESSION_MS = 30_000;
 
 /**
@@ -590,16 +569,6 @@ function configKeyOf(roomId: string, botId: string): string {
   return `${roomId}:${botId}`;
 }
 
-function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  return Promise.race([
-    work,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]).finally(() => clearTimeout(timer)) as Promise<T>;
-}
-
 /**
  * 오류 한 줄에서 **고치는 길**을 읽어낸다 (2026-10-13).
  *
@@ -715,7 +684,11 @@ type Events = {
  * CLI 프로세스를 공유하되 대화는 세션으로 격리된다.
  */
 export class RoomManager extends EventEmitter<Events> {
-  private readonly connections = new Map<string, AcpConnection>();
+  /**
+   * ★ **연결 풀** — `core/session/pool.ts` (리팩토링 ⑧ L1, 2026-10-20).
+   * 에이전트마다 CLI 하나. 방 쪽 일은 갈고리로 꽂는다(`poolPort`).
+   */
+  private readonly pool = new AgentPool(this.poolPort());
   /**
    * ★ **봇 상태** — `core/room/runtimes.ts` (리팩토링 ⑧ L1, 2026-10-20).
    * 저장(L0) 바로 위층이다.
@@ -833,6 +806,21 @@ export class RoomManager extends EventEmitter<Events> {
     };
   }
 
+  private poolPort(): PoolPort {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
+    const self = this;
+    return {
+      get host() { return self.opts.host; },
+      get disk() { return self.opts.store; },
+      agent: (agentId) => this.agentOrThrow(agentId),
+      isDown: () => this.down,
+      onCrash: (agentId, reason) => this.onAgentCrash(agentId, reason),
+      recordDecision: (sessionId, note) => this.recordDecision(sessionId, note),
+      askApprover: (sessionId, req) => this.askApprover(sessionId, req),
+      emitNotice: (roomId, text) => { this.emit("notice", roomId, text); },
+    };
+  }
+
   private reviewPort(): ReviewPort {
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
     const self = this;
@@ -840,7 +828,7 @@ export class RoomManager extends EventEmitter<Events> {
       get queue() { return self.queue; },
       get host() { return self.opts.host; },
       mcpReady: () => this.opts.mcp?.current().at === "ready",
-      mcpHttp: (agentId) => this.connection(agentId).mcpHttp,
+      mcpHttp: (agentId) => this.pool.connection(agentId).mcpHttp,
       roomById: (roomId) => this.rooms.open.get(roomId),
       openRooms: () => this.rooms.open.values(),
       botRuntime: (roomId, botId) => this.runtimes.bot(roomId, botId),
@@ -905,10 +893,7 @@ export class RoomManager extends EventEmitter<Events> {
      * ⚠️ **떠 있는 것은 그대로 둔다** — `retarget` 이 거절한다. 대화 중에
      * 갈아끼우면 세션이 끊긴다.
      */
-    for (const [id, conn] of this.connections) {
-      const next = list.find((a) => a.id === id);
-      if (next) conn.retarget(next);
-    }
+    this.pool.retarget(list);
   }
 
   constructor(private readonly opts: RoomManagerOptions) {
@@ -1046,42 +1031,13 @@ export class RoomManager extends EventEmitter<Events> {
    * **첫 프롬프트 전이라 모델 변경 비용이 0이다** — 그래서 사용자 입장에서는
    * "만들 때 고른 것"과 같다 (B15).
    */
-  /**
-   * ★ **CLI 가 떠 있나 — 띄워야 하면 띄운다** (2026-10-13).
-   *
-   * `newSession` 안에서 같이 일어나던 것을 **앞으로 뺀다.** 둘을 가르는
-   * 까닭은 둘이고, 둘 다 사용자가 보는 것에 관한 것이다:
-   *
-   * ```
-   * 단위가 다르다   CLI 는 **에이전트마다** 하나 — 같은 에이전트의 봇들이 공유한다
-   * 걸리는 데가 다르다  Antigravity 는 띄우는 데 12.5초, 세션은 5초다
-   * ```
-   *
-   * 합쳐두면 화면이 「여는 중…」 한 줄밖에 못 말한다. 갈라두면 **어디서
-   * 걸렸는지** 보이고, 다시 해볼 때도 **필요한 쪽만** 다시 한다.
-   *
-   * ⚠️ **겹쳐 불러도 공짜다.** `ensureStarted` 가 이미 «떠 있으면 바로
-   * 돌아오고, 뜨는 중이면 그 약속을 같이 기다린다» 로 되어 있다 — 봇 셋이
-   * 다 Antigravity 라도 **CLI 는 하나만 뜬다.**
-   */
-  private async startAgent(room: Room, bot: BotInstance): Promise<void> {
-    const label = this.agentOrThrow(bot.agentId).label;
-    await withTimeout(
-      this.connection(bot.agentId).ensureStarted(() =>
-        // `npx`로 CLI를 처음 받으면 수십 초가 걸린다. 멈춘 줄 알지 않게 알린다.
-        this.emit("notice", room.id, `${label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`),
-      ),
-      START_MS,
-      `${label}이(가) ${Math.round(START_MS / 1000)}초 안에 뜨지 않았습니다.`,
-    );
-  }
 
   private async openSession(
     room: Room,
     bot: BotInstance,
     configValues?: Record<string, string | boolean>,
   ): Promise<void> {
-    const conn = this.connection(bot.agentId);
+    const conn = this.pool.connection(bot.agentId);
     const bt = this.runtimes.bot(room.id, bot.id);
 
     this.runtimes.setStatus(room.id, "connecting", bot.id);
@@ -1315,7 +1271,7 @@ export class RoomManager extends EventEmitter<Events> {
     const sessionId = bt?.sessionId ?? bot.sessionId ?? undefined;
 
     if (sessionId) {
-      const conn = this.connections.get(bot.agentId);
+      const conn = this.pool.get(bot.agentId);
       await conn?.cancel(sessionId).catch(() => undefined);
       // 말을 건 적 있는 세션만 디스크에 있다 — 없는 걸 지우려 들면 실패한다(§13.1)
       await conn?.deleteSession(sessionId, bot.sessionPrompted === true).catch(() => undefined);
@@ -1516,7 +1472,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 붙어 있던 세션에서 손을 뗀다. **지우지는 않는다** — 그 CLI에 그대로 두고
     // 우리만 놓는다. 사용자가 되돌리고 싶어질 수도 있고, 남의 기록을 우리가
     // 치울 이유도 없다.
-    if (old) await this.connections.get(bot.agentId)?.cancel(old).catch(() => undefined);
+    if (old) await this.pool.get(bot.agentId)?.cancel(old).catch(() => undefined);
     bt.sessionId = undefined;
     bt.commands = [];
     bt.roleInjected = false;
@@ -1769,7 +1725,7 @@ export class RoomManager extends EventEmitter<Events> {
    * D2가 경계한 바로 그 상태다.
    */
   async forkSession(room: Room, bot: BotInstance, atTail: boolean): Promise<ForkedSession> {
-    const conn = this.connection(bot.agentId);
+    const conn = this.pool.connection(bot.agentId);
 
     // 가르려면 **붙어 있어야** 한다. 창을 껐다 켠 직후일 수 있다.
     const live = atTail ? await this.ensureSession(room, bot).catch(() => undefined) : undefined;
@@ -1820,7 +1776,7 @@ export class RoomManager extends EventEmitter<Events> {
     bot: BotInstance,
     reason: string,
   ): Promise<ForkedSession> {
-    const conn = this.connection(bot.agentId);
+    const conn = this.pool.connection(bot.agentId);
     const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
       this.emit(
         "notice",
@@ -1886,13 +1842,13 @@ export class RoomManager extends EventEmitter<Events> {
         : undefined;
       if (!origin || !live) continue;
 
-      const got = await this.connection(origin.agentId).forkSession(live, room.cwd, this.mcpFor(room, origin));
+      const got = await this.pool.connection(origin.agentId).forkSession(live, room.cwd, this.mcpFor(room, origin));
       if (!got.ok) continue;
 
       // 폴백으로 열었던 세션은 **빈 것**이라 지울 것도 없다 — 놓기만 한다
       const bt = this.runtimes.bot(room.id, bot.id);
       if (bt.sessionId) {
-        await this.connections.get(bot.agentId)?.closeSession(bt.sessionId).catch(() => undefined);
+        await this.pool.get(bot.agentId)?.closeSession(bt.sessionId).catch(() => undefined);
       }
       bt.sessionId = got.sessionId;
       // 네이티브로 갈라낸 세션은 역할을 이미 알고 있다
@@ -2168,7 +2124,7 @@ export class RoomManager extends EventEmitter<Events> {
       const sessionId = rt?.bots.get(bot.id)?.sessionId ?? bot.sessionId ?? undefined;
       if (!sessionId) continue;
       // **그 봇의** 에이전트다 — 단체방에서는 봇마다 다를 수 있다
-      const conn = this.connections.get(bot.agentId);
+      const conn = this.pool.get(bot.agentId);
       await conn?.cancel(sessionId).catch(() => undefined);
       // **대화가 있으면 삭제, 없으면 해제.** 방을 나가는 건 대화를 지우는 행위이므로
       // 에이전트 쪽 기록도 남기지 않는다.
@@ -2188,7 +2144,7 @@ export class RoomManager extends EventEmitter<Events> {
     await this.opts.store.deleteRoom(roomId);
     this.rooms.emitMetas();
 
-    this.disposeUnusedConnections();
+    this.pool.disposeUnused(new Set(this.rooms.listMetas().flatMap((m) => m.agentIds)));
   }
 
   /**
@@ -2345,7 +2301,7 @@ export class RoomManager extends EventEmitter<Events> {
        */
       if (!bt.sessionId) {
         this.emit("joinStep", room.id, bot.id, "start");
-        await this.startAgent(room, bot);
+        await this.pool.start(room.id, bot.agentId);
         this.emit("joinStep", room.id, bot.id, "session");
       }
       await this.ensureSession(room, bot);
@@ -2727,7 +2683,7 @@ export class RoomManager extends EventEmitter<Events> {
        * 거부돼서»라고 지어냈다(실측 2026-09-23).
        */
       if (isBusy(this.runtimes.statusOf(roomId, bot.id)) === true) bt.interrupted = true;
-      await this.connections.get(bot.agentId)?.cancel(bt.sessionId);
+      await this.pool.get(bot.agentId)?.cancel(bt.sessionId);
     }
     /*
      * ★ **올려둔 것도 같이 내린다** (v3.0 1-E).
@@ -3000,7 +2956,7 @@ export class RoomManager extends EventEmitter<Events> {
       if (before === "idle") this.runtimes.setStatus(room.id, "idle", bot.id);
     }
 
-    const conn = this.connection(bot.agentId);
+    const conn = this.pool.connection(bot.agentId);
     const updated = await conn.setConfigOption(sessionId, configId, value);
     if (typeof value === "string") this.rememberModel(bot.agentId, configId, value);
 
@@ -3120,11 +3076,11 @@ export class RoomManager extends EventEmitter<Events> {
    * `unknown`이면 경고하지 않는다 — 모르는 걸 단정하면 멀줦한 에이전트를 못 한다고 모함한다.
    */
   forkSupport(agentId: string): "yes" | "no" | "unknown" {
-    return this.connection(agentId).forkSupport();
+    return this.pool.connection(agentId).forkSupport();
   }
 
   promptCapabilities(agentId: string): { image: boolean; audio: boolean; embeddedContext: boolean } {
-    return this.connection(agentId).promptCapabilities();
+    return this.pool.connection(agentId).promptCapabilities();
   }
 
   /**
@@ -3237,7 +3193,7 @@ export class RoomManager extends EventEmitter<Events> {
           return { agentId, label, at: Date.now(), why: "잔량을 묻는 길을 모르는 에이전트입니다." };
         }
         const got = await withTimeout(
-          this.connection(agentId).probeUsage(this.opts.host.defaultCwd(), q.commands),
+          this.pool.connection(agentId).probeUsage(this.opts.host.defaultCwd(), q.commands),
           USAGE_PROBE_MS,
           `${label}이(가) ${Math.round(USAGE_PROBE_MS / 1000)}초 안에 응답하지 않았습니다.`,
         );
@@ -3263,7 +3219,7 @@ export class RoomManager extends EventEmitter<Events> {
     try {
       const limit = this.opts.configProbeMs ?? CONFIG_PROBE_MS;
       const options = await withTimeout(
-        this.connection(agentId).probeConfigOptions(this.opts.host.defaultCwd()),
+        this.pool.connection(agentId).probeConfigOptions(this.opts.host.defaultCwd()),
         limit,
         /*
          * ⚠️ **첫 실행이면 이건 고장이 아니다** (2026-10-01).
@@ -3317,7 +3273,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bot = (botId ? room.participants.find((b) => b.id === botId) : undefined)
       ?? room.participants[0]!;
     const bt = this.runtimes.bot(room.id, bot.id);
-    const conn = this.connection(bot.agentId);
+    const conn = this.pool.connection(bot.agentId);
 
     let sessionId: string;
     try {
@@ -3786,7 +3742,7 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   private watchIdle(room: Room, bot: BotInstance, sessionId: string): void {
-    this.connection(bot.agentId).listen(sessionId, (ev) => {
+    this.pool.connection(bot.agentId).listen(sessionId, (ev) => {
       const turn = this.runtimes.bot(room.id, bot.id).turn;
       if (turn) this.applyEvent(room, turn, ev);
       else this.onIdleEvent(room, bot, ev);
@@ -4534,7 +4490,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 보내봐야 받지 못하는 종류는 애초에 보내지 않는다 (I5).
     // 스펙이 못 박는다 — *"The Client MUST adapt its interface
     // according to PromptCapabilities"*.
-    const caps = this.connection(bot.agentId).promptCapabilities();
+    const caps = this.pool.connection(bot.agentId).promptCapabilities();
 
     if (a.mimeType.startsWith("image/") || a.mimeType.startsWith("audio/")) {
       const kind = a.mimeType.startsWith("image/") ? "image" : "audio";
@@ -4583,7 +4539,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bt = this.runtimes.bot(room.id, bot.id);
     if (bt.sessionId) return bt.sessionId;
 
-    const conn = this.connection(bot.agentId);
+    const conn = this.pool.connection(bot.agentId);
 
     /*
      * 🔴 **말을 안 건 세션은 이어받으려 하지 않는다** (2026-10-02).
@@ -4814,7 +4770,7 @@ export class RoomManager extends EventEmitter<Events> {
       delete b.lostAgentId;
       delete b.lostPrompted;
       if (lostId) {
-        await this.connections.get(lostAgent)
+        await this.pool.get(lostAgent)
           ?.deleteSession(lostId, lostTalk)
           .catch(() => undefined);
       }
@@ -4852,7 +4808,7 @@ export class RoomManager extends EventEmitter<Events> {
     const lost = bot?.lostSessionId ?? room.lostSessionId;
     if (!bot || !lost) return false;
 
-    const resumed = await this.connection(bot.agentId)
+    const resumed = await this.pool.connection(bot.agentId)
       .resumeSession(lost, room.cwd, this.mcpFor(room, bot));
     if (!resumed.ok) {
       this.rooms.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
@@ -4991,7 +4947,7 @@ export class RoomManager extends EventEmitter<Events> {
       if (live.currentValue === value) continue;
 
       try {
-        now = await this.connection(bot.agentId).setConfigOption(sessionId, opt.id, value);
+        now = await this.pool.connection(bot.agentId).setConfigOption(sessionId, opt.id, value);
       } catch (err) {
         this.opts.host.log(`[${bot.agentId}] ${opt.id} 복원 실패: ${describe(err)}`);
       }
@@ -5421,75 +5377,21 @@ export class RoomManager extends EventEmitter<Events> {
     }];
   }
 
-  /**
-   * **치우다 만 세션 파일을 적어둔다** (2026-10-12).
-   *
-   * 🔴 저쪽 프로세스가 아직 들고 있어 안 지워진다. 다음에 켤 때 **버려진
-   * 프로세스를 죽인 뒤에** 치운다(`sweepBacklog`).
-   *
-   * ⚠️ **«그 집에 남는 것» 을 쓸지 않는다** — 같은 집을 보는 다른 ACP
-   * 클라이언트가 있을 수 있고, 그러면 남이 만든 세션까지 지운다.
-   * 우리가 지우려다 못 지운 것만 적는다.
-   */
-  private rememberPurge(agentId: string, sessionId: string): void {
-    const prev = this.opts.store.getAppState().purgeBacklog ?? [];
-    if (prev.some((x) => x.agentId === agentId && x.sessionId === sessionId)) return;
-    void this.opts.store.patchAppState({
-      purgeBacklog: [...prev, { agentId, sessionId, at: Date.now() }],
-    });
-  }
-
-  private connection(agentId: string): AcpConnection {
-    /*
-     * 🔴 **내린 뒤에는 새로 안 만든다** (v3.0 1-E).
-     *
-     * 여기가 CLI 가 뜨는 **유일한 자리**다. `dispose()` 가 연결을 다 내린
-     * 뒤에도 **도중이던 호출**이 이 자리에 닿을 수 있는데, 그때 하나를
-     * 새로 만들면 끄려던 참에 CLI 가 하나 더 뜬다.
-     */
-    if (this.down) throw new Error("이미 내려가는 중입니다");
-    let conn = this.connections.get(agentId);
-    if (!conn) {
-      conn = new AcpConnection(
-        this.agentOrThrow(agentId),
-        this.opts.host,
-        (reason) => this.onAgentCrash(agentId, reason),
-        (sessionId, note) => this.recordDecision(sessionId, note),
-        (sessionId, req) => this.askApprover(sessionId, req),
-        (agentId, sessionId) => this.rememberPurge(agentId, sessionId),
-      );
-      this.connections.set(agentId, conn);
-    }
-    return conn;
-  }
-
-  /**
-   * ★ **그 에이전트의 CLI 를 내린다** (2026-10-02).
-   *
-   * 로그아웃했는데 프로세스가 그대로 떠 있으면 **옆 계정으로 계속
-   * 돌아간다** — 계정을 바�려는 사람 입장엔 «바�는데 옇 것으로
-   * 답한다» 가 된다.
-   *
-   * ⚠️ **세션 id 는 안 건드린다.** 사용자: *"세션은 유지되어야한다"*.
-   * 다음에 방을 열 때 먼저 이어받아 보고, 새 계정으로 되면 그대로
-   * 이어진다. 안 되면 **이미 있는 끕김 흐름**이 받아준다(대화 넘겨서 /
-   * 요약만 / 기록만 두고). 여기서 지워버리면 고를 거리를 없애는 셌이다.
-   */
   /** 그 에이전트가 광고하는 로그인 길들 (ACP) */
   async authOptionsOf(agentId: string): Promise<{ id: string; name: string; description?: string }[]> {
-    return this.connection(agentId).authOptions();
+    return this.pool.connection(agentId).authOptions();
   }
 
   /** ACP 로 로그인한다. 사람이 브라우저에서 마칠 때까지 안 돌아온다 */
   async authenticateAs(
     agentId: string, methodId: string, onNote?: (line: string) => void,
   ): Promise<void> {
-    await this.connection(agentId).authenticate(methodId, onNote);
+    await this.pool.connection(agentId).authenticate(methodId, onNote);
   }
 
   /** ACP 로 로그아웃. 광고 안 했으면 `false` */
   async logOutOf(agentId: string): Promise<boolean> {
-    return this.connection(agentId).logOut();
+    return this.pool.connection(agentId).logOut();
   }
 
   /**
@@ -5502,23 +5404,16 @@ export class RoomManager extends EventEmitter<Events> {
     this.opts.host.log(message);
   }
 
+  /**
+   * 그 에이전트의 CLI 를 내린다 — `AgentPool.drop` (2026-10-02).
+   *
+   * ⚠️ 내린 뒤 **모든 봇의** 붙임 표시를 지운다 — 그 에이전트 봇만이 아니다
+   * (리팩토링 ⑧ 에서 본 그대로 옮겼다). 대화는 안 날아가고 다음 턴에 되붙는다.
+   */
   dropConnection(agentId: string): void {
-    const conn = this.connections.get(agentId);
-    if (!conn) return;
-    conn.dispose();
-    this.connections.delete(agentId);
+    if (!this.pool.drop(agentId)) return;
     for (const rt of this.runtimes.values()) {
       for (const bt of rt.bots.values()) bt.sessionId = undefined;
-    }
-  }
-
-  /** 쓰이지 않는 CLI 프로세스를 정리한다 (B6) */
-  private disposeUnusedConnections(): void {
-    const inUse = new Set(this.rooms.listMetas().flatMap((m) => m.agentIds));
-    for (const [agentId, conn] of this.connections) {
-      if (inUse.has(agentId)) continue;
-      conn.dispose();
-      this.connections.delete(agentId);
     }
   }
 
@@ -5567,8 +5462,7 @@ export class RoomManager extends EventEmitter<Events> {
     // **쓰다 만 글을 들고 죽지 않는다.** 창을 닫는 순간 디바운스가 돌고 있으면
     // 그대로 사라진다 — 최소한 쓰기를 시작은 해둔다.
     void this.flushDraft();
-    for (const conn of this.connections.values()) conn.dispose();
-    this.connections.clear();
+    this.pool.disposeAll();
     // 유예 타이머가 살아 있으면 지운 방에 써대고 깨어난다
     for (const rt of this.runtimes.values()) {
       for (const bt of rt.bots.values()) clearTimeout(bt.tail);

@@ -110,14 +110,14 @@ async function main(): Promise<void> {
 
   // ── ③ 글자가 오기 시작하면 죽인다
   const inner = mgr as unknown as {
-    connections: Map<string, { proc?: { pid?: number; kill(sig?: string): boolean } }>;
+    pool: { get(id: string): { proc?: { pid?: number; kill(sig?: string): boolean } } | undefined };
   };
   let killed = false;
   for (let i = 0; i < 1200; i++) {
     const live = room.messages.at(-1);
     const flowing = live?.role === "agent" && (live.text?.length ?? 0) > 10;
     if (flowing) {
-      const proc = inner.connections.get(agent.id)?.proc;
+      const proc = inner.pool.get(agent.id)?.proc;
       say(`  글자 ${live!.text.length}자에서 죽인다 — pid ${proc?.pid}`);
       proc?.kill("SIGKILL");
       killed = true;

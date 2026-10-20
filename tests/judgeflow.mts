@@ -88,7 +88,7 @@ async function make(opts: { mcpOn?: boolean; mcpAfterRoom?: boolean; judgeNoHttp
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
     queue: BotQueue;
     /** 그 에이전트의 CLI 를 죽일 때 쓴다 (2026-10-14) */
-    connections: Map<string, { proc?: { kill(sig?: string): boolean } }>;
+    pool: { get(id: string): { proc?: { kill(sig?: string): boolean } } | undefined };
   };
 
   const room = await mgr.createRoom({
@@ -244,7 +244,7 @@ async function main(): Promise<void> {
     ok((await t.check()).item !== null, "전제 — 심사 봇 몫에 들어갔다");
 
     /* 요청한 봇(알파)의 CLI 를 죽인다 */
-    t.inner.connections.get("alpha")?.proc?.kill("SIGKILL");
+    t.inner.pool.get("alpha")?.proc?.kill("SIGKILL");
     const out = await pending;
     ok(out.outcome === "cancelled",
        `★ **거절로 닫힌다** — 기다리던 쪽이 이미 없다 (${JSON.stringify(out)})`);
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
     await t2.untilQueued();
 
     /* 심사 봇(베타)의 CLI 를 죽인다 — 답할 사람이 없어졌다 */
-    t2.inner.connections.get("beta")?.proc?.kill("SIGKILL");
+    t2.inner.pool.get("beta")?.proc?.kill("SIGKILL");
     const got = await waiting;
     ok(t2.userAsks() > 0,
        `★ **사용자에게 물어본다** — 안 넘기면 낸 봇이 영영 기다린다 (${t2.userAsks()}번)`);

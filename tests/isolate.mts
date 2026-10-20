@@ -37,7 +37,7 @@ async function main() {
   const inner = mgr as unknown as {
     rooms: { open: Map<string, Room> };
     applyEvent(r: Room, m: Message, ev: unknown): void;
-    connections: Map<string, unknown>;
+    pool: { values(): Iterable<unknown> };
   };
 
   // **같은 에이전트**의 방 둘 — 여기가 제일 새기 쉽다
@@ -46,7 +46,7 @@ async function main() {
 
   console.log("\n[프로세스는 하나, 세션은 둘 (A4·B1)]");
   {
-    ok(inner.connections.size === 1, "CLI 프로세스는 하나만 뜬다");
+    ok([...inner.pool.values()].length === 1, "CLI 프로세스는 하나만 뜬다");
     ok(A.participants[0]!.sessionId !== B.participants[0]!.sessionId,
        "**세션은 방마다 다르다** — 대화가 섞이지 않는 근거");
   }

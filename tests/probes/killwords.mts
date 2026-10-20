@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 
   /* ② 글자가 오기 시작하면 죽인다 */
   const inner = mgr as unknown as {
-    connections: Map<string, { proc?: { pid?: number; kill(sig?: string): boolean } }>;
+    pool: { get(id: string): { proc?: { pid?: number; kill(sig?: string): boolean } } | undefined };
   };
   let cut = "";
   for (let i = 0; i < 4800; i++) {
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     if (live?.role === "agent" && (live.text?.length ?? 0) > 30) {
       cut = live.text;
       console.log(`  ${cut.length}자에서 죽인다 — 꼬리 ${JSON.stringify(cut.slice(-20))}`);
-      inner.connections.get(agent.id)?.proc?.kill("SIGKILL");
+      inner.pool.get(agent.id)?.proc?.kill("SIGKILL");
       break;
     }
     await nap(25);

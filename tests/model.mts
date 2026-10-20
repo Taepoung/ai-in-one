@@ -561,10 +561,10 @@ async function main() {
     const slow = { ...agent, id: "slow", env: { AIO_FAKE_SLOW_INIT: "300" } };
     const m8 = new RoomManager({ host, store, agents: [slow], configProbeMs: 20000 });
     m8.on("roomError", () => {});
-    const conn = (m8 as unknown as { connection(id: string): {
+    const conn = (m8 as unknown as { pool: { connection(id: string): {
       ensureStarted(): Promise<void>;
       resumeSession(id: string, cwd: string): Promise<{ ok: boolean; reason?: string }>;
-    } }).connection("slow");
+    } } }).pool.connection("slow");
 
     // 설정 미리 받기와 방 열기가 동시에 도는 상황
     const racing = conn.ensureStarted();

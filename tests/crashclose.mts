@@ -153,8 +153,8 @@ async function main(): Promise<void> {
 
     /* 그 상태에서 죽인다 */
     const conn = (m2 as unknown as {
-      connections: Map<string, { proc?: { kill(sig?: string): boolean } }>;
-    }).connections.get("fake");
+      pool: { get(id: string): { proc?: { kill(sig?: string): boolean } } | undefined };
+    }).pool.get("fake");
     conn?.proc?.kill("SIGKILL");
     for (let i = 0; i < 400 && m2.statusOf(r2.id) !== "error"; i++) await nap(25);
 
