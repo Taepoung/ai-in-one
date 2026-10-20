@@ -1932,7 +1932,7 @@ export const ROSTER_TAG = "ai-in-one";
  *
  * ★ **화면은 이것만 받는다** (리팩토링 ③). 예전엔 화면이 글을 직접 뜯었는데,
  * 그러면 에이전트마다 다른 «쓴 양/남은 양» 을 화면이 알아야 한다 — 화면은
- * 에이전트를 몰라야 한다(`docs/REFACTOR.md` §2).
+ * 에이전트를 몰라야 한다(`src/agents/README.md`).
  */
 export interface QuotaLine {
   /** 무엇의 한도인가 — «5-hour limit» · «Gemini Models · Weekly Limit Remaining» */

@@ -17,6 +17,49 @@ agents/antigravity/   Antigravity — zip · 따로 받는 agy · 지우는 길 
 
 ---
 
+## 애드온 — 에이전트는 이렇게 붙는다 (2026-10-20)
+
+에이전트마다 다른 것은 그 폴더(`agents/<id>/`)에만 있고, core 는 **꼴만** 정한다.
+코어는 에이전트 종류를 모르고, 애드온이 어댑터로 맞춘다. 주고받는 것은 ACP 그대로라
+숨는 메시지가 없다.
+
+### 문은 하나 — 린트가 지킨다
+
+```
+core/*      →  agent-api 만 보인다      agents/* 를 import 못 한다
+agents/*    →  core/agent-api.ts 만     서로도, core 의 속도 못 본다
+vscode/*    →  core · agents/index      둘을 잇는 유일한 자리
+webview/*   →  protocol (타입)          에이전트도 core 의 동작도 모른다
+```
+
+🔴 이게 없으면 «Antigravity 만 잠깐» 하는 import 하나로 격리가 끝난다
+(`eslint.config.mjs`). 한 에이전트를 올릴 때 **그 폴더만** 보면 되는 것이 이 덕이다.
+
+### 무엇을 들고 있나 — 표준과 다른 점만
+
+`AgentDef`(`core/types.ts`)의 칸이다. **선언으로 되는 것은 선언으로**, 못 하는 것만
+함수로 둔다 — 갈고리가 버릇마다 늘면 인터페이스가 세 에이전트의 버릇을 그대로 베낀다.
+
+```
+id · label · command · args · env    띄우는 법
+pkg                                  우리 자리에 받는 꾸러미 (npm 또는 zip)
+purgeSession · purgeFiles            ACP session/delete 너머의 뒷정리 (Codex CLI · Antigravity 파일)
+quota     { commands, parse }        잔량을 묻는 명령과 그 글을 뜯는 법     → <id>/quota.ts
+mcpIdentity(toolCall)                우리 MCP 도구인지 — 제 자리에서만 꺼낸다 → <id>/identity.ts
+```
+
+★ **`standard` 가 기본값이다**(`agents/standard/`). 칸을 비운 에이전트 — 설정의
+`command`·`args` 로 넣은 낯선 것 — 는 `agents/index.ts` 가 이걸 끼워 준다: 잔량은
+`usage`·`status` 를 차례로 묻고 모양을 보고 가늠하며, 신원은 세 자리를 다 본다.
+«아무 ACP 에이전트나 붙는다» 는 약속이 이 길이다. 내장 셋은 짐작 대신 제 것을 든다
+— 짐작은 판에서 말 한 마디가 빠지면 **정반대로** 틀린다.
+
+🔴 **밖에서 받는 애드온은 안 연다.** 애드온 코드는 확장 호스트 안에서 우리 권한 그대로
+돈다 — 로그인 자격이 있는 집에 남의 코드를 들이면 «구독 토큰을 안 건드린다» 를 장담할
+수 없다. 저장소 안에 든 것만 애드온이다.
+
+---
+
 ## 에이전트를 올릴 때 — 점검표
 
 > 2026-10-06. `docs/PIN.md` 가 «핀이 움직이면 무엇이 바뀌나» 를 설명한다면,

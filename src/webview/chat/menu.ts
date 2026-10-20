@@ -198,7 +198,7 @@ export function paintQuota(): void {
  *
  * ★ **화면은 뜯지 않는다** (리팩토링 ③, 2026-10-20). «쓴 양이냐 남은 양이냐» 는
  * 에이전트마다 반대인데, 그걸 아는 것은 애드온이다 — 화면은 에이전트를 몰라야
- * 한다(`docs/REFACTOR.md` §2). 그래서 `line.left` 는 **이미 «남은 양»** 이다.
+ * 한다(`src/agents/README.md`). 그래서 `line.left` 는 **이미 «남은 양»** 이다.
  */
 function quotaBars(lines: readonly QuotaLine[]): HTMLElement[] {
   return lines.map((line) => {

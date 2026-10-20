@@ -14,7 +14,7 @@
  *
  * ★ **이 모양만 읽는다.** 다른 에이전트의 글이 와도 안 뜯는다 — 저쪽이 모양을
  * 바꿔도 여기만 고치면 되고, 여기를 고쳐도 다른 애드온이 안 깨진다. 그게
- * 애드온으로 나눈 까닭이다(`docs/REFACTOR.md`).
+ * 애드온으로 나눈 까닭이다(`src/agents/README.md`).
  */
 import { quotaLine, type QuotaLine } from "../../core/agent-api.js";
 

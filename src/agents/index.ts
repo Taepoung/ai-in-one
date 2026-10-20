@@ -2,7 +2,7 @@
  * **에이전트 목록** — 애드온을 한 줄로 세우는 자리 (리팩토링 ①, 2026-10-20).
  *
  * 각 애드온은 서로를 모른다. 셋을 아는 것은 **이 파일 하나**고, 이걸 import 하는
- * 쪽은 `vscode/` 뿐이다(core 는 못 한다 — `docs/REFACTOR.md` §2).
+ * 쪽은 `vscode/` 뿐이다(core 는 못 한다 — `src/agents/README.md`).
  */
 import type { AgentDef } from "../core/agent-api.js";
 import { claude } from "./claude/index.js";

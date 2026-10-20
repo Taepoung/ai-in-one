@@ -16,7 +16,7 @@ const CORE_PATTERNS = [
      * ★ **core 는 에이전트를 모른다** (리팩토링 ①, 2026-10-20).
      * 에이전트에 따라 달라야 하는 것은 `agent-api.ts` 에 칸을 내고
      * 애드온이 채운다 — core 가 애드온을 들여다보면 «이 에이전트만
-     * 올릴 때 한 폴더만 보면 된다» 가 깨진다(docs/REFACTOR.md §2).
+     * 올릴 때 한 폴더만 보면 된다» 가 깨진다(src/agents/README.md).
      */
     regex: "(^|/)agents(/|$)",
     message:
@@ -25,7 +25,7 @@ const CORE_PATTERNS = [
 ];
 
 /*
- * ★ **층은 아래만 본다** (리팩토링 ⑧·⑨, 2026-10-20 · docs/REFACTOR.md §4 ⑤).
+ * ★ **층은 아래만 본다** (리팩토링 ⑧·⑨, 2026-10-20 · src/core/README.md).
  *
  *   L0  room/rooms · room/runtimes      아무 층도 안 본다
  *   L1  session/pool

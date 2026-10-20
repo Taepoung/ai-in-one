@@ -1,5 +1,5 @@
 /**
- * **Codex** — 애드온 (리팩토링 ①, 2026-10-20 · `docs/REFACTOR.md`).
+ * **Codex** — 애드온 (리팩토링 ①, 2026-10-20 · `src/agents/README.md`).
  *
  * 🔴 **`core/agent-api.ts` 말고는 core 를 import 하지 않는다.** 다른 에이전트도
  * 안 본다. 이 경계가 «이 에이전트만 올릴 때 펴는 곳이 한 폴더» 를 지킨다 —
