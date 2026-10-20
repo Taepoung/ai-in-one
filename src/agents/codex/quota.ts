@@ -7,11 +7,21 @@
  * ```
  * **Model:** gpt-5.6-terra[medium]
  * **Token usage:** data not available yet
- * **codex Weekly limit:** 100% left (resets 16:02 on 11월 18일)
+ * **codex Weekly limit:** 100% left (resets 16:02 on 11월 18일)     ← 무료는 이 한 줄
+ * ```
+ *
+ * 유료 계정은 줄이 늘어난다 (2026-10-20 실측):
+ *
+ * ```
+ * **codex 5h limit:** 100% left (resets 03:23 on 10월 21일)
+ * **codex Weekly limit:** 100% left (resets 22:23 on 10월 27일)
+ * **codex Credits:** 0
  * ```
  *
  * ★ 수는 **«남은 양»**(`left`)이다. 한도 줄만 집는다 — 수가 없는 줄
- * («data not available yet»)은 안 줍는다.
+ * («data not available yet»)은 안 줍는다. **계정 종류는 안 본다** — 줄 모양만 보므로
+ * 한도가 늘거나 줄어도 그대로 따라간다. 크레딧은 퍼센트가 아니라 막대가 안 된다
+ * (받은 글에는 그대로 남는다).
  */
 import { quotaLine, type QuotaLine } from "../../core/agent-api.js";
 

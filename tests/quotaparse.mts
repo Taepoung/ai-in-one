@@ -40,6 +40,24 @@ const CODEX = [
   "**codex Weekly limit:** 100% left (resets 16:02 on 11월 18일)",
 ].join(NL);
 
+/**
+ * ★ **유료 계정**의 `/status` (2026-10-20 실측 · codex-acp 2.2.2).
+ *
+ * 무료는 주간 한도 한 줄이었는데, 유료는 **5시간 한도가 더 붙고 크레딧 줄**이 생긴다.
+ * 파서는 계정 종류를 모른다 — «`**이름:** N% left`» 꼴이면 무엇이든 한 줄로 뜯는다.
+ */
+const CODEX_PAID = [
+  "**Model:** gpt-5.6-terra[medium]  ",
+  "**Approval:** on-request  ",
+  "**Sandbox:** workspace-write  ",
+  "  ",
+  "**Token usage:** data not available yet  ",
+  "**Context window:** data not available yet  ",
+  "**codex 5h limit:** 100% left (resets 03:23 on 10월 21일)  ",
+  "**codex Weekly limit:** 100% left (resets 22:23 on 10월 27일)  ",
+  "**codex Credits:** 0",
+].join(NL);
+
 const AGY = [
   "### Session Usage", "- **Session total:** data not available yet", "",
   "### Quota Limits", "- **Gemini Models**",
@@ -70,6 +88,18 @@ console.log(NL + "[★ Codex — 섞인 글에서 한도만]");
   ok(got[0]!.sense === "left" && got[0]!.left === 100, `★ **남은 양이다** (${got[0]!.left}%)`);
   ok((got[0]!.resets ?? "").includes("11월 18일"), `★ 리셋 (${got[0]!.resets})`);
   ok(JSON.stringify(commands("codex")) === '["status"]', "★ **/status 로 묻는다** — /usage 가 아니다");
+}
+
+console.log(NL + "[★ Codex 유료 — 5시간 · 주간 둘, 크레딧은 막대가 아니다]");
+{
+  const got = parse("codex", CODEX_PAID);
+  ok(got.length === 2, `★ 두 줄 (${got.length}) — 계정이 바뀌어도 파서는 그대로다`);
+  ok(got[0]!.label === "codex 5h limit" && got[0]!.left === 100 && (got[0]!.resets ?? "").includes("10월 21일"),
+     `★ 5시간 한도 (${got[0]!.label} · ${got[0]!.left}% · ${got[0]!.resets})`);
+  ok(got[1]!.label === "codex Weekly limit" && (got[1]!.resets ?? "").includes("10월 27일"),
+     `★ 주간 한도 (${got[1]!.label} · ${got[1]!.resets})`);
+  // 🔴 크레딧은 퍼센트가 아니다 — 막대로 세우면 «0%» 로 읽힌다. 받은 글에는 그대로 있다
+  ok(!got.some((l) => /credit/i.test(l.label)), "★ **크레딧 줄은 막대로 안 뜯는다**");
 }
 
 console.log(NL + "[★ Antigravity — 묶음 이름을 앞에 붙인다]");
