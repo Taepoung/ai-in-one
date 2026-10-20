@@ -11,6 +11,7 @@
 import * as path from "node:path";
 import type { AgentDef } from "../../core/agent-api.js";
 import { parseAntigravityQuota } from "./quota.js";
+import { antigravityMcpIdentity } from "./identity.js";
 
 export const antigravity: AgentDef = {
   id: "antigravity",
@@ -173,6 +174,6 @@ export const antigravity: AgentDef = {
   },
   // ★ 잔량 — 모델 묶음마다 «남은 양» (뜯기는 ./quota.ts)
   quota: { commands: ["usage"], parse: parseAntigravityQuota },
-  // ★ 우리 도구는 **`_meta.mcp`** 로 안다 — 이름은 `ai-in-one_say` 꼴이라 못 쓴다 (리팩토링 ⑤)
-  mcpIdentity: "meta",
+  // ★ 우리 도구 알아보기 — 제 자리에서만 꺼낸다 (./identity.ts)
+  mcpIdentity: antigravityMcpIdentity,
 };

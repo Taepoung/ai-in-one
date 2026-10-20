@@ -11,6 +11,7 @@
 import * as path from "node:path";
 import { npx, type AgentDef } from "../../core/agent-api.js";
 import { parseCodexQuota } from "./quota.js";
+import { codexMcpIdentity } from "./identity.js";
 
 /**
  * 🔴 **`.bin/codex.cmd` 가 아니라 진짜 exe 를 가리킨다** (2026-10-06).
@@ -176,6 +177,6 @@ export const codex: AgentDef = {
    */
   // ★ 잔량 — /usage 가 아니라 /status — 한도가 다른 줄과 섞여 온다 (뜯기는 ./quota.ts)
   quota: { commands: ["status"], parse: parseCodexQuota },
-  // ★ 우리 도구는 **`rawInput`** 으로 안다 — Codex 는 MCP 를 애초에 안 묻는다 (리팩토링 ⑤)
-  mcpIdentity: "rawInput",
+  // ★ 우리 도구 알아보기 — 제 자리에서만 꺼낸다 (./identity.ts)
+  mcpIdentity: codexMcpIdentity,
 };

@@ -1,6 +1,19 @@
 import type { ComposeToken } from "./mentions.js";
 
 /** 에이전트 한 종류의 실행 방법. 설정으로 덮어쓸 수 있다. */
+/** 도구 호출에서 MCP 신원을 꺼낼 때 보는 칸 — ACP `ToolCall` 중 셋 */
+export interface ToolCallShape {
+  name?: string | null;
+  rawInput?: unknown;
+  _meta?: { [k: string]: unknown } | null;
+}
+
+/** 어느 MCP 서버의 어느 도구인가 */
+export interface McpWho {
+  server: string;
+  tool: string;
+}
+
 export interface AgentDef {
   id: string;
   /**
@@ -103,21 +116,22 @@ export interface AgentDef {
    */
   quota?: { commands: string[]; parse(text: string): QuotaLine[] };
   /**
-   * ★ **우리 MCP 도구인지 어디서 알아보나** (리팩토링 ⑤, 2026-10-20).
+   * ★ **이 도구 호출이 어느 MCP 서버의 것인가 — 애드온이 꺼낸다** (2026-10-20).
    *
    * 자리가 에이전트마다 다르다 — Claude 는 도구 이름(`mcp__ai-in-one__say`),
-   * Antigravity 는 `_meta.mcp`, Codex 는 `rawInput` (2026-10-08 실측).
+   * Antigravity 는 `_meta.mcp`, Codex 는 `rawInput` (2026-10-08 실측). 그 버릇은
+   * 애드온의 것이라 꺼내는 법도 애드온이 든다 — 코어는 `{ server, tool }` 꼴만 받는다.
    *
-   * 🔴 **선언하면 그 자리만 본다 — 이게 안전 장치다.** 이 판정이 «우리 것» 이면
-   * 사람에게 안 묻고 `allow_once` 를 고른다(`acpConnection` 의 `mine`). 그런데
-   * `rawInput` 은 **모델이 써 넣는 도구 인자**다. 셋 다 뒤지면, Claude 나
-   * Antigravity 에서 어떤 도구가 마침 `{server:"ai-in-one"}` 를 인자로 받을 때
-   * 우리 것으로 읽혀 **자동 승인**될 길이 열린다. 제 자리만 보면 그 길이 닫힌다.
+   * 🔴 **제 자리에서만 꺼낸다 — 이게 안전 장치다.** 이 판정이 «우리 것» 이면 사람에게
+   * 안 묻고 `allow_once` 를 고른다. `rawInput` 은 **모델이 써 넣는 도구 인자**라,
+   * 셋 다 뒤지면 어떤 도구가 마침 `{server:"ai-in-one"}` 를 인자로 받을 때 자동
+   * 승인될 길이 열린다(리팩토링 ⑤ 에서 닫았다). 코어도 한 번 더 본다 — 도구 이름이
+   * 우리 셋 중 하나일 때만 «우리 것» 이다(`acpConnection` 의 `OUR_MCP_TOOLS`).
    *
-   * 안 적은 에이전트(설정으로 넣은 낯선 것)는 예전처럼 셋 다 본다 — 그래야
-   * 처음 보는 에이전트에서도 봇끼리 말하기가 돈다.
+   * 비운 에이전트(설정으로 넣은 낯선 것)는 `agents/index.ts` 가 `standard`(셋 다
+   * 본다)를 끼워 준다. 애드온이 터지면 코어는 «모른다» 로 읽는다 — 사람에게 간다.
    */
-  mcpIdentity?: "name" | "meta" | "rawInput";
+  mcpIdentity?: (tc: ToolCallShape) => McpWho | undefined;
 }
 
 /**

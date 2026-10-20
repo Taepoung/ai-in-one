@@ -8,7 +8,7 @@ import type { AgentDef } from "../core/agent-api.js";
 import { claude } from "./claude/index.js";
 import { codex } from "./codex/index.js";
 import { antigravity } from "./antigravity/index.js";
-import { standardQuota } from "./standard/index.js";
+import { standardMcpIdentity, standardQuota } from "./standard/index.js";
 
 /**
  * 기본 에이전트 목록.
@@ -75,5 +75,9 @@ export function resolveAgents(
    * ★ **비운 칸은 standard 로 채운다** (2026-10-20). 설정으로 넣은 낯선 에이전트는
    * 잔량을 뜯는 법을 모른다 — 코어가 짐작하지 않게, 짐작하는 어댑터를 여기서 끼운다.
    */
-  return [...byId.values()].map((a) => (a.quota ? a : { ...a, quota: standardQuota }));
+  return [...byId.values()].map((a) => ({
+    ...a,
+    quota: a.quota ?? standardQuota,
+    mcpIdentity: a.mcpIdentity ?? standardMcpIdentity,
+  }));
 }

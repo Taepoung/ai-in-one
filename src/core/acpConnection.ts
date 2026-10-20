@@ -4,6 +4,8 @@ import * as acp from "@agentclientprotocol/sdk";
 
 import type {
   AgentDef,
+  McpWho,
+  ToolCallShape,
   PermissionDecision,
   PermissionRequest,
 } from "./types.js";
@@ -130,6 +132,14 @@ export interface NewSessionResult {
  * **반드시 같아야 한다** — 다르면 우리 도구가 사용자에게 물어진다.
  */
 export const OUR_MCP_NAME = "ai-in-one";
+
+/**
+ * ★ **우리 MCP 의 도구 이름 셋** — 자동 승인은 이 셋에만 (2026-10-20).
+ *
+ * `core/mcp/calls.ts` 의 `tools()` 와 **같아야 한다** — 도구를 늘리면 여기도.
+ * `tests/mcpself.mts` 가 둘이 같은지 본다.
+ */
+export const OUR_MCP_TOOLS: ReadonlySet<string> = new Set(["say", "check_queue", "verdict"]);
 
 /** 이보다 오래 걸리면 "처음이라 오래 걸린다"고 알려준다 */
 const SLOW_START_MS = 4000;
@@ -1097,7 +1107,7 @@ export class AcpConnection {
   }
 
   private dispatch(note: acp.SessionNotification): void {
-    let events = translate(note.update, this.agent.mcpIdentity);
+    let events = translate(note.update, (tc) => identify(this.agent, tc));
     // 재생 중이면 이미 우리가 갖고 있는 대화다 — `resumeSession` 참조
     if (this.replaying.has(note.sessionId)) {
       const kept = events.filter((ev) => !this.isReplayed(ev));
@@ -1266,7 +1276,7 @@ export class AcpConnection {
       ...describeToolCall(params.toolCall),
       // **신원은 버리지 않는다** — «우리 도구인가»를 물을 자리가 여기뿐이다
       ...(() => {
-        const who = mcpIdentity(params.toolCall, this.agent.mcpIdentity);
+        const who = identify(this.agent, params.toolCall);
         return who ? { mcp: who } : {};
       })(),
       options: params.options.map((o) => ({
@@ -1288,9 +1298,13 @@ export class AcpConnection {
      * 그리고 **«항상»은 안 고른다**: 이 요청 하나를 넘어 앞으로를 바꾸는 값을
      * 우리가 몰래 켜면, 사용자가 켠 적 없는 권한이 생긴다(§4.2.2).
      */
-    const mine = req.mcp?.server === OUR_MCP_NAME
-      ? params.options.find((o) => o.kind === "allow_once")
-      : undefined;
+    /*
+     * ★ **코어가 한 번 더 본다** (2026-10-20). 신원은 애드온이 꺼내 오지만, 자동
+     * 승인을 정하는 것은 우리다 — 서버가 우리 것이고 **도구도 우리 셋 중 하나**일
+     * 때만. 애드온이 잘못 꺼내 와도 우리에게 없는 도구 이름이면 사람에게 간다.
+     */
+    const ours = req.mcp?.server === OUR_MCP_NAME && OUR_MCP_TOOLS.has(req.mcp.tool);
+    const mine = ours ? params.options.find((o) => o.kind === "allow_once") : undefined;
 
     // 누구에게 물을지는 방을 아는 쪽이 정한다. 없으면 사용자에게.
     const decision: PermissionDecision = mine
@@ -1335,68 +1349,20 @@ export class AcpConnection {
 }
 
 /**
- * ★ **이 도구 호출이 어느 MCP 서버의 것인가** (v3.0 2-F).
+ * ★ **이 도구 호출이 어느 MCP 서버의 것인가 — 애드온에게 묻는다** (2026-10-20).
  *
- * 🔴 **자리가 에이전트마다 다르다** (2026-10-08 실측). 하나만 보고 만들면
- * 나머지 둘에서 우리 도구가 **사용자에게 물어진다** — 봇이 한 마디 할 때마다
- * 승인 카드가 뜨는 꼴이다.
- *
- * ```
- * Claude        name = "mcp__ai-in-one__say"
- * Antigravity   _meta.mcp = { server, tool }
- * Codex         rawInput = { server, tool, … }     (Codex 는 애초에 안 묻는다)
- * ```
- *
- * ⚠️ **셋 다 없으면 `undefined` 다 — 넘겨짚지 않는다.** 못 알아본 것을
- * «우리 것»으로 읽으면 남의 도구가 자동 승인으로 지나간다. 틀리는 방향이
- * **위험한 쪽**이라, 모르면 사람에게 가는 편이 맞다.
+ * 꺼내는 법은 에이전트마다 달라서 애드온이 든다(`AgentDef.mcpIdentity`). 코어는
+ * 받기만 하고, **애드온이 터지면 «모른다»** 로 읽는다 — 모르는 것은 사람에게 간다.
+ * 넘겨짚지 않는다: 못 알아본 것을 «우리 것» 으로 읽으면 남의 도구가 자동 승인으로
+ * 지나간다. 틀리는 방향이 **위험한 쪽**이다.
  */
-export function mcpIdentity(
-  tc: { name?: string | null; rawInput?: unknown; _meta?: { [k: string]: unknown } | null },
-  /**
-   * ★ **애드온이 선언한 자리** (리팩토링 ⑤). 주면 **그 자리만** 본다 —
-   * `AgentDef.mcpIdentity` 의 주석에 왜 그래야 하는지 있다. 안 주면 셋 다.
-   */
-  only?: "name" | "meta" | "rawInput",
-): { server: string; tool: string } | undefined {
-  const look = (where: "name" | "meta" | "rawInput") => !only || only === where;
-
-  // ① Claude — 이름 하나에 둘을 담는다. 서버 이름에 `__` 가 들어가면 못 가르므로
-  //    **처음 둘만** 쪼갠다 (도구 이름에 `__` 가 있어도 안 잘린다)
-  const name = look("name") && typeof tc.name === "string" ? tc.name : "";
-  if (name.startsWith("mcp__")) {
-    const rest = name.slice("mcp__".length);
-    const at = rest.indexOf("__");
-    if (at > 0 && at + 2 < rest.length) {
-      return { server: rest.slice(0, at), tool: rest.slice(at + 2) };
-    }
+function identify(agent: AgentDef, tc: ToolCallShape): McpWho | undefined {
+  if (!agent.mcpIdentity) return undefined;
+  try {
+    return agent.mcpIdentity(tc);
+  } catch {
+    return undefined;
   }
-
-  // ② Antigravity — `_meta` 에 따로 담는다
-  const fromMeta = look("meta") ? pair(tc._meta?.["mcp"], "server", "tool") : undefined;
-  if (fromMeta) return fromMeta;
-
-  // ③ Codex — 도구의 입력 자체에 들어 있다. 🔴 모델이 써 넣는 자리다 — 선언한
-  //    에이전트에서는 Codex 만 여기를 본다
-  const fromRaw = look("rawInput") ? pair(tc.rawInput, "server", "tool") : undefined;
-  if (fromRaw) return fromRaw;
-
-  return undefined;
-}
-
-/** 객체에서 문자열 두 칸을 꺼낸다. 하나라도 비면 **안 쓴다** */
-function pair(
-  v: unknown,
-  a: string,
-  b: string,
-): { server: string; tool: string } | undefined {
-  if (typeof v !== "object" || v === null) return undefined;
-  const o = v as Record<string, unknown>;
-  const server = o[a];
-  const tool = o[b];
-  if (typeof server !== "string" || typeof tool !== "string") return undefined;
-  if (!server || !tool) return undefined;
-  return { server, tool };
 }
 
 /**
@@ -1526,8 +1492,8 @@ const KNOWN_UPDATES = new Set([
 /** ACP 업데이트 하나를 우리 이벤트 0~N개로 번역한다 */
 function translate(
   update: acp.SessionUpdate,
-  /** 우리 도구를 어디서 알아보나 — `AgentDef.mcpIdentity` */
-  mcpWhere?: "name" | "meta" | "rawInput",
+  /** 우리 도구를 알아보는 길 — 애드온의 것 (`AgentDef.mcpIdentity`) */
+  who?: (tc: ToolCallShape) => McpWho | undefined,
 ): AgentEvent[] {
   switch (update.sessionUpdate) {
     /*
@@ -1573,8 +1539,8 @@ function translate(
           })(),
           // **우리 것인가** — 이름을 우리가 달 때 쓴다
           ...(() => {
-            const who = mcpIdentity(update as Parameters<typeof mcpIdentity>[0], mcpWhere);
-            return who ? { mcp: who } : {};
+            const found = who?.(update as ToolCallShape);
+            return found ? { mcp: found } : {};
           })(),
         },
       ];

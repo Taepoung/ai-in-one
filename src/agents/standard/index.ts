@@ -9,7 +9,10 @@
  * 가늠한다. 내장 셋이 짐작을 안 쓰는 까닭이 그것이다 — 짐작은 판에서 말 한
  * 마디가 빠지면 **정반대로** 틀린다(`tests/quotaparse.mts` 가 그걸 보여준다).
  */
-import { quotaLine, type AgentDef, type QuotaLine } from "../../core/agent-api.js";
+import {
+  mcpPair, quotaLine,
+  type AgentDef, type McpWho, type QuotaLine, type ToolCallShape,
+} from "../../core/agent-api.js";
 
 /** `**굵게**` 와 군더더기를 걷어 이름만 남긴다 */
 function clean(raw: string): string {
@@ -69,3 +72,22 @@ export const standardQuota: NonNullable<AgentDef["quota"]> = {
   commands: ["usage", "status"],
   parse: parseStandardQuota,
 };
+
+/**
+ * ★ **처음 보는 에이전트의 MCP 신원 — 세 자리를 다 본다** (2026-10-20).
+ *
+ * 어디에 실어 올지 모르니 아는 세 꼴을 차례로 본다 — 이름(`mcp__서버__도구`) ·
+ * `_meta.mcp` · `rawInput`. 그래야 처음 보는 에이전트에서도 봇끼리 말하기가 돈다.
+ *
+ * ⚠️ **셋째(`rawInput`)는 모델이 써 넣는 자리다.** 내장 셋이 제 자리만 보는 까닭이
+ * 그것이고, 여기서도 코어가 한 번 더 본다(도구 이름이 우리 셋 중 하나일 때만).
+ */
+export function standardMcpIdentity(tc: ToolCallShape): McpWho | undefined {
+  const name = typeof tc.name === "string" ? tc.name : "";
+  if (name.startsWith("mcp__")) {
+    const rest = name.slice("mcp__".length);
+    const at = rest.indexOf("__");
+    if (at > 0 && at + 2 < rest.length) return { server: rest.slice(0, at), tool: rest.slice(at + 2) };
+  }
+  return mcpPair(tc._meta?.["mcp"]) ?? mcpPair(tc.rawInput);
+}

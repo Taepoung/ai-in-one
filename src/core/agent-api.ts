@@ -8,8 +8,22 @@
  * 지금은 `AgentDef` 하나와 `npx()` 뿐이다. 버릇을 애드온으로 옮기는 걸음마다
  * 칸이 하나씩 는다 — 늘 때도 **선언으로 되는 것은 선언으로** 둔다(§3.1).
  */
-export type { AgentDef, QuotaLine } from "./types.js";
-import type { QuotaLine } from "./types.js";
+export type { AgentDef, QuotaLine, ToolCallShape, McpWho } from "./types.js";
+import type { McpWho, QuotaLine } from "./types.js";
+
+/**
+ * 객체에서 `server`·`tool` 두 문자열을 꺼낸다 — 하나라도 비면 **안 쓴다**.
+ * 신원을 `{server, tool}` 꼴로 담아 보내는 에이전트들이 같이 쓴다.
+ */
+export function mcpPair(v: unknown): McpWho | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const o = v as Record<string, unknown>;
+  const server = o["server"];
+  const tool = o["tool"];
+  if (typeof server !== "string" || typeof tool !== "string") return undefined;
+  if (!server || !tool) return undefined;
+  return { server, tool };
+}
 
 /**
  * ★ **잔량 한 줄을 공통 꼴로 만든다** — 애드온의 파서가 이걸로 내놓는다 (2026-10-20).

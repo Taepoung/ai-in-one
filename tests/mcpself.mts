@@ -22,7 +22,16 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
-import { DEFAULT_AGENTS } from "../src/agents/index.js";
+import { DEFAULT_AGENTS, resolveAgents } from "../src/agents/index.js";
+import { claudeMcpIdentity } from "../src/agents/claude/identity.js";
+import { codexMcpIdentity } from "../src/agents/codex/identity.js";
+import { antigravityMcpIdentity } from "../src/agents/antigravity/identity.js";
+import { standardMcpIdentity } from "../src/agents/standard/index.js";
+import { OUR_MCP_TOOLS } from "../src/core/acpConnection.js";
+import type { McpWho, ToolCallShape } from "../src/core/types.js";
+
+/** 신원 어댑터 — 애드온이 든다 */
+type Who = (tc: ToolCallShape) => McpWho | undefined;
 import type { WorkspaceHost, } from "../src/core/workspaceHost.js";
 import type { PermissionRequest } from "../src/core/types.js";
 
@@ -34,14 +43,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /**
  * 어디에 신원을 싣나 · 어느 서버를 부르나 · **어디만 보라고 선언했나**.
  *
- * ★ 바탕은 Claude 정의지만 **선언은 걷어낸다**(리팩토링 ⑤) — 안 그러면 Claude 의
- * «이름만 본다» 를 물려받아 낯선 에이전트를 흉내 낼 수 없다. 선언을 재고 싶을
- * 때만 `declared` 로 준다.
+ * ★ 바탕은 Claude 정의지만 **신원 어댑터는 갈아 끼운다**(2026-10-20) — 안 그러면
+ * Claude 의 «이름만 본다» 를 물려받아 낯선 에이전트를 흉내 낼 수 없다. 기본은
+ * `standard`(셋 다 본다)다 — 제품에서 설정으로 넣은 에이전트가 받는 것과 같다.
  */
 async function make(
   where: string | undefined,
   call: string | undefined,
-  declared?: "name" | "meta" | "rawInput",
+  adapter: Who = standardMcpIdentity,
 ) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-mcpself-"));
   const store = new RoomStore(dir); await store.init();
@@ -58,7 +67,7 @@ async function make(
     host, store, configProbeMs: 20000,
     agents: [{
       ...withoutIdentity(DEFAULT_AGENTS[0]!), id: "alpha", label: "알파",
-      ...(declared ? { mcpIdentity: declared } : {}),
+      mcpIdentity: adapter,
       command: "node", args: [path.join(here, "fakeagent.cjs")],
       env: {
         ...(where ? { AIO_FAKE_MCP_WHERE: where } : {}),
@@ -86,9 +95,9 @@ function withoutIdentity<T extends { mcpIdentity?: unknown }>(def: T): Omit<T, "
 async function run(
   where: string | undefined,
   call: string | undefined,
-  declared?: "name" | "meta" | "rawInput",
+  adapter?: Who,
 ) {
-  const { dir, mgr, asked, settle } = await make(where, call, declared);
+  const { dir, mgr, asked, settle } = await make(where, call, adapter);
   const room = await mgr.createRoom({ agentId: "alpha", title: "묻나" });
   await mgr.send(room.id, "[[ask:뭔가 한다]] 해줘");
   await settle(room.id);
@@ -98,7 +107,7 @@ async function run(
 }
 
 async function main(): Promise<void> {
-  console.log(`${NL}[★ 선언 없는 에이전트는 세 자리 전부에서 우리 도구를 알아본다]`);
+  console.log(`${NL}[★ 낯선 에이전트(standard)는 세 자리 전부에서 우리 도구를 알아본다]`);
   for (const where of ["name", "meta", "raw"]) {
     const asked = await run(where, "ai-in-one/say");
     ok(asked.length === 0, `★ **${where} — 사람을 안 깨운다** (${asked.length}번 물음)`);
@@ -119,14 +128,21 @@ async function main(): Promise<void> {
     ok(asked[0]?.mcp === undefined, "★ 신원 칸은 **비워 둔다** — 지어내지 않는다");
   }
 
-  console.log(`${NL}[★ 도구 이름에 «__» 가 있어도 안 잘린다]`);
+  console.log(`${NL}[★ 도구 이름에 «__» 가 있어도 안 잘린다 — 그리고 우리 셋이 아니면 묻는다]`);
   {
-    // Claude 꼴은 이름 하나에 둘을 담는다 — **처음 둘만** 쪼개야 한다
+    /*
+     * Claude 꼴은 이름 하나에 둘을 담는다 — **처음 둘만** 쪼개야 한다. 그렇게
+     * 꺼낸 «check__queue» 는 우리 서버 이름을 달았어도 **우리 셋 중 하나가 아니다**
+     * — 코어가 한 번 더 보므로(2026-10-20) 사람에게 간다.
+     */
     const asked = await run("name", "ai-in-one/check__queue");
-    ok(asked.length === 0, "★ 우리 것으로 알아본다 — 도구 이름의 «__» 에 안 걸린다");
+    ok(JSON.stringify(asked[0]?.mcp) === JSON.stringify({ server: "ai-in-one", tool: "check__queue" }),
+       `★ 신원은 안 잘린 채 꺼낸다 (${JSON.stringify(asked[0]?.mcp)})`);
+    ok(asked.length === 1,
+       "★ 🔴 **서버 이름이 우리 것이어도 우리 도구가 아니면 사람에게** — 코어의 둘째 확인");
   }
 
-  console.log(`${NL}[★ 선언한 에이전트는 **제 자리만** 본다 (리팩토링 ⑤)]`);
+  console.log(`${NL}[★ 내장 어댑터는 **제 자리만** 본다 (리팩토링 ⑤ · 2026-10-20)]`);
   {
     /*
      * 🔴 **여기가 닫은 구멍이다.** «우리 것» 이면 사람에게 안 묻고 `allow_once`
@@ -134,26 +150,48 @@ async function main(): Promise<void> {
      * Claude·Antigravity 에서 어떤 도구가 마침 `{server:"ai-in-one"}` 를 받을 때
      * **자동 승인**으로 지나갈 길이 있었다.
      */
-    ok((await run("name", "ai-in-one/say", "name")).length === 0,
-       "★ 이름으로 선언 — 이름에 실린 우리 도구는 그대로 안 묻는다");
-    const viaRaw = await run("raw", "ai-in-one/say", "name");
+    ok((await run("name", "ai-in-one/say", claudeMcpIdentity)).length === 0,
+       "★ Claude — 이름에 실린 우리 도구는 그대로 안 묻는다");
+    const viaRaw = await run("raw", "ai-in-one/say", claudeMcpIdentity);
     ok(viaRaw.length === 1,
        `★ 🔴 **이름으로 선언했는데 rawInput 에 «ai-in-one» 이 실려 오면 사람에게 간다** (${viaRaw.length}번)`);
     ok(viaRaw[0]?.mcp === undefined, "★ 신원도 안 붙인다 — 제 자리가 아니면 모르는 것이다");
-    ok((await run("meta", "ai-in-one/say", "name")).length === 1,
+    ok((await run("meta", "ai-in-one/say", claudeMcpIdentity)).length === 1,
        "★ _meta 에 실려 와도 마찬가지 — 제 자리가 아니다");
 
-    ok((await run("raw", "ai-in-one/say", "rawInput")).length === 0,
-       "★ rawInput 으로 선언(Codex) — 거기 실린 것은 우리 것이다");
-    ok((await run("name", "ai-in-one/say", "rawInput")).length === 1,
-       "★ rawInput 으로 선언했으면 이름에 실려 와도 사람에게 간다");
+    ok((await run("raw", "ai-in-one/say", codexMcpIdentity)).length === 0,
+       "★ Codex — rawInput 에 실린 것은 우리 것이다");
+    ok((await run("name", "ai-in-one/say", codexMcpIdentity)).length === 1,
+       "★ Codex 어댑터는 이름에 실려 와도 사람에게 보낸다");
+    ok((await run("meta", "ai-in-one/say", antigravityMcpIdentity)).length === 0,
+       "★ Antigravity — _meta 에 실린 것은 우리 것이다");
+    ok((await run("raw", "ai-in-one/say", antigravityMcpIdentity)).length === 1,
+       "★ Antigravity 어댑터는 rawInput 을 안 믿는다");
   }
 
-  console.log(`${NL}[★ 내장 셋이 무엇을 선언했나]`);
+  console.log(`${NL}[★ 내장 셋은 제 어댑터를 들고 있다]`);
   {
     const of = (id: string) => DEFAULT_AGENTS.find((a) => a.id === id)?.mcpIdentity;
-    ok(of("claude") === "name" && of("antigravity") === "meta" && of("codex") === "rawInput",
-       `★ Claude 이름 · Antigravity _meta · Codex rawInput (${of("claude")} · ${of("antigravity")} · ${of("codex")})`);
+    ok(of("claude") === claudeMcpIdentity && of("antigravity") === antigravityMcpIdentity
+       && of("codex") === codexMcpIdentity, "★ Claude 이름 · Antigravity _meta · Codex rawInput");
+    const stranger = resolveAgents({ x: { label: "x", command: "node", args: ["x.js"] } })
+      .find((a) => a.id === "x");
+    ok(stranger?.mcpIdentity === standardMcpIdentity, "★ 설정으로 넣은 에이전트에는 standard 가 끼워진다");
+  }
+
+  console.log(`${NL}[★ 어댑터가 터지면 «모른다» — 사람에게]`);
+  {
+    const boom: Who = () => { throw new Error("어댑터가 틀렸다"); };
+    const asked = await run("name", "ai-in-one/say", boom);
+    ok(asked.length === 1 && asked[0]?.mcp === undefined,
+       "★ **애드온이 터져도 자동 승인으로 새지 않는다** — 모르는 것은 사람에게");
+  }
+
+  console.log(`${NL}[★ 코어가 아는 «우리 도구 셋» 이 실제 도구와 같다]`);
+  {
+    const real = (await make(undefined, undefined)).mgr.mcpTools().map((t) => t.name).sort();
+    ok(JSON.stringify(real) === JSON.stringify([...OUR_MCP_TOOLS].sort()),
+       `★ 도구를 늘리면 OUR_MCP_TOOLS 도 늘려야 한다 (${real.join(" · ")})`);
   }
 
   console.log(`${NL}전부 통과`);
