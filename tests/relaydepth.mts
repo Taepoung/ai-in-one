@@ -43,7 +43,7 @@ const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const here = path.dirname(fileURLToPath(import.meta.url));
 const busy = (s: string) => !["idle", "error"].includes(s);
 
-interface SayOut { ok: boolean; reason?: string; queue_left?: number; got?: string[] }
+interface SayOut { ok: boolean; reason?: string; queue_left?: number; got?: string[]; can_call?: string[] }
 
 async function make(cap: number) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-depth-"));

@@ -465,7 +465,7 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
      * 하나라는 것은 방의 규칙이지 턴의 규칙이 아니다 — 턴마다 갈리면 모델이
      * «지금은 되나» 를 매번 따져야 한다.
      */
-    const t = await make("ask"); dirs.push(t.dir);
+    const t = await make(); dirs.push(t.dir);
     const mine = t.inner.queue.put({
       kind: "message", to: t.a.id, from: "베타", fromId: t.b.id, srcId: "m-x",
       text: "이거 봐줄래?", depth: 1,
