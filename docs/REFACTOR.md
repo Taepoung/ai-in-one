@@ -207,7 +207,7 @@ closed     답이 난 id              mcp · review
 ⑦-1 2a1449d 큐는 core/mcp/ 아래 · 장부는 큐 안으로       동작 그대로
 ⑦-2 0f27a47 심사 봇은 MCP 로 답할 수 있을 때만         얼어붙던 권한 요청을 막았다
      117e449 재귀 막이 비어 있었다 — 큐에서 읽는다      서로를 기다리던 고리를 막았다
-⑦-3 (이 커밋) review 층 → core/review/review.ts         동작 그대로   roomManager 6,553 → 6,107
+⑦-3 4bfb06e review 층 → core/review/review.ts         동작 그대로   roomManager 6,553 → 6,077
 ```
 
 **⑦ 은 계획을 고쳐 밟았다.** 처음엔 «review · session · room 으로 나눈다» 였는데,
