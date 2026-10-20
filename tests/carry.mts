@@ -48,7 +48,7 @@ async function main(): Promise<void> {
   };
   const mgr = new RoomManager({ host, store, agents: [mk("a1"), mk("a2")], configProbeMs: 20000 });
   mgr.on("roomError", () => {}); mgr.on("notice", () => {});
-  const inner = mgr as unknown as { open: Map<string, Room> };
+  const inner = mgr as unknown as { rooms: { open: Map<string, Room> } };
 
   const settle = async (id: string) => {
     for (let i = 0; i < 800 && !["idle", "error"].includes(mgr.statusOf(id)); i++) await nap(25);
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   /** 한 방을 만들고 **옛 이야기 + 압축 요약 + 최근 이야기** 를 쌓는다 */
   async function build(): Promise<Room> {
     const room = await mgr.createRoom({ agentId: "a1", title: "긴 방" });
-    const live = inner.open.get(room.id)!;
+    const live = inner.rooms.open.get(room.id)!;
     const add = (role: "user" | "agent", text: string, extra: Partial<Message> = {}) => {
       live.messages.push({
         id: "m" + live.messages.length, role, text, createdAt: Date.now(),

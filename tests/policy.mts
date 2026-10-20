@@ -22,7 +22,7 @@ async function main() {
   const inner = mgr as unknown as {
     askApprover(id: string, req: unknown): Promise<unknown>;
     recordActivity(room: unknown, reply: unknown, ev: unknown): void;
-    open: Map<string, Room>;
+    rooms: { open: Map<string, Room> };
   };
 
   console.log("\n[권한은 에이전트 모드다 — 우리 사다리가 없다]");
@@ -69,7 +69,7 @@ async function main() {
       cwd: "/ws", messages: [], unread: 0, createdAt: 1, lastActivityAt: 1,
     };
     await store.createRoom(room);
-    inner.open.set(room.id, room);
+    inner.rooms.open.set(room.id, room);
 
     ok(solo.answerPolicy === "ask", "기본은 물어봄");
     await mgr.setPolicy(room.id, { answerPolicy: "auto" });
@@ -84,7 +84,7 @@ async function main() {
       cwd: "/ws", messages: [], unread: 0, createdAt: 1, lastActivityAt: 1,
     };
     await store.createRoom(group);
-    inner.open.set(group.id, group);
+    inner.rooms.open.set(group.id, group);
 
     await mgr.setPolicy(group.id, { answerPolicy: "auto" }, b.id);
     ok(b.answerPolicy === "auto", "**지목한 봇만 바뀐다**");
@@ -109,7 +109,7 @@ async function main() {
       cwd: "/ws", messages: [], unread: 0, createdAt: 1, lastActivityAt: 1,
     };
     await store.createRoom(room);
-    inner.open.set(room.id, room);
+    inner.rooms.open.set(room.id, room);
 
     const notices: string[] = [];
     mgr.on("notice", (_id, m) => notices.push(m));

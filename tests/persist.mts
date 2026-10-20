@@ -88,8 +88,8 @@ async function main() {
     ok((await fromDisk(room.id)).draft === "쓰다 말았다",
        "**초안** — 활성 방이 아니어도 쓴 방에 저장된다 (B7)");
 
-    const inner = mgr as unknown as { open: Map<string, Room>; markRead(r: Room): void };
-    const live = inner.open.get(room.id)!;
+    const inner = mgr as unknown as { rooms: { open: Map<string, Room> }; markRead(r: Room): void };
+    const live = inner.rooms.open.get(room.id)!;
     live.messages.push(
       { id: "m1", role: "user", text: "하나", deliveredTo: [], createdAt: 1 },
       { id: "m2", role: "agent", text: "둘", deliveredTo: [], createdAt: 2 },
@@ -107,8 +107,8 @@ async function main() {
 
   console.log("\n[메시지에 딸린 것들]");
   {
-    const inner = mgr as unknown as { open: Map<string, Room> };
-    const live = inner.open.get(room.id)!;
+    const inner = mgr as unknown as { rooms: { open: Map<string, Room> } };
+    const live = inner.rooms.open.get(room.id)!;
     const rich: Message = {
       id: "m3", role: "agent", text: "했습니다", deliveredTo: ["b1"], createdAt: 3,
       replyToIds: ["m1"],
@@ -145,8 +145,8 @@ async function main() {
 
   console.log("\n[끊긴 맥락 — 고르기 전에 창을 닫아도 약속이 남아야 한다]");
   {
-    const inner = mgr as unknown as { open: Map<string, Room> };
-    inner.open.get(room.id)!.contextLost = true;
+    const inner = mgr as unknown as { rooms: { open: Map<string, Room> } };
+    inner.rooms.open.get(room.id)!.contextLost = true;
     await mgr.decideRefeed(room.id, true);
     await settle();
     const d = await fromDisk(room.id);
@@ -158,13 +158,12 @@ async function main() {
   console.log("\n[사용량 — 컨텍스트가 얼마나 찼었나]");
   {
     const inner = mgr as unknown as {
-      open: Map<string, Room>;
+      rooms: { open: Map<string, Room>; saveProps(r: Room, p: unknown): Promise<void> };
       applyUsage(r: Room, u: unknown): void;
-      saveProps(r: Room, p: unknown): Promise<void>;
     };
-    const live = inner.open.get(room.id)!;
+    const live = inner.rooms.open.get(room.id)!;
     live.usage = { contextUsed: 70, contextSize: 100, totalTokens: 1234 };
-    await inner.saveProps(live, { usage: live.usage });
+    await inner.rooms.saveProps(live, { usage: live.usage });
     ok((await fromDisk(room.id)).usage?.contextUsed === 70,
        "**되먹임 경고의 근거** — 측정값이라 지어낼 수 없다 (F7)");
   }

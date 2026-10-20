@@ -14,6 +14,7 @@ import type { RoomLocks } from "./roomLock.js";
 import { BotQueue } from "./mcp/botQueue.js";
 import { McpCalls, type McpPort } from "./mcp/calls.js";
 import { Review, type ReviewPort } from "./review/review.js";
+import { Rooms, rollUpLost, whose, type RoomsPort } from "./room/rooms.js";
 import { messageId } from "./ids.js";
 import {
   parseCompose,
@@ -899,8 +900,12 @@ type Events = {
 export class RoomManager extends EventEmitter<Events> {
   private readonly connections = new Map<string, AcpConnection>();
   private readonly runtimes = new Map<string, RoomRuntime>();
-  /** 열어둔 방의 전체 내용. 목록만 볼 때는 메타만 쓴다 */
-  private readonly open = new Map<string, Room>();
+  /**
+   * ★ **열린 방 · 저장** — `core/room/rooms.ts` (리팩토링 ⑧ L0, 2026-10-20).
+   *
+   * 맨 아래층이다 — 다른 층이 다 쓰고, 이건 아무 층도 안 빌린다.
+   */
+  private readonly rooms = new Rooms(this.roomsPort());
   /**
    * 에이전트별 설정 선택지 (B15).
    *
@@ -940,13 +945,6 @@ export class RoomManager extends EventEmitter<Events> {
   private draftTimer?: ReturnType<typeof setTimeout>;
   /** 그 초안이 **어느 방 것인지**. 활성 방과 다를 수 있다 */
   private draftRoomId?: string;
-  /**
-   * 나간 방들.
-   *
-   * 진행 중인 턴이 있는 채로 방을 나가면 `runQueue`가 계속 돌다가 **지워진 파일에
-   * 덧붙여 방을 되살린다.** 여기 들어 있으면 저장을 건너뛴다.
-   */
-  private readonly left = new Set<string>();
   /**
    * **줄 서 있는 심사들.** 열쇠는 `ReviewWait.id`.
    *
@@ -994,6 +992,17 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private readonly review = new Review(this.reviewPort());
 
+  private roomsPort(): RoomsPort {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
+    const self = this;
+    return {
+      get disk() { return self.opts.store; },
+      get locks() { return self.opts.locks; },
+      emitMessage: (roomId, message) => { this.emit("message", roomId, message); },
+      emitMetas: (metas) => { this.emit("metas", metas); },
+    };
+  }
+
   private reviewPort(): ReviewPort {
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
     const self = this;
@@ -1002,13 +1011,13 @@ export class RoomManager extends EventEmitter<Events> {
       get host() { return self.opts.host; },
       mcpReady: () => this.opts.mcp?.current().at === "ready",
       mcpHttp: (agentId) => this.connection(agentId).mcpHttp,
-      roomById: (roomId) => this.open.get(roomId),
-      openRooms: () => this.open.values(),
+      roomById: (roomId) => this.rooms.open.get(roomId),
+      openRooms: () => this.rooms.open.values(),
       botRuntime: (roomId, botId) => this.botRuntime(roomId, botId),
       botForSession: (sessionId) => this.botForSession(sessionId),
       statusOf: (roomId, botId) => this.statusOf(roomId, botId),
       setStatus: (roomId, status, botId) => this.setStatus(roomId, status, botId),
-      noteRoom: (room, text, kind, about) => this.noteRoom(room, text, kind, about),
+      noteRoom: (room, text, kind, about) => this.rooms.noteRoom(room, text, kind, about),
       maybeWake: (room, botId) => this.maybeWake(room, botId),
       emitNotice: (roomId, text) => { this.emit("notice", roomId, text); },
       emitReviews: (roomId, list) => { this.emit("reviews", roomId, list); },
@@ -1022,11 +1031,11 @@ export class RoomManager extends EventEmitter<Events> {
     return {
       get queue() { return self.queue; },
       get host() { return self.opts.host; },
-      roomById: (roomId) => this.open.get(roomId),
+      roomById: (roomId) => this.rooms.open.get(roomId),
       botRuntime: (roomId, botId) => this.botRuntime(roomId, botId),
-      append: (room, message) => this.append(room, message),
-      saveMessage: (room, patch) => this.saveMessage(room, patch),
-      saveNewMessage: (room, message) => this.saveNewMessage(room, message),
+      append: (room, message) => this.rooms.append(room, message),
+      saveMessage: (room, patch) => this.rooms.saveMessage(room, patch),
+      saveNewMessage: (room, message) => this.rooms.saveNewMessage(room, message),
       maybeWake: (room, botId) => this.maybeWake(room, botId),
       giveVerdict: (botId, id, allow, reason) => this.review.giveVerdict(botId, id, allow, reason),
       emitMessage: (roomId, message) => { this.emit("message", roomId, message); },
@@ -1089,7 +1098,7 @@ export class RoomManager extends EventEmitter<Events> {
   }
 
   listMetas(): RoomMeta[] {
-    return this.opts.store.listMetas();
+    return this.rooms.listMetas();
   }
 
   /** 방의 상태, 또는 **그 봇의** 상태 (v2.0 준비) */
@@ -1104,7 +1113,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 상태 표시줄 배지용 (F1) */
   totalUnread(): number {
-    return this.listMetas().reduce((sum, m) => sum + m.unread, 0);
+    return this.rooms.listMetas().reduce((sum, m) => sum + m.unread, 0);
   }
 
   // ── 방 ────────────────────────────────────────────────────────────────
@@ -1149,7 +1158,7 @@ export class RoomManager extends EventEmitter<Events> {
     const now = Date.now();
     const room: Room = {
       id: `room-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      title: opts.title?.trim() || this.nextDefaultTitle(),
+      title: opts.title?.trim() || this.rooms.nextDefaultTitle(),
       participants,
       cwd: opts.cwd ?? this.opts.host.defaultCwd(),
       messages: [],
@@ -1158,8 +1167,8 @@ export class RoomManager extends EventEmitter<Events> {
       lastActivityAt: now,
     };
     await this.opts.store.createRoom(room);
-    this.open.set(room.id, room);
-    this.emitMetas();
+    this.rooms.open.set(room.id, room);
+    this.rooms.emitMetas();
 
     // **역할을 방 상단에 보여준다** (B3). 안 보이면 봇이 왜 이렇게
     // 답하는지 모른 채로 대화하게 된다.
@@ -1176,8 +1185,8 @@ export class RoomManager extends EventEmitter<Events> {
         deliveredTo: [],
         createdAt: now,
       };
-      this.append(room, note);
-      await this.saveNewMessage(room, note);
+      this.rooms.append(room, note);
+      await this.rooms.saveNewMessage(room, note);
     }
 
     // **방을 만들면 세션도 연다** (B1: 방 1개 = 세션 1개).
@@ -1198,7 +1207,7 @@ export class RoomManager extends EventEmitter<Events> {
           // ★ **한 봇이 안 열려도 나머지는 산다** — Codex 로그인이 풀렸다고
           // Claude와의 대화까지 못 하게 만들 이유가 없다.
           this.setStatus(room.id, "error", bot.id);
-          this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
+          this.rooms.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
                         "error", [bot.id]);
         }
       }),
@@ -1284,7 +1293,7 @@ export class RoomManager extends EventEmitter<Events> {
       }
     }
 
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
     this.setStatus(room.id, "idle", bot.id);
   }
 
@@ -1299,35 +1308,9 @@ export class RoomManager extends EventEmitter<Events> {
     });
   }
 
-  /**
-   * 방을 메모리에 올린다.
-   *
-   * **읽음 처리는 하지 않는다.** 그건 사용자가 실제로 보고 있을 때(`setActiveRoom`)의
-   * 일이다. 목록 렌더링이나 검색 때문에 방을 로드하는 것만으로 미읽음이 사라지면 안 된다.
-   */
+  /** 방을 메모리에 올린다 — `Rooms.openRoom` (읽음 처리는 안 한다) */
   async openRoom(roomId: string): Promise<Room> {
-    const cached = this.open.get(roomId);
-    if (cached) return cached;
-    /*
-     * ★ **옆 창이 산 채로 들고 있으면 «끊겼다» 로 안 읽는다** (2026-10-14).
-     *
-     * 「기록만 읽기」는 자물쇠를 안 잡고 연다 — 붙이지 않으니 잡을 이유가 없다.
-     * 그래서 **옆 창이 지금 답을 받고 있는 방**도 열리는데, 디스크에 남은
-     * `streaming: true` 를 보고 고치면 **멀쩡히 돌고 있는 답에 「중단되었습니다」**
-     * 가 붙는다. 그쪽 창은 멀쩡한데 이쪽만 거짓말을 하는 꼴이다.
-     */
-    const elsewhere = this.opts.locks?.heldByOther(roomId);
-    const room = await this.opts.store.loadRoom(
-      roomId, elsewhere ? { heal: false } : undefined,
-    );
-    if (!room) throw new Error("방을 찾을 수 없습니다.");
-    /*
-     * 🔴 **남의 방은 안 들고 있는다.** 캐시에 넣으면 그 뒤로 이 창의 쓰기가
-     * 그 위에서 일어나고, 옆 창이 끝낸 결과와 어긋난다. 「기록만 읽기」는
-     * **그때 한 번 읽는 것**이라 캐시가 필요 없다.
-     */
-    if (!elsewhere) this.open.set(roomId, room);
-    return room;
+    return this.rooms.openRoom(roomId);
   }
 
   /**
@@ -1342,10 +1325,10 @@ export class RoomManager extends EventEmitter<Events> {
    * 닿는다**(`mcplist.cjs` 실측). 막는 자리는 **호출**이다.
    */
   async setRelay(roomId: string, relay: RelayMode): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     if ((room.relay ?? DEFAULT_RELAY) === relay) return;
     room.relay = relay;
-    await this.saveProps(room, { relay });
+    await this.rooms.saveProps(room, { relay });
     this.emit("room", room);
   }
 
@@ -1364,11 +1347,11 @@ export class RoomManager extends EventEmitter<Events> {
    * 그나마 짐작이 덜 섞인다.
    */
   async setRelayDepth(roomId: string, depth: number): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const next = Math.max(0, Math.min(999, Math.floor(depth)));
     if ((room.depthCap ?? DEFAULT_DEPTH_CAP) === next) return;
     room.depthCap = next;
-    await this.saveProps(room, { depthCap: next });
+    await this.rooms.saveProps(room, { depthCap: next });
     this.emit("room", room);
   }
 
@@ -1383,7 +1366,7 @@ export class RoomManager extends EventEmitter<Events> {
    * (`rosterSent`) 다음 턴에 저절로 달라진다. 여기서는 값만 고친다.
    */
   async setBlurb(roomId: string, blurb: string, botId?: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
 
@@ -1392,7 +1375,7 @@ export class RoomManager extends EventEmitter<Events> {
     if (next) bot.blurb = next;
     else delete bot.blurb;
 
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
   }
 
@@ -1403,7 +1386,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 역할은 프롬프트 프리픽스라 한 번 보낸 뒤에는 다시 보내지 않는다.
    */
   async setRole(roomId: string, rolePrompt: string, botId?: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
 
@@ -1411,7 +1394,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 역할은 프롬프트 프리픽스라 **그 봇의** 세션에 다시 넣어야 한다
     this.botRuntime(roomId, bot.id).roleInjected = false;
 
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
   }
 
@@ -1428,7 +1411,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 되는 순간 그것도 함께 말한다.
    */
   async addBot(roomId: string, spec: BotSpec): Promise<BotInstance> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const agent = this.agentOrThrow(spec.agentId);
 
     const taken = new Set(room.participants.map((b) => b.name));
@@ -1446,7 +1429,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     const first = room.participants.length === 2;
     const said = room.messages.some((m) => m.role !== "system");
-    this.noteRoom(
+    this.rooms.noteRoom(
       room,
       said
         ? `${bot.name}을(를) 초대했습니다. ${bot.name}은(는) 위 대화를 모릅니다 — ` +
@@ -1458,7 +1441,7 @@ export class RoomManager extends EventEmitter<Events> {
     );
     // 봇이 둘이 되는 **그 순간**에 한 번만 (§4.2.3)
     if (first) {
-      this.noteRoom(
+      this.rooms.noteRoom(
         room,
         "이제 봇이 여럿입니다. 대화는 봇마다 갈라지지만 **에이전트의 기억은 나뉘지 않습니다** — " +
           "같은 폴더를 보므로 한 봇에게 시킨 «기억해»를 다른 봇도 읽습니다.",
@@ -1471,13 +1454,13 @@ export class RoomManager extends EventEmitter<Events> {
       await this.openSession(room, bot, spec.configValues);
     } catch (err) {
       this.setStatus(room.id, "error", bot.id);
-      this.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
+      this.rooms.noteRoom(room, `${bot.name} 세션을 열지 못했습니다 — ${describe(err)}`,
                     "error", [bot.id]);
     }
 
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
-    this.emitMetas();
+    this.rooms.emitMetas();
     return bot;
   }
 
@@ -1494,7 +1477,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 마지막 한 명은 내보낼 수 없다 — 봇이 없는 방은 말을 걸 수가 없다.
    */
   async removeBot(roomId: string, botId: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const at = room.participants.findIndex((b) => b.id === botId);
     if (at < 0) return;
     if (room.participants.length === 1) {
@@ -1546,30 +1529,17 @@ export class RoomManager extends EventEmitter<Events> {
     );
     for (const o of orphans) o.approver = ASK_USER;
 
-    this.noteRoom(room, `${bot.name}을(를) 내보냈습니다. 지금까지의 대화는 그대로 남습니다.`, "info");
+    this.rooms.noteRoom(room, `${bot.name}을(를) 내보냈습니다. 지금까지의 대화는 그대로 남습니다.`, "info");
     if (orphans.length > 0) {
-      this.noteRoom(
+      this.rooms.noteRoom(
         room,
         `${orphans.map((b) => b.name).join("·")}의 승인 주체를 사용자로 되돌렸습니다.`,
         "info",
       );
     }
-    await this.saveProps(room, { participants: room.participants, left: room.left });
+    await this.rooms.saveProps(room, { participants: room.participants, left: room.left });
     this.emit("room", room);
-    this.emitMetas();
-  }
-
-  /**
-   * ★ **누구 이야기인지** 앞에 붙인다 (§4).
-   *
-   * 🔴 단체방에서 *"모델이 Haiku 4.5(으)로 바뀌었습니다"* 는 **어느 봇인지
-   * 알 수가 없다.** 봇마다 모델이 따로고(B1) 바꾸는 자리도 봇마다라서,
-   * 이름이 없으면 기록을 나중에 읽을 때 **무엇이 왜 바뀌었는지 못 짚는다.**
-   *
-   * 1:1에서는 안 붙인다 — 봇이 하나뿐인데 이름을 적으면 군더더기다.
-   */
-  private whose(room: Room, bot: BotInstance): string {
-    return hasManyBots(room) ? `${bot.name}의 ` : "";
+    this.rooms.emitMetas();
   }
 
   /**
@@ -1597,7 +1567,7 @@ export class RoomManager extends EventEmitter<Events> {
     color: string,
     ink?: "black" | "white",
   ): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
     const next = color.trim();
@@ -1609,14 +1579,14 @@ export class RoomManager extends EventEmitter<Events> {
      */
     if (!next) delete bot.ink;
     else if (ink) bot.ink = ink;
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
     // 목록의 색 점도 따라가야 한다
-    this.emitMetas();
+    this.rooms.emitMetas();
   }
 
   async renameBot(roomId: string, botId: string, name: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
 
@@ -1626,7 +1596,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     const before = bot.name;
     bot.name = uniqueName(wanted, room.participants.filter((b) => b.id !== botId));
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
 
     /*
      * ★ **바꿨다고 적는다.**
@@ -1649,11 +1619,11 @@ export class RoomManager extends EventEmitter<Events> {
       deliveredTo: [],
       createdAt: Date.now(),
     };
-    this.append(room, msg);
-    await this.saveNewMessage(room, msg);
+    this.rooms.append(room, msg);
+    await this.rooms.saveNewMessage(room, msg);
 
     this.emit("room", room);
-    this.emitMetas();
+    this.rooms.emitMetas();
   }
 
   /**
@@ -1699,7 +1669,7 @@ export class RoomManager extends EventEmitter<Events> {
       refeedKind?: "log" | "summary";
     },
   ): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
     if (bot.agentId === agentId) return;
@@ -1750,18 +1720,18 @@ export class RoomManager extends EventEmitter<Events> {
       bot.lostAgentId = fromAgent;
       bot.lostPrompted = hadTalk;
     }
-    this.rollUpLost(room);
+    rollUpLost(room);
 
-    this.noteRoom(
+    this.rooms.noteRoom(
       room,
-      `${this.whose(room, bot)}에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ` +
+      `${whose(room, bot)}에이전트를 ${before}에서 ${next.label}(으)로 바꿨습니다. ` +
         `${next.label}은(는) 위 대화를 모릅니다.` +
         (old ? ` 이전 세션 ${old}은(는) ${before} 쪽에 그대로 있습니다.` : ""),
       "info",
       [bot.id],
     );
 
-    await this.saveProps(room, {
+    await this.rooms.saveProps(room, {
       participants: room.participants,
       contextLost: true,
       ...(old ? { lostSessionId: old } : {}),
@@ -1790,18 +1760,18 @@ export class RoomManager extends EventEmitter<Events> {
         await this.setConfig(roomId, opts.model.configId, opts.model.value, botId);
       } catch (err) {
         // 모델을 못 걸어도 **갈아타기 자체는 끝났다** — 되돌리지 않고 말만 한다
-        this.noteRoom(room, `모델을 걸지 못했습니다 — ${describe(err)}`, "info");
+        this.rooms.noteRoom(room, `모델을 걸지 못했습니다 — ${describe(err)}`, "info");
       }
     }
 
     this.emit("room", room);
-    this.emitMetas();
+    this.rooms.emitMetas();
   }
 
   async renameRoom(roomId: string, title: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     room.title = title.trim() || room.title;
-    await this.saveProps(room, { title: room.title });
+    await this.rooms.saveProps(room, { title: room.title });
     // 목록뿐 아니라 **열려 있는 방의 헤더도** 바뀌어야 한다.
     this.emit("room", room);
   }
@@ -1823,7 +1793,7 @@ export class RoomManager extends EventEmitter<Events> {
     // 초안이 디바운스 중일 수 있다 — 확정하고 나서 본다
     await this.flushDraft();
 
-    const room = this.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
+    const room = this.rooms.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
     if (!room) return false;
 
     const wrote =
@@ -1877,7 +1847,7 @@ export class RoomManager extends EventEmitter<Events> {
       botId?: string;
     } = {},
   ): Promise<Room> {
-    const parent = await this.openRoom(roomId);
+    const parent = await this.rooms.openRoom(roomId);
 
     const only = opts.botId
       ? parent.participants.find((b) => b.id === opts.botId)
@@ -2053,7 +2023,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 그럴 때는 조용히 다른 것을 주지 않고 **안 된다고 말한다**(§0).
    */
   async retryFork(roomId: string): Promise<{ ok: boolean; reason?: string }> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     if (!room.forkedFromRoomId) return { ok: false, reason: "분기된 방이 아닙니다." };
 
     const failed = room.participants.filter((b) => b.forkFallback);
@@ -2064,7 +2034,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     let parent: Room;
     try {
-      parent = await this.openRoom(room.forkedFromRoomId);
+      parent = await this.rooms.openRoom(room.forkedFromRoomId);
     } catch {
       return { ok: false, reason: "원본 방이 없어졌습니다." };
     }
@@ -2121,7 +2091,7 @@ export class RoomManager extends EventEmitter<Events> {
       if (!b.forkFallback) delete b.refeedPending;
     }
 
-    this.noteRoom(
+    this.rooms.noteRoom(
       room,
       left.length === 0
         ? "다시 분기했습니다 — 계획과 파일 기억까지 물려받았습니다."
@@ -2132,8 +2102,8 @@ export class RoomManager extends EventEmitter<Events> {
             `${left.map((b) => b.name).join("·")}는 여전히 글로만 옮깁니다.`,
       "info",
     );
-    this.rollUpLost(room);
-    await this.saveProps(room, {
+    rollUpLost(room);
+    await this.rooms.saveProps(room, {
       participants: room.participants,
       refeedPending: room.refeedPending,
     });
@@ -2255,7 +2225,7 @@ export class RoomManager extends EventEmitter<Events> {
     }
 
     await this.opts.store.createRoom(room);
-    this.open.set(room.id, room);
+    this.rooms.open.set(room.id, room);
 
     for (const [n, { forked }] of forks.entries()) {
       const fresh = room.participants[n]!;
@@ -2318,10 +2288,10 @@ export class RoomManager extends EventEmitter<Events> {
       deliveredTo: [],
       createdAt: now,
     };
-    this.append(room, note);
-    await this.saveNewMessage(room, note);
+    this.rooms.append(room, note);
+    await this.rooms.saveNewMessage(room, note);
 
-    this.emitMetas();
+    this.rooms.emitMetas();
     return room;
   }
 
@@ -2333,7 +2303,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private nextForkTitle(parentTitle: string): string {
     const base = parentTitle.replace(/\s*\(\d+\)\s*$/, "").trim() || parentTitle;
-    const taken = new Set(this.listMetas().map((m) => m.title));
+    const taken = new Set(this.rooms.listMetas().map((m) => m.title));
     for (let n = 2; ; n++) {
       const name = `${base} (${n})`;
       if (!taken.has(name)) return name;
@@ -2342,7 +2312,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 이 방에서 갈라져 나간 방들 (D3·분기 목록) */
   childrenOf(roomId: string): RoomMeta[] {
-    return this.listMetas().filter((m) => m.forkedFromRoomId === roomId);
+    return this.rooms.listMetas().filter((m) => m.forkedFromRoomId === roomId);
   }
 
   /**
@@ -2366,7 +2336,7 @@ export class RoomManager extends EventEmitter<Events> {
    * (§13.1). `removeBot` 이 이미 그렇게 하고 있었다 — 같은 식으로 맞춘다.
    */
   async leaveRoom(roomId: string): Promise<void> {
-    const room = this.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
+    const room = this.rooms.open.get(roomId) ?? (await this.opts.store.loadRoom(roomId));
     const rt = this.runtimes.get(roomId);
 
     for (const bot of room?.participants ?? []) {
@@ -2387,11 +2357,11 @@ export class RoomManager extends EventEmitter<Events> {
     this.opts.locks?.release(roomId);
 
     // 진행 중인 턴이 끝나면서 저장하려 들 수 있다. 되살아나지 않게 막는다.
-    this.left.add(roomId);
+    this.rooms.left.add(roomId);
     this.runtimes.delete(roomId);
-    this.open.delete(roomId);
+    this.rooms.open.delete(roomId);
     await this.opts.store.deleteRoom(roomId);
-    this.emitMetas();
+    this.rooms.emitMetas();
 
     this.disposeUnusedConnections();
   }
@@ -2406,7 +2376,7 @@ export class RoomManager extends EventEmitter<Events> {
     if (room.unread === 0 && room.lastReadMessageId === last?.id) return;
     room.unread = 0;
     room.lastReadMessageId = last?.id;
-    void this.saveProps(room, { unread: 0, lastReadMessageId: last?.id });
+    void this.rooms.saveProps(room, { unread: 0, lastReadMessageId: last?.id });
   }
 
   /**
@@ -2450,7 +2420,7 @@ export class RoomManager extends EventEmitter<Events> {
           `같은 방을 두 곳에서 열면 세션이 어긋나므로 막습니다 — 그쪽 창을 닫고 다시 열어보세요.`,
       };
     }
-    return { ok: true, room: await this.openRoom(roomId) };
+    return { ok: true, room: await this.rooms.openRoom(roomId) };
   }
 
   /**
@@ -2474,7 +2444,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     this.activeRoomId = roomId;
     if (roomId) {
-      const room = await this.openRoom(roomId);
+      const room = await this.rooms.openRoom(roomId);
       this.markRead(room);
       // **방을 보고 있으면 세션도 붙어 있어야 한다** (B1)
       void this.bindSession(room);
@@ -2569,7 +2539,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 숫자는 아무도 고를 수 없다 — MCP 쪽과 같은 규칙이다.
    */
   async retryJoin(roomId: string, botId: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = room.participants.find((b) => b.id === botId);
     if (!bot) return;
     this.setStatus(room.id, "connecting", bot.id);
@@ -2584,7 +2554,7 @@ export class RoomManager extends EventEmitter<Events> {
    * `flushDraft()`로 즉시 확정한다.
    */
   setDraft(roomId: string, text: string): void {
-    const room = this.open.get(roomId);
+    const room = this.rooms.open.get(roomId);
     if (!room) return;
     room.draft = text || undefined;
     clearTimeout(this.draftTimer);
@@ -2607,8 +2577,8 @@ export class RoomManager extends EventEmitter<Events> {
     const roomId = this.draftRoomId;
     this.draftRoomId = undefined;
     if (!roomId) return;
-    const room = this.open.get(roomId);
-    if (room) await this.saveProps(room, { draft: room.draft });
+    const room = this.rooms.open.get(roomId);
+    if (room) await this.rooms.saveProps(room, { draft: room.draft });
   }
 
   // ── 대화 ──────────────────────────────────────────────────────────────
@@ -2632,7 +2602,7 @@ export class RoomManager extends EventEmitter<Events> {
     /** 보낼 봇. 안 주면 방의 유일한 봇 (v2.0에서는 멘션이 정한다) */
     botId?: string,
   ): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     // v1.0은 방에 봇이 하나다. 단체방에서는 **멘션된 봇마다** 이 아래가 돈다.
     const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
@@ -2644,7 +2614,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 늦게 알거나 다른 길로 들어왔을 때 **나중에 친 말이 먼저 나간다.**
      */
     if (room.staged) {
-      this.noteRoom(room, "올려둔 글이 먼저 나가야 합니다.", "error");
+      this.rooms.noteRoom(room, "올려둔 글이 먼저 나가야 합니다.", "error");
       return;
     }
     if (isBusy(this.statusOf(roomId, bot.id)) === true) {
@@ -2665,11 +2635,11 @@ export class RoomManager extends EventEmitter<Events> {
       createdAt: Date.now(),
       ...(attachments?.length ? { attachments } : {}),
     };
-    this.append(room, sent);
+    this.rooms.append(room, sent);
 
     // **보낸 즉시 저장한다.** 턴이 끝날 때 몰아서 저장하면, 응답을 기다리는 중에
     // VSCode를 닫았을 때 내가 보낸 메시지까지 사라진다.
-    await this.saveNewMessage(room, sent);
+    await this.rooms.saveNewMessage(room, sent);
 
     await this.runQueue(room, [sent], bot.id);
     this.maybeFireStaged(room);
@@ -2717,14 +2687,14 @@ export class RoomManager extends EventEmitter<Events> {
     tokens: ComposeToken[],
     attachments?: Attachment[],
   ): Promise<ComposeParse> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const parsed = parseCompose(tokens, room.participants);
 
     // 말해줄 것이 있으면 **보내기 전에** 남긴다 — 건너뛴 그룹을 나중에 알려주면
     // 이미 «보냈다»고 믿은 뒤다.
-    for (const w of parsed.warnings) this.noteRoom(room, w, "info");
+    for (const w of parsed.warnings) this.rooms.noteRoom(room, w, "info");
     if (parsed.blocked) {
-      this.noteRoom(room, parsed.blocked, "error");
+      this.rooms.noteRoom(room, parsed.blocked, "error");
       return parsed;
     }
 
@@ -2741,7 +2711,7 @@ export class RoomManager extends EventEmitter<Events> {
      */
     // 🔴 **올려둔 것이 먼저다** — 받는 이가 누구든 (위 `send` 주석)
     if (room.staged) {
-      this.noteRoom(room, "올려둔 글이 먼저 나가야 합니다.", "error");
+      this.rooms.noteRoom(room, "올려둔 글이 먼저 나가야 합니다.", "error");
       return parsed;
     }
     const busy = [...new Set(parsed.blocks.flatMap((b) => b.botIds))]
@@ -2773,8 +2743,8 @@ export class RoomManager extends EventEmitter<Events> {
         // 올리게 되고, 어느 블록에 붙일지는 화면이 고르게 할 일이다(v2.1).
         ...(n === 0 && attachments?.length ? { attachments } : {}),
       };
-      this.append(room, message);
-      await this.saveNewMessage(room, message);
+      this.rooms.append(room, message);
+      await this.rooms.saveNewMessage(room, message);
       sent.push({ message, botIds: block.botIds });
     }
 
@@ -2817,7 +2787,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 재전송하면 그 말풍선이 그대로 보내지는 것과 같다.
    */
   async retry(roomId: string, messageId?: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const targets = room.messages.filter(
       (m) => m.role === "user" && m.sendFailed && (!messageId || m.id === messageId),
     );
@@ -2843,7 +2813,7 @@ export class RoomManager extends EventEmitter<Events> {
     for (const m of targets) {
       delete m.sendFailed;
       delete m.notSentTo;
-      await this.saveMessage(room, { id: m.id, sendFailed: undefined, notSentTo: undefined });
+      await this.rooms.saveMessage(room, { id: m.id, sendFailed: undefined, notSentTo: undefined });
       this.emit("message", room.id, m);
     }
     if (byBot.size === 0) return;
@@ -2891,7 +2861,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 마디에 **다시 같은 자리로** 간다.
    */
   async stopAll(roomId: string): Promise<void> {
-    const room = this.open.get(roomId);
+    const room = this.rooms.open.get(roomId);
     const rt = this.runtimes.get(roomId);
     if (!room || !rt) return;
 
@@ -2957,8 +2927,8 @@ export class RoomManager extends EventEmitter<Events> {
     const lowered = room.participants.filter((b) => b.answerPolicy === "auto");
     for (const b of lowered) b.answerPolicy = "ask";
     if (lowered.length > 0) {
-      await this.saveProps(room, { participants: room.participants });
-      this.noteRoom(
+      await this.rooms.saveProps(room, { participants: room.participants });
+      this.rooms.noteRoom(
         room,
         `중지하면서 ${lowered.map((b) => b.name).join("·")}의 «무조건 허용»을 ` +
           `«물어봄»으로 내렸습니다.`,
@@ -2991,7 +2961,7 @@ export class RoomManager extends EventEmitter<Events> {
     tokens: ComposeToken[],
     attachments?: Attachment[],
   ): Promise<boolean> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     // 🔴 **덮어쓰지 않는다.** 칸이 하나라는 말은 «둘째가 첫째를 밀어낸다»가
     // 아니라 «둘째를 안 받는다»여야 한다 — 밀어내면 조용히 잃는다(§0).
     if (room.staged) return false;
@@ -3006,7 +2976,7 @@ export class RoomManager extends EventEmitter<Events> {
       botIds,
       at: Date.now(),
     };
-    await this.saveProps(room, { staged: room.staged });
+    await this.rooms.saveProps(room, { staged: room.staged });
     this.emit("room", room);
 
     /*
@@ -3043,7 +3013,7 @@ export class RoomManager extends EventEmitter<Events> {
     waitingFor: string[],
   ): Promise<void> {
     if (await this.stage(room.id, tokens, attachments)) {
-      this.noteRoom(
+      this.rooms.noteRoom(
         room,
         `${waitingFor.join("·")}이(가) 답하는 중이라 올려두었습니다 — 끝나면 보냅니다.`,
         "info",
@@ -3055,7 +3025,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 이미 막는다. 여기 남는 경우는 **받을 봇을 못 고른 것**뿐이다
      * (나간 봇만 지목했다든가).
      */
-    this.noteRoom(room, "올려둘 수가 없습니다 — 받을 봇이 없습니다.", "error");
+    this.rooms.noteRoom(room, "올려둘 수가 없습니다 — 받을 봇이 없습니다.", "error");
   }
 
   /**
@@ -3065,10 +3035,10 @@ export class RoomManager extends EventEmitter<Events> {
    * 없어야 한다(§0 — «간 적 없는 것만 지울 수 있고, 지우면 흔적이 없다»).
    */
   async unstage(roomId: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     if (!room.staged) return;
     delete room.staged;
-    await this.saveProps(room, { staged: undefined });
+    await this.rooms.saveProps(room, { staged: undefined });
     this.emit("room", room);
   }
 
@@ -3079,11 +3049,11 @@ export class RoomManager extends EventEmitter<Events> {
    * 입력란을 따로 안 들어도 된다 — 보여주기만 한다.
    */
   async takeStaged(roomId: string): Promise<Staged | undefined> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const was = room.staged;
     if (!was) return undefined;
     delete room.staged;
-    await this.saveProps(room, { staged: undefined });
+    await this.rooms.saveProps(room, { staged: undefined });
     this.emit("room", room);
     return was;
   }
@@ -3111,7 +3081,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     this.firing.add(room.id);
     delete room.staged;
-    void this.saveProps(room, { staged: undefined });
+    void this.rooms.saveProps(room, { staged: undefined });
     this.emit("room", room);
     void this.sendCompose(room.id, want.tokens, want.attachments)
       .catch((err) => this.opts.host.log(`[${room.id}] 예약 보내기 실패: ${describe(err)}`))
@@ -3130,7 +3100,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 에이전트가 압축 명령을 제공하는지 (C11). 없으면 버튼을 숨긴다 */
   compactCommand(roomId: string, botId?: string): string | undefined {
-    const room = this.open.get(roomId);
+    const room = this.rooms.open.get(roomId);
     const bot = botId
       ? room?.participants.find((b) => b.id === botId)
       : room
@@ -3142,7 +3112,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 압축을 시킬 수 있는 봇들 — 화면이 버튼을 어디 보일지 정하는 근거 */
   compactableBots(roomId: string): string[] {
-    const room = this.open.get(roomId);
+    const room = this.rooms.open.get(roomId);
     return (room?.participants ?? [])
       .filter((b) => this.compactCommand(roomId, b.id))
       .map((b) => b.id);
@@ -3155,7 +3125,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 보내는 게 유일한 경로다.
    */
   async compact(roomId: string, botId?: string): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
     const cmd = this.compactCommand(roomId, bot.id);
@@ -3187,7 +3157,7 @@ export class RoomManager extends EventEmitter<Events> {
      */
     botId?: string,
   ): Promise<acp.SessionConfigOption[]> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     const bot = (botId ? room.participants.find((b) => b.id === botId) : undefined)
       ?? room.participants[0]!;
 
@@ -3224,7 +3194,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 한 칸만 `undefined` 로 두는 것과 다르다(그쪽은 `store` 의 `erasable` 몫).
      */
     if (updated.find((o) => o.id === configId)?.category === "model") delete bot.modelGone;
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
     /*
      * 🔴 **방을 다시 내보내야 한다.**
      *
@@ -3244,15 +3214,15 @@ export class RoomManager extends EventEmitter<Events> {
         role: "system",
         // id가 아니라 **보이는 이름으로** 남긴다 — 사용자가 고른 건 그쪽이다
         text:
-          `${this.whose(room, bot)}모델이 ` +
+          `${whose(room, bot)}모델이 ` +
           `${bot.modelLabel ?? String(value)}(으)로 바뀌었습니다.`,
         // 그 봇 이야기다 — 봇별 뷰에서는 그 봇 쪽에만 (v2.1)
         aboutBotIds: [bot.id],
         deliveredTo: [],
         createdAt: Date.now(),
       };
-      this.append(room, msg);
-      await this.saveNewMessage(room, msg);
+      this.rooms.append(room, msg);
+      await this.rooms.saveNewMessage(room, msg);
     }
     return updated;
   }
@@ -3271,7 +3241,7 @@ export class RoomManager extends EventEmitter<Events> {
     patch: { answerPolicy?: AnswerPolicy; approver?: Approver },
     botId?: string,
   ): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
 
     // 1:1이면 «그 봇». 여럿인데 지목하지 않으면 누구 얘긴지 알 수 없다.
     // 손으로 다시 쓴 soleBot 이었다 — 같은 갈래라 같은 로그를 받게 그쪽으로 (리팩토링 ⑥)
@@ -3280,7 +3250,7 @@ export class RoomManager extends EventEmitter<Events> {
 
     if (patch.answerPolicy !== undefined) bot.answerPolicy = patch.answerPolicy;
     if (patch.approver !== undefined) bot.approver = patch.approver;
-    await this.saveProps(room, { participants: room.participants });
+    await this.rooms.saveProps(room, { participants: room.participants });
   }
 
 
@@ -3315,7 +3285,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 실어 보내려면 동기적으로 집어올 수 있어야 한다.
    */
   usageOf(roomId: string): RoomUsage | undefined {
-    return this.open.get(roomId)?.usage;
+    return this.rooms.open.get(roomId)?.usage;
   }
 
   /**
@@ -3343,7 +3313,7 @@ export class RoomManager extends EventEmitter<Events> {
     roomId: string,
     botId?: string,
   ): Promise<acp.SessionConfigOption[]> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     // 지목이 없으면 방의 유일한 봇 (v1.0). 단체방에서는 화면이 봇을 준다.
     const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return [];
@@ -3542,14 +3512,14 @@ export class RoomManager extends EventEmitter<Events> {
       const reason = describe(err);
       // 🔴 **가짜 묶음에는 안 적는다** — `markNotSent` 는 디스크에 한 줄을
       // 쓰는데, 그 메시지는 `room.messages` 에 없다. 다시 열면 **빈 말풍선**이다.
-      if (!wake) for (const m of batch) await this.markNotSent(room, m, bot.id, reason);
+      if (!wake) for (const m of batch) await this.rooms.markNotSent(room, m, bot.id, reason);
       this.setStatus(room.id, "error", bot.id);
       this.emit("roomError", room.id, reason);
       return undefined;
     }
 
     // ★ **줄에서 나왔다** — 여기서 자리를 잡는다 (대기 정렬)
-    for (const m of batch) this.placeNow(room, m);
+    for (const m of batch) this.rooms.placeNow(room, m);
 
     /*
      * ★ **이번 턴의 몫을 여기서 떼어낸다** (v3.0 2-H).
@@ -3613,14 +3583,14 @@ export class RoomManager extends EventEmitter<Events> {
       createdAt: Date.now(),
       streaming: true,
     };
-    this.append(room, reply);
+    this.rooms.append(room, reply);
 
     // **응답 자리를 프롬프트보다 먼저 저장한다.**
     //
     // 이게 없으면 스트리밍 도중에 VSCode가 꺼졌을 때 사용자 메시지만 남고,
     // 다시 켰을 때 "답이 안 달렸으니 전송 실패"로 잘못 판정된다(C5).
     // 실제로는 전송됐고 에이전트가 답까지 했는데 `↻`를 누르면 같은 질문이 두 번 간다.
-    await this.saveNewMessage(room, reply);
+    await this.rooms.saveNewMessage(room, reply);
 
     this.setStatus(room.id, "waiting", bot.id);
 
@@ -3671,7 +3641,7 @@ export class RoomManager extends EventEmitter<Events> {
       const touched = reply.text.length > 0 || (reply.tools?.length ?? 0) > 0;
       if (!touched && retryable(reason) && !wake) {
         // 🔴 여기도 **어느 봇에게 안 갔는지**를 같이 적는다 (위 주석 참고)
-        for (const m of batch) await this.markNotSent(room, m, bot.id, reason);
+        for (const m of batch) await this.rooms.markNotSent(room, m, bot.id, reason);
       }
     }
 
@@ -3703,8 +3673,8 @@ export class RoomManager extends EventEmitter<Events> {
     // 보고 있지 않은 방의 응답만 안 읽은 것으로 센다 (B8)
     if (this.activeRoomId !== room.id) room.unread += 1;
 
-    await this.saveMessage(room, reply);
-    await this.saveProps(room, { unread: room.unread, usage: room.usage });
+    await this.rooms.saveMessage(room, reply);
+    await this.rooms.saveProps(room, { unread: room.unread, usage: room.usage });
     // 턴이 끝날 때도 바뀐 건 응답 하나다. 방 전체를 보낼 이유가 없다.
     this.emit("message", room.id, reply);
     // **마지막에 놓는다.** 응답보다 늦게 오는 조각이 있어서 — `releaseTurn` 참조
@@ -3885,8 +3855,8 @@ export class RoomManager extends EventEmitter<Events> {
       deliveredTo: [],
       createdAt: Date.now(),
     };
-    this.append(room, mark);
-    void this.saveNewMessage(room, mark);
+    this.rooms.append(room, mark);
+    void this.rooms.saveNewMessage(room, mark);
     this.emit("message", room.id, mark);
   }
 
@@ -3912,7 +3882,7 @@ export class RoomManager extends EventEmitter<Events> {
     if (bot.sessionId === sessionId && bot.sessionPrompted) return;
     bot.sessionId = sessionId;
     bot.sessionPrompted = true;
-    void this.saveProps(room, { participants: room.participants });
+    void this.rooms.saveProps(room, { participants: room.participants });
   }
 
   /** 세션이 붙어 있는 동안 **계속** 듣는다 (A11) */
@@ -3986,7 +3956,7 @@ export class RoomManager extends EventEmitter<Events> {
     clearTimeout(bt.tail);
     bt.tail = undefined;
     bt.turn = undefined;
-    void this.saveMessage(room, pending);
+    void this.rooms.saveMessage(room, pending);
     this.emit("message", room.id, pending);
   }
 
@@ -4031,7 +4001,7 @@ export class RoomManager extends EventEmitter<Events> {
 
       case "usage":
         this.noteUsage(room, bot.id, ev);
-        void this.saveProps(room, { usage: room.usage, participants: room.participants });
+        void this.rooms.saveProps(room, { usage: room.usage, participants: room.participants });
         break;
 
       case "compaction":
@@ -4132,8 +4102,8 @@ export class RoomManager extends EventEmitter<Events> {
 
     // 보고 있지 않은 방의 말만 안 읽은 것으로 센다 (B8 — 턴 경로와 같은 규칙)
     if (this.activeRoomId !== room.id) room.unread += 1;
-    void this.saveMessage(room, message);
-    void this.saveProps(room, { unread: room.unread });
+    void this.rooms.saveMessage(room, message);
+    void this.rooms.saveProps(room, { unread: room.unread });
     this.emit("message", room.id, message);
     if (this.statusOf(room.id, bot.id) !== "error") this.setStatus(room.id, "idle", bot.id);
 
@@ -4192,8 +4162,8 @@ export class RoomManager extends EventEmitter<Events> {
       createdAt: now,
     };
     bt.idle = { message, at: now };
-    this.append(room, message);
-    void this.saveNewMessage(room, message);
+    this.rooms.append(room, message);
+    void this.rooms.saveNewMessage(room, message);
     return message;
   }
 
@@ -4202,7 +4172,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bot = room.participants.find((b) => b.id === botId) ?? this.soleBot(room);
     if (!bot || bot.agentMode === modeId) return;
     bot.agentMode = modeId;
-    void this.saveProps(room, { participants: room.participants });
+    void this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
   }
 
@@ -4215,7 +4185,7 @@ export class RoomManager extends EventEmitter<Events> {
     const bot = room.participants.find((b) => b.id === botId) ?? this.soleBot(room);
     if (!bot) return;
     this.noteRoomConfig(room, bot, options);
-    void this.saveProps(room, { participants: room.participants });
+    void this.rooms.saveProps(room, { participants: room.participants });
     this.emit("room", room);
   }
 
@@ -4372,7 +4342,7 @@ export class RoomManager extends EventEmitter<Events> {
         change.oldSha256 = await store.putBlob(ev.oldText);
       }
       change.newSha256 = await store.putBlob(ev.newText);
-      await this.saveMessage(room, { id: reply.id, files: reply.files });
+      await this.rooms.saveMessage(room, { id: reply.id, files: reply.files });
     })().catch((err) => this.opts.host.log(`blob 저장 실패: ${describe(err)}`));
 
     if (reply.authorBotId) this.botRuntime(room.id, reply.authorBotId).pendingWrites.push(write);
@@ -4507,8 +4477,8 @@ export class RoomManager extends EventEmitter<Events> {
         deliveredTo: [],
         createdAt: Date.now(),
       };
-      this.append(room, note);
-      void this.saveNewMessage(room, note);
+      this.rooms.append(room, note);
+      void this.rooms.saveNewMessage(room, note);
     }
   }
 
@@ -4596,8 +4566,8 @@ export class RoomManager extends EventEmitter<Events> {
         );
       }
       delete bot.refeedPending;
-      this.rollUpLost(room);
-      void this.saveProps(room, { participants: room.participants, refeedPending: room.refeedPending });
+      rollUpLost(room);
+      void this.rooms.saveProps(room, { participants: room.participants, refeedPending: room.refeedPending });
     }
     /*
      * ★ **끊긴 자리를 설명한다** (전체 중지).
@@ -4770,7 +4740,7 @@ export class RoomManager extends EventEmitter<Events> {
   /** 첨부를 조용히 버리지 않는다 — 보냈다고 생각하고 기다리면 안 된다 */
   private notifyUnsupported(room: Room, a: Attachment, kind: string): void {
     // 🔴 **이건 정보 손실 통보다.** 사라지면 사용자는 보낸 줄 알고 기다린다.
-    this.noteRoom(
+    this.rooms.noteRoom(
       room,
       `${room.participants[0]?.name ?? "에이전트"}는 ${kind}를 받지 못해 ` +
         `«${a.name}»을 보내지 않았습니다.`,
@@ -4849,8 +4819,8 @@ export class RoomManager extends EventEmitter<Events> {
           delete bot.contextLost;
           delete bot.lostSessionId;
           delete bot.refeedPending;
-          this.rollUpLost(room);
-          await this.saveProps(room, {
+          rollUpLost(room);
+          await this.rooms.saveProps(room, {
             // 방 값은 **요약**이다 — 봇들에서 굴려 올린 것을 그대로 쓴다
             contextLost: room.contextLost,
             lostSessionId: room.lostSessionId,
@@ -4916,8 +4886,8 @@ export class RoomManager extends EventEmitter<Events> {
         // **화면과 에이전트가 어긋났다.** 사용자가 고를 때까지 들고 있는다.
         bot.contextLost = true;
         bot.lostSessionId = bot.sessionId ?? undefined;
-        this.rollUpLost(room);
-        await this.saveProps(room, { contextLost: true, lostSessionId: bot.sessionId });
+        rollUpLost(room);
+        await this.rooms.saveProps(room, { contextLost: true, lostSessionId: bot.sessionId });
         this.emit("room", room);
       }
     }
@@ -4958,8 +4928,8 @@ export class RoomManager extends EventEmitter<Events> {
         deliveredTo: [],
         createdAt: Date.now(),
       };
-      this.append(room, note);
-      void this.saveNewMessage(room, note);
+      this.rooms.append(room, note);
+      void this.rooms.saveNewMessage(room, note);
       this.emit("room", room);
     }
     // 세션이 새로 열렸으므로 역할을 다시 넣어야 한다
@@ -4969,7 +4939,7 @@ export class RoomManager extends EventEmitter<Events> {
     if (configOptions.length > 0) await this.restoreChoices(room, bot, sessionId, configOptions);
     this.watchIdle(room, bot, sessionId);
 
-    await this.saveProps(room, {
+    await this.rooms.saveProps(room, {
       participants: room.participants,
       ...(room.contextLost ? { contextLost: true } : {}),
     });
@@ -4986,7 +4956,7 @@ export class RoomManager extends EventEmitter<Events> {
    * `false`면 그냥 새 대화처럼 간다. **다시 묻지 않는다.**
    */
   async decideRefeed(roomId: string, accept: boolean, kind?: "log" | "summary"): Promise<void> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     /*
      * ★ **맥락을 잃은 봇들에게만** 건다 (B1).
      *
@@ -5033,8 +5003,8 @@ export class RoomManager extends EventEmitter<Events> {
         delete b.refeedKind;
       }
     }
-    this.rollUpLost(room);
-    await this.saveProps(room, {
+    rollUpLost(room);
+    await this.rooms.saveProps(room, {
       participants: room.participants,
       contextLost: room.contextLost,
       refeedPending: room.refeedPending,
@@ -5051,7 +5021,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 여기서 한 번 더 시도한다. **되면 대화가 통째로 돌아온다.**
    */
   async retryResume(roomId: string): Promise<boolean> {
-    const room = await this.openRoom(roomId);
+    const room = await this.rooms.openRoom(roomId);
     // 맥락을 잃은 **그 봇**을 찾는다 — 방 값은 요약일 뿐이다
     const bot = room.participants.find((b) => b.lostSessionId) ?? this.soleBot(room);
     const lost = bot?.lostSessionId ?? room.lostSessionId;
@@ -5060,7 +5030,7 @@ export class RoomManager extends EventEmitter<Events> {
     const resumed = await this.connection(bot.agentId)
       .resumeSession(lost, room.cwd, this.mcpFor(room, bot));
     if (!resumed.ok) {
-      this.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
+      this.rooms.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
       return false;
     }
 
@@ -5076,7 +5046,7 @@ export class RoomManager extends EventEmitter<Events> {
     delete bot.lostSessionId;
     delete bot.lostAgentId;
     delete bot.lostPrompted;
-    this.rollUpLost(room);
+    rollUpLost(room);
 
     if (resumed.options.length > 0) await this.restoreChoices(room, bot, lost, resumed.options);
     this.watchIdle(room, bot, lost);
@@ -5088,9 +5058,9 @@ export class RoomManager extends EventEmitter<Events> {
       deliveredTo: [],
       createdAt: Date.now(),
     };
-    this.append(room, note);
-    await this.saveNewMessage(room, note);
-    await this.saveProps(room, {
+    this.rooms.append(room, note);
+    await this.rooms.saveNewMessage(room, note);
+    await this.rooms.saveProps(room, {
       participants: room.participants,
       contextLost: room.contextLost,
       refeedPending: room.refeedPending,
@@ -5222,9 +5192,9 @@ export class RoomManager extends EventEmitter<Events> {
        */
       if (label === g.was) continue;
       const what = (g.category && CONFIG_WORD[g.category]) ?? live?.name ?? g.id;
-      this.noteRoom(
+      this.rooms.noteRoom(
         room,
-        `${this.whose(room, bot)}${what} ${g.was}이(가) ` +
+        `${whose(room, bot)}${what} ${g.was}이(가) ` +
           `${this.agentOrThrow(bot.agentId).label}에 더 이상 없어 ${label}(으)로 바뀌었습니다.`,
         "info",
         [bot.id],
@@ -5265,12 +5235,12 @@ export class RoomManager extends EventEmitter<Events> {
      */
     void this.keepConfigOptions(bot.agentId, options);
     const model = noteModel(bot, options);
-    if (model.changed) this.emitMetas();
+    if (model.changed) this.rooms.emitMetas();
     if (model.renamed !== undefined) {
       // **고른 값은 그대로**라는 것까지 적는다 — 안 그러면 «내가 뭘 잘못 눌렀나»가 된다
-      this.noteRoom(
+      this.rooms.noteRoom(
         room,
-        `${this.whose(room, bot)}${model.renamed}이(가) ${bot.modelLabel}(으)로 ` +
+        `${whose(room, bot)}${model.renamed}이(가) ${bot.modelLabel}(으)로 ` +
           `바뀌었습니다 — 고른 값 «${bot.model ?? ""}»은 그대로입니다.`,
         "info",
         [bot.id],
@@ -5304,50 +5274,6 @@ export class RoomManager extends EventEmitter<Events> {
    * 자동 승인이나 자동 취소로 조용히 지나가면 나중에
    * *"이걸 물었었구나"* 를 볼 수 없다.
    */
-  /**
-   * 방에 **기록으로** 남긴다 (§0 P5).
-   *
-   * 🔴 예전에는 이런 안내를 `roomError`·`notice` 이벤트로만 보냈다. 웹뷰는 그걸
-   * **DOM에 직접** 붙이는데, 방을 다시 그릴 때 목록을 통째로 갈아끼우므로
-   * **이름만 바꿔도 사라졌다.** 실제로 그렇게 날아가던 것들:
-   *
-   * - *"프로세스가 종료되어 답변이 끊겼습니다. 다시 보내면 이어서 합니다."*
-   * - *"…는 이미지를 받지 못해 «캡처.png»를 보내지 않았습니다."* ← **정보 손실 통보**
-   * - *"세션을 열지 못했습니다 — …"*
-   *
-   * **우리는 껍데기다.** 무엇을 남기고 무엇을 지울지 고를 처지가 아니고,
-   * 특히 «못 했다»는 사실은 나중에 *"왜 그때 답이 없었지"* 를 푸는 유일한 단서다.
-   * 그러니 **대화에 박아 둔다** — 껐다 켜도, 다시 그려도 남는다.
-   *
-   * 진행 안내(*"처음 시작하는 중입니다"*)는 여전히 `notice`로 흘린다. 그건 곧
-   * 해소되는 것이라 남기면 방마다 부스러기가 쌓인다.
-   *
-   * ★ **같은 말을 연달아 쌓지 않는다.** 방을 열 때마다 붙기를 실패하면 같은 줄이
-   * 계속 늘어난다 — 권한 카드가 쌓이던 것과 같은 실수를 반복하지 않는다.
-   */
-  private noteRoom(
-    room: Room,
-    text: string,
-    kind: "error" | "info" = "error",
-    /** **누구 이야기인가** (v2.1). 비우면 방 전체 — 봇별 뷰 어디서나 보인다 */
-    about?: string[],
-  ): void {
-    const last = room.messages.at(-1);
-    if (last?.role === "system" && last.text === text) return;
-
-    const msg: Message = {
-      id: messageId(),
-      role: "system",
-      text,
-      deliveredTo: [],
-      createdAt: Date.now(),
-      ...(about?.length ? { aboutBotIds: about } : {}),
-      ...(kind === "error" ? { mark: "error" as const } : {}),
-    };
-    this.append(room, msg);
-    void this.saveNewMessage(room, msg);
-    this.emit("message", room.id, msg);
-  }
 
   /**
    * ★ **승인 결과는 그 «활동»에 접어 넣는다** (D3).
@@ -5383,7 +5309,7 @@ export class RoomManager extends EventEmitter<Events> {
         ...(note.by ? { by: note.by } : {}),
         ...(why ? { why } : {}),
       };
-      void this.saveMessage(room, turn);
+      void this.rooms.saveMessage(room, turn);
       this.emit("message", room.id, turn);
       return;
     }
@@ -5398,12 +5324,12 @@ export class RoomManager extends EventEmitter<Events> {
       deliveredTo: [],
       createdAt: Date.now(),
     };
-    this.append(room, msg);
-    void this.saveNewMessage(room, msg);
+    this.rooms.append(room, msg);
+    void this.rooms.saveNewMessage(room, msg);
   }
 
   private onAgentCrash(agentId: string, reason: string): void {
-    for (const [roomId, room] of this.open) {
+    for (const [roomId, room] of this.rooms.open) {
       if (!room.participants.some((b) => b.agentId === agentId)) continue;
 
       // **그 에이전트를 쓰는 봇만** 세션을 잃는다. 단체방에서 Codex가 죽어도
@@ -5490,7 +5416,7 @@ export class RoomManager extends EventEmitter<Events> {
           live.streaming = false;
           live.truncated = true;
           if (!live.text && !live.error) live.error = "응답이 중단되었습니다.";
-          void this.saveMessage(room, live);
+          void this.rooms.saveMessage(room, live);
           this.emit("message", roomId, live);
         }
         bt.sessionId = undefined;
@@ -5763,7 +5689,7 @@ export class RoomManager extends EventEmitter<Events> {
 
   /** 쓰이지 않는 CLI 프로세스를 정리한다 (B6) */
   private disposeUnusedConnections(): void {
-    const inUse = new Set(this.listMetas().flatMap((m) => m.agentIds));
+    const inUse = new Set(this.rooms.listMetas().flatMap((m) => m.agentIds));
     for (const [agentId, conn] of this.connections) {
       if (inUse.has(agentId)) continue;
       conn.dispose();
@@ -5839,7 +5765,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private setStatus(roomId: string, status: RoomStatus, botId?: string): void {
     const rt = this.runtime(roomId);
-    const room = this.open.get(roomId);
+    const room = this.rooms.open.get(roomId);
     const ids = botId
       ? [botId]
       : (room?.participants.map((b) => b.id) ?? [...rt.bots.keys()]);
@@ -5858,121 +5784,9 @@ export class RoomManager extends EventEmitter<Events> {
     this.emit("clashes", roomId, this.clashesIn(roomId));
   }
 
-  /**
-   * **줄에서 나온 그때** 자리를 잡는다 (대기 정렬).
-   *
-   * 한 번 잡으면 안 바꾼다 — 여러 봇에게 가는 말은 **먼저 받은 쪽**이 자리를
-   * 정한다. 그게 «대화에 들어온 시각»이다.
-   */
-  private placeNow(room: Room, m: Message): void {
-    if (m.role !== "user" || m.placedAt !== undefined) return;
-    const at = Date.now();
-    m.placedAt = at;
-    void this.saveMessage(room, { id: m.id, placedAt: at });
-  }
-
-  /**
-   * **이 봇에게는 안 갔다**고 메시지에 적는다 (C5 · §0의 뺄셈 규칙).
-   *
-   * ⏪ 한때 버리는 길이 둘이었다 — 중단과 빼내기. 이제 **전체 중지 하나**다
-   * (v3.0 1-D). 그래도 자국은 같은 모양이어야 한다 — «화면에는 떠 있는데
-   * 영영 답이 없는» 말풍선은 어떤 이유로 생겼든 같은 것이기 때문이다.
-   *
-   * 🔴 **안 간 것은 이 봇에게만이다.** 같은 메시지가 옆 봇에게는 멀쩡히 갔을 수
-   * 있고, 그걸 다시 보내면 **두 번 일하게 된다** — 코딩 에이전트에서는 파일을
-   * 두 번 고치는 일이다.
-   */
-  private async markNotSent(
-    room: Room,
-    m: Message,
-    botId: string,
-    why: string,
-  ): Promise<void> {
-    /*
-     * ★ **안 갔어도 줄에서는 나왔다** — 여기서도 자리를 잡는다.
-     *
-     * 🔴 이걸 빠뜨렸더니 「빼기」를 누른 말풍선이 **위로 튀었다.** 대기 중에는
-     * 바닥에 있다가, 물리는 순간 조건이 풀려 쓴 시각 자리로 돌아간 것이다 —
-     * **누른 것이 눈앞에서 달아난다.**
-     */
-    this.placeNow(room, m);
-    m.notSentTo = [...new Set([...(m.notSentTo ?? []), botId])];
-    m.sendFailed =
-      hasManyBots(room)
-        ? `${m.notSentTo
-            .map((id) => room.participants.find((b) => b.id === id)?.name ?? id)
-            .join("·")}에게 ${why}`
-        : why;
-    await this.saveMessage(room, {
-      id: m.id,
-      sendFailed: m.sendFailed,
-      notSentTo: m.notSentTo,
-    });
-    // 🔴 저장만 하고 알리지 않으면 **방을 다시 열기 전까지 화면이 모른다.**
-    this.emit("message", room.id, m);
-  }
-
-  /**
-   * 봇들의 «맥락 잃음»을 **방 값으로 굴려 올린다**.
-   *
-   * 진실은 봇에 있다(B1). 방 값은 **«하나라도 그런가»** 로만 남긴다 —
-   * 목록과 배너가 방 단위로 묻기 때문이고, 없애면 화면이 봇을 하나하나
-   * 훑어야 한다. **읽기 전용 요약이지 근거가 아니다.**
-   */
-  private rollUpLost(room: Room): void {
-    const anyLost = room.participants.some((b) => b.contextLost);
-    const anyFeed = room.participants.some((b) => b.refeedPending);
-    if (anyLost) room.contextLost = true;
-    else delete room.contextLost;
-    if (anyFeed) room.refeedPending = true;
-    else delete room.refeedPending;
-    const one = room.participants.find((b) => b.lostSessionId)?.lostSessionId;
-    if (one) room.lostSessionId = one;
-    else delete room.lostSessionId;
-  }
-
-  private append(room: Room, message: Message): void {
-    room.messages.push(message);
-    room.lastActivityAt = message.createdAt;
-    this.emit("message", room.id, message);
-  }
-
-  /**
-   * 방 속성만 갱신한다 (제목·미읽음·초안 등).
-   *
-   * 트랜스크립트가 JSONL이라 **한 줄만 덧붙인다** — 방이 길어져도 비용이 같다.
-   */
-  private async saveProps(
-    room: Room,
-    patch: Partial<Omit<Room, "messages">>,
-  ): Promise<void> {
-    if (this.left.has(room.id)) return;
-    await this.opts.store.updateRoom(room, patch);
-    this.emitMetas();
-  }
-
-  private async saveNewMessage(room: Room, message: Message): Promise<void> {
-    if (this.left.has(room.id)) return;
-    await this.opts.store.appendMessage(room, message);
-    this.emitMetas();
-  }
-
-  private async saveMessage(
-    room: Room,
-    patch: Partial<Message> & { id: string },
-  ): Promise<void> {
-    if (this.left.has(room.id)) return;
-    await this.opts.store.updateMessage(room, patch);
-    this.emitMetas();
-  }
-
-  private emitMetas(): void {
-    this.emit("metas", this.listMetas());
-  }
-
   /** 세션 하나는 봇 하나에 속한다 (B1). 방까지 함께 돌려준다 */
   private botForSession(sessionId: string): { room: Room; bot: BotInstance } | undefined {
-    for (const room of this.open.values()) {
+    for (const room of this.rooms.open.values()) {
       const bot = room.participants.find((b) => b.sessionId === sessionId);
       if (bot) return { room, bot };
     }
@@ -5984,11 +5798,6 @@ export class RoomManager extends EventEmitter<Events> {
     const agent = this.opts.agents.find((a) => a.id === agentId);
     if (!agent) throw new Error(`알 수 없는 에이전트: ${agentId}`);
     return agent;
-  }
-
-  private nextDefaultTitle(): string {
-    const used = this.listMetas().filter((m) => /^새 대화 \d+$/.test(m.title));
-    return `새 대화 ${used.length + 1}`;
   }
 
   dispose(): void {

@@ -498,10 +498,10 @@ async function main() {
 
     // 에이전트가 스스로 압축하는 시점도 우리 턴과 무관하다
     const inner12 = mgr as unknown as {
-      open: Map<string, Room>;
+      rooms: { open: Map<string, Room> };
       onIdleEvent(r: Room, b: unknown, ev: unknown): void;
     };
-    const room12 = inner12.open.get(r12.id)!;
+    const room12 = inner12.rooms.open.get(r12.id)!;
     inner12.onIdleEvent(room12, room12.participants[0], {
       type: "compaction", id: "idle1", status: "completed", summary: "혼자 줄였다",
     });
@@ -513,7 +513,7 @@ async function main() {
   console.log("\n[CLI가 준 것을 숨기지 않는다 (§0 P5)]");
   {
     const r13 = await mgr.createRoom({ agentId: "fake", title: "전부 보여준다" });
-    const room13 = (mgr as unknown as { open: Map<string, Room> }).open.get(r13.id)!;
+    const room13 = (mgr as unknown as { rooms: { open: Map<string, Room> } }).rooms.open.get(r13.id)!;
     const bot13 = room13.participants[0]!;
     const fire = (ev: unknown) =>
       (mgr as unknown as { onIdleEvent(r: Room, b: unknown, e: unknown): void })
@@ -545,7 +545,7 @@ async function main() {
     });
     loud.on("roomError", () => {});
     const r14 = await loud.createRoom({ agentId: "fake", title: "모르는 것" });
-    const room14 = (loud as unknown as { open: Map<string, Room> }).open.get(r14.id)!;
+    const room14 = (loud as unknown as { rooms: { open: Map<string, Room> } }).rooms.open.get(r14.id)!;
     (loud as unknown as { onIdleEvent(r: Room, b: unknown, e: unknown): void })
       .onIdleEvent(room14, room14.participants[0], { type: "unknown", kind: "future_thing" });
     ok(seen.some((m) => m.includes("future_thing")),

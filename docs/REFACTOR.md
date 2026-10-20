@@ -176,6 +176,61 @@ closed     답이 난 id              mcp · review
 잔량. 같은 낱말 «사용량» 이 두 물건을 가리켜서다. 코드에서는 `quota` 로 갈랐다.
 옮기면서 비슷한 자리를 더 찾는다.
 
+### ⑤ 세션 층 — **아래층부터** 뗀다 (2026-10-20 실측)
+
+세션(붙이기 · 되살리기 · 분기)을 위에서 한 덩어리로 떼려 하면 문이 스무 칸이다
+— 방 관리자 164개 멤버의 호출 그래프를 뽑아 메서드 하나씩 범위를 잡고 셌다:
+
+```
+                        줄    빌리는 것
+분기                     506    21
+붙이기·되살리기           448    20   ← 절반이 서로 같다(watchIdle · restoreChoices ·
+연결·세션 한 덩어리        702    30      sessionFlight · connection · mcpFor)
+```
+
+빌리는 것을 보면 까닭이 보인다. `saveProps` · `append` · `saveNewMessage` ·
+`noteRoom` · `openRoom` 은 **방 저장**이고, 세션이 그걸 낱낱이 빌리고 있었다.
+위층을 떼려니 아래층이 줄줄이 딸려 나온 것이다. 거꾸로 **아래층부터** 재면:
+
+```
+층               줄    빌리는 것                                   들어가는 것
+L0 방 저장       ~190   left (나간 방 — 같이 들어온다)              open · openRoom · saveProps · saveMessage ·
+                                                                   saveNewMessage · append · noteRoom · rollUpLost ·
+                                                                   markNotSent · placeNow · listMetas · emitMetas · whose
+L1 봇 상태        ~60   저장 · clashes 알림 하나                    runtimes · runtime · botRuntime · statusOf ·
+                                                                   statusOfRoom · setStatus · botForSession
+L1 연결 풀        ~70   저장 · 봇 상태 · 갈고리 묶음 1               connections · connection · dropConnection ·
+                                                                   disposeUnusedConnections · auth* · logOutOf ·
+                                                                   rememberPurge · startAgent
+L2 세션 설정     ~175   저장 · 연결 풀 · soleBot(순수 함수)          configCache · roomConfigs · configFlight ·
+                                                                   noteRoomConfig · kept/keepConfigOptions ·
+                                                                   configOptions · refresh/roomConfigOptions ·
+                                                                   rememberModel · noteAgentConfig · noteAgentMode
+L3 세션          ~480   저장 · 연결 풀 · 봇 상태 · 설정 · MCP ·      sessionFlight · openSession · ensureSession ·
+                        «열었다» 갈고리                            decideRefeed · retryResume · restoreChoices · pointAt
+```
+
+**세션의 문이 스무 칸에서 객체 다섯 + 갈고리 하나가 된다.** 빌리던 것이 다
+제 층의 것이었다.
+
+남은 자잘한 것도 제 집이 있다:
+
+- `mcpFor` (서버 목록 + 열쇠 발급) → **MCP 층**의 일이다. `core/mcp/` 로.
+- `connection` 이 꽂는 넷(`askApprover` · `recordDecision` · `onAgentCrash` ·
+  `rememberPurge`) → 연결 풀이 받는 **갈고리 한 묶음**.
+- `pointAt` · `soleBot` → 방·봇 값만 본다 — 멤버일 까닭이 없는 **순수 함수**.
+- `watchIdle` (세션이 열린 뒤 혼자 말하는 것을 받기) → 세션이 부르는 **갈고리**.
+
+**혼자 말할 때 받기(idle)는 세션이 아니다.** `watchIdle` · `onIdleEvent` ·
+`closeIdle` · `idleReply` 는 `applyEvent` · `noteUsage` · `noteCompaction` 을 빌린다
+— **턴 사건 처리**의 한 갈래다. 턴 층(`runQueue` · `applyEvent`)과 같이 다음 판에.
+
+**분기는 손님이다.** 세션 층이 서면 분기는 `ensureSession` · `restoreChoices` ·
+`connection` 을 문으로 쓰는 위층이 된다 — 떼는 것은 그다음이다.
+
+**순서:** L0 → L1 둘 → L2 → L3, 걸음마다 커밋. 동작은 안 바뀐다 — 검사는 `npm test`
+전체 · tooldump 차이 0.
+
 ## 5. 옮기는 순서 — 단계마다 지키는 검사가 있다
 
 | | 하는 일 | 동작 변화 | 지키는 것 |
@@ -208,6 +263,10 @@ closed     답이 난 id              mcp · review
 ⑦-2 0f27a47 심사 봇은 MCP 로 답할 수 있을 때만         얼어붙던 권한 요청을 막았다
      117e449 재귀 막이 비어 있었다 — 큐에서 읽는다      서로를 기다리던 고리를 막았다
 ⑦-3 4bfb06e review 층 → core/review/review.ts         동작 그대로   roomManager 6,553 → 6,077
+③+  25930f1 잔량 뜯기는 애드온 · 코어는 꼴(quotaLine)만   standard 가 낯선 에이전트를 받는다
+⑤+  5406667 신원도 애드온 함수 · 코어는 한 번 더 본다      우리 셋(OUR_MCP_TOOLS)에만 자동 승인
+     31bc601 설치 기계 → core/install/                   자리만
+⑧   (§4 ⑤) 세션 층 — 아래층부터                         동작 그대로
 ```
 
 **⑦ 은 계획을 고쳐 밟았다.** 처음엔 «review · session · room 으로 나눈다» 였는데,

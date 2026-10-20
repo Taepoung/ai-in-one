@@ -35,7 +35,7 @@ async function main() {
   const mgr = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
   mgr.on("roomError", () => {});
   const inner = mgr as unknown as {
-    open: Map<string, Room>;
+    rooms: { open: Map<string, Room> };
     applyEvent(r: Room, m: Message, ev: unknown): void;
     connections: Map<string, unknown>;
   };
@@ -80,8 +80,8 @@ async function main() {
 
     mgr.setDraft(A.id, "A에 쓰던 글");
     await mgr.flushDraft();
-    ok(inner.open.get(A.id)!.draft === "A에 쓰던 글", "A에 초안이 남고");
-    ok(inner.open.get(B.id)!.draft === undefined, "**B는 비어 있다**");
+    ok(inner.rooms.open.get(A.id)!.draft === "A에 쓰던 글", "A에 초안이 남고");
+    ok(inner.rooms.open.get(B.id)!.draft === undefined, "**B는 비어 있다**");
     setStatus.call(mgr, A.id, "idle");
   }
 
@@ -89,8 +89,8 @@ async function main() {
   {
     const reply = (id: string): Message =>
       ({ id, role: "agent", text: "", deliveredTo: [], createdAt: 1 });
-    const roomA = inner.open.get(A.id)!;
-    const roomB = inner.open.get(B.id)!;
+    const roomA = inner.rooms.open.get(A.id)!;
+    const roomB = inner.rooms.open.get(B.id)!;
 
     // 두 방이 **같은 id**를 쓴다 — 실제로 일어날 수 있는 일이다
     inner.applyEvent(roomA, reply("x"), {
@@ -110,15 +110,15 @@ async function main() {
 
   console.log("\n[되먹임 약속도 방마다]");
   {
-    inner.open.get(A.id)!.contextLost = true;
+    inner.rooms.open.get(A.id)!.contextLost = true;
     await mgr.decideRefeed(A.id, true);
-    ok(inner.open.get(A.id)!.refeedPending === true, "A는 되먹인다");
-    ok(inner.open.get(B.id)!.refeedPending !== true, "**B는 아무 약속도 안 했다**");
+    ok(inner.rooms.open.get(A.id)!.refeedPending === true, "A는 되먹인다");
+    ok(inner.rooms.open.get(B.id)!.refeedPending !== true, "**B는 아무 약속도 안 했다**");
   }
 
   console.log("\n[트랜스크립트도 섞이지 않는다]");
   {
-    const roomA = inner.open.get(A.id)!;
+    const roomA = inner.rooms.open.get(A.id)!;
     const msg: Message = { id: "only-a", role: "user", text: "A에만", deliveredTo: [], createdAt: 9 };
     roomA.messages.push(msg);
     await store.appendMessage(roomA, msg);
@@ -141,7 +141,7 @@ async function main() {
   {
     // 지금은 화면이 봇을 하나만 만들지만, **밑바닥은 이미 여럿을 감당한다.**
     const two = await mgr.createRoom({ agentId: "fake", title: "둘인 방" });
-    const roomTwo = inner.open.get(two.id)!;
+    const roomTwo = inner.rooms.open.get(two.id)!;
     const second = createBotInstance(agent, { agentMode: "default" });
     second.name = "둘째";
     roomTwo.participants.push(second);
