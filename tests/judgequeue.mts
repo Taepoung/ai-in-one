@@ -73,6 +73,7 @@ async function make(hold: number) {
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
     queue: BotQueue;
+    runtimes: { bot(roomId: string, botId: string): { fromUser?: boolean } };
   };
   const room = await mgr.createRoom({
     title: "줄", bots: [{ agentId: "alpha" }, { agentId: "beta" }, { agentId: "gamma" }],
@@ -180,12 +181,20 @@ async function main(): Promise<void> {
     await t.settle();
     await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
 
-    // 전제 — 이 방에서 say 는 정말로 막혀 있다
+    /*
+     * 전제 — 이 방에서 say 는 정말로 막혀 있다. **«끔» 때문에** 막혀야 한다.
+     *
+     * ⏪ 여기가 `id: "0"` 이었다. 새로 거는 말이 `id: null` 로 바뀐 뒤로 `"0"` 은
+     * `id error` 로 먼저 떨어져서, 이 전제는 **엉뚱한 까닭으로** 서고 있었다(2026-10-20).
+     * `id: null` 은 사용자가 연 턴에서만 통하므로 그 턴을 세워 준다.
+     */
+    t.inner.runtimes.bot(t.room.id, t.asker.id).fromUser = true;
     const blocked = await t.mgr.mcpCall(
-      `${t.room.id}:${t.asker.id}`, "say", { to: [t.judge.name], text: "들려?", id: "0" },
+      `${t.room.id}:${t.asker.id}`, "say", { to: [t.judge.name], text: "들려?", id: null },
     );
-    if (!blocked.isError) {
-      throw new Error("FAIL: 전제가 안 섰다 — 「끔」인데 say 가 나갔다");
+    const why = blocked.isError ? (JSON.parse(blocked.text) as { reason?: string }).reason : undefined;
+    if (why !== "relay is off") {
+      throw new Error(`FAIL: 전제가 안 섰다 — 「끔」 때문에 막혀야 한다 (${blocked.text})`);
     }
 
     const pending = t.inner.askApprover(t.asker.sessionId!, REQ("꺼져 있어도"));

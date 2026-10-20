@@ -115,16 +115,21 @@ async function main(): Promise<void> {
   console.log(`${NL}── 구현 → 리뷰어 ─────────────`);
   /*
    * 구현은 가짜라 **사용자가 연 턴**을 손으로 세워준다 — 진짜로는 `runQueue`
-   * 가 박는 값이다. `id: "0"` 은 그 턴에서만 통한다.
+   * 가 박는 값이다. 새로 거는 말(`id: null`)은 그 턴에서만 통한다.
+   *
+   * ⏪ 여기가 `id: "0"` 이었다(2026-10-20 에 고침). 새로 거는 말이 `id: null` 로 바뀐
+   * 뒤로 `"0"` 은 `id error` 로 떨어져 **리뷰어 큐에 아무것도 안 들어갔고**, 그래서
+   * Antigravity 는 깨어날 일이 없었다 — 6 개 중 4 개가 그 하나로 줄줄이 빨갰다.
    */
   (mgr as unknown as { runtimes: { bot(r: string, b: string): { depth?: number; fromUser?: boolean } } })
     .runtimes.bot(room.id, impl.id).fromUser = true;
   const sent = await mgr.mcpCall(`${room.id}:${impl.id}`, "say", {
     to: ["리뷰어"],
     text: "로그인 핸들러에서 토큰 만료를 안 보고 있는 것 같은데, 맞아?",
-    id: "0",
+    id: null,
   });
   console.log(`  say 결과: ${sent.text}`);
+  if (sent.isError) { console.log("🔴 첫 say 가 거절됐다 — 리뷰어가 깨어날 거리가 없다"); process.exit(1); }
   /*
    * 🔴 **번호는 지금 집어야 한다.** `say` 는 번호를 안 돌려주고(보낸 쪽이 쓸
    * 데가 없어서), 저쪽이 **반응하면 그 항목은 큐에서 사라진다** — 끝나고 집으면
