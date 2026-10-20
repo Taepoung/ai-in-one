@@ -159,7 +159,7 @@ async function main() {
   {
     const inner = mgr as unknown as {
       rooms: { open: Map<string, Room>; saveProps(r: Room, p: unknown): Promise<void> };
-      applyUsage(r: Room, u: unknown): void;
+      turns: { applyUsage(r: Room, u: unknown): void };
     };
     const live = inner.rooms.open.get(room.id)!;
     live.usage = { contextUsed: 70, contextSize: 100, totalTokens: 1234 };

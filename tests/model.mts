@@ -384,11 +384,11 @@ async function main() {
     const r6 = await m6.createRoom({ agentId: "fake", title: "조각" });
     const room6 = await m6.openRoom(r6.id);
     const rep6: Message = { id: "x", role: "agent", text: "", deliveredTo: [], createdAt: 1 };
-    const in6 = m6 as unknown as { applyEvent(r: Room, m: Message, ev: unknown): void };
+    const in6 = m6 as unknown as { turns: { applyEvent(r: Room, m: Message, ev: unknown): void } };
 
-    in6.applyEvent(room6, rep6, { type: "compaction", id: "s1", status: "in_progress", summaryDelta: "앞부분" });
-    in6.applyEvent(room6, rep6, { type: "compaction", id: "s1", status: "in_progress", summaryDelta: " 뒷부분" });
-    in6.applyEvent(room6, rep6, { type: "compaction", id: "s1", status: "completed" });
+    in6.turns.applyEvent(room6, rep6, { type: "compaction", id: "s1", status: "in_progress", summaryDelta: "앞부분" });
+    in6.turns.applyEvent(room6, rep6, { type: "compaction", id: "s1", status: "in_progress", summaryDelta: " 뒷부분" });
+    in6.turns.applyEvent(room6, rep6, { type: "compaction", id: "s1", status: "completed" });
     const got = room6.messages.find((m) => m.mark === "compaction");
     ok(got?.summary === "앞부분 뒷부분",
        `**조각을 모아 쓴다** — 마지막 알림엔 summary가 없다 (${String(got?.summary)})`);
@@ -437,7 +437,7 @@ async function main() {
     const m5 = new RoomManager({ host, store, agents: [agent], configProbeMs: 20000 });
     m5.on("roomError", () => {});
     const inner = m5 as unknown as {
-      applyEvent(room: Room, reply: Message, ev: unknown): void;
+      turns: { applyEvent(room: Room, reply: Message, ev: unknown): void };
     };
 
     const r0 = await m5.createRoom({ agentId: "fake", title: "압축" });
@@ -447,7 +447,7 @@ async function main() {
     };
 
     const fire = (status: string) =>
-      inner.applyEvent(room, reply, { type: "compaction", id: "c1", status });
+      inner.turns.applyEvent(room, reply, { type: "compaction", id: "c1", status });
 
     fire("in_progress");
     ok(!room.messages.some((m) => m.mark === "compaction"), "도는 중에는 안 긋는다");
@@ -464,9 +464,9 @@ async function main() {
 
     console.log("\n[에이전트가 준 요약은 들고 있는다 — 되먹일 때 쓴다 (F7)]");
     const withSummary = m5 as unknown as {
-      applyEvent(room: Room, reply: Message, ev: unknown): void;
+      turns: { applyEvent(room: Room, reply: Message, ev: unknown): void };
     };
-    withSummary.applyEvent(room, reply, {
+    withSummary.turns.applyEvent(room, reply, {
       type: "compaction", id: "c2", status: "completed",
       summary: "A 파일을 리팩터링했고 테스트를 통과시켰다.",
     });
@@ -499,10 +499,10 @@ async function main() {
     // 에이전트가 스스로 압축하는 시점도 우리 턴과 무관하다
     const inner12 = mgr as unknown as {
       rooms: { open: Map<string, Room> };
-      onIdleEvent(r: Room, b: unknown, ev: unknown): void;
+      turns: { onIdleEvent(r: Room, b: unknown, ev: unknown): void };
     };
     const room12 = inner12.rooms.open.get(r12.id)!;
-    inner12.onIdleEvent(room12, room12.participants[0], {
+    inner12.turns.onIdleEvent(room12, room12.participants[0], {
       type: "compaction", id: "idle1", status: "completed", summary: "혼자 줄였다",
     });
     const cut = room12.messages.find((m) => m.mark === "compaction");
@@ -516,8 +516,8 @@ async function main() {
     const room13 = (mgr as unknown as { rooms: { open: Map<string, Room> } }).rooms.open.get(r13.id)!;
     const bot13 = room13.participants[0]!;
     const fire = (ev: unknown) =>
-      (mgr as unknown as { onIdleEvent(r: Room, b: unknown, e: unknown): void })
-        .onIdleEvent(room13, bot13, ev);
+      (mgr as unknown as { turns: { onIdleEvent(r: Room, b: unknown, e: unknown): void } })
+        .turns.onIdleEvent(room13, bot13, ev);
 
     console.log("\n[턴 밖에서 말해도 방에 남는다]");
     fire({ type: "text", delta: "먼저 말을 겁니다" });
@@ -546,8 +546,8 @@ async function main() {
     loud.on("roomError", () => {});
     const r14 = await loud.createRoom({ agentId: "fake", title: "모르는 것" });
     const room14 = (loud as unknown as { rooms: { open: Map<string, Room> } }).rooms.open.get(r14.id)!;
-    (loud as unknown as { onIdleEvent(r: Room, b: unknown, e: unknown): void })
-      .onIdleEvent(room14, room14.participants[0], { type: "unknown", kind: "future_thing" });
+    (loud as unknown as { turns: { onIdleEvent(r: Room, b: unknown, e: unknown): void } })
+      .turns.onIdleEvent(room14, room14.participants[0], { type: "unknown", kind: "future_thing" });
     ok(seen.some((m) => m.includes("future_thing")),
        "**스펙이 늘어나도 «안 보이는 게 아니라 아직 안 만든 것»임을 알 수 있다**");
     loud.dispose();
@@ -604,8 +604,8 @@ async function main() {
        "**써본 세션은 유령에 안 밀린다** — 한 번의 복구 실패가 영구 손실이 되면 안 된다");
 
     // 새 세션이 실제로 쓰이면 그때 옮긴다
-    (m9 as unknown as { notePrompted(r: Room, b: unknown, id: string): void })
-      .notePrompted(room15, bot15, "새-세션");
+    (m9 as unknown as { turns: { notePrompted(r: Room, b: unknown, id: string): void } })
+      .turns.notePrompted(room15, bot15, "새-세션");
     ok(bot15.sessionId === "새-세션", "쓴 세션으로는 밀린다");
     m9.dispose();
   }

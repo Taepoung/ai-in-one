@@ -36,7 +36,7 @@ async function main() {
   mgr.on("roomError", () => {});
   const inner = mgr as unknown as {
     rooms: { open: Map<string, Room> };
-    applyEvent(r: Room, m: Message, ev: unknown): void;
+    turns: { applyEvent(r: Room, m: Message, ev: unknown): void };
     pool: { values(): Iterable<unknown> };
   };
 
@@ -93,10 +93,10 @@ async function main() {
     const roomB = inner.rooms.open.get(B.id)!;
 
     // 두 방이 **같은 id**를 쓴다 — 실제로 일어날 수 있는 일이다
-    inner.applyEvent(roomA, reply("x"), {
+    inner.turns.applyEvent(roomA, reply("x"), {
       type: "compaction", id: "c1", status: "completed", summary: "A의 요약",
     });
-    inner.applyEvent(roomB, reply("y"), {
+    inner.turns.applyEvent(roomB, reply("y"), {
       type: "compaction", id: "c1", status: "completed", summary: "B의 요약",
     });
 
