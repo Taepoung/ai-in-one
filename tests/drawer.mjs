@@ -470,6 +470,52 @@ console.log(String.fromCharCode(10) + "[★ 방 정보는 팔업이다]");
   ok(t.$("#screen-chat .modal") === null, "덮개를 누르면 닫힌다");
 }
 
+console.log(String.fromCharCode(10) + "[★ 루프모드 — 상단 바 아래 빨간 띠 · 권한 시트의 상한 (2026-10-20)]");
+{
+  const open = (bots, over = {}) => {
+    const t = mount();
+    t.$(".room").click();
+    t.send({ t: "joinDone", roomId: "r1" });
+    t.send({ t: "room", room: { ...room(bots), ...over }, compactable: false });
+    return t;
+  };
+  // 아무도 안 켰으면 띠가 없다
+  const off = open([bot("b1", "claude", {}, "알파"), bot("b2", "codex", {}, "베타")]);
+  ok(off.$("#screen-chat .loop-band")?.hidden === true, "★ 루프모드를 켠 봇이 없으면 띠가 없다");
+
+  // 켠 봇이 있으면 **누구에게** 켜져 있는지 적는다
+  const on = open([bot("b1", "claude", {}, "알파"), bot("b2", "codex", { answerPolicy: "auto" }, "베타")]);
+  const band = on.$("#screen-chat .loop-band");
+  ok(band && !band.hidden, "★ 켠 봇이 있으면 띠가 선다");
+  ok(/루프모드 — 베타/.test(band.textContent) && !/알파/.test(band.textContent),
+     `★ **켠 봇의 이름만** 적는다 (${band.textContent})`);
+  const kids = [...on.$("#screen-chat").children];
+  ok(kids.indexOf(band) === kids.findIndex((n) => n.matches("header.bar")) + 1,
+     "★ **상단 바 바로 아래** — 늘 보이는 자리");
+
+  // 권한 시트: 봇마다 «루프모드 끔/켬» · 방 단위 상한 상자
+  on.$("#screen-chat .perm").click();
+  const loopBox = on.$("#screen-perm .sheet-room.loop");
+  ok(loopBox !== null, "★ 권한 시트에 방 단위 «루프모드» 상자가 있다");
+  ok(/10/.test(loopBox.querySelector("input.cap").value) && /베타/.test(loopBox.textContent),
+     `★ 기본 상한 10 · 켠 봇 이름 (${loopBox.textContent})`);
+  on.sent.length = 0;
+  const cap = loopBox.querySelector("input.cap");
+  cap.value = "0";
+  cap.dispatchEvent(new on.w.Event("change"));
+  ok(on.sent.some((m) => m.t === "setLoopCap" && m.cap === 0), "★ 0 도 보낸다 — 제한 없음");
+
+  // 0 이면 그 자리에 «제한 없음» 이라고 적는다
+  const zero = open([bot("b2", "codex", { answerPolicy: "auto" }, "베타")], { loopCap: 0 });
+  zero.$("#screen-chat .perm").click();
+  ok(/제한 없음/.test(zero.$("#screen-perm .sheet-room.loop").textContent),
+     "★ **0 이 무슨 뜻인지 그 자리에 적는다** — 제한 없음");
+
+  // 아무도 안 켰으면 상자는 흐리게
+  off.$("#screen-chat .perm").click();
+  ok(off.$("#screen-perm .sheet-room.loop input.cap").disabled === true, "★ 켠 봇이 없으면 흐리게");
+}
+
 console.log(String.fromCharCode(10) + "[★ 방 정보 · 저장 위치 (사용자, 2026-10-20)]");
 {
   /*

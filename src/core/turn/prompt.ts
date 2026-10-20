@@ -240,6 +240,21 @@ export class Prompts {
     batch: Message[],
   ): Promise<acp.ContentBlock[]> {
     const body = batch.map((m) => m.text).join("\n");
+    /*
+     * ★ **슬래시 명령은 단독으로 보낸다** (2026-10-20).
+     *
+     * 🔴 어댑터는 **첫 글이 `/` 로 시작해야** 명령으로 본다(Claude 어댑터
+     * `acp-agent.js` 의 `firstText.startsWith("/")`). 그런데 아래 줄들을 앞에 붙이면
+     * 단체방의 [압축] 이 `[ai-in-one] {…}\n\n/compact` 로 나가 **그냥 글이 됐다** —
+     * 압축이 안 되고 모델은 그 글에 답했다.
+     *
+     * 한 번 보내면 끝나는 것들(역할 · 명단 · 되먹임 · 끊긴 자리)은 **여기서 안 쓴다** —
+     * 다음 일반 턴으로 미룬다. 슬래시 턴은 모델이 기억하지 않으므로(`SLASH.md`), 여기
+     * 실었다고 표시하면 정작 기억하는 턴에서 빠진다.
+     */
+    if (body.trimStart().startsWith("/")) {
+      return [{ type: "text", text: body.trimStart() }];
+    }
     const parts: string[] = [];
 
     if (bot.rolePrompt && !bt.roleInjected) {
@@ -307,11 +322,11 @@ export class Prompts {
       );
       delete bt.interrupted;
     }
-    if (bot.answerPolicy === "auto") {
-      parts.push(
-        "[사용자가 자리에 없습니다. 묻지 말고 스스로 판단해 진행하세요.]",
-      );
-    }
+    /*
+     * ⏪ 여기서 루프모드(예전 «알아서 판단»)면 매 턴 «사용자가 자리에 없습니다. 묻지
+     * 말고 스스로 판단해 진행하세요» 를 붙였다. 뺐다 (사용자, 2026-10-20: *"이거는
+     * 굳이?"*) — 루프가 다시 물을 때 그 말 안에서 «자리를 비웠다» 를 말한다(`Loops`).
+     */
     /*
      * ★ **큐 알림은 프롬프트에 얹혀 간다** (v3.0 4-J).
      *

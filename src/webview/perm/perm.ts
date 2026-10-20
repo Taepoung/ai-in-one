@@ -1,7 +1,7 @@
 /**
  * ★ **권한 시트** — 봇마다 모드 · 대상 · 릴레이.
  */
-import { botColor, type BotInstance, type Room } from "../../core/types.js";
+import { botColor, DEFAULT_LOOP_CAP, type BotInstance, type Room } from "../../core/types.js";
 import { sharedMemoryRow } from "../chat/fork.js";
 import { el, icon, type Kids } from "../common/dom.js";
 import { back, push, screens } from "../common/screens.js";
@@ -64,6 +64,7 @@ export function paintPermissionSheet(r: Room): void {
     ),
     relayRow(r),
     ...r.participants.map((bot) => botPolicyBlock(r, bot)),
+    loopRow(r),
     // `replaceChildren` 는 `el()` 과 달리 `null` 을 안 걸러준다
     ...[sharedMemoryRow(r)].filter((n): n is HTMLElement => n !== null),
   );
@@ -208,7 +209,48 @@ function capRow(r: Room): HTMLElement {
   );
 }
 
-/** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 질문 */
+/**
+ * ★ **루프모드 — 방 단위 상한** (사용자, 2026-10-20: *"안전장치 -> 사용자가 정할 수
+ * 있게 하자"*).
+ *
+ * 한 봇에게 다시 묻는 횟수의 끝이다. 할 일을 끝없이 지어내는 봇이 구독 잔량을
+ * 녹이지 않게 한다. 사용자가 새로 말을 걸면 처음부터 센다. 깊이 상한과 같은 꼴 —
+ * 루프 봇이 없으면 **흐리게** 둔다(숨기면 «언제 쓰이는 값이지» 가 된다).
+ */
+function loopRow(r: Room): HTMLElement {
+  const on = r.participants.filter((b) => b.answerPolicy === "auto");
+  const cap = r.loopCap ?? DEFAULT_LOOP_CAP;
+  const box = el("input", {
+    type: "number", class: "cap", min: "0", max: "999", value: String(cap),
+    title: "루프모드가 한 봇에게 다시 묻는 횟수의 끝입니다. 사용자가 새로 말을 걸면 처음부터 셉니다. " +
+      "0 이면 제한 없음.",
+  }) as HTMLInputElement;
+  if (on.length === 0) box.disabled = true;
+  box.addEventListener("change", () => {
+    const n = Number(box.value);
+    if (!Number.isFinite(n) || n < 0) { box.value = String(cap); return; }
+    post({ t: "setLoopCap", roomId: r.id, cap: n });
+  });
+  const wrap = el("div", { class: "sheet-room loop" });
+  wrap.append(
+    el("div", { class: "who" }, el("span", { class: "name", text: "루프모드" })),
+    el("div", { class: on.length > 0 ? "policy cap-row" : "policy cap-row off" },
+      el("span", { class: "dim", text: "한 봇에게 다시 묻기" }),
+      box,
+      el("span", {
+        class: "dim",
+        // **0 이 무슨 뜻인지 그 자리에 적는다** — 깊이 상한과 같다
+        text: on.length === 0
+          ? "번까지 — 루프모드를 켠 봇이 없습니다."
+          : cap === 0
+            ? `— 제한 없음 · ${on.map((b) => b.name).join(" · ")}`
+            : `번까지 — ${on.map((b) => b.name).join(" · ")}`,
+      })),
+  );
+  return wrap;
+}
+
+/** 봇 하나의 설정 — 권한 모드 · 승인 주체 · 루프모드 */
 function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
   const options = optionsFor(bot.agentId, r.id, bot.id) ?? [];
   const mode = options.find((o) => o.category === "mode");
@@ -342,27 +384,32 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
     ),
   );
 
-  // ── 질문 — 에이전트가 물어볼 때
-  const ask = el("select") as HTMLSelectElement;
-  ask.append(el("option", { value: "ask", text: "물어봄", selected: bot.answerPolicy !== "auto" }));
-  ask.append(
-    el("option", { value: "auto", text: "알아서 판단", selected: bot.answerPolicy === "auto" }),
-  );
-  ask.addEventListener("change", () =>
+  /*
+   * ── 루프모드 (2026-10-20 · 예전 «질문: 알아서 판단») ─────────────────
+   *
+   * 값은 그대로 `answerPolicy` 의 `ask`/`auto` 다 — 저장된 방이 그대로 읽힌다.
+   * 뜻만 바뀌었다: 켜면 방이 조용해질 때마다 다시 물어 할 일을 이어 가게 한다
+   * (`core/turn/loop.ts`). 상한은 아래 «루프모드» 상자에서 정한다.
+   */
+  const loop = el("select") as HTMLSelectElement;
+  loop.append(el("option", { value: "ask", text: "끔", selected: bot.answerPolicy !== "auto" }));
+  loop.append(el("option", { value: "auto", text: "켬", selected: bot.answerPolicy === "auto" }));
+  loop.addEventListener("change", () =>
     post({
       t: "setPolicy",
       roomId: r.id,
       botId: bot.id,
-      answerPolicy: ask.value === "auto" ? "auto" : "ask",
+      answerPolicy: loop.value === "auto" ? "auto" : "ask",
     }),
   );
+  const loopWhy = "켜면 모두 멈춘 뒤 다시 물어, 할 일이 있으면 이어 하고 없으면 «종료» 로 끝냅니다.";
   rows.push(
     el(
       "div",
       { class: "field" },
-      el("label", { text: "질문" }),
-      ask,
-      el("span", { class: "dim", text: "에이전트가 갈림길에서 물어볼 때.", title: "에이전트가 갈림길에서 물어볼 때." }),
+      el("label", { text: "루프모드" }),
+      loop,
+      el("span", { class: "dim", text: loopWhy, title: loopWhy }),
     ),
   );
 

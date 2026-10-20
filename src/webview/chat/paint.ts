@@ -834,6 +834,7 @@ export function paintChat(r: Room): void {
 
   paintApprovals(r);
   paintClashes(r);
+  paintLoopBand(r);
   c.list.replaceChildren(...nodes);
   if (atBottom) c.list.scrollTop = c.list.scrollHeight;
 
@@ -1055,3 +1056,25 @@ function reuseOrBuild(
 
 /** 방에 봇이 둘 이상인가 — 말풍선 중단이 의미가 생기는 조건 (v2.0) */
 export const manyBots = (): boolean => (S.room ? hasManyBots(S.room) : false);
+
+/**
+ * ★ **루프모드 띠를 그린다** (2026-10-20). 루프모드를 켠 봇이 없으면 숨긴다.
+ * 누구에게 켜져 있는지를 이름으로 적는다 — «켜져 있다» 만으로는 어느 봇이 사람 없이
+ * 도는지 모른다.
+ */
+export function paintLoopBand(r: Room): void {
+  const host = S.chat?.loop;
+  if (!host) return;
+  const on = r.participants.filter((b) => b.answerPolicy === "auto");
+  if (on.length === 0) {
+    host.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+  host.hidden = false;
+  host.replaceChildren(
+    icon("sync"),
+    el("span", { class: "loop-who", text: `루프모드 — ${on.map((b) => b.name).join(" · ")}` }),
+    el("span", { class: "loop-what", text: "모두 멈추면 다시 물어 할 일을 이어 갑니다 · «종료» 하면 빠집니다" }),
+  );
+}

@@ -534,6 +534,9 @@ export class ChatPanel implements AskTarget {
         case "setRelayDepth":
           await this.rooms.setRelayDepth(m.roomId, m.depth);
           break;
+        case "setLoopCap":
+          await this.rooms.setLoopCap(m.roomId, m.cap);
+          break;
         case "sendCompose":
           await this.rooms.sendCompose(
             m.roomId,

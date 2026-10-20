@@ -450,6 +450,8 @@ export type FromWebview =
    * 거는 말이다 — **답도 반응이라 한 다리 는다.**
    */
   | { t: "setRelayDepth"; roomId: string; depth: number }
+  /** 루프모드가 한 봇에게 다시 묻는 상한 — 0 이면 제한 없음 (2026-10-20) */
+  | { t: "setLoopCap"; roomId: string; cap: number }
   /**
    * 봇 이름 바꾸기 (v2.2 준비).
    *

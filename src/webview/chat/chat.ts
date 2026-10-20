@@ -127,6 +127,13 @@ export interface ChatEls {
    * 서랍에 넣으면 열어볼 생각이 든 시점에 이미 늦는다.
    */
   clash: HTMLElement;
+  /**
+   * ★ **루프모드 띠** — 상단 바 바로 아래, 빨간 계열 (사용자, 2026-10-20).
+   *
+   * 켜 둔 것을 잊으면 봇이 사람 없이 계속 일한다 — 구독 잔량도 계속 녹는다. 그래서
+   * 서랍이 아니라 **늘 보이는 자리**에 누구에게 켜져 있는지 적는다.
+   */
+  loop: HTMLElement;
   list: HTMLElement;
   /**
    * ★ **«읽던 자리로»** — 찾아가기로 화면이 움직였을 때만 뜬다 (2026-09-23).
@@ -233,6 +240,7 @@ function mountChat(r: Room): void {
   const head = el("header", { class: "bar" });
   const queue = el("div", { class: "approvals", hidden: true });
   const clash = el("div", { class: "clashes", hidden: true });
+  const loop = el("div", { class: "loop-band", hidden: true });
   const list = el("div", { class: "messages" });
   const back = el("div", { class: "back-jump", hidden: true });
   const down = el("div", { class: "back-jump to-bottom", hidden: true });
@@ -434,6 +442,7 @@ function mountChat(r: Room): void {
   replace(
     screens.chat,
     head,
+    loop,
     clash,
     list,
     /*
@@ -480,7 +489,7 @@ function mountChat(r: Room): void {
   );
 
   S.chat = {
-    roomId: r.id, head, queue, clash, list, back, down, status, chips, box, perm,
+    roomId: r.id, head, queue, clash, loop, list, back, down, status, chips, box, perm,
     compose, staged, stop,
   };
   // 방을 갈아타면 돌아갈 자리도 사라진다 — 남의 방 스크롤 값이다

@@ -45,6 +45,8 @@ const GEMINI = Boolean(process.env.AIO_FAKE_GEMINI);
 const NO_REPLY = Symbol("no-reply");
 let limited = false;
 let turns = 0;
+/** 루프모드가 다시 물은 횟수 — AIO_FAKE_LOOP_DONE_AT 이 본다 */
+let loopAsked = 0;
 /*
  * **CLI의 디스크**를 흉내낸다 (`AIO_FAKE_DISK=<파일>`).
  *
@@ -479,9 +481,20 @@ function handle(msg) {
           }) + "\n");
         }, delay);
       }
+      /*
+       * ★ **루프모드의 다시 묻기에 답한다** (2026-10-20).
+       *   AIO_FAKE_LOOP_DONE_AT=N   N 번째로 물을 때 «종료», 그 전엔 «할 일을 하나 더 했습니다»
+       *   (안 주면 끝내 «종료» 를 안 한다 — 상한을 재려고)
+       */
+      let said = process.env.AIO_FAKE_ECHO ? ("답:" + text.slice(0, 24)) : (process.env.AIO_FAKE_SAY || "알겠습니다");
+      if (text.includes("[ai-in-one 루프]")) {
+        loopAsked += 1;
+        const at = Number(process.env.AIO_FAKE_LOOP_DONE_AT ?? 0);
+        said = at > 0 && loopAsked >= at ? "종료" : "할 일을 하나 더 했습니다";
+      }
       process.stdout.write(JSON.stringify({
         jsonrpc: "2.0", method: "session/update",
-        params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: process.env.AIO_FAKE_ECHO ? ("답:" + text.slice(0, 24)) : (process.env.AIO_FAKE_SAY || "알겠습니다") } } },
+        params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: said } } },
       }) + "\n");
       // 사용량을 **세션마다 다르게** 내보낸다 — 봇끼리 섞이는지 재려면 달라야 한다.
       // 큰 수는 이 프로세스가 아니라 **세션 id의 길이**에서 나오게 해서,

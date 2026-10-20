@@ -1085,7 +1085,7 @@ function main() {
        "**그리고 그 화면으로 간다**");
 
     const labels = t.$$("#screen-perm .field > label").map((l) => l.textContent);
-    ok(labels.join(",") === "권한 모드,승인 주체,질문",
+    ok(labels.join(",") === "권한 모드,승인 주체,루프모드",
        `**봇 : 권한 모드 : 승인 주체** (${labels.join(",")})`);
     /*
      * ★ **맨 위는 «봇끼리 부르기»** (v3.0 2-F). 그것도 권한이고, 봇별

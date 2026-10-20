@@ -2465,7 +2465,7 @@ details.advanced[open] > summary .codicon-chevron-right {
  * 있어서, 좁은 폭에서 줄이 접히면 **어느 줄이 어느 봇 것인지 알 수 없었다.**
  * 참여자 화면(`.drawer-bot`)이 쓰는 테두리 상자와 같은 모양으로 맞춘다.
  */
-.sheet-bot {
+:is(.sheet-bot, .sheet-room) {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2485,7 +2485,7 @@ details.advanced[open] > summary .codicon-chevron-right {
 }
 
 /* 설정을 못 불러왔다 — 「모드가 없다」와 달리 사용자가 고칠 수 있는 상태다 */
-.sheet-bot .warn {
+:is(.sheet-bot, .sheet-room) .warn {
   margin: 0;
   color: var(--chat-fg);
   font-size: var(--fs-12);
@@ -2684,7 +2684,7 @@ details.advanced[open] > summary .codicon-chevron-right {
  * 다른 크기로 적으면 «다른 것인가» 로 읽힌다.
  */
 .drawer-bot .who .name,
-.sheet-bot .who .name {
+:is(.sheet-bot, .sheet-room) .who .name {
   font-weight: 600;
   font-size: var(--fs-15);
 }
@@ -2956,18 +2956,18 @@ fieldset.bot .bot-drop.danger:hover {
  * 위아래로 쌓으면 봇이 셋일 때 아홉 줄이 되어 시트가 화면을 다 먹는다.
  * 그러면 정작 비교해야 할 두 봇을 나란히 못 본다.
  */
-.sheet-bot .policy {
+:is(.sheet-bot, .sheet-room) .policy {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
 }
 
-.sheet-bot .policy > .field {
+:is(.sheet-bot, .sheet-room) .policy > .field {
   flex: 1 1 150px;
   min-width: 0;
 }
 
-.sheet-bot .policy > .field select {
+:is(.sheet-bot, .sheet-room) .policy > .field select {
   width: 100%;
 }
 
@@ -2977,7 +2977,7 @@ fieldset.bot .bot-drop.danger:hover {
  * 에이전트가 주는 글이라 길이를 우리가 못 정하는데, 그게 칸 높이를 밀면
  * 옆 칸들까지 따라 내려가 가로로 둔 뜻이 없어진다. 전문은 툴팁에 남는다.
  */
-.sheet-bot .policy > .field .dim {
+:is(.sheet-bot, .sheet-room) .policy > .field .dim {
   display: block;
   overflow: hidden;
   font-size: var(--fs-10);
@@ -2987,8 +2987,8 @@ fieldset.bot .bot-drop.danger:hover {
 }
 
 /* 못 불러왔을 때의 안내는 한 줄을 통째로 쓴다 — 고칠 거리가 있는 상태다 */
-.sheet-bot .policy > p,
-.sheet-bot .policy > button.link {
+:is(.sheet-bot, .sheet-room) .policy > p,
+:is(.sheet-bot, .sheet-room) .policy > button.link {
   flex: 1 1 100%;
 }
 
@@ -3403,6 +3403,24 @@ fieldset.bot .bot-drop.danger:hover {
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-11);
 }
+
+/*
+ * ★ 루프모드 띠 (2026-10-20) — 상단 바 바로 아래, **빨간 계열**.
+ * 사람 없이 도는 봇이 있다는 경고라 테마의 오류 색을 빌린다(밝은·어두운 테마 둘 다 따라간다).
+ */
+.loop-band {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: var(--fs-11);
+  color: var(--vscode-errorForeground);
+  background: var(--vscode-inputValidation-errorBackground, rgba(255, 0, 0, 0.08));
+  border-bottom: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+.loop-band .loop-who { font-weight: 600; }
+.loop-band .loop-what { opacity: 0.8; }
 
 .clash {
   padding: 4px 10px;

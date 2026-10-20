@@ -143,7 +143,8 @@ function policyLine(r: Room, bot: BotInstance): string {
       ? "승인은 사용자에게"
       : `승인은 ${r.participants.find((b) => b.id === (bot.approver as { botId?: string }).botId)?.name ?? "다른 봇"}에게`,
   );
-  bits.push(bot.answerPolicy === "auto" ? "질문은 알아서" : "질문은 물어봄");
+  // 루프모드는 **켰을 때만** 적는다 — 꺼진 것이 평소다 (2026-10-20 · 예전 «질문은 물어봄/알아서»)
+  if (bot.answerPolicy === "auto") bits.push("루프모드");
   return bits.join(" · ");
 }
 

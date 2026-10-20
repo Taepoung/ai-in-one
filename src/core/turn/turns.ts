@@ -143,6 +143,15 @@ export class Turns {
 
   constructor(private readonly port: TurnPort) {}
 
+  /**
+   * 한 턴을 돌린다 — 그리고 **어떻게 끝나든 «턴이 끝났다» 를 한 번** 알린다
+   * (`turnDone` — 예약 보내기 · 루프 다시 세기).
+   *
+   * 🔴 예전에는 그 갈고리를 부르는 자리가 흩어져 있었다 — 깨우기 턴은 여기서, 사용자
+   * 턴은 보내기층이 예약 보내기를 **직접** 불렀다. 그래서 루프모드가 사용자 턴의
+   * 끝을 못 봤다(`tests/loop.mts` «새로 말하면 다시 돈다» 가 그걸로 빨갰다). 이제
+   * 모든 턴이 이 한 자리를 지난다. 예약 보내기는 겹쳐 불려도 안전하다(`firing`).
+   */
   async runQueue(
     room: Room,
     batch: Message[],
@@ -154,6 +163,19 @@ export class Turns {
      * 자리(`placedAt`)도 실패 표시도 `replyToIds` 도 안 붙인다. 붙이면
      * 디스크에 **아무도 안 만든 말풍선**이 한 줄 남는다.
      */
+    wake?: boolean,
+  ): Promise<Message | undefined> {
+    try {
+      return await this.runTurn(room, batch, botId, wake);
+    } finally {
+      this.port.turnDone(room);
+    }
+  }
+
+  private async runTurn(
+    room: Room,
+    batch: Message[],
+    botId?: string,
     wake?: boolean,
   ): Promise<Message | undefined> {
     // 단체방에서는 **멘션된 봇마다** 이 함수가 돈다. 지금은 하나뿐이다.
@@ -883,9 +905,9 @@ export class Turns {
         deliveredTo: [bot.id],
         createdAt: Date.now(),
       };
+      // 턴이 끝나면 `runQueue` 가 «끝났다» 를 알린다 — 여기서 또 부르지 않는다
       void this.runQueue(room, [poke], bot.id, true)
-        .catch((err) => this.port.host.log(`[${room.id}] 깨우기 실패: ${describe(err)}`))
-        .finally(() => this.port.turnDone(room));
+        .catch((err) => this.port.host.log(`[${room.id}] 깨우기 실패: ${describe(err)}`));
     }
   }
 }

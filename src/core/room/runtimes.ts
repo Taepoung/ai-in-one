@@ -21,6 +21,14 @@ import type { BotInstance, Clash, Message, Room, RoomStatus } from "../types.js"
 export interface BotRuntime {
   /** 지금 붙어 있는 ACP 세션. 복구했든 새로 만들었든 여기 담긴다 */
   sessionId?: string;
+  /**
+   * ★ **루프모드** (2026-10-20) — 이 봇에게 몇 번 다시 물었나 · «종료» 했나 ·
+   * 마지막으로 언제 물었나(그 뒤의 답을 보고 «종료» 를 가린다). 사용자가 새로 말을
+   * 걸면 셋 다 비운다(`Loops`).
+   */
+  loopRounds?: number;
+  loopDone?: boolean;
+  loopAskedAt?: number;
   /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
   roleInjected: boolean;
   /**

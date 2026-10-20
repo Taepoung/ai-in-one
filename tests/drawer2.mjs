@@ -102,7 +102,9 @@ console.log("\n[★ 권한을 한 줄로 — 봇마다 시트를 열어보지 �
   ok(lines.length === 2, "봇마다 한 줄");
   ok(lines[0].includes("기본"), `★ **모드**를 이름으로 (${lines[0]})`);
   ok(lines[0].includes("승인은 사용자에게"), "★ **막히면 누가 답하나**");
-  ok(lines[0].includes("물어봄"), "★ **갈림길에서** 어떻게 하나 — 「봇 : 범위 : 대상」이 그대로");
+  // ⏪ «질문은 물어봄/알아서» 였다 — 루프모드로 바뀌며 **켰을 때만** 적는다 (2026-10-20)
+  ok(lines.every((l) => !l.includes("루프모드")),
+     `★ **루프모드는 켠 봇에만** 적힌다 — 둘 다 꺼져 있다 (${lines.join(" / ")})`);
 }
 
 console.log("\n[★ 봇마다 다른 권한이 한눈에 대비된다]");
@@ -121,7 +123,7 @@ console.log("\n[★ 봇마다 다른 권한이 한눈에 대비된다]");
   const lines = t.$$(".drawer-bot .perm").map((e) => e.textContent);
   ok(lines[0].includes("편집까지 자동") && lines[1].includes("읽기만"),
      `★ **「리뷰어는 읽기만, 구현 봇은 편집까지」가 한눈에** (${lines.join(" | ")}) — 이게 §4.2.2의 요점이다`);
-  ok(lines[1].includes("알아서"), "★ 질문 정책도 봇마다 다르게 읽힌다");
+  ok(lines[1].includes("루프모드"), "★ 루프모드도 봇마다 다르게 읽힌다 — 켠 봇에만");
 }
 
 console.log("\n[★ «아직 안 왔다»와 «없다»를 구분한다]");

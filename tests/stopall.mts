@@ -218,7 +218,8 @@ async function main(): Promise<void> {
     ok(b!.answerPolicy === "ask", "원래 «물어봄»이던 봇은 그대로");
     // 🔴 사용자가 켠 것을 우리가 껐으면 **적어야 한다** (§0)
     const said = room.messages.filter(
-      (m) => m.role === "system" && m.text.includes("무조건 허용"),
+      // ⏪ «무조건 허용» 이라고 적었다 — 그건 봇끼리 부르기 칸의 이름이다 (2026-10-20 바로잡음)
+      (m) => m.role === "system" && m.text.includes("루프모드를 껐습니다"),
     );
     ok(said.length === 1, `★ **조용히 바꾸지 않는다** (${said.length}줄) — 안 적으면 «왜 또 묻지»가 된다`);
     mgr.dispose();

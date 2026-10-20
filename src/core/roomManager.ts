@@ -21,6 +21,7 @@ import { Prompts, type PromptPort } from "./turn/prompt.js";
 import { Forks, type ForkOptions, type ForkPort } from "./room/fork.js";
 import { Turns, type TurnPort } from "./turn/turns.js";
 import { Outbox, type OutboxPort } from "./room/outbox.js";
+import { Loops, type LoopPort } from "./turn/loop.js";
 import { withTimeout } from "./time.js";
 import { messageId } from "./ids.js";
 import {
@@ -56,6 +57,7 @@ import {
   type RelayMode,
   DEFAULT_RELAY,
   DEFAULT_DEPTH_CAP,
+  DEFAULT_LOOP_CAP,
   type AgentQuota,
   hasManyBots,
 } from "./types.js";
@@ -325,6 +327,17 @@ export class RoomManager extends EventEmitter<Events> {
   private readonly turns = new Turns(this.turnPort());
   /** ★ **보내기 · 예약 · 초안** — `core/room/outbox.ts` (리팩토링 ⑨, 2026-10-20) */
   private readonly outbox = new Outbox(this.outboxPort());
+  /** ★ **루프모드** — `core/turn/loop.ts` (2026-10-20). 자리를 비운 동안 다시 묻는다 */
+  private readonly loops = new Loops(this.loopPort());
+
+  /**
+   * ★ **턴이 끝났다** — 예약해 둔 말을 보낼 때인가, 루프가 다시 물을 때인가.
+   * 턴층과 루프층이 위층을 부르는 갈고리가 여기로 모인다.
+   */
+  private turnDone(room: Room): void {
+    this.outbox.maybeFireStaged(room);
+    this.loops.check(room);
+  }
   /**
    * 사용자가 지금 보고 있는 방.
    *
@@ -497,7 +510,7 @@ export class RoomManager extends EventEmitter<Events> {
       activeRoomId: () => this.activeRoomId,
       isDown: () => this.down,
       soleBot: (room) => this.soleBot(room),
-      turnDone: (room) => this.outbox.maybeFireStaged(room),
+      turnDone: (room) => this.turnDone(room),
       releaseIfUnseen: (roomId) => this.maybeReleaseRoom(roomId),
       emitMessage: (roomId, message) => { this.emit("message", roomId, message); },
       emitRoom: (room) => { this.emit("room", room); },
@@ -534,6 +547,19 @@ export class RoomManager extends EventEmitter<Events> {
       emitJoinStep: (roomId, botId, step) => { this.emit("joinStep", roomId, botId, step); },
       emitJoinFail: (roomId, botId, why, line) => { this.emit("joinFail", roomId, botId, why, line); },
       emitJoinDone: (roomId) => { this.emit("joinDone", roomId); },
+    };
+  }
+
+  private loopPort(): LoopPort {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- getter 안에서 쓴다
+    const self = this;
+    return {
+      get host() { return self.opts.host; },
+      get rooms() { return self.rooms; },
+      get runtimes() { return self.runtimes; },
+      get queue() { return self.queue; },
+      get turns() { return self.turns; },
+      isDown: () => this.down,
     };
   }
 
@@ -1514,7 +1540,8 @@ export class RoomManager extends EventEmitter<Events> {
     await this.unstage(roomId);
 
     /*
-     * ★ **«무조건 허용»을 내린다** (§4.2.2).
+     * ★ **루프모드를 끈다** (§4.2.2 · 2026-10-20 이름을 바로잡음 — 예전엔 «무조건 허용»
+     * 이라고 적었는데 그건 봇끼리 부르기 칸의 이름이다).
      *
      * 자리를 비운 채 맡겨둔 상태 그대로 멈추면, 다음 말 한 마디에 **같은
      * 자리로 되돌아간다.** 멈추라고 누른 사람의 뜻은 거기까지다.
@@ -1528,8 +1555,7 @@ export class RoomManager extends EventEmitter<Events> {
       await this.rooms.saveProps(room, { participants: room.participants });
       this.rooms.noteRoom(
         room,
-        `중지하면서 ${lowered.map((b) => b.name).join("·")}의 «무조건 허용»을 ` +
-          `«물어봄»으로 내렸습니다.`,
+        `중지하면서 ${lowered.map((b) => b.name).join("·")}의 루프모드를 껐습니다.`,
         "info",
         lowered.map((b) => b.id),
       );
@@ -1721,6 +1747,22 @@ export class RoomManager extends EventEmitter<Events> {
     if (patch.answerPolicy !== undefined) bot.answerPolicy = patch.answerPolicy;
     if (patch.approver !== undefined) bot.approver = patch.approver;
     await this.rooms.saveProps(room, { participants: room.participants });
+    // 루프모드를 켰는데 방이 이미 조용하면 턴이 안 끝나니 — 여기서 한 번 센다
+    if (patch.answerPolicy !== undefined) this.loops.check(room);
+  }
+
+  /**
+   * ★ **루프모드가 한 봇에게 다시 묻는 상한** (사용자, 2026-10-20). 0~999 — **0 이면 제한
+   * 없음**(사용자: *"이것도 0일때 무제한"* — 깊이 상한과 같은 규칙).
+   * 할 일을 끝없이 지어내는 봇이 구독 잔량을 녹이지 않게 — 그 값을 사용자가 정한다.
+   */
+  async setLoopCap(roomId: string, cap: number): Promise<void> {
+    const room = await this.rooms.openRoom(roomId);
+    const next = Math.max(0, Math.min(999, Math.floor(cap)));
+    if ((room.loopCap ?? DEFAULT_LOOP_CAP) === next) return;
+    room.loopCap = next;
+    await this.rooms.saveProps(room, { loopCap: next });
+    this.emit("room", room);
   }
 
 
@@ -2246,6 +2288,7 @@ export class RoomManager extends EventEmitter<Events> {
     // **쓰다 만 글을 들고 죽지 않는다.** 창을 닫는 순간 디바운스가 돌고 있으면
     // 그대로 사라진다 — 최소한 쓰기를 시작은 해둔다.
     void this.flushDraft();
+    this.loops.dispose();
     this.pool.disposeAll();
     // 유예 타이머가 살아 있으면 지운 방에 써대고 깨어난다
     for (const rt of this.runtimes.values()) {
