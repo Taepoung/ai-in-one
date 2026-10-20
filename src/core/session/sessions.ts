@@ -42,6 +42,17 @@ function inUse(agent: AgentDef, reason: string | undefined): boolean {
 }
 
 /**
+ * ★ **그 세션을 다른 클라이언트가 쓰고 있다** — 붙지 못함의 한 갈래 (2026-10-20).
+ *
+ * 글로 가르지 않고 **형으로** 올린다 — 붙는 화면이 이 갈래에만 «새 세션으로 시작»
+ * 을 세우는데, 그 판단이 문구에 걸리면 문구를 다듬는 날 조용히 빠진다.
+ */
+export class SessionInUse extends Error {}
+
+/** 새 세션으로 시작할 때 무엇을 실어 보내나 — 갈아타기와 같은 셋 */
+export type FreshCarry = "log" | "summary" | "none";
+
+/**
  * 칸 하나의 **보이는 이름** (`opus` → `Opus 5`). 없으면 id 를 그대로 돌려준다.
  *
  * 사용자가 고른 것은 이름 쪽이다 — 시스템 줄에 `sonnet` 이라고 적으면
@@ -254,7 +265,7 @@ export class Sessions {
        * 보낼 때면 그 말이 실패로 남는다 — 어느 쪽이든 다시 하면 원래 세션에 붙는다.
        */
       if (inUse(this.port.agent(bot.agentId), resumed.reason)) {
-        throw new Error(
+        throw new SessionInUse(
           `다른 곳(앱 · CLI · 다른 창)에서 이 세션을 쓰고 있어 이어받지 못했습니다. ` +
             `거기서 닫은 뒤 다시 시도하세요. — ${resumed.reason}`,
         );
@@ -420,6 +431,54 @@ export class Sessions {
       contextLost: room.contextLost,
       refeedPending: room.refeedPending,
       lostSessionId: room.lostSessionId,
+    });
+    this.port.emitRoom(room);
+  }
+
+  /**
+   * ★ **쓰고 있는 세션은 두고 새 세션으로 시작한다** (사용자, 2026-10-20).
+   *
+   * 붙는 화면의 «쓰고 있음» 카드에서 [다시 시도] 대신 고르는 길이다. 무엇을 실어
+   * 보낼지(`carry`)는 갈아타기와 같은 셋 — 대화 통째 · 요약만 · 기록만 두고.
+   *
+   * 🔴 **옛 세션은 안 지운다.** 지금 그것을 **다른 클라이언트가 쓰고 있다** — 지우면
+   * 남의 작업을 날린다. 그래서 `lostSessionId` 에도 안 적는다(적어 두면 나중에
+   * `decideRefeed` 가 «버리는 자리에서 같이 지운다» 로 지운다). 우리 봇은 그 세션과
+   * 연을 끊을 뿐이다.
+   *
+   * 여기서는 «새로 열 준비» 만 한다(세션 id 를 비우고 되먹임을 정한다) — 실제로 여는
+   * 것은 다시 붙이기(`Joins.retryJoin`)가 한다. 새 세션은 **기록에 남긴다** — 정말로
+   * 바뀐 것이다.
+   */
+  async startFresh(roomId: string, botId: string, carry: FreshCarry): Promise<void> {
+    const room = await this.port.rooms.openRoom(roomId);
+    const bot = room.participants.find((b) => b.id === botId);
+    if (!bot) return;
+    bot.sessionId = null;
+    bot.sessionPrompted = false;
+    delete bot.contextLost;
+    if (carry === "none") {
+      delete bot.refeedPending;
+      delete bot.refeedKind;
+    } else {
+      bot.refeedPending = true;
+      if (carry === "summary") bot.refeedKind = "summary";
+      else delete bot.refeedKind;
+    }
+    rollUpLost(room);
+    const how = carry === "log" ? "지난 대화를 다음 말에 실어 보냅니다"
+      : carry === "summary" ? "요약과 최근 대화를 다음 말에 실어 보냅니다"
+        : "지난 대화는 화면에만 남습니다";
+    this.port.rooms.noteRoom(
+      room,
+      `${whose(room, bot)}다른 곳에서 쓰던 세션은 그대로 두고 새 세션으로 시작합니다 — ${how}.`,
+      "info",
+      [bot.id],
+    );
+    await this.port.rooms.saveProps(room, {
+      participants: room.participants,
+      contextLost: room.contextLost,
+      refeedPending: room.refeedPending,
     });
     this.port.emitRoom(room);
   }

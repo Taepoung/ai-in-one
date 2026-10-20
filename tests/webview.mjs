@@ -396,6 +396,57 @@ function main() {
        "★ 그리고 **기다리는 자리로 돌아간다** — 세워두면 아무 일도 안 일어난 것 같다");
   }
 
+  console.log("\n[★ 다른 곳이 세션을 쓰고 있다 — 다시 시도 · 새 세션으로 시작 · 내보내기 (2026-10-20)]");
+  {
+    /*
+     * 사용자: *"[다시 시도] · [내보내기] + 새로운 세션으로 시작하는 옵션들"*.
+     * 권하는 쪽은 [다시 시도] — 저쪽만 닫으면 그 세션 그대로다. 새로 시작하는 단추는
+     * 갈아타기와 같은 말(무엇을 실어 보내나). 요약은 방에 요약이 있을 때만.
+     */
+    const t = mount(boot([meta()]));
+    t.$(".room").click();
+    t.send({ t: "room", room: room({ messages: [
+      { id: "u1", role: "user", text: "안녕", deliveredTo: ["b1"], createdAt: 1 },
+    ] }), compactable: false });
+    t.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "inUse",
+             why: "다른 곳(앱 · CLI · 다른 창)에서 이 세션을 쓰고 있어 이어받지 못했습니다." });
+    t.send({ t: "joinDone", roomId: "r1" });
+    const fix = t.$("#screen-fix");
+    ok(fix.classList.contains("active"), "★ fix 에서 받는다 — 새 세션으로 뚫고 들어가지 않는다");
+    const btns = [...fix.querySelectorAll(".fix-bot button")].map((b) => b.textContent);
+    ok(btns.join() === "다시 시도,대화 넘겨서 새로 시작,기록만 두고 새로 시작,내보내기",
+       `★ 고를 것 — 요약이 없는 방이라 «요약만» 은 없다 (${btns.join(",")})`);
+    ok(fix.querySelector(".fix-bot .agent-go")?.textContent === "다시 시도",
+       "★ **권하는 쪽은 [다시 시도]** — 저쪽만 닫으면 이 세션 그대로다");
+    ok(/지우지 않습니다/.test(fix.textContent), "★ 새로 시작해도 저쪽 세션은 안 지운다고 적는다");
+
+    t.sent.length = 0;
+    [...fix.querySelectorAll(".fix-bot button")].find((b) => b.textContent === "기록만 두고 새로 시작").click();
+    const sent = t.sent.filter((x) => x.t === "freshSession");
+    ok(sent.length === 1 && sent[0].botId === "b1" && sent[0].carry === "none",
+       `★ 고른 대로 보낸다 (${JSON.stringify(sent)})`);
+
+    // 요약이 있는 방이면 «요약만» 도 선다
+    const t2 = mount(boot([meta()]));
+    t2.$(".room").click();
+    t2.send({ t: "room", room: room({ messages: [
+      { id: "c1", role: "system", text: "— 압축 —", summary: "앞의 요약", deliveredTo: [], createdAt: 1 },
+    ] }), compactable: false });
+    t2.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "inUse", why: "쓰고 있음" });
+    t2.send({ t: "joinDone", roomId: "r1" });
+    const btns2 = [...t2.$$("#screen-fix .fix-bot button")].map((b) => b.textContent);
+    ok(btns2.includes("요약만 넘겨서 새로 시작"), `★ 요약이 있으면 «요약만» 도 (${btns2.join(",")})`);
+
+    // 다른 까닭(other)에는 새 세션 단추가 없다 — 쓰고 있음일 때만
+    const t3 = mount(boot([meta()]));
+    t3.$(".room").click();
+    t3.send({ t: "room", room: room(), compactable: false });
+    t3.send({ t: "joinFail", roomId: "r1", botId: "b1", kind: "other", why: "시간이 지났습니다" });
+    t3.send({ t: "joinDone", roomId: "r1" });
+    ok(![...t3.$$("#screen-fix .fix-bot button")].some((b) => /새로 시작/.test(b.textContent)),
+       "★ «쓰고 있음» 이 아니면 새로 시작 단추는 없다");
+  }
+
   console.log("\n[★ 로그인이 풀린 봇 — **그 자리에서 띄우고, 마치면 저절로 붙는다** (4.5-U)]");
   {
     /*

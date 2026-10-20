@@ -335,6 +335,30 @@ function stuckCard(r: Room, bot: BotInstance, bad: { kind: JoinFail; why: string
     text: bad.kind === "auth" ? "다시 확인" : "다시 시도",
     onclick: () => { retryJoin(r, bot.id); },
   }));
+  /*
+   * ★ **«쓰고 있음» 이면 새 세션으로 시작하는 길도 연다** (사용자, 2026-10-20:
+   * *"[다시 시도] · [내보내기] + 새로운 세션으로 시작하는 옵션들"*).
+   *
+   * 권하는 쪽은 여전히 [다시 시도] 다 — 저쪽만 닫으면 **이 세션 그대로** 이어진다.
+   * 새로 시작하는 셋은 갈아타기와 같은 말이고(무엇을 실어 보내나가 곧 단추),
+   * 저쪽 세션은 **안 지운다** — 지금 남이 쓰고 있다. 요약은 방에 압축 요약이 있을 때만
+   * 세운다 — 없는데 띄우면 빈 것을 보내고 나서야 안다.
+   */
+  if (bad.kind === "inUse") {
+    const fresh = (carry: "log" | "summary" | "none", text: string, title: string) =>
+      el("button", {
+        class: "agent-btn", type: "button", text, title,
+        onclick: () => { post({ t: "freshSession", roomId: r.id, botId: bot.id, carry }); },
+      });
+    acts.append(fresh("log", "대화 넘겨서 새로 시작",
+      "새 세션을 열고 지난 대화를 다음 말에 실어 보냅니다. 세운 계획과 읽은 파일 기억은 안 갑니다."));
+    if (r.messages.some((m) => m.summary)) {
+      acts.append(fresh("summary", "요약만 넘겨서 새로 시작",
+        "새 세션을 열고 압축 요약과 최근 대화만 보냅니다. 짧지만 예전 이야기는 빠집니다."));
+    }
+    acts.append(fresh("none", "기록만 두고 새로 시작",
+      "새 세션이 백지에서 시작합니다. 지난 대화는 화면에만 남습니다."));
+  }
   acts.append(el("button", {
     class: "ghost danger", type: "button", text: "내보내기",
     onclick: () => { fixPick.delete(bot.id); post({ t: "removeBot", roomId: r.id, botId: bot.id }); },
@@ -347,7 +371,10 @@ function stuckCard(r: Room, bot: BotInstance, bad: { kind: JoinFail; why: string
    */
   const say = busy ?? (asked
     ? "로그인 창을 띄웠습니다. 마치면 저절로 다시 붙습니다."
-    : undefined);
+    : bad.kind === "inUse"
+      ? "저쪽(앱 · CLI · 다른 창)을 닫고 [다시 시도] 하면 이 세션 그대로 이어집니다. " +
+        "새로 시작해도 저쪽 세션은 지우지 않습니다."
+      : undefined);
 
   return el("div", { class: "fix-bot" },
     el("div", { class: "fix-name" },

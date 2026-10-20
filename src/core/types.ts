@@ -1455,9 +1455,11 @@ export function isBusy(status: RoomStatus): boolean {
  * auth   로그인이 풀렸다        → 로그인하러 보낸다
  * gone   그 에이전트가 없다      → 다른 것을 고르게 한다 (`fix`)
  * other  망·시간 초과 따위       → **다시 해보면 대개 풀린다**
+ * inUse  다른 클라이언트가 그 세션을 쓰고 있다
+ *                               → 저쪽을 닫고 다시 · 아니면 **새 세션으로 시작** (2026-10-20)
  * ```
  */
-export type JoinFail = "auth" | "gone" | "other";
+export type JoinFail = "auth" | "gone" | "other" | "inUse";
 
 /**
  * ★ **붙는 일은 두 칸이다** (2026-10-13).

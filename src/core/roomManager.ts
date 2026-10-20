@@ -14,7 +14,7 @@ import { Rooms, rollUpLost, whose, type RoomsPort } from "./room/rooms.js";
 import { Runtimes, type RuntimesPort } from "./room/runtimes.js";
 import { AgentPool, type PoolPort } from "./session/pool.js";
 import { SessionConfig, type ConfigPort } from "./session/config.js";
-import { Sessions, type SessionsPort } from "./session/sessions.js";
+import { Sessions, type FreshCarry, type SessionsPort } from "./session/sessions.js";
 import { Joins, type JoinPort } from "./session/join.js";
 import { Activity, type ActivityPort } from "./turn/activity.js";
 import { Prompts, type PromptPort } from "./turn/prompt.js";
@@ -1375,6 +1375,15 @@ export class RoomManager extends EventEmitter<Events> {
   /** 못 붙은 봇을 다시 붙여 본다 (`Joins.retryJoin`) */
   async retryJoin(roomId: string, botId: string): Promise<void> {
     return this.joins.retryJoin(roomId, botId);
+  }
+
+  /**
+   * 다른 곳이 쓰고 있는 세션은 두고 **새 세션으로 시작**한다 — 붙는 화면의 «쓰고 있음»
+   * 카드 (2026-10-20). 준비는 `Sessions.startFresh`, 여는 것은 다시 붙이기다.
+   */
+  async freshSession(roomId: string, botId: string, carry: FreshCarry): Promise<void> {
+    await this.sessions.startFresh(roomId, botId, carry);
+    await this.joins.retryJoin(roomId, botId);
   }
 
   /** 쓰다 만 글을 적어 둔다 — `Outbox.setDraft` */

@@ -310,6 +310,11 @@ export type FromWebview =
   /** 못 붙은 봇을 **다시 붙여본다** — 자동으로 되풀이하지 않는다 */
   | { t: "retryJoin"; roomId: string; botId: string }
   /**
+   * ★ 다른 곳이 쓰고 있는 세션은 두고 **새 세션으로 시작** (2026-10-20) — 붙는 화면의
+   * «쓰고 있음» 카드. `carry` 는 갈아타기와 같은 셋(대화 통째 · 요약만 · 기록만 두고).
+   */
+  | { t: "freshSession"; roomId: string; botId: string; carry: "log" | "summary" | "none" }
+  /**
    * ★ **기록만 읽는다** (2026-10-13).
    *
    * 세션을 안 붙이고 방을 연다. 「잠깐 뭐라고 했더라」 보러 들어온 사람에게

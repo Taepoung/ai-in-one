@@ -635,6 +635,9 @@ export class ChatPanel implements AskTarget {
         case "retryJoin":
           await this.rooms.retryJoin(m.roomId, m.botId);
           break;
+        case "freshSession":
+          await this.rooms.freshSession(m.roomId, m.botId, m.carry);
+          break;
         case "peek":
           // **붙이지 않고** 연다 — `setActiveRoom` 이 붙이는 자리다
           this.postRoom(await this.rooms.openRoom(m.roomId));

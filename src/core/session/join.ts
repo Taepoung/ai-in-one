@@ -18,7 +18,7 @@ import type { Runtimes } from "../room/runtimes.js";
 import type { RoomLocks } from "../roomLock.js";
 import { isBusy, type BotInstance, type JoinFail, type JoinStep, type Room } from "../types.js";
 import type { AgentPool } from "./pool.js";
-import type { Sessions } from "./sessions.js";
+import { SessionInUse, type Sessions } from "./sessions.js";
 
 /**
  * 오류 한 줄에서 **고치는 길**을 읽어낸다 (2026-10-13).
@@ -171,7 +171,9 @@ export class Joins {
     } catch (err) {
       const why = describe(err);
       this.port.runtimes.setStatus(room.id, "error", bot.id);
-      this.port.emitJoinFail(room.id, bot.id, whyJoin(why), why);
+      // «쓰고 있음» 은 글이 아니라 형으로 가른다 — 문구를 다듬어도 갈래가 안 빠진다
+      const kind = err instanceof SessionInUse ? "inUse" : whyJoin(why);
+      this.port.emitJoinFail(room.id, bot.id, kind, why);
     }
   }
 

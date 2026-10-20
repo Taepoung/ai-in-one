@@ -39,6 +39,7 @@ type Inner = {
 async function make(agentId: "codex" | "claude") {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-busy-"));
   const busy = path.join(dir, "busy");
+  const state = path.join(dir, "fake.jsonl");
   const store = new RoomStore(dir); await store.init();
   const host: WorkspaceHost = {
     readTextFile: async () => "", writeTextFile: async () => {},
@@ -50,7 +51,7 @@ async function make(agentId: "codex" | "claude") {
     host, store, configProbeMs: 20000,
     agents: [{
       ...def, pkg: undefined, command: "node", args: [path.join(here, "fakeagent.cjs")],
-      env: { AIO_FAKE_HOLD: "40", AIO_FAKE_RESUME_BUSY: busy },
+      env: { AIO_FAKE_HOLD: "40", AIO_FAKE_RESUME_BUSY: busy, AIO_FAKE_STATE: state },
     }],
   });
   const fails: Array<{ why: JoinFail; line: string }> = [];
@@ -81,7 +82,10 @@ async function make(agentId: "codex" | "claude") {
     }
   };
   const lostNotes = (room: Room) => room.messages.filter((m) => m.role === "system" && /새 세션입니다/.test(m.text));
-  return { dir, busy, mgr, fails, settle, reenter, unbind, lostNotes };
+  /** 가짜 에이전트가 받은 것 — 지운 세션 · 받은 말 */
+  const events = async (): Promise<Array<{ t: string; sessionId?: string; text?: string }>> =>
+    (await fs.readFile(state, "utf8").catch(() => "")).split(NL).filter(Boolean).map((l) => JSON.parse(l));
+  return { dir, busy, mgr, fails, settle, reenter, unbind, lostNotes, events };
 }
 
 async function main(): Promise<void> {
@@ -100,8 +104,8 @@ async function main(): Promise<void> {
     await t.reenter(room);
 
     ok(t.fails.length === 1, `★ **붙지 못함으로 올린다** (${t.fails.length})`);
-    ok(t.fails[0]!.why === "other" && /다른 곳.*쓰고 있어/.test(t.fails[0]!.line),
-       `★ 까닭을 말한다 — 다시 시도로 풀리는 갈래 (${t.fails[0]!.why} · ${t.fails[0]!.line.slice(0, 50)}…)`);
+    ok(t.fails[0]!.why === "inUse" && /다른 곳.*쓰고 있어/.test(t.fails[0]!.line),
+       `★ **«쓰고 있음» 갈래로** 까닭을 말한다 (${t.fails[0]!.why} · ${t.fails[0]!.line.slice(0, 50)}…)`);
     ok(t.lostNotes(room).length === 0, "★ 🔴 **«여기서부터는 새 세션입니다» 를 안 적는다**");
     ok(bot.sessionId === before, "★ **세션 id 그대로** — 버리지 않았다");
     ok(!bot.contextLost && !room.contextLost, "★ 맥락을 잃었다고 표시하지 않는다");
@@ -113,6 +117,41 @@ async function main(): Promise<void> {
     ok(inner.runtimes.get(room.id)?.bots.get(bot.id)?.sessionId === before,
        "★ **다시 시도하면 원래 세션**에 붙는다");
     ok(t.fails.length === 1 && t.lostNotes(room).length === 0, "★ 이번엔 실패도 «새 세션» 줄도 없다");
+    t.mgr.dispose();
+    await fs.rm(t.dir, { recursive: true, force: true }).catch(() => {});
+  }
+
+  console.log(`${NL}[★ 새 세션으로 시작 — 저쪽 세션은 안 지운다 · 고른 대로 실어 보낸다]`);
+  {
+    const t = await make("codex");
+    const room = await t.mgr.createRoom({ title: "새로", agentId: "codex" });
+    await t.mgr.send(room.id, "토큰 만료를 봐줘");
+    await t.settle(room);
+    const bot = room.participants[0]!;
+    const old = bot.sessionId!;
+    t.unbind(room);
+    writeFileSync(t.busy, "쥐고 있다");
+    await t.reenter(room);
+    ok(t.fails.length === 1 && t.fails[0]!.why === "inUse", `전제 — «쓰고 있음» 으로 막혔다 (${t.fails[0]?.why})`);
+
+    // 저쪽은 여전히 쥐고 있다 — 그래도 새로 시작한다
+    await t.mgr.freshSession(room.id, bot.id, "log");
+    const inner = t.mgr as unknown as Inner;
+    const now = inner.runtimes.get(room.id)?.bots.get(bot.id)?.sessionId;
+    ok(!!now && now !== old, `★ **새 세션이 열렸다** (${old} → ${now})`);
+    ok(t.fails.length === 1, "★ 이번엔 막히지 않는다 — 이어받기를 안 하므로");
+    ok(!(await t.events()).some((e) => e.t === "delete" && e.sessionId === old),
+       "★ 🔴 **저쪽 세션은 안 지운다** — 남이 쓰고 있다");
+    ok(bot.lostSessionId === undefined, "★ 지울 거리로도 안 적는다(나중에 decideRefeed 가 지우지 않게)");
+    ok(room.messages.some((m) => m.role === "system" && /새 세션으로 시작합니다/.test(m.text)),
+       "★ 새 세션은 **기록에 남긴다** — 정말로 바뀐 것이다");
+    ok(bot.refeedPending === true, "★ «대화 넘겨서» 를 골랐으니 되먹임이 약속됐다");
+
+    await t.mgr.send(room.id, "이어서 해줘");
+    await t.settle(room);
+    const said = (await t.events()).filter((e) => e.t === "prompt" && e.sessionId === now).map((e) => e.text ?? "");
+    ok(said.some((x) => x.includes("토큰 만료를 봐줘")),
+       "★ **다음 말에 지난 대화가 실려 간다** — 새 세션이 맥락을 안다");
     t.mgr.dispose();
     await fs.rm(t.dir, { recursive: true, force: true }).catch(() => {});
   }
