@@ -133,6 +133,11 @@ export interface NewSessionResult {
  */
 export const OUR_MCP_NAME = "ai-in-one";
 
+/** 잔량 조회 — 응답 뒤에 글을 더 기다리는 끝. 아무것도 안 오면 여기까지 듣고 «비었다» */
+const USAGE_TAIL_MS = 4000;
+/** 잔량 조회 — 글이 이만큼 조용하면 다 온 것으로 본다 */
+const USAGE_QUIET_MS = 300;
+
 /**
  * ★ **우리 MCP 의 도구 이름 셋** — 자동 승인은 이 셋에만 (2026-10-20).
  *
@@ -1195,12 +1200,21 @@ export class AcpConnection {
   async probeUsage(
     cwd: string,
     want: readonly string[],
-  ): Promise<{ cmd: string; text: string }> {
+  ): Promise<{ cmd: string; text: string; trace: string }> {
+    const began = Date.now();
     const { sessionId } = await this.newSession(cwd, []);
     let names: string[] = [];
     let said = "";
+    /*
+     * ★ **무엇이 왔나를 센다** (2026-10-20). 빈손일 때 출력 창에 남긴다 — 글이 `text`
+     * 가 아닌 다른 꼴(생각 · 도구 · 계획)로 오고 있었다면 거기서 보인다. 재현을 못 한
+     * 채로 고치지 않으려는 것이다.
+     */
+    const kinds = new Map<string, number>();
+    let promptedAt = 0;
     try {
       this.listen(sessionId, (ev) => {
+        kinds.set(ev.type, (kinds.get(ev.type) ?? 0) + 1);
         if (ev.type === "commands") names = ev.names;
         else if (ev.type === "text") said += ev.delta;
       });
@@ -1220,8 +1234,29 @@ export class AcpConnection {
             : "사용량을 물어볼 명령이 없습니다.",
         );
       }
+      promptedAt = Date.now();
       await this.prompt(sessionId, `/${cmd}`);
-      return { cmd, text: said.trim() };
+      const answeredAt = Date.now();
+      /*
+       * ★ **응답이 왔다고 바로 닫지 않는다** (사용자, 2026-10-20: *"빈손으로 왔습니다가
+       * 자주떠서"*).
+       *
+       * 🔴 응답과 그 턴의 글 조각은 **도착 순서가 보장되지 않는다**(A11 — 턴을 놓을 때
+       * 유예를 두는 까닭과 같다). 응답만 보고 닫으면 뒤따라 오던 글을 버리고 «빈손» 이
+       * 된다(`tests/quotaprobe.mts` 가 재현한다). 그래서 **글이 조용해질 때까지** 조금 더
+       * 듣는다 — 이미 다 왔으면 0.3초, 아무것도 안 오면 끝(`USAGE_TAIL_MS`)까지.
+       */
+      const end = Date.now() + USAGE_TAIL_MS;
+      let seen = said.length;
+      let quiet = Date.now();
+      while (Date.now() < end) {
+        await new Promise((r) => setTimeout(r, 50));
+        if (said.length !== seen) { seen = said.length; quiet = Date.now(); }
+        else if (said.length > 0 && Date.now() - quiet >= USAGE_QUIET_MS) break;
+      }
+      const trace = `세션 ${promptedAt - began}ms · 응답 ${answeredAt - promptedAt}ms · ` +
+        `받은 것 ${[...kinds].map(([k, n]) => `${k}×${n}`).join(" ") || "없음"}`;
+      return { cmd, text: said.trim(), trace };
     } finally {
       this.unlisten(sessionId);
       await this.closeSession(sessionId).catch(() => undefined);

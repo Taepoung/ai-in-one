@@ -267,6 +267,8 @@ export const S = {
    */
   quota: null as AgentQuota[] | null,
   quotaBusy: false as boolean,
+  /** 줄 하나만 다시 받는 중인 에이전트들 — 그 줄만 «받는 중» 이 된다 */
+  quotaBusyFor: new Set<string>() as Set<string>,
   /**
    * ★ **전체화면으로 막고 고르게 한다** (2026-09-30).
    *

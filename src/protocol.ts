@@ -131,7 +131,12 @@ export type ToWebview =
    * 뿐 다른 걸 못 보게 될 이유는 없다.
    */
   /** 받아온 잔량 — 어댑터가 준 **글 그대로**다 (`AgentQuota`) */
-  | { t: "quota"; list: AgentQuota[] }
+  | {
+      t: "quota";
+      list: AgentQuota[];
+      /** 한 에이전트만 다시 받은 것이면 그 id — 화면은 **그 줄만** 갈아끼운다 */
+      only?: string;
+    }
   | {
       t: "agents";
       list: {
@@ -550,7 +555,15 @@ export type FromWebview =
    * 방 id 를 주는 것은 **누구에게 물을지**를 정하기 위해서다 — 그 방의
    * 참여자가 쓰는 에이전트만 깨운다.
    */
-  | { t: "quotaAsk"; roomId: string }
+  | {
+      t: "quotaAsk";
+      roomId: string;
+      /**
+       * ★ **그 에이전트만** 다시 묻는다 (사용자, 2026-10-20). 비우면 방의 전부.
+       * 하나가 비어 왔다고 멀쩡한 둘까지 다시 깨울 까닭이 없다 — 한 번에 20초씩 든다.
+       */
+      agentId?: string;
+    }
   /**
    * 그 에이전트에 무언가를 한다.
    *

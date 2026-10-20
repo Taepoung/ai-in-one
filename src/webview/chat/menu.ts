@@ -173,6 +173,18 @@ function askQuota(r: Room): void {
   paintQuota();
 }
 
+/**
+ * ★ **그 에이전트만 다시 받는다** (사용자, 2026-10-20).
+ *
+ * 하나가 비어 왔다고 멀쩡한 둘까지 다시 깨울 까닭이 없다 — 한 번에 20초씩
+ * 들고, 조회용 세션도 그만큼 뜬다. 다른 줄은 받아 둔 그대로 서 있다.
+ */
+function askQuotaOf(r: Room, agentId: string): void {
+  S.quotaBusyFor.add(agentId);
+  post({ t: "quotaAsk", roomId: r.id, agentId });
+  paintQuota();
+}
+
 /** 떠 있는 팝업만 갈아끼운다 — 열려 있지 않으면 아무 일도 안 한다 */
 export function paintQuota(): void {
   const old = document.querySelector(".quota-card");
@@ -225,19 +237,28 @@ function quotaCard(r: Room): HTMLElement {
   const rows = mine.map((id) => {
     const got = S.quota?.find((q) => q.agentId === id);
     const label = S.agentRows.find((a) => a.id === id)?.label ?? id;
-    if (S.quotaBusy && !got) {
+    /** 이 줄만 다시 받는 중인가 — 전체 새로고침 중이면 지난 것을 세워 둔다 */
+    const mineBusy = S.quotaBusyFor.has(id);
+    /** ★ 줄마다 다시 받기 — 받는 중에는 못 누른다 */
+    const retry = el("button", {
+      class: "icon quota-retry",
+      title: `${label}만 다시 받기`,
+      disabled: S.quotaBusy || mineBusy,
+      onclick: () => askQuotaOf(r, id),
+    }, icon("refresh"));
+    if ((S.quotaBusy && !got) || mineBusy) {
       return el("div", { class: "quota-row" },
         el("div", { class: "quota-name" }, label),
         el("div", { class: "quota-why" }, "받는 중…"));
     }
     if (!got) {
       return el("div", { class: "quota-row" },
-        el("div", { class: "quota-name" }, label),
+        el("div", { class: "quota-name" }, label, retry),
         el("div", { class: "quota-why" }, "아직 안 받았습니다"));
     }
     return el("div", { class: "quota-row" },
       el("div", { class: "quota-name" }, label,
-        el("span", { class: "sub", text: got.cmd ? ` /${got.cmd}` : "" })),
+        el("span", { class: "sub", text: got.cmd ? ` /${got.cmd}` : "" }), retry),
       /*
        * ★ **뜯은 것은 더하기만 한다** (사용자, 2026-10-19).
        *
@@ -254,7 +275,8 @@ function quotaCard(r: Room): HTMLElement {
             el("summary", { text: "받은 글" }),
             el("pre", { class: "quota-text", text: got.text }),
           )
-        : el("div", { class: "quota-why" }, got.why ?? "빈손으로 왔습니다"),
+        // 비었으면 호스트가 까닭을 적어 보낸다(`quotaOf`) — 이 글은 그마저 없을 때뿐이다
+        : el("div", { class: "quota-why" }, got.why ?? "받은 글이 없습니다"),
       el("div", { class: "quota-at", text: `${new Date(got.at).toLocaleTimeString()} 기준` }));
   });
 

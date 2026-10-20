@@ -1824,6 +1824,19 @@ export class RoomManager extends EventEmitter<Events> {
           `${label}이(가) ${Math.round(USAGE_PROBE_MS / 1000)}초 안에 응답하지 않았습니다.`,
         );
         /*
+         * ★ **정말 비었으면 무엇이 비었는지 말한다** (2026-10-20). 화면의 «빈손으로
+         * 왔습니다» 는 어느 명령을 보냈는지도, 오류인지도 안 말했다. 그리고 출력 창에
+         * **무엇이 왔었나**(`trace`)를 남긴다 — 실측에서 재현을 못 했으므로, 다음에
+         * 뜨면 그 한 줄이 까닭을 말해 준다.
+         */
+        if (!got.text) {
+          this.opts.host.log(`[${agentId}] 잔량: /${got.cmd} 의 답 글이 비었다 — ${got.trace}`);
+          return {
+            agentId, label, at: Date.now(), cmd: got.cmd,
+            why: `/${got.cmd} 를 보냈는데 답 글이 비어 왔습니다. 다시 받아 보세요.`,
+          };
+        }
+        /*
          * ★ **뜯는 것은 애드온이다** — 코어는 그 꼴(`QuotaLine[]`)만 받는다.
          *
          * 🔴 **애드온이 터져도 팝업은 산다.** 남의 글 모양에 기대는 코드라 언젠가
@@ -1834,7 +1847,7 @@ export class RoomManager extends EventEmitter<Events> {
         try { lines = q.parse(got.text); } catch (e) {
           this.opts.host.log(`[${agentId}] 잔량 글을 못 뜯었습니다: ${(e as Error).message}`);
         }
-        return { agentId, label, at: Date.now(), ...got, lines };
+        return { agentId, label, at: Date.now(), cmd: got.cmd, text: got.text, lines };
       } catch (e) {
         return { agentId, label, at: Date.now(), why: (e as Error).message };
       }

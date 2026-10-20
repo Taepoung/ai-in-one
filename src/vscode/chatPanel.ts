@@ -621,8 +621,11 @@ export class ChatPanel implements AskTarget {
          */
         case "quotaAsk": {
           const here = await this.rooms.openRoom(m.roomId);
-          const ids = here.participants.map((b) => b.agentId);
-          this.post({ t: "quota", list: await this.rooms.quotaOf(ids) });
+          const ids = m.agentId ? [m.agentId] : here.participants.map((b) => b.agentId);
+          this.post({
+            t: "quota", list: await this.rooms.quotaOf(ids),
+            ...(m.agentId ? { only: m.agentId } : {}),
+          });
           break;
         }
         // **못 물어본 것만** 다시 — 이미 답한 줄을 또 묻지 않는다

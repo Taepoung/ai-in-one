@@ -173,4 +173,45 @@ console.log(NL + "[★ 새로고침은 다시 묻는다]");
   ok(t.sent.every((m) => m.t !== "send"), "★ 이번에도 대화로는 안 간다");
 }
 
+console.log(NL + "[★ 줄 하나만 다시 받는다 (사용자, 2026-10-20)]");
+{
+  /*
+   * 하나가 비어 왔다고 멀쩡한 줄까지 다시 깨우지 않는다 — 한 번에 20초씩 든다.
+   * 다시 받는 동안 **그 줄만** «받는 중» 이고, 다른 줄은 받아 둔 그대로다.
+   */
+  const t = mount();
+  open(t, [bot("b1", "claude"), bot("b2", "codex")]);
+  t.$("button.icon[title='사용량']").click();
+  t.send({ t: "quota", list: [
+    { agentId: "claude", label: "Claude", cmd: "usage", at: 1, text: "멀쩡한 글",
+      lines: [{ label: "5-hour limit", percent: 3, sense: "used", left: 97 }] },
+    { agentId: "codex", label: "Codex", cmd: "status", at: 1,
+      why: "/status 를 보냈는데 답 글이 비어 왔습니다. 다시 받아 보세요." },
+  ] });
+  ok(/답 글이 비어 왔습니다/.test(t.$$(".quota-row")[1].textContent),
+     "★ **빈 것은 무엇이 비었는지** 적힌다 — «빈손으로 왔습니다» 가 아니다");
+  t.sent.length = 0;
+
+  const retry = t.$$(".quota-row")[1].querySelector("button.quota-retry");
+  ok(retry !== null && !retry.disabled, "★ 줄마다 다시 받기 단추가 있다");
+  retry.click();
+  const ask = t.sent.filter((m) => m.t === "quotaAsk");
+  ok(ask.length === 1 && ask[0].agentId === "codex",
+     `★ **그 에이전트만** 묻는다 (${JSON.stringify(ask)})`);
+  ok(t.sent.every((m) => m.t !== "send" && m.t !== "sendCompose"), "★ 이번에도 대화로는 안 간다");
+  ok(/받는 중/.test(t.$$(".quota-row")[1].textContent), "★ 그 줄만 «받는 중»");
+  ok(/97% 남음/.test(t.$$(".quota-row")[0].textContent), "★ **다른 줄은 그대로** 서 있다");
+
+  // 그 줄의 답만 온다 — 다른 줄은 안 바뀐다
+  t.send({ t: "quota", only: "codex", list: [
+    { agentId: "codex", label: "Codex", cmd: "status", at: 2, text: "**codex 5h limit:** 80% left",
+      lines: [{ label: "codex 5h limit", percent: 80, sense: "left", left: 80 }] },
+  ] });
+  const rows = t.$$(".quota-row");
+  ok(rows.length === 2, `★ 줄 수는 그대로 (${rows.length})`);
+  ok(/97% 남음/.test(rows[0].textContent) && /80% 남음/.test(rows[1].textContent),
+     "★ **그 줄만 갈아끼웠다** — Claude 97% · Codex 80%");
+  ok(!/받는 중/.test(t.$(".quota-card").textContent), "★ 다 받았으면 «받는 중» 이 걷힌다");
+}
+
 console.log(NL + "전부 통과");

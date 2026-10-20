@@ -334,8 +334,16 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
      * 언제 받은 것인지는 줄마다 적힌다.
      */
     case "quota": {
-      S.quota = m.list;
-      S.quotaBusy = false;
+      if (m.only) {
+        // ★ 한 줄만 다시 받은 것 — **그 줄만** 갈아끼우고 다른 줄은 그대로 둔다
+        const rest = (S.quota ?? []).filter((q) => q.agentId !== m.only);
+        S.quota = [...rest, ...m.list];
+        S.quotaBusyFor.delete(m.only);
+      } else {
+        S.quota = m.list;
+        S.quotaBusy = false;
+        S.quotaBusyFor.clear();
+      }
       if (document.querySelector(".quota-card")) paintQuota();
       break;
     }

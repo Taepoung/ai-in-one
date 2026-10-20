@@ -4111,8 +4111,10 @@ fieldset.bot .bot-drop.danger:hover {
  */
 .quota-row { padding: 8px 0; border-bottom: 1px solid var(--vscode-widget-border); }
 .quota-row:last-child { border-bottom: none; }
-.quota-name { font-weight: 600; }
+.quota-name { font-weight: 600; display: flex; align-items: center; gap: 4px; }
 .quota-name .sub { font-weight: 400; opacity: 0.6; }
+/* 줄마다 다시 받기 — 이름 줄 오른쪽 끝 (2026-10-20) */
+.quota-name .quota-retry { margin-left: auto; }
 .quota-text {
   margin: 6px 0 2px;
   max-height: 220px;

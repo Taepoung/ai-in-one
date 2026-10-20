@@ -233,7 +233,11 @@ function handle(msg) {
           sessionId,
           update: {
             sessionUpdate: "available_commands_update",
-            availableCommands: [{ name: "compact", description: "압축" }],
+            availableCommands: [
+              { name: "compact", description: "압축" },
+              // 잔량 조회를 흉낼 때만 — `AIO_FAKE_SLASH` (아래 session/prompt)
+              ...(process.env.AIO_FAKE_SLASH ? [{ name: "usage", description: "잔량" }] : []),
+            ],
           },
         },
       }) + "\n");
@@ -325,6 +329,26 @@ function handle(msg) {
       const s = sessions.get(params.sessionId);
       if (!s) throw new Error("no such session");
       if (!s.attached) throw new Error("Session not found");
+      /*
+       * ★ **`/usage` 를 흉낸다** (2026-10-20) — 잔량 팝업이 «빈손» 이 되는 자리를 재려고.
+       *
+       *   AIO_FAKE_SLASH=ok      글을 흘리고 답한다
+       *   AIO_FAKE_SLASH=late    **먼저 답하고 글은 나중에** — 응답과 글 조각의 도착 순서는
+       *                          보장되지 않는다(A11). 응답만 보고 닫으면 이걸 놓친다
+       *   AIO_FAKE_SLASH=empty   글 없이 답한다
+       */
+      const slash = process.env.AIO_FAKE_SLASH;
+      const asked = (params.prompt ?? []).map((b) => b.text ?? "").join("").trim();
+      if (slash && asked === "/usage") {
+        const said = "**5-hour limit** — **7%** · Resets Oct 21, 1:40 AM GMT+9";
+        const chunk = () => process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", method: "session/update",
+          params: { sessionId: params.sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: said } } },
+        }) + "\n");
+        if (slash === "ok") chunk();
+        if (slash === "late") setTimeout(chunk, 400);
+        return { stopReason: "end_turn" };
+      }
       // ★ 사용량 한도 — **실제 Codex가 보낸 것 그대로** (2026-09 실측)
       /*
        * 한도를 흉낸다.
