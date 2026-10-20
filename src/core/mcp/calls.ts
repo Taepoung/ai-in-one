@@ -4,14 +4,14 @@
  * `roomManager.ts` 에서 **그대로** 떼어 왔다(`docs/REFACTOR.md` §5 ②). 동작은 같다.
  *
  * ★ **빌려 쓰는 것은 문(`McpPort`) 하나로만 받는다.** 이 층이 방 관리자의 무엇에
- * 기대는지가 그 인터페이스 한 화면으로 보인다 — 큐 · 열린 방 · 봇의 턴 상태 ·
- * 답이 난 id · 저장 · 깨우기 · 심사. 떼어내기 전에는 950줄 곳곳의 `this.` 를
+ * 기대는지가 그 인터페이스 한 화면으로 보인다 — 큐(답이 난 id 장부까지) ·
+ * 열린 방 · 봇의 턴 상태 · 저장 · 깨우기 · 심사. 떼어내기 전에는 950줄 곳곳의 `this.` 를
  * 세어야 알 수 있었다.
  *
  * ⚠️ `BotRuntime` 은 아직 `roomManager.ts` 에 산다 — 타입만 빌린다(런타임 순환은
  * 없다). 세션 층을 떼는 걸음(§5 ⑦)에서 제 자리로 간다.
  */
-import type { BotQueue, QueueItem } from "../botQueue.js";
+import type { BotQueue, QueueItem } from "./botQueue.js";
 import type { McpResult, McpTool } from "../mcpServer.js";
 import {
   DEFAULT_DEPTH_CAP,
@@ -39,9 +39,6 @@ export interface McpPort {
   /** 열린 방 — 닫혔으면 없다 */
   roomById(roomId: string): Room | undefined;
   botRuntime(roomId: string, botId: string): BotRuntime;
-  /** 이미 답이 난 id 의 까닭 — `already handled` 를 가르는 자리 */
-  closedWhy(id: string): string | undefined;
-  noteClosed(id: string, why: string): void;
   append(room: Room, message: Message): void;
   saveMessage(room: Room, patch: Partial<Message> & { id: string }): Promise<void>;
   saveNewMessage(room: Room, message: Message): Promise<void>;
@@ -510,7 +507,7 @@ export class McpCalls {
 
     const item = this.port.queue.find(botId, id);
     if (!item) {
-      const was = this.port.closedWhy(id);
+      const was = this.port.queue.closedWhy(id);
       return deny(was ? "already handled" : "id error", {
         ...(was ? {} : { items: this.port.queue.pending(botId).map(wireItem) }),
         queue_left: this.port.queue.shareLeft(botId),
@@ -525,7 +522,7 @@ export class McpCalls {
      * 활동 한 줄이 아니라 **말풍선 하나**가 된다.
      */
     this.port.queue.answer(botId, id);
-    this.port.noteClosed(id, "사용자에게 전했습니다");
+    this.port.queue.close(id, "사용자에게 전했습니다");
     // 그 말이 적힌 말풍선에 **반응으로 건다**
     return await this.userBubble(room, me, text, item.srcId ? [item.srcId] : []);
   }
@@ -730,7 +727,7 @@ export class McpCalls {
       const item = this.port.queue.find(fromId, id);
       // ① 없는 id — 거절하고 **지금 들고 있는 것을 다시 실어준다**
       if (!item) {
-        const why = this.port.closedWhy(id);
+        const why = this.port.queue.closedWhy(id);
         return deny(why ? "already handled" : "id error", {
           ...(why ? {} : { items: this.port.queue.pending(fromId).map(wireItem) }),
           queue_left: this.port.queue.shareLeft(fromId),
@@ -793,7 +790,7 @@ export class McpCalls {
     // ★ **반응했으면 닫힌다** — 받는 이가 임자든 아니든 (위 주석)
     if (answering) {
       this.port.queue.answer(fromId, answering);
-      this.port.noteClosed(answering, "당신에 의해 이미 응답되었습니다");
+      this.port.queue.close(answering, "당신에 의해 이미 응답되었습니다");
     }
 
     /*

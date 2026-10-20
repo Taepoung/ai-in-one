@@ -11,7 +11,7 @@ import {
 import { cachedOptions, dirFor, keepOptions } from "./agentInstaller.js";
 import type { McpResult, McpServer, McpState, McpTool } from "./mcpServer.js";
 import type { RoomLocks } from "./roomLock.js";
-import { BotQueue } from "./botQueue.js";
+import { BotQueue, CLOSED_MEMORY } from "./mcp/botQueue.js";
 import { McpCalls, deny, type McpPort } from "./mcp/calls.js";
 import { messageId } from "./ids.js";
 import { parseQuota } from "./quotaParse.js";
@@ -981,21 +981,6 @@ export class RoomManager extends EventEmitter<Events> {
    * 큐가 바뀌면 **그 방 화면에 알린다** (§5-M) — 알림을 거는 자리는 여기 하나다.
    */
   private readonly queue = new BotQueue((owner) => this.waitingChanged(owner));
-  /**
-   * ★ **방금 닫힌 항목이 왜 닫혔나** (v3.0 2-E, 2026-10-12).
-   *
-   * 🔴 큐에서 빠지면 «그런 id 없음»과 «이미 응답됨»이 **똑같이 보인다.**
-   *
-   * ★ **누가 응답했는지까지 적는다** — 봇이 꺼내 본 뒤에도 **사용자가 가로채**
-   * 답할 수 있으므로(`takeOverReview`), «당신에 의해»와 «사용자에 의해»는
-   * 모델에게 다른 사실이다.
-   * 둘은 모델이 할 일이 다르다 — 앞엣것은 **다시 확인해야** 하고, 뒤엣것은
-   * **아무것도 안 해도 된다.** 특히 사람이 가로챈 뒤에 봇이 늦게 `verdict` 를
-   * 부르면, 생기는 일은 없는데 **모델은 제 판정이 먹힌 줄 안다.**
-   *
-   * 영수증만 들고 있으면 되므로 작게 묶어둔다 — 넘치면 **오래된 것부터** 버린다.
-   */
-  private readonly closed = new Map<string, string>();
   /** 우리 도구가 돌려준 진짜 답 — `방:봇:도구` 마다 줄로 (활동에 붙인다)
    *
    * 저쪽이 실어 보내는 것은 자리표시 글일 수 있다(Antigravity 실측). */
@@ -1017,8 +1002,6 @@ export class RoomManager extends EventEmitter<Events> {
       get host() { return self.opts.host; },
       roomById: (roomId) => this.open.get(roomId),
       botRuntime: (roomId, botId) => this.botRuntime(roomId, botId),
-      closedWhy: (id) => this.closed.get(id),
-      noteClosed: (id, why) => this.noteClosed(id, why),
       append: (room, message) => this.append(room, message),
       saveMessage: (room, patch) => this.saveMessage(room, patch),
       saveNewMessage: (room, message) => this.saveNewMessage(room, message),
@@ -2951,7 +2934,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 눌렀는데 하던 이야기가 이어지는 꼴이다.
      */
     for (const item of this.queue.dropAll(room.participants.map((b) => b.id))) {
-      this.noteClosed(item.id, "전체 중지로 거두어졌습니다");
+      this.queue.close(item.id, "전체 중지로 거두어졌습니다");
       if (item.kind === "permission") this.settleQueued(item.id, { outcome: "cancelled" });
     }
     /*
@@ -3014,15 +2997,6 @@ export class RoomManager extends EventEmitter<Events> {
    * 조용히 아무 일도 안 일어나는데, 그 사이 **두 번째 답이 사라진다** —
    * 지운 뒤에 부른다.
    */
-  /** 닫힌 자국을 남긴다 — 오래된 것부터 버려 **무한히 안 는다** */
-  private noteClosed(id: string, why: string): void {
-    this.closed.set(id, why);
-    while (this.closed.size > CLOSED_MEMORY) {
-      const oldest = this.closed.keys().next().value;
-      if (oldest === undefined) break;
-      this.closed.delete(oldest);
-    }
-  }
 
   private settleQueued(id: string, decision: PermissionDecision | undefined): void {
     const held = this.queued.get(id);
@@ -3245,7 +3219,7 @@ export class RoomManager extends EventEmitter<Events> {
     const item = this.queue.find(botId, id);
     if (!item || item.kind !== "message") return false;
     this.queue.answer(botId, id);
-    this.noteClosed(id, "사용자가 버렸습니다");
+    this.queue.close(id, "사용자가 버렸습니다");
     this.opts.host.log(`[${roomId}] ${botId} 의 대기에서 «${id}» 를 사용자가 버렸습니다`);
     return true;
   }
@@ -3272,7 +3246,7 @@ export class RoomManager extends EventEmitter<Events> {
     if (!held || held.roomId !== roomId) return false;
 
     this.queue.answer(botId, id);
-    this.noteClosed(id, "사용자가 답했습니다");
+    this.queue.close(id, "사용자가 답했습니다");
     /* 띠·심사 줄에서 빼고 기다리던 약속을 푸는 것은 전부 `settleQueued` 가 한다 */
     this.settleQueued(id, {
       outcome: "selected",
@@ -3319,7 +3293,7 @@ export class RoomManager extends EventEmitter<Events> {
      * 판정이 먹힌 줄 알고, 사람은 모르는 답이 하나 더 생긴다.
      */
     this.queue.answer(wait.judgeBotId, reviewId);
-    this.noteClosed(reviewId, "사용자에 의해 이미 응답되었습니다");
+    this.queue.close(reviewId, "사용자에 의해 이미 응답되었습니다");
     // `undefined` 는 «사람에게 넘긴다» 다 — `askApprover` 가 받아서 카드를 띄운다
     this.settleQueued(reviewId, undefined);
     this.emit("notice", wait.roomId, `직접 답하기로 했습니다 — «${wait.title}»`);
@@ -3351,10 +3325,10 @@ export class RoomManager extends EventEmitter<Events> {
        * 확인해야 하고, 뒤엣것은 **아무것도 안 해도 된다.** 특히 사람이 가로챈
        * 뒤라면, 다시 확인해봐야 그 항목은 영영 안 나온다.
        */
-      const why = this.closed.get(id);
+      const why = this.queue.closedWhy(id);
       return deny(why ? "already handled" : "id error");
     }
-    this.noteClosed(id, "당신에 의해 이미 응답되었습니다");
+    this.queue.close(id, "당신에 의해 이미 응답되었습니다");
     const held = this.queued.get(id);
     if (!held) return deny("already handled");
 
@@ -5752,11 +5726,11 @@ export class RoomManager extends EventEmitter<Events> {
          * `askPermission` 이 사용자에게 물어보는 길로 떨어진다.
          */
         for (const item of this.queue.dropPermissions((i) => i.fromId === b.id)) {
-          this.noteClosed(item.id, "요청한 봇이 끊겨 거두어졌습니다");
+          this.queue.close(item.id, "요청한 봇이 끊겨 거두어졌습니다");
           this.settleQueued(item.id, { outcome: "cancelled" });
         }
         for (const item of this.queue.dropPermissions((i) => i.to === b.id)) {
-          this.noteClosed(item.id, "심사 봇이 끊겨 사용자에게 넘어갔습니다");
+          this.queue.close(item.id, "심사 봇이 끊겨 사용자에게 넘어갔습니다");
           // **조용히 넘기지 않는다** — 맡겼다고 생각하고 자리를 비우면 안 된다
           this.emit("notice", roomId,
             `심사를 맡긴 봇이 끊겨 직접 물어봅니다 — «${item.title}»`);
@@ -6481,8 +6455,6 @@ export class RoomManager extends EventEmitter<Events> {
   }
 }
 
-/** 닫힌 항목을 몇 개나 기억하나 — 늦게 온 호출을 알아볼 만큼만 */
-const CLOSED_MEMORY = 300;
 
 /**
  * 카드에 보여줄 `+N -M`을 센다 (E2).

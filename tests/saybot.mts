@@ -19,7 +19,7 @@ import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
 import { DEFAULT_AGENTS } from "../src/agents/index.js";
 import { EVERYONE } from "../src/core/mentions.js";
-import type { BotQueue } from "../src/core/botQueue.js";
+import type { BotQueue } from "../src/core/mcp/botQueue.js";
 import type { PermissionRequest, Room } from "../src/core/types.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 

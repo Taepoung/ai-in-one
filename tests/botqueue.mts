@@ -13,7 +13,7 @@
  * 소유자     남의 것은 못 꺼낸다 — 안 그러면 제 요청을 스스로 승인한다
  * ```
  */
-import { BotQueue } from "../src/core/botQueue.js";
+import { BotQueue } from "../src/core/mcp/botQueue.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 const NL = String.fromCharCode(10);

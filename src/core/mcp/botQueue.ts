@@ -147,6 +147,9 @@ interface Lane {
   seen: Set<string>;
 }
 
+/** 닫힌 항목을 몇 개나 기억하나 — 늦게 온 호출을 알아볼 만큼만 */
+export const CLOSED_MEMORY = 300;
+
 export class BotQueue {
   private readonly lanes = new Map<string, Lane>();
   private seq = 0;
@@ -161,6 +164,44 @@ export class BotQueue {
    * 안이므로 여기서 한 번만 알린다.
    */
   constructor(private readonly onChange: (owner: string) => void = () => {}) {}
+
+  /**
+   * ★ **방금 닫힌 항목이 왜 닫혔나** (v3.0 2-E, 2026-10-12) — 리팩토링 ⑦-1 에서
+   * 방 관리자에서 **여기로** 왔다.
+   *
+   * ★ **id 가 태어나는 곳이 끝나는 까닭도 적는다.** `put` 이 `x1`·`p1` 을 매기는데
+   * 그 id 가 «어떻게 끝났나» 는 방 관리자의 맵에 따로 있었다. 적는 쪽이 셋이다 —
+   * MCP(봇이 답했다) · 심사(판정했다 · 사람이 가로챘다 · 대기 목록에서 답했다·
+   * 버렸다) · 방 흐름(전체 중지 · 봇이 죽었다). 셋이 이미 같이 쓰는 큐에 두면
+   * 새 길이 안 생기고, 「태어남 → 꺼냄 → 답함 → 닫힘의 까닭」 이 한 파일에서 읽힌다.
+   *
+   * 🔴 큐에서 빠지면 «그런 id 없음»과 «이미 응답됨»이 **똑같이 보인다.**
+   *
+   * ★ **누가 응답했는지까지 적는다** — 봇이 꺼내 본 뒤에도 **사용자가 가로채**
+   * 답할 수 있으므로(`takeOverReview`), «당신에 의해»와 «사용자에 의해»는
+   * 모델에게 다른 사실이다.
+   * 둘은 모델이 할 일이 다르다 — 앞엣것은 **다시 확인해야** 하고, 뒤엣것은
+   * **아무것도 안 해도 된다.** 특히 사람이 가로챈 뒤에 봇이 늦게 `verdict` 를
+   * 부르면, 생기는 일은 없는데 **모델은 제 판정이 먹힌 줄 안다.**
+   *
+   * 영수증만 들고 있으면 되므로 작게 묶어둔다 — 넘치면 **오래된 것부터** 버린다.
+   */
+  private readonly closed = new Map<string, string>();
+
+  /** 닫힌 자국을 남긴다 — 오래된 것부터 버려 **무한히 안 는다** */
+  close(id: string, why: string): void {
+    this.closed.set(id, why);
+    while (this.closed.size > CLOSED_MEMORY) {
+      const oldest = this.closed.keys().next().value;
+      if (oldest === undefined) break;
+      this.closed.delete(oldest);
+    }
+  }
+
+  /** 그 id 가 왜 닫혔나 — 모르면(안 닫혔거나 너무 오래됐거나) `undefined` */
+  closedWhy(id: string): string | undefined {
+    return this.closed.get(id);
+  }
 
   private lane(owner: string): Lane {
     let lane = this.lanes.get(owner);
