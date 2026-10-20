@@ -290,6 +290,15 @@ export interface BotRuntime {
    * 기다릴 것이 없다고 보고 해시가 빈 채로 저장할 수 있었다.
    */
   pendingWrites: Promise<unknown>[];
+  /**
+   * ★ **이 세션을 열 때 우리 MCP 를 실어 보냈나** (리팩토링 ⑦-2, 2026-10-20).
+   *
+   * 🔴 도구는 **세션을 열 때** 붙는다. MCP 가 꺼져 있던 때 연 세션은, 나중에
+   * MCP 가 살아나도 `say`·`check_queue`·`verdict` 가 **없다.** 심사 봇에게 권한을
+   * 넘길 때 «세션이 열렸나» 만 보면, 판정할 길이 없는 봇에게 넘겨 요청한 봇의
+   * 턴이 얼어붙는다 — 사람이 가로채야 풀린다. `mcpFor` 가 적는다.
+   */
+  mcpOffered?: boolean;
 }
 
 /**
@@ -5895,7 +5904,13 @@ export class RoomManager extends EventEmitter<Events> {
   private mcpFor(room: Room, bot: BotInstance): acp.McpServer[] {
     const server = this.opts.mcp;
     const at = server?.current();
-    if (!server || at?.at !== "ready") return [];
+    // ★ 무엇을 실어 보냈는지 적는다 — 심사 봇에게 넘길 수 있나가 이걸 본다(⑦-2)
+    const bt = this.botRuntime(room.id, bot.id);
+    if (!server || at?.at !== "ready") {
+      bt.mcpOffered = false;
+      return [];
+    }
+    bt.mcpOffered = true;
     const owner = `${room.id}:${bot.id}`;
     /*
      * ⏪ **여기서 지난 열쇠를 거두던 것을 물렀다** (사용자, 2026-10-15).
@@ -6325,6 +6340,25 @@ export class RoomManager extends EventEmitter<Events> {
      * 간다. 안 그러면 A가 B에게, B가 A에게 묻는 고리가 생긴다.
      */
     if (this.judging.has(asker.id)) return hand("심사를 맡고 있는 중이라");
+    /*
+     * ★ **심사 봇이 정말 답할 수 있나** (리팩토링 ⑦-2, 2026-10-20).
+     *
+     * 🔴 심사 봇이 판정하는 길은 MCP 의 `check_queue`·`verdict` 뿐이다. 그 도구가
+     * 그 세션에 없으면 큐에 넣어봐야 **판정이 영영 안 온다** — 요청한 봇의 턴이
+     * 얼고, 사람이 가로채야 풀린다. 그래서 셋을 본다:
+     *
+     *   MCP 가 지금 살아 있나 · 그 세션을 열 때 우리 도구를 실어 보냈나
+     *   · 그 에이전트가 http MCP 를 받나 (모르면 믿는다 — BUMP ⑩ 이 잰다)
+     *
+     * 하나라도 아니면 **처음부터** 사람에게 묻는다.
+     */
+    if (this.opts.mcp?.current().at !== "ready") return hand("봇끼리 말하는 길(MCP)이 꺼져 있어");
+    if (!this.botRuntime(room.id, judge.id).mcpOffered) {
+      return hand(`${judge.name}의 세션에 심사 도구가 안 붙어 있어`);
+    }
+    if (this.connection(judge.agentId).mcpHttp === false) {
+      return hand(`${judge.name}은(는) 우리 도구를 받지 못하는 에이전트라`);
+    }
 
     /*
      * ★ **«이번만» 선택지가 없으면 애초에 안 넘긴다** (v3.0 3-I).

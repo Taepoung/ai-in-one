@@ -59,6 +59,12 @@ async function make() {
   const sent: WaitItem[][] = [];
   mgr.on("waiting", (_id: string, list: WaitItem[]) => { sent.push(list); });
   mcp.setHandlers(mgr.mcpTools(), (o, t, a) => mgr.mcpCall(o, t, a));
+  /*
+   * ★ **서버를 켠다** (리팩토링 ⑦-2, 2026-10-20). ⏪ 예전엔 안 켜서 심사 봇
+   * 세션에 우리 도구가 없었는데, 그래도 권한이 심사 봇 큐에 들어갔다 — 제품에서라면
+   * **판정이 영영 안 오는** 상황이다. 이제는 그런 심사 봇에게 안 넘기므로 켠다.
+   */
+  await mgr.startMcp();
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;

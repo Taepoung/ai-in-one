@@ -48,7 +48,11 @@ const REQ = (over: Partial<PermissionRequest> = {}): PermissionRequest => ({
   ...over,
 });
 
-async function make() {
+/**
+ * `mcpOn: false` — MCP 를 아예 안 켠다 · `mcpAfterRoom` — 세션을 연 **뒤에** 켠다
+ * · `judgeNoHttp` — 심사 봇이 http MCP 를 못 받는 에이전트다 (리팩토링 ⑦-2)
+ */
+async function make(opts: { mcpOn?: boolean; mcpAfterRoom?: boolean; judgeNoHttp?: boolean } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "aio-judge-"));
   const store = new RoomStore(dir); await store.init();
 
@@ -66,12 +70,19 @@ async function make() {
     host, store, configProbeMs: 20000, mcp,
     agents: [
       { ...base, id: "alpha", label: "알파", env: {} },
-      { ...base, id: "beta", label: "베타", env: {} },
+      { ...base, id: "beta", label: "베타", env: opts.judgeNoHttp ? { AIO_FAKE_NO_MCP_HTTP: "1" } : {} },
     ],
   });
   const notices: string[] = [];
   mgr.on("roomError", () => {}); mgr.on("notice", (_id: string, m: string) => notices.push(m));
   mcp.setHandlers(mgr.mcpTools(), (o, t, a) => mgr.mcpCall(o, t, a));
+  /*
+   * ★ **서버를 켠다** (리팩토링 ⑦-2, 2026-10-20). ⏪ 예전엔 안 켰다 — 그러면 심사
+   * 봇 세션에 우리 도구가 안 붙는데, 검사가 `mcpCall` 을 직접 불러 판정을 흉내
+   * 내서 돌았다. 제품에서라면 **판정이 영영 안 오는 바로 그 버그**인 상황을
+   * 정상 흐름처럼 재고 있었다. 세션을 열기 **전에** 켜야 도구가 붙는다.
+   */
+  if (opts.mcpOn !== false && !opts.mcpAfterRoom) await mgr.startMcp();
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;
@@ -93,6 +104,8 @@ async function make() {
     }
   };
   await settle();
+  // 세션이 이미 열린 **뒤에** 켠다 — 그 세션엔 도구가 안 붙어 있다
+  if (opts.mcpAfterRoom) await mgr.startMcp();
 
   const asker = room.participants[0]!;
   const judge = room.participants[1]!;
@@ -417,6 +430,31 @@ async function main(): Promise<void> {
       catch { await nap(200); }
     }
   }
+  console.log(`${NL}[★ 심사 봇이 답할 길이 없으면 **처음부터** 사람에게 (리팩토링 ⑦-2)]`);
+  {
+    /*
+     * 🔴 **고친 버그다.** 심사 봇이 판정하는 길은 MCP 의 `check_queue`·`verdict`
+     * 뿐인데, 예전엔 «세션이 열렸나» 만 보고 넘겼다. 도구가 없는 심사 봇에게
+     * 넘기면 판정이 영영 안 오고, 요청한 봇의 턴이 얼어 사람이 가로채야 풀렸다.
+     */
+    const cases: Array<[string, Parameters<typeof make>[0], string]> = [
+      ["MCP 가 꺼져 있다", { mcpOn: false }, "MCP"],
+      ["심사 봇 세션이 MCP 보다 먼저 열렸다", { mcpAfterRoom: true }, "심사 도구"],
+      ["심사 봇이 http MCP 를 못 받는다", { judgeNoHttp: true }, "받지 못하는"],
+    ];
+    for (const [what, opts, why] of cases) {
+      const t = await make(opts);
+      await t.mgr.setPolicy(t.room.id, { approver: { kind: "bot", botId: t.judge.id } }, t.asker.id);
+      const before = t.userAsks();
+      await t.inner.askApprover(t.asker.sessionId!, REQ());
+      ok(t.userAsks() === before + 1, `★ ${what} → **사람에게 바로** 묻는다`);
+      ok(t.inner.queue.waiting(t.judge.id) === 0 && t.inner.queue.pending(t.judge.id).length === 0,
+         "★ 심사 봇 큐에 **안 넣는다** — 넣어봐야 판정이 영영 안 온다");
+      ok(t.notices.some((n) => n.includes(why)), `★ 왜인지 알린다 («${t.notices.at(-1)}»)`);
+      bye(t);
+    }
+  }
+
   console.log(`${NL}전부 통과`);
 }
 

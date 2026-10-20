@@ -62,6 +62,13 @@ async function make(hold: number) {
   mgr.on("roomError", () => {}); mgr.on("notice", () => {});
   mgr.on("reviews", (_id: string, list: ReviewWait[]) => { seen.push(list); });
   mcp.setHandlers(mgr.mcpTools(), (o, t, a) => mgr.mcpCall(o, t, a));
+  /*
+   * ★ **서버를 켠다** (리팩토링 ⑦-2, 2026-10-20). ⏪ 예전엔 안 켰다 — 그러면 심사
+   * 봇 세션에 우리 도구가 안 붙는데, 검사가 `mcpCall` 을 직접 불러 판정을 흉내
+   * 내서 돌았다. 제품에서라면 **판정이 영영 안 오는 바로 그 버그**인 상황을
+   * 정상 흐름처럼 재고 있었다. 세션을 열기 **전에** 켜야 도구가 붙는다.
+   */
+  await mgr.startMcp();
 
   const inner = mgr as unknown as {
     askApprover(sessionId: string, req: PermissionRequest): Promise<PermissionDecision>;

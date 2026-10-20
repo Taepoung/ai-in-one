@@ -1172,6 +1172,16 @@ export class AcpConnection {
    * 🔴 **글 그대로 돌려준다.** 어댑터마다 모양이 달라서(`SLASH.md`) 여기서
    * 뜯지 않는다 — 뜯는 자리는 하나여야 하고, 그건 읽는 쪽이다.
    */
+  /**
+   * ★ **이 에이전트가 http MCP 를 받나** (리팩토링 ⑦-2). `initialize` 의
+   * `mcpCapabilities.http` 다 — 우리 MCP 는 http 로만 붙는다. 아직 안 붙었으면
+   * `undefined`(모른다)다; 모르면 막지 않는다.
+   */
+  get mcpHttp(): boolean | undefined {
+    if (!this.init) return undefined;
+    return this.init.agentCapabilities?.mcpCapabilities?.http === true;
+  }
+
   async probeUsage(
     cwd: string,
     want: readonly string[],

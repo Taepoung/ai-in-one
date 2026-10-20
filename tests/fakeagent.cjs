@@ -169,6 +169,12 @@ function handle(msg) {
             ...(process.env.AIO_FAKE_NO_FORK ? {} : { fork: {} }),
           },
           promptCapabilities: { image: true, audio: true, embeddedContext: true },
+          /*
+           * ★ **http MCP 를 받는다고 광고한다** — 진짜 셋이 다 그렇다(BUMP ⑩).
+           * 리팩토링 ⑦-2 부터 이걸 안 광고하는 에이전트에게는 심사를 안 넘긴다.
+           * 끄면 «우리 도구를 못 받는 에이전트» 가 된다.
+           */
+          mcpCapabilities: process.env.AIO_FAKE_NO_MCP_HTTP ? {} : { http: true },
           /* 로그아웃을 광고하는 에이전트가 있다 — Antigravity 가 그렇다 */
           ...(process.env.AIO_FAKE_ACP_AUTH ? { auth: { logout: {} } } : {}),
         },
