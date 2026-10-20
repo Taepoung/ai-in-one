@@ -2188,6 +2188,11 @@ input.rename {
   overflow-wrap: anywhere;
 }
 
+/* 방 정보 · 저장 위치 (2026-10-20) — 경로는 고정폭, 단추는 경로 뒤 · 덧말은 아래 */
+.room-file { font-family: var(--vscode-editor-font-family); font-size: var(--fs-11); }
+.info-row .link-ish { margin-left: 6px; background: none; border: none; padding: 0; cursor: pointer; }
+.room-file-note { margin-top: 2px; font-size: var(--fs-11); }
+
 .role-edit {
   display: flex;
   flex-direction: column;

@@ -719,6 +719,13 @@ export class ChatPanel implements AskTarget {
           );
           break;
         }
+        case "roomFileAsk":
+          this.post({ t: "roomFile", roomId: m.roomId, path: this.rooms.roomFile(m.roomId) });
+          break;
+        case "revealRoomFile":
+          // **열지 않고 선택만** — 열린 방의 기록을 손으로 고치면 깨지거나 덮인다
+          await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(this.rooms.roomFile(m.roomId)));
+          break;
         case "openFile": {
           // 상대 경로로 온 것은 워크스페이스 기준이다 (E9 — 판정은 `isAbsPath`)
           const cwd = this.rooms.listMetas().find((r) => r.id === this.openRoomId)?.cwd ?? "";

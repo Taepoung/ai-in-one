@@ -470,6 +470,43 @@ console.log(String.fromCharCode(10) + "[★ 방 정보는 팔업이다]");
   ok(t.$("#screen-chat .modal") === null, "덮개를 누르면 닫힌다");
 }
 
+console.log(String.fromCharCode(10) + "[★ 방 정보 · 저장 위치 (사용자, 2026-10-20)]");
+{
+  /*
+   * 경로는 호스트만 안다 — 열 때 묻고, 답이 오면 채운다. 단추는 **열지 않고 선택만**
+   * 한다(revealRoomFile) — 열린 방의 기록을 손으로 고치면 깨지거나 덮인다.
+   */
+  const t = mount();
+  t.$(".room").click();
+  t.send({ t: "joinDone", roomId: "r1" });
+  t.send({ t: "room", room: room([bot("b1", "claude")]), compactable: false });
+  t.sent.length = 0;
+  t.$("#screen-chat .bar button:last-child").click();
+  t.$$("#screen-chat .menu button").find((b) => b.textContent === "방 정보").click();
+
+  const ask = t.sent.filter((m) => m.t === "roomFileAsk");
+  ok(ask.length === 1 && ask[0].roomId === "r1", `★ 열 때 경로를 묻는다 (${JSON.stringify(ask)})`);
+  const rows = () => t.$$("#screen-chat .modal .info-row");
+  const fileRow = () => rows().find((r) => r.textContent.startsWith("저장 위치"));
+  ok(fileRow() !== undefined, "★ «저장 위치» 줄이 있다");
+  ok(/…/.test(fileRow().querySelector(".room-file").textContent), "★ 답이 오기 전에는 «…»");
+
+  const p = "C:\\Users\\me\\globalStorage\\taein-yoon.ai-in-one\\rooms\\r1.jsonl";
+  t.send({ t: "roomFile", roomId: "r1", path: p });
+  ok(fileRow().querySelector(".room-file").textContent === p, "★ 답이 오면 그 경로가 선다");
+  ok(/blobs/.test(fileRow().textContent) && /손으로 고치면/.test(fileRow().textContent),
+     "★ **그 파일이 전부가 아니라는 것**과 손으로 고치지 말라는 것을 같이 적는다");
+
+  t.sent.length = 0;
+  [...fileRow().querySelectorAll("button")].find((b) => /폴더에서 보기/.test(b.textContent)).click();
+  ok(t.sent.length === 1 && t.sent[0].t === "revealRoomFile" && t.sent[0].roomId === "r1",
+     `★ **폴더에서 보기** — 열지 않고 선택만 (${JSON.stringify(t.sent)})`);
+
+  // 남의 방 답은 안 덮는다
+  t.send({ t: "roomFile", roomId: "다른방", path: "X" });
+  ok(fileRow().querySelector(".room-file").textContent === p, "★ 다른 방의 답은 이 줄을 안 바꾼다");
+}
+
 console.log("\n[★ 갱신될 때 서랍이 다시 나타나지 않는다]");
 {
   const t = mount();

@@ -17,7 +17,7 @@ import {
 import { leaveChat, renderChat } from "./chat/chat.js";
 import { paintSendButton, paintStaged, putTokens } from "./chat/compose.js";
 import { closeFind, openFind } from "./chat/find.js";
-import { paintQuota } from "./chat/menu.js";
+import { gotRoomFile, paintQuota } from "./chat/menu.js";
 import { applyDelta, paintChat } from "./chat/paint.js";
 import { jumpTo, paintBack, paintDown } from "./chat/scroll.js";
 import { el } from "./common/dom.js";
@@ -333,6 +333,10 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
      * 흔들 이유가 없다. 다음에 열면 **마지막에 받은 것**이 먼저 서고,
      * 언제 받은 것인지는 줄마다 적힌다.
      */
+    case "roomFile":
+      gotRoomFile(m.roomId, m.path);
+      break;
+
     case "quota": {
       if (m.only) {
         // ★ 한 줄만 다시 받은 것 — **그 줄만** 갈아끼우고 다른 줄은 그대로 둔다

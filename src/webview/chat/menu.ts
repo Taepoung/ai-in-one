@@ -13,6 +13,17 @@ import { paintDrawer } from "../drawer/drawer.js";
 
 // ── 메뉴 ────────────────────────────────────────────────────────────────
 
+/** 방마다 받아 둔 기록 파일 경로 — 방 정보를 다시 열면 먼저 세운다 */
+const roomFiles = new Map<string, string>();
+
+/** 호스트가 경로를 답했다 — 떠 있는 방 정보가 그 방이면 채운다 */
+export function gotRoomFile(roomId: string, path: string): void {
+  roomFiles.set(roomId, path);
+  if (S.room?.id !== roomId) return;
+  const at = document.querySelector(".room-file");
+  if (at) at.textContent = path;
+}
+
 export function toggleMenu(e: Event, r: Room): void {
   e.stopPropagation();
   const existing = screens.chat.querySelector(".menu");
@@ -120,6 +131,33 @@ function showRoomInfo(r: Room): void {
     );
   }
 
+  /*
+   * ★ **저장 위치** (사용자, 2026-10-20). 경로는 호스트만 안다 — 물어서 채운다
+   * (`roomFileAsk` → `roomFile`). 받아 둔 것이 있으면 먼저 세운다.
+   *
+   * 🔴 **열지 않고 «폴더에서 보기»** 다. 방이 열려 있는 동안 우리가 줄을 덧붙이므로
+   * 손으로 고치면 깨지거나 덮인다. 그리고 그 파일 하나가 방의 전부가 아니다 —
+   * 첨부·변경 원문은 옆의 `blobs` 를 모든 방이 같이 쓴다. 그 둘을 한 줄로 적어 둔다.
+   */
+  const where = el("span", { class: "room-file", text: roomFiles.get(r.id) ?? "…" });
+  post({ t: "roomFileAsk", roomId: r.id });
+  const fileRow = el(
+    "div",
+    { class: "info-row" },
+    el("span", { class: "dim", text: "저장 위치" }),
+    el("span", {},
+      where,
+      el("button", {
+        class: "link-ish", type: "button", text: " 폴더에서 보기",
+        onclick: () => post({ t: "revealRoomFile", roomId: r.id }),
+      }),
+      el("div", {
+        class: "dim room-file-note",
+        text: "첨부·변경 원문은 옆의 blobs 폴더에 모든 방이 같이 둡니다. 손으로 고치면 깨질 수 있습니다.",
+      }),
+    ),
+  );
+
   const card = el(
     "div",
     { class: "card" },
@@ -128,6 +166,7 @@ function showRoomInfo(r: Room): void {
       "div",
       { class: "card-body info" },
       row("작업 디렉터리", r.cwd),
+      fileRow,
       row("만든 때", new Date(r.createdAt).toLocaleString()),
       ...(r.forkedFromRoomId ? forkInfoRows(r) : []),
       ...lineage,

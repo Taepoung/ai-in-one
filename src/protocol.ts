@@ -115,6 +115,8 @@ export type AskAnswer =
   ;
 
 export type ToWebview =
+  /** 그 방의 기록 파일 — 방 정보의 «저장 위치» (`roomFileAsk` 의 답) */
+  | { t: "roomFile"; roomId: string; path: string }
   /**
    * 로그인 확인이 어디까지 왔나 (2026-10-13).
    *
@@ -601,6 +603,13 @@ export type FromWebview =
   | { t: "compact"; roomId: string; botId?: string }
   | { t: "pickCwd" }
   | { t: "openFile"; path: string; line?: number }
+  /** 그 방의 기록 파일이 어디 있나 — 방 정보가 연다 (2026-10-20). 답은 `roomFile` */
+  | { t: "roomFileAsk"; roomId: string }
+  /**
+   * 그 방의 기록 파일을 **탐색기에서 선택해** 보여준다 — 열지 않는다. 방이 열려 있는
+   * 동안 우리가 줄을 덧붙이고 있어서, 손으로 고치면 깨지거나 덮인다.
+   */
+  | { t: "revealRoomFile"; roomId: string }
   /**
    * 변경 전/후를 네이티브 diff로 열다 (E3).
    *

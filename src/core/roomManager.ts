@@ -632,6 +632,11 @@ export class RoomManager extends EventEmitter<Events> {
     return this.rooms.listMetas();
   }
 
+  /** 그 방의 기록 파일이 디스크 어디에 있나 — 방 정보의 «저장 위치» */
+  roomFile(roomId: string): string {
+    return this.opts.store.fileOf(roomId);
+  }
+
   /** 방의 상태, 또는 **그 봇의** 상태 (v2.0 준비) */
   statusOf(roomId: string, botId?: string): RoomStatus {
     return this.runtimes.statusOf(roomId, botId);

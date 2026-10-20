@@ -450,6 +450,11 @@ export class RoomStore {
     return path.join(this.roomsDir, `${id}.jsonl`);
   }
 
+  /** 그 방의 기록 파일 — 방 정보가 보여준다. 손으로 고치는 자리가 아니다 */
+  fileOf(id: string): string {
+    return this.roomPath(id);
+  }
+
   private async readIndex(): Promise<RoomMeta[]> {
     try {
       const raw = await fs.readFile(this.indexPath, "utf8");
