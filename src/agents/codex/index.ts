@@ -179,4 +179,17 @@ export const codex: AgentDef = {
   quota: { commands: ["status"], parse: parseCodexQuota },
   // ★ 우리 도구 알아보기 — 제 자리에서만 꺼낸다 (./identity.ts)
   mcpIdentity: codexMcpIdentity,
+  /*
+   * ★ **다른 Codex 가 그 세션을 쥐고 있다** (2026-10-20 실측 · codex-acp 2.2.2):
+   *
+   * ```
+   * Invalid request: This Codex session is in use by another Codex client (the Codex
+   * app, the CLI or an IDE extension). Close the session there or quit that client,
+   * then try again. — thread 01a1…bb3790 already has an active writer
+   * ```
+   *
+   * 두 말 중 하나만 맞아도 본다 — 판이 올라가며 한쪽 문장이 바뀌어도 걸리게.
+   */
+  sessionInUse: (reason) =>
+    /in use by another Codex client|already has an active writer/i.test(reason),
 };

@@ -264,6 +264,16 @@ function handle(msg) {
         fs.writeFileSync(failOnce, "failed");
         throw new Error("temporarily unavailable");
       }
+      /*
+       * ★ **다른 클라이언트가 그 세션을 쥐고 있다** — Codex 가 실제로 보낸 글 그대로
+       * (2026-10-20). 그 파일이 **있는 동안만** 막힌다 — 지우면 «저쪽을 닫았다» 가 된다.
+       */
+      const busy = process.env.AIO_FAKE_RESUME_BUSY;
+      if (busy && fs.existsSync(busy)) {
+        throw new Error("Invalid request: This Codex session is in use by another Codex client " +
+          "(the Codex app, the CLI or an IDE extension). Close the session there or quit that " +
+          `client, then try again. — thread ${params.sessionId} already has an active writer`);
+      }
       // Gemini 흉내: resume이 없어 load만 온다
       if (GEMINI && method === "session/resume") throw new Error("Method not found");
       const s = sessions.get(params.sessionId);

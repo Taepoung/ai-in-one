@@ -29,6 +29,19 @@ import type { AgentPool } from "./pool.js";
 const SESSION_MS = 30_000;
 
 /**
+ * 이어받기가 «다른 클라이언트가 쥐고 있어서» 실패했나 — 애드온에게 묻는다
+ * (`AgentDef.sessionInUse`). 애드온이 없거나 터지면 **모른다** — 예전처럼 새로 연다.
+ */
+function inUse(agent: AgentDef, reason: string | undefined): boolean {
+  if (!agent.sessionInUse || !reason) return false;
+  try {
+    return agent.sessionInUse(reason);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 칸 하나의 **보이는 이름** (`opus` → `Opus 5`). 없으면 id 를 그대로 돌려준다.
  *
  * 사용자가 고른 것은 이름 쪽이다 — 시스템 줄에 `sonnet` 이라고 적으면
@@ -230,6 +243,21 @@ export class Sessions {
           this.port.emitRoom(room);
         }
         return bot.sessionId;
+      }
+      /*
+       * ★ **다른 클라이언트가 쥐고 있으면 새로 열지 않는다** (사용자, 2026-10-20).
+       *
+       * 🔴 여기서 아래로 흘러가면 «이전 세션을 이어받지 못했습니다. 여기서부터는 새
+       * 세션입니다» 를 적고 새 세션을 연다 — 저쪽만 닫으면 **그대로 이어받을 수 있는**
+       * 세션을 버리는 꼴이다. 아무것도 안 바꾸고(세션 id · 맥락 표시 그대로) **붙지
+       * 못함**으로 올린다. 방을 열 때면 붙는 화면이 까닭과 [다시 시도] 를 세우고, 말을
+       * 보낼 때면 그 말이 실패로 남는다 — 어느 쪽이든 다시 하면 원래 세션에 붙는다.
+       */
+      if (inUse(this.port.agent(bot.agentId), resumed.reason)) {
+        throw new Error(
+          `다른 곳(앱 · CLI · 다른 창)에서 이 세션을 쓰고 있어 이어받지 못했습니다. ` +
+            `거기서 닫은 뒤 다시 시도하세요. — ${resumed.reason}`,
+        );
       }
       // 복구 실패는 정상 경로다. 새로 열고 **말해준다** —
       // 기록을 되먹이는 건 아직 안 한다(미구현).
