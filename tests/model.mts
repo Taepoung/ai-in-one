@@ -597,9 +597,9 @@ async function main() {
 
     // 복구가 실패해 새 세션이 열리는 상황 — **기록은 안 밀려야 한다**
     const inner9 = m9 as unknown as {
-      pointAt(b: unknown, id: string): void;
+      sessions: { pointAt(b: unknown, id: string): void };
     };
-    inner9.pointAt(bot15, "유령-세션");
+    inner9.sessions.pointAt(bot15, "유령-세션");
     ok(bot15.sessionId === born,
        "**써본 세션은 유령에 안 밀린다** — 한 번의 복구 실패가 영구 손실이 되면 안 된다");
 
