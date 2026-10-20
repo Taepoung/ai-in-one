@@ -57,6 +57,7 @@ import {
   DEFAULT_DEPTH_CAP,
   rosterText,
   type AgentQuota,
+  hasManyBots,
 } from "./types.js";
 import type { WorkspaceHost } from "./workspaceHost.js";
 
@@ -1207,7 +1208,7 @@ export class RoomManager extends EventEmitter<Events> {
         role: "system",
         // 봇이 여럿이면 **누구의 역할인지** 써준다 — 안 그러면 줄만 늘고 뜻이 없다
         text:
-          room.participants.length > 1
+          hasManyBots(room)
             ? `${bot.name}의 역할: ${bot.rolePrompt.trim()}`
             : `역할: ${bot.rolePrompt.trim()}`,
         deliveredTo: [],
@@ -1606,7 +1607,7 @@ export class RoomManager extends EventEmitter<Events> {
    * 1:1에서는 안 붙인다 — 봇이 하나뿐인데 이름을 적으면 군더더기다.
    */
   private whose(room: Room, bot: BotInstance): string {
-    return room.participants.length > 1 ? `${bot.name}의 ` : "";
+    return hasManyBots(room) ? `${bot.name}의 ` : "";
   }
 
   /**
@@ -3557,11 +3558,8 @@ export class RoomManager extends EventEmitter<Events> {
     const room = await this.openRoom(roomId);
 
     // 1:1이면 «그 봇». 여럿인데 지목하지 않으면 누구 얘긴지 알 수 없다.
-    const bot = botId
-      ? room.participants.find((b) => b.id === botId)
-      : room.participants.length === 1
-        ? room.participants[0]
-        : undefined;
+    // 손으로 다시 쓴 soleBot 이었다 — 같은 갈래라 같은 로그를 받게 그쪽으로 (리팩토링 ⑥)
+    const bot = botId ? room.participants.find((b) => b.id === botId) : this.soleBot(room);
     if (!bot) return;
 
     if (patch.answerPolicy !== undefined) bot.answerPolicy = patch.answerPolicy;
@@ -4675,7 +4673,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private noteClash(room: Room, reply: Message, filePath: string): void {
     const mine = reply.authorBotId;
-    if (!mine || room.participants.length < 2) return;
+    if (!mine || !hasManyBots(room)) return;
     const rt = this.runtimes.get(room.id);
     if (!rt) return;
 
@@ -4730,7 +4728,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   private noteBlocked(room: Room, reply: Message, act: ToolActivity): void {
     const mine = reply.authorBotId;
-    if (!mine || room.participants.length < 2) return;
+    if (!mine || !hasManyBots(room)) return;
     const rt = this.runtimes.get(room.id);
     if (!rt) return;
     const paths = act.paths ?? [];
@@ -6077,9 +6075,25 @@ export class RoomManager extends EventEmitter<Events> {
     return bt;
   }
 
-  /** 방의 유일한 봇 (v1.0). 단체방에서는 부르는 쪽이 봇을 지목해야 한다 */
+  /**
+   * 방의 **유일한** 봇 — 봇이 정확히 하나일 때만 (리팩토링 ⑥, 2026-10-20).
+   *
+   * 🔴 **예전엔 `participants[0]` 이었다.** 주석은 «단체방에서는 부르는 쪽이 봇을
+   * 지목해야 한다» 고 말했지만 **코드는 막지 않았다** — 단체방에서 `botId` 를
+   * 빠뜨리면 압축·역할·소개·설정이 **첫 번째 봇에 조용히** 걸렸다. 열 군데가
+   * `botId ?? soleBot(room)` 꼴이라 한 군데만 빠뜨려도 그랬다.
+   *
+   * 이제 둘 이상이면 아무도 고르지 않는다. 부르던 자리들은 이미 «봇이 없으면
+   * 그냥 돌아간다» 를 갖고 있어서, **엉뚱한 봇에 거는 대신 아무 일도 안 한다**
+   * — 그리고 그걸 로그에 남긴다. 화면은 단체방이면 늘 봇을 짚어 부르므로
+   * (`sendCompose` · `m.botId`) 이 로그가 찍히면 그건 **부르는 쪽의 버그**다.
+   */
   private soleBot(room: Room): BotInstance | undefined {
-    return room.participants[0];
+    if (room.participants.length === 1) return room.participants[0];
+    if (hasManyBots(room)) {
+      this.opts.host.log(`[${room.id}] 봇을 지목하지 않은 부름 — 단체방이라 아무에게도 안 건다`);
+    }
+    return undefined;
   }
 
   /**
@@ -6156,7 +6170,7 @@ export class RoomManager extends EventEmitter<Events> {
     this.placeNow(room, m);
     m.notSentTo = [...new Set([...(m.notSentTo ?? []), botId])];
     m.sendFailed =
-      room.participants.length > 1
+      hasManyBots(room)
         ? `${m.notSentTo
             .map((id) => room.participants.find((b) => b.id === id)?.name ?? id)
             .join("·")}에게 ${why}`

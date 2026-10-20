@@ -18,6 +18,7 @@ import * as os from "node:os"; import * as path from "node:path"; import * as fs
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
 import { DEFAULT_AGENTS } from "../src/agents/index.js";
+import { EVERYONE } from "../src/core/mentions.js";
 import type { BotQueue } from "../src/core/botQueue.js";
 import type { PermissionRequest, Room } from "../src/core/types.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
@@ -523,11 +524,21 @@ console.log(`${NL}[🔴 사용자가 연 턴에서는 **사용자에게 say 를 
      * 틀리는 쪽은 한결같다 — 지시를 받은 봇이 친절하게 옮기면 같은 지시가 두 번 간다.
      */
     const t = await make(); dirs.push(t.dir);
-    await t.mgr.send(t.room.id, "셋 다 보세요");
+    /*
+     * ★ **화면이 쓰는 길로 보낸다** (리팩토링 ⑥, 2026-10-20). ⏪ 예전엔 단체방에서
+     * `send` 를 봇을 안 짚고 불렀다 — 화면은 그 길을 안 쓰는데, 옛 `soleBot` 이
+     * **첫 봇을 대신 골라** 줘서 돌았다. «셋 다 보세요» 를 재는 검사가 실은 첫 봇
+     * 하나에게만 턴을 돌리고 있었다. 단체방의 «모두» 는 `@everyone` 칩이다.
+     */
+    await t.mgr.sendCompose(t.room.id, [
+      { kind: "mention", botId: EVERYONE },
+      { kind: "text", text: " 셋 다 보세요" },
+    ]);
     await t.settle();
     const ps = await t.prompts();
     const two = ps.filter((p) => /"also_got":\["[^"]+","[^"]+"\]/.test(p));
-    ok(two.length >= 1,
+    // 이제 셋이 **다** 받는다 — 셋 다 «나 말고 둘» 을 받아야 한다
+    ok(two.length >= 3,
        `★ **같이 받은 둘이 적혀 간다** (${two.length}개) — 그 칸이 없으면 «나한테만 왔다»로 읽는다`);
     t.mgr.dispose();
   }

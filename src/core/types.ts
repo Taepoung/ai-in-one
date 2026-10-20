@@ -1215,6 +1215,21 @@ export type SayId = string | null;
 /** 방 유형. 목록 아이콘이 이 값으로 갈린다 (B5) */
 export type RoomKind = "direct" | "group" | "shared";
 
+/**
+ * ★ **봇이 여럿인가** (리팩토링 ⑥, 2026-10-20).
+ *
+ * 방에 종류는 없다 — 1:1 은 «봇이 하나인 단체방» 이고, 갈리는 것은 전부 «둘
+ * 이상이면 켜지는 기능» 이다(이름 붙이기 · 부딪힘 알리기 …). 같은 물음을
+ * `participants.length > 1` 로 여기저기서 따로 묻던 것을 모았다. **왜** 묻는지는
+ * 부르는 자리의 주석이 말한다.
+ *
+ * ⚠️ `=== 1`·`=== 2` 는 여기로 안 모은다 — «막 단체방이 된 순간» 처럼 **정확한
+ * 수**를 묻는 자리라, 술어로 바꾸면 뜻이 흐려진다.
+ */
+export function hasManyBots(room: Pick<Room, "participants">): boolean {
+  return room.participants.length > 1;
+}
+
 export function roomKind(room: Pick<Room, "participants" | "contextShared">): RoomKind {
   if (room.contextShared) return "shared";
   return room.participants.length > 1 ? "group" : "direct";
