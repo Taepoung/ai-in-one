@@ -92,7 +92,7 @@ export const codex: AgentDef = {
    */
   args: ["-y", ...CODEX_PIN, "codex-acp"],
   /*
-   * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/core/install.md`.
+   * ★ **우리 자리에 받아둔다** (2026-10-01) — `src/core/install/README.md`.
    *
    * 🔴 **`exeEnv` 가 빠지면 조용히 딸 판이 돈다.** 어댑터 안은 이렇다:
    *

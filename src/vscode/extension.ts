@@ -419,7 +419,7 @@ export function deactivate(): void {
  *
  * `withInstalled` 는 받아둔 에이전트만 고친다 — 안 받았거나 `pkg` 가
  * 없으면 적힌 대로(`npx -y …`) 둔다. 그래서 **받기 전에도 멀줦히 돌고**
- * 받은 뒤에만 우리 자리를 쓴다(`docs/core/install.md`).
+ * 받은 뒤에만 우리 자리를 쓴다(`src/core/install/README.md`).
  */
 function readAgents(root: string): AgentDef[] {
   const overrides = vscode.workspace

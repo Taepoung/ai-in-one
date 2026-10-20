@@ -132,9 +132,9 @@ npm run watch      # esbuild watch
 | **`docs/RELEASE.md`** | 배포와 설치 — `.vsix` · 마켓플레이스 · Open VSX |
 | **`src/agents/README.md`** | 에이전트 공통 — 올릴 때 점검표 · 세션 뒷정리 · 셋을 맞댄 표 |
 | **`src/agents/<id>/README.md`** | 에이전트마다 — 핀 내력 · 다른 점 · 슬래시 (claude · codex · antigravity) |
-| **`docs/core/install.md`** | 에이전트를 우리 자리에 받아두는 설계 |
+| **`src/core/install/README.md`** | 에이전트를 우리 자리에 받아두는 설계 |
 | **`src/core/mcp/README.md`** | 봇이 받는 글 전부 — `tooldump` 가 뽑는 생성물 |
-| **`docs/core/quota.md`** | 방 머리의 「사용량」 |
+| **`src/core/quota.md`** | 방 머리의 「사용량」 |
 
 ---
 

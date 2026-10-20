@@ -97,7 +97,7 @@ npx -y -p …codex-acp@2.1.0 -p @openai/codex@0.159.3 codex delete --force <id>
 > 사용자: *"세션 지우는거 로직 다시 확인 한번 해보고"*. 보니 §F5 의 결론이
 > 반만 반영돼 있었다.
 
-우리 자리에 직접 받기로 하면서(`docs/core/install.md`) `withInstalled` 가
+우리 자리에 직접 받기로 하면서(`src/core/install/README.md`) `withInstalled` 가
 `command`·`args`·`env` 를 갈아끼운다. 그런데 **`purgeSession` 은 안 건드렸다.**
 그래서 방을 나갈 때마다
 

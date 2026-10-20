@@ -86,7 +86,7 @@ export interface AgentDef {
    * (`agentInstaller.withInstalled`). 안 적혀 있으면 적힌 대로 띄운다 —
    * 사용자가 `aiInOne.agents` 로 제 손으로 적은 것이 그 꼴이다.
    *
-   * 왜 우리 자리로 옮기는지는 `docs/core/install.md`.
+   * 왜 우리 자리로 옮기는지는 `src/core/install/README.md`.
    */
   pkg?: AgentPackage;
   /**

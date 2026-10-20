@@ -95,7 +95,7 @@ export const claude: AgentDef = {
    */
   args: ["-y", "@agentclientprotocol/claude-agent-acp@0.90.0"],
   /*
-   * ★ **우리 자리에 받아둔다** (2026-10-01) — `docs/core/install.md`.
+   * ★ **우리 자리에 받아둔다** (2026-10-01) — `src/core/install/README.md`.
    *
    * `exeEnv` 가 없다. Claude 어댑터는 내버려두면 **제가 품은 exe** 를
    * 쓰므로 건드릴 일이 없다. Codex 는 그렇지 않다(아래).

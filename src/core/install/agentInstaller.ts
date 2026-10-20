@@ -22,7 +22,7 @@ import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "../types.js";
  * 받는 때를 못 고른다        «처음 쓸 때» 받아버린다
  * ```
  *
- * 자세한 사정은 `docs/core/install.md`.
+ * 자세한 사정은 `src/core/install/README.md`.
  *
  * ⚠️ **`npm` 을 부르는 일은 주입받는다**(`run`). 검사가 망을 타면 안 되기
  * 때문이다 — 꾸러미 하나가 445MB 다. 경로·manifest·env 를 만드는 쪽은 전부

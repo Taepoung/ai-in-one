@@ -397,7 +397,9 @@ SLASH 0줄이 빠졌고, PIN 은 §H(«점검표는 BUMP.md 에 있다» 다섯 
 ```
 src/agents/README.md · src/agents/<id>/README.md    에이전트 (공통 · 저마다)
 src/core/mcp/README.md                              봇이 받는 글 — tooldump 생성물
-docs/core/install.md · docs/core/quota.md           여러 모듈에 걸친 기능
+src/core/README.md                                  core 의 층 지도
+src/core/install/README.md                          받기 · 풀기 · 지우기
+src/core/quota.md                                   「사용량」 — 여러 모듈에 걸친 기능이라 core 맨 위
 ```
 
 `src/**` 는 포장(`.vscodeignore`)에서 통째로 빠지므로 확장에 안 실린다.
