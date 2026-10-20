@@ -14,6 +14,7 @@ import type { RoomLocks } from "./roomLock.js";
 import { BotQueue } from "./botQueue.js";
 import { McpCalls, deny, type McpPort } from "./mcp/calls.js";
 import { messageId } from "./ids.js";
+import { parseQuota } from "./quotaParse.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -3715,16 +3716,27 @@ export class RoomManager extends EventEmitter<Events> {
   async quotaOf(agentIds: readonly string[]): Promise<AgentQuota[]> {
     const seen = [...new Set(agentIds)];
     return await Promise.all(seen.map(async (agentId): Promise<AgentQuota> => {
-      const label = this.opts.agents.find((a) => a.id === agentId)?.label ?? agentId;
+      const def = this.opts.agents.find((a) => a.id === agentId);
+      const label = def?.label ?? agentId;
       try {
+        /*
+         * ★ **애드온이 선언했으면 그 명령만 묻는다** (리팩토링 ③). 선언이 없는
+         * 낯선 에이전트는 광고한 목록에서 아는 이름을 골라 본다.
+         */
+        const want = def?.quota ? [def.quota.command] : USAGE_COMMANDS;
         const got = await withTimeout(
-          this.connection(agentId).probeUsage(
-            this.opts.host.defaultCwd(), USAGE_COMMANDS,
-          ),
+          this.connection(agentId).probeUsage(this.opts.host.defaultCwd(), want),
           USAGE_PROBE_MS,
           `${label}이(가) ${Math.round(USAGE_PROBE_MS / 1000)}초 안에 응답하지 않았습니다.`,
         );
-        return { agentId, label, at: Date.now(), ...got };
+        /*
+         * ★ **뜯는 것은 여기다 — 화면이 아니라** (리팩토링 ③). 화면은 에이전트를
+         * 몰라야 하는데, «쓴 양이냐 남은 양이냐» 는 에이전트마다 반대다.
+         */
+        return {
+          agentId, label, at: Date.now(), ...got,
+          lines: parseQuota(got.text, def?.quota?.sense),
+        };
       } catch (e) {
         return { agentId, label, at: Date.now(), why: (e as Error).message };
       }

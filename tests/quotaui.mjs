@@ -115,8 +115,11 @@ console.log(NL + "[★ 에이전트마다 한 줄 — 봇 수가 아니다]");
   open(t, [bot("b1", "claude"), bot("b2", "claude"), bot("b3", "codex")]);
   t.$("button.icon[title='사용량']").click();
   t.send({ t: "quota", list: [
+    // 리팩토링 ③ 부터 **호스트가 뜯어서** 보낸다 — 화면은 `lines` 만 그린다
     { agentId: "claude", label: "Claude", cmd: "usage", at: 1,
-      text: "**5-hour limit** — **3%** · Resets Oct 19, 7:20 PM GMT+9" },
+      text: "**5-hour limit** — **3%** · Resets Oct 19, 7:20 PM GMT+9",
+      lines: [{ label: "5-hour limit", percent: 3, sense: "used", left: 97,
+                resets: "Oct 19, 7:20 PM GMT+9" }] },
     { agentId: "codex", label: "Codex", at: 1, why: "로그인이 필요합니다" },
   ] });
 
@@ -133,6 +136,24 @@ console.log(NL + "[★ 에이전트마다 한 줄 — 봇 수가 아니다]");
   ok(/\/usage/.test(rows[0].textContent), "★ 무엇을 불러서 받았는지도 적는다");
   ok(/로그인이 필요합니다/.test(rows[1].textContent),
      "★ **못 받은 것은 왜인지** 적힌다 — 하나가 터져도 나머지는 보인다");
+}
+
+console.log(NL + "[★ 화면은 뜯지 않는다 — 리팩토링 ③]");
+{
+  /*
+   * 🔴 **뜯는 것은 호스트(애드온의 선언)다.** 화면이 글을 직접 뜯으면 «쓴
+   * 양이냐 남은 양이냐» 를 화면이 알아야 하고, 그건 에이전트마다 반대다.
+   * 그래서 `lines` 없이 글만 오면 **막대를 안 세운다** — 글은 그대로 접혀 있다.
+   */
+  const t = mount();
+  open(t, [bot("b1", "claude")]);
+  t.$("button.icon[title='사용량']").click();
+  t.send({ t: "quota", list: [
+    { agentId: "claude", label: "Claude", cmd: "usage", at: 1,
+      text: "**5-hour limit** — **3%** · Resets Oct 19, 7:20 PM GMT+9" },
+  ] });
+  ok(t.$$(".quota-bar").length === 0, "★ **`lines` 가 없으면 막대가 없다** — 화면이 짐작하지 않는다");
+  ok(t.$(".quota-raw pre")?.textContent?.includes("3%") === true, "★ 받은 글은 그대로 접혀 있다");
 }
 
 console.log(NL + "[★ 새로고침은 다시 묻는다]");

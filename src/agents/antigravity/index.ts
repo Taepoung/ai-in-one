@@ -170,4 +170,9 @@ export const antigravity: AgentDef = {
       file: path.join(".gemini", "antigravity-acp", "acp_token.json"),
     },
   },
+  /*
+   * ★ **모델 묶음마다 «남은 양»** — `Weekly Limit Remaining: 100% remaining`
+   * (2026-10-19 실측). 묶음 이름(Gemini / Claude·GPT)은 뜯는 기계가 앞에 붙인다.
+   */
+  quota: { command: "usage", sense: "left" },
 };

@@ -118,4 +118,9 @@ export const claude: AgentDef = {
       status: { find: CLAUDE_EXE, args: ["auth", "status"], yes: '"loggedIn": true' },
     },
   },
+  /*
+   * ★ **«쓴 양» 을 준다** — `**5-hour limit** — **3%**` (2026-10-19 실측). 다른 둘과
+   * 뜻이 반대라, 선언 없이 짐작하면 멀쩡한 계정이 «3% 남음» 으로 빨갛게 보인다.
+   */
+  quota: { command: "usage", sense: "used" },
 };

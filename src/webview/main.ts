@@ -13,9 +13,9 @@ import type {
   ToolActivity,
   Clash,
   AgentQuota,
+  QuotaLine,
 } from "../core/types.js";
 import { EVERYONE, parseCompose, type ComposeToken } from "../core/mentions.js";
-import { parseQuota, leftOf, type QuotaLine } from "../core/quotaParse.js";
 import type { McpState } from "../core/mcpServer.js";
 // 🔴 **규칙을 베끼지 않는다.** 화면이 «이렇게 됩니다»라고 약속한 이름과
 //    실제로 붙는 이름이 다르면, 그 약속은 없느니만 못하다.
@@ -7035,16 +7035,16 @@ function paintQuota(): void {
 }
 
 /**
- * 뜯은 한도를 **막대 줄**로 세운다. 못 뜯으면 **아무것도 안 세운다** —
- * 그 자리는 아래 «받은 글» 이 받아준다.
+ * 호스트가 뜯어 보낸 한도를 **막대 줄**로 세운다. 빈 배열이면 **아무것도 안
+ * 세운다** — 그 자리는 아래 «받은 글» 이 받아준다.
  *
- * 🔴 **언제나 «남은 양»으로 맞춘다.** Claude 는 «얼마나 썼나»를, 나머지 둘은
- * «얼마나 남았나»를 주는데(`quotaParse`), 그대로 나란히 세우면 **3% 가 거의
- * 다 쓴 것처럼** 보인다 — 정반대다.
+ * ★ **화면은 뜯지 않는다** (리팩토링 ③, 2026-10-20). «쓴 양이냐 남은 양이냐» 는
+ * 에이전트마다 반대인데, 그걸 아는 것은 애드온이다 — 화면은 에이전트를 몰라야
+ * 한다(`docs/REFACTOR.md` §2). 그래서 `line.left` 는 **이미 «남은 양»** 이다.
  */
-function quotaBars(text: string): HTMLElement[] {
-  return parseQuota(text).map((line: QuotaLine) => {
-    const left = leftOf(line);
+function quotaBars(lines: readonly QuotaLine[]): HTMLElement[] {
+  return lines.map((line) => {
+    const left = line.left;
     return el(
       "div",
       { class: "quota-bar" },
@@ -7100,7 +7100,7 @@ function quotaCard(r: Room): HTMLElement {
        * 있는다 — 막대가 안 서면 한 번 더 눌러 진짜 글을 본다. 잃는 것이
        * «막대» 뿐이면 틀려도 괜찮은 기능이 된다.
        */
-      ...(got.text ? quotaBars(got.text) : []),
+      ...quotaBars(got.lines ?? []),
       got.text
         ? el(
             "details",

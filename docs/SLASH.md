@@ -216,7 +216,21 @@ webview                    단추 · 팝업 · 새로고침
 🔴 **셋의 뜻이 같지 않다.** Claude 는 «얼마나 **썼나**», Codex·Antigravity 는
 «얼마나 **남았나**» 를 준다 — 그대로 나란히 세우면 **3% 가 거의 다 쓴 것처럼**
 보인다(정반대다). 그래서 `QuotaLine.sense` 로 가르고 화면은 **언제나 «남은
-양»** 으로 맞춘다.
+양»**(`QuotaLine.left`) 으로 맞춘다.
+
+★ **그 뜻은 애드온이 선언한다** (리팩토링 ③, 2026-10-20). 처음엔 글에 «left»·
+«remaining» 이 적혀 있나로 짐작했는데, 그 말이 판에서 빠지면 **정반대로**
+읽힌다. 이제 각 애드온이 둘만 적는다:
+
+```
+claude        quota: { command: "usage",  sense: "used" }
+codex         quota: { command: "status", sense: "left" }
+antigravity   quota: { command: "usage",  sense: "left" }
+```
+
+뜯는 기계는 하나(`core/quotaParse.ts`)고 **호스트가 뜯어서** 보낸다 — 화면은
+에이전트를 몰라야 하므로 다 뜯긴 `lines` 만 그린다. 선언이 없는 낯선
+에이전트만 예전처럼 글을 보고 짐작한다.
 
 ⚠️ **깨져도 조용하다.** 그래서 `docs/BUMP.md` ⑮ 와 `docs/RELEASE.md` 0절에
 «손으로 보는 것» 으로 적어뒀다 — 핀을 올릴 때와 **우리 판을 내보낼 때** 둘 다.

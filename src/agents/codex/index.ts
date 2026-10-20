@@ -173,4 +173,9 @@ export const codex: AgentDef = {
    * ⚠️ 지명하는 글자열이 위 `args` 와 **토씨 같아야** 캐시가 같다. 그래서
    * 둘 다 `CODEX_PIN` 에서 나온다 — 손으로 적으면 언젠가 갈라진다.
    */
+  /*
+   * ★ **`/usage` 가 아니라 `/status`** — 모델·승인 모드·세션과 섞여 오고, 한도는
+   * `**codex Weekly limit:** 100% left` 꼴로 **남은 양**이다 (2026-10-19 실측).
+   */
+  quota: { command: "status", sense: "left" },
 };

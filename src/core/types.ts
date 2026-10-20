@@ -87,6 +87,18 @@ export interface AgentDef {
    * 화면은 막고 엔진은 관대하면 «막혔는데 왜 받지» 가 된다.
    */
   unavailable?: string;
+  /**
+   * ★ **잔량을 어떻게 묻고 어떻게 읽나** (리팩토링 ③, 2026-10-20).
+   *
+   * 셋이 다른 것은 **둘뿐**이다 — 부르는 명령 이름과, 받은 퍼센트가 **쓴 양**인지
+   * **남은 양**인지. 뜯는 기계는 하나(`core/quotaParse.ts`)고 애드온은 이 둘만
+   * 선언한다 — 뜯는 함수를 셋 두면 거의 같은 코드가 세 벌이 된다.
+   *
+   * 🔴 `sense` 를 안 적은 에이전트(설정으로 넣은 낯선 것)는 **글에 «left»·
+   * «remaining» 이 적혀 있을 때만** 남은 양으로 읽는다. 적힌 말이 없으면 쓴
+   * 양이다 — 반대로 짐작하면 멀쩡한 계정이 빨갛게 보인다(`docs/SLASH.md`).
+   */
+  quota?: { command: string; sense: "used" | "left" };
 }
 
 /**
@@ -1867,11 +1879,36 @@ export const ROSTER_TAG = "ai-in-one";
  * 숫자로 뜯는 자리를 코어에 두면 핀을 올릴 때마다 조용히 깨진다 — 뜯는 것은
  * **읽는 쪽**이 하고, 못 뜯으면 받은 글을 그대로 보여주면 된다.
  */
+/**
+ * 잔량 글에서 뜯어낸 한도 한 줄 (`core/quotaParse.ts`).
+ *
+ * ★ **화면은 이것만 받는다** (리팩토링 ③). 예전엔 화면이 글을 직접 뜯었는데,
+ * 그러면 에이전트마다 다른 «쓴 양/남은 양» 을 화면이 알아야 한다 — 화면은
+ * 에이전트를 몰라야 한다(`docs/REFACTOR.md` §2).
+ */
+export interface QuotaLine {
+  /** 무엇의 한도인가 — «5-hour limit» · «Gemini Models · Weekly Limit Remaining» */
+  label: string;
+  /** 받은 그대로의 수 (0~100) */
+  percent: number;
+  /** 그 수가 **쓴 양**인가 **남은 양**인가 — 어댑터마다 반대다 */
+  sense: "used" | "left";
+  /** ★ **언제나 «남은 양»** 으로 맞춘 수 — 막대는 이것만 본다 */
+  left: number;
+  /** 언제 다시 차나 — **글 그대로** 둔다. 모양이 제각각이라 날짜로 안 바꾼다 */
+  resets?: string;
+}
+
 export interface AgentQuota {
   agentId: string;
   label: string;
   /** 어댑터가 돌려준 글 (markdown) */
   text?: string;
+  /**
+   * 그 글에서 뜯은 한도들 — **못 뜯으면 빈 배열**이고 그래도 `text` 는 남는다.
+   * 뜯기가 틀려도 잃는 것은 막대뿐이다.
+   */
+  lines?: QuotaLine[];
   /** 무엇을 불러서 받았나 — `usage` 인지 `status` 인지 */
   cmd?: string;
   /** 못 받았으면 왜 */

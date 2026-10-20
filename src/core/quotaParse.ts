@@ -27,16 +27,9 @@
  * 수만 들고 오지 않고 **그 수가 무엇인지**(`sense`)를 같이 들고 온다.
  */
 
-export interface QuotaLine {
-  /** 무엇의 한도인가 — «5-hour limit» · «Gemini Models · Weekly Limit Remaining» */
-  label: string;
-  /** 0~100 */
-  percent: number;
-  /** 그 수가 **쓴 양**인가 **남은 양**인가 — 어댑터마다 반대다 */
-  sense: "used" | "left";
-  /** 언제 다시 차나 — **글 그대로** 둔다. 모양이 제각각이라 날짜로 안 바꾼다 */
-  resets?: string;
-}
+import type { QuotaLine } from "./types.js";
+
+export type { QuotaLine };
 
 /** `**굵게**` 와 군더더기를 걷어 이름만 남긴다 */
 function clean(raw: string): string {
@@ -66,7 +59,14 @@ const LINE =
  * ⚠️ 줄 단위로 본다 — 한 줄에 한 한도라는 것은 셋 다 같았다. 아니게 되면
  * 여기가 조용히 비는데, 그때도 받은 글은 화면에 그대로 있다.
  */
-export function parseQuota(text: string | undefined): QuotaLine[] {
+export function parseQuota(
+  text: string | undefined,
+  /**
+   * ★ **애드온이 선언한 뜻** (리팩토링 ③). 주면 글을 안 보고 이걸 믿는다.
+   * 안 주면(낯선 에이전트) 글에 «left»·«remaining» 이 적혀 있을 때만 남은 양이다.
+   */
+  sense?: "used" | "left",
+): QuotaLine[] {
   if (!text) return [];
   const out: QuotaLine[] = [];
   /** 가장 가까운 묶음 머리 — 안쪽 이름이 «Weekly Limit Remaining» 처럼 밋밋할 때 쓴다 */
@@ -87,17 +87,15 @@ export function parseQuota(text: string | undefined): QuotaLine[] {
      * Codex 가 `(resets 16:02 on 11월 18일)` 꼴로 준다.
      */
     const when = /resets?\s*:?\s*([^)\n]+)/i.exec(tail);
+    const meant = sense ?? (LEFT.test(tail) || LEFT.test(inner) ? "left" : "used");
     out.push({
       label: group && group !== inner ? `${group} · ${inner}` : inner,
       percent,
-      sense: LEFT.test(tail) || LEFT.test(inner) ? "left" : "used",
+      sense: meant,
+      left: meant === "left" ? percent : 100 - percent,
       ...(when ? { resets: when[1]!.trim() } : {}),
     });
   }
   return out;
 }
 
-/** 막대로 세울 값 — 언제나 «남은 양» 으로 맞춘다 */
-export function leftOf(line: QuotaLine): number {
-  return line.sense === "left" ? line.percent : 100 - line.percent;
-}

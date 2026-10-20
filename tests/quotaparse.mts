@@ -8,7 +8,8 @@
  * ⚠️ 모양이 바뀌면 여기가 빨개진다. 그때 할 일은 `probes/quota.mts` 를 다시
  * 돌려 **새 글로 표본을 갈아 끼우는 것**이다 (`docs/PIN.md` · `docs/BUMP.md`).
  */
-import { parseQuota, leftOf } from "../src/core/quotaParse.js";
+import { parseQuota } from "../src/core/quotaParse.js";
+import { DEFAULT_AGENTS } from "../src/agents/index.js";
 
 const NL = String.fromCharCode(10);
 const ok = (c: boolean, m: string) => {
@@ -51,7 +52,7 @@ console.log(NL + "[★ Claude — 두 한도, 그리고 그 수는 «쓴 양» �
    * 빨갛게 보인다 — 다른 둘과 **뜻이 반대**다.
    */
   ok(got[0]!.sense === "used", "★ **쓴 양이다** — «left»·«remaining» 이 안 적혀 있다");
-  ok(leftOf(got[0]!) === 97, `★ 막대는 남은 쪽으로 맞춘다 (${leftOf(got[0]!)}%)`);
+  ok(got[0]!.left === 97, `★ 막대는 남은 쪽으로 맞춘다 (${got[0]!.left}%)`);
   ok((got[0]!.resets ?? "").startsWith("Oct 19"), `★ 리셋 시각 (${got[0]!.resets})`);
   ok(got[1]!.label === "Weekly · all models" && got[1]!.percent === 9, "★ 둘째 줄도");
   ok(!got.some((l) => /█|░/.test(l.label)), "★ **막대 그림은 안 줍는다** — 수가 아니다");
@@ -63,7 +64,7 @@ console.log(NL + "[★ Codex — 섞인 글에서 한도만]");
   ok(got.length === 1, `★ 한 줄만 (${got.length}) — 모델·폴더·승인 줄은 수가 없다`);
   ok(got[0]!.percent === 100 && got[0]!.sense === "left",
      `★ **남은 양이다** — «left» 가 적혀 있다 (${got[0]!.percent}% ${got[0]!.sense})`);
-  ok(leftOf(got[0]!) === 100, "★ 그대로 100% 남음");
+  ok(got[0]!.left === 100, "★ 그대로 100% 남음");
   ok((got[0]!.resets ?? "").includes("11월 18일"), `★ 리셋 (${got[0]!.resets})`);
 }
 
@@ -89,6 +90,33 @@ console.log(NL + "[★ 못 뜯으면 빈손 — 지어내지 않는다]");
   ok(parseQuota("무슨 말인지 모르겠는 글").length === 0, "★ 모르는 모양도");
   ok(parseQuota("**이상함:** 120% left").length === 0, "★ **말이 안 되는 수는 버린다** (0~100)");
   ok(parseQuota("**비용:** 0.29 USD").length === 0, "★ 퍼센트가 아니면 안 줍는다");
+}
+
+console.log(NL + "[★ 애드온이 선언한 뜻을 믿는다 (리팩토링 ③)]");
+{
+  /*
+   * 🔴 **셋은 선언으로 간다.** 짐작은 «left»·«remaining» 이 적혀 있을 때만
+   * 맞는데, 그 말이 판에서 빠지면 **정반대로** 읽힌다. 애드온이 뜻을 선언하면
+   * 글이 바뀌어도 뜻은 안 바뀐다.
+   */
+  const sense = (id: string) => DEFAULT_AGENTS.find((a) => a.id === id)?.quota?.sense;
+  ok(sense("claude") === "used", `★ Claude 는 «쓴 양» 이라고 선언했다 (${sense("claude")})`);
+  ok(sense("codex") === "left" && sense("antigravity") === "left", "★ 나머지 둘은 «남은 양»");
+
+  // 판이 바뀌어 «left» 가 빠졌다고 치자 — 선언이 있으면 그래도 남은 양이다
+  const bare = "**codex Weekly limit:** 100% (resets 16:02 on 11월 18일)";
+  ok(parseQuota(bare)[0]!.left === 0,
+     "⚠️ 선언 없이는 «쓴 양 100%» 로 읽혀 **다 쓴 것처럼** 보인다 — 짐작의 한계");
+  ok(parseQuota(bare, sense("codex"))[0]!.left === 100,
+     "★ **선언이 있으면 말이 빠져도 남은 양 100%** 다");
+  ok(parseQuota(CLAUDE, sense("claude"))[0]!.left === 97, "★ Claude 도 선언대로 (97% 남음)");
+}
+
+console.log(NL + "[★ 셋 다 명령 이름을 선언한다]");
+{
+  const cmd = (id: string) => DEFAULT_AGENTS.find((a) => a.id === id)?.quota?.command;
+  ok(cmd("claude") === "usage" && cmd("antigravity") === "usage", "★ Claude·Antigravity 는 /usage");
+  ok(cmd("codex") === "status", "★ **Codex 는 /status** — /usage 가 아니다");
 }
 
 console.log(NL + "전부 통과");
