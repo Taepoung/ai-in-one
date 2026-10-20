@@ -133,4 +133,24 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    /*
+     * ★ **창 공통은 창을 모른다** (webview 나누기, 2026-10-20 · src/webview/README.md).
+     * 공통이 어느 창을 부르면 그 창 없이는 못 쓰는 «공통» 이 된다. 형만은 허용한다 —
+     * 같이 쓰는 상태의 칸(`S.chat`)이 채팅의 DOM 손잡이 형을 들고 있다.
+     */
+    files: ["src/webview/common/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [{
+            regex: "^\\.\\./(chat|list|new|join|setup|perm|drawer)/",
+            allowTypeImports: true,
+            message: "창 공통(common/)은 창 모듈을 import 하지 않습니다. 창이 공통을 부르게 하세요.",
+          }],
+        },
+      ],
+    },
+  },
 );

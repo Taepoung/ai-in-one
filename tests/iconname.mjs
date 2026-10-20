@@ -20,7 +20,10 @@ const ok = (c, m) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok 
 
 const css = fs.readFileSync(
   path.join(ROOT, "node_modules", "@vscode", "codicons", "dist", "codicon.css"), "utf8");
-const src = fs.readFileSync(path.join(ROOT, "src", "webview", "main.ts"), "utf8");
+// 화면 코드는 창마다 나뉘어 있다(webview 나누기, 2026-10-20) — 폴더 전체를 한 글로 본다
+const src = fs.readdirSync(path.join(ROOT, "src", "webview"), { recursive: true })
+  .filter((f) => String(f).endsWith(".ts")).sort()
+  .map((f) => fs.readFileSync(path.join(ROOT, "src", "webview", String(f)), "utf8")).join("\n");
 
 const used = [...new Set([...src.matchAll(/icon\("([a-z0-9-]+)"\)/g)].map((m) => m[1]))].sort();
 const real = new Set([...css.matchAll(/\.codicon-([a-z0-9-]+):/g)].map((m) => m[1]));

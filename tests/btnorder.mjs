@@ -26,7 +26,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/[\\/]$/, "");
-const src = fs.readFileSync(path.join(ROOT, "src", "webview", "main.ts"), "utf8");
+// 화면 코드는 창마다 나뉘어 있다(webview 나누기, 2026-10-20) — 폴더 전체를 한 글로 본다
+const src = fs.readdirSync(path.join(ROOT, "src", "webview"), { recursive: true })
+  .filter((f) => String(f).endsWith(".ts")).sort()
+  .map((f) => fs.readFileSync(path.join(ROOT, "src", "webview", String(f)), "utf8")).join("\n");
 const ok = (c, m) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };
 
 /** «물러나는» 단추의 글자 — 이것들은 왼쪽에 있어야 한다 */
