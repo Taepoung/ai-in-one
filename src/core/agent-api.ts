@@ -8,7 +8,29 @@
  * 지금은 `AgentDef` 하나와 `npx()` 뿐이다. 버릇을 애드온으로 옮기는 걸음마다
  * 칸이 하나씩 는다 — 늘 때도 **선언으로 되는 것은 선언으로** 둔다(§3.1).
  */
-export type { AgentDef } from "./types.js";
+export type { AgentDef, QuotaLine } from "./types.js";
+import type { QuotaLine } from "./types.js";
+
+/**
+ * ★ **잔량 한 줄을 공통 꼴로 만든다** — 애드온의 파서가 이걸로 내놓는다 (2026-10-20).
+ *
+ * 꼴의 규칙은 **코어가 정한다**: 수는 0~100 이고, `left` 는 언제나 «남은 양» 이다.
+ * 애드온이 저마다 `100 - percent` 를 계산하면 언젠가 하나가 틀린다 — 그래서 여기서
+ * 한 번만 한다. 말이 안 되는 수면 `undefined` 를 돌려 **안 줍게** 한다.
+ */
+export function quotaLine(
+  label: string,
+  percent: number,
+  sense: "used" | "left",
+  resets?: string,
+): QuotaLine | undefined {
+  if (!label || !Number.isFinite(percent) || percent < 0 || percent > 100) return undefined;
+  return {
+    label, percent, sense,
+    left: sense === "left" ? percent : 100 - percent,
+    ...(resets ? { resets } : {}),
+  };
+}
 
 /** Windows 는 `npx.cmd` 다 — 셋 다 `npx` 로 꾸러미를 띄우므로 같이 쓴다 */
 export function npx(): string {

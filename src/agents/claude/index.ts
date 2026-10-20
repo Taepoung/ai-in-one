@@ -10,6 +10,7 @@
  */
 import * as path from "node:path";
 import { npx, type AgentDef } from "../../core/agent-api.js";
+import { parseClaudeQuota } from "./quota.js";
 
 /** 품은 `claude.exe` — `.bin` 에 안 나오므로 꾸러미 안을 찾는다. 플랫폼마다 이름이 다르다 */
 const CLAUDE_EXE = "node_modules/@anthropic-ai/claude-agent-sdk-*/claude";
@@ -118,11 +119,8 @@ export const claude: AgentDef = {
       status: { find: CLAUDE_EXE, args: ["auth", "status"], yes: '"loggedIn": true' },
     },
   },
-  /*
-   * ★ **«쓴 양» 을 준다** — `**5-hour limit** — **3%**` (2026-10-19 실측). 다른 둘과
-   * 뜻이 반대라, 선언 없이 짐작하면 멀쩡한 계정이 «3% 남음» 으로 빨갛게 보인다.
-   */
-  quota: { command: "usage", sense: "used" },
+  // ★ 잔량 — «쓴 양» 을 준다 — 뜻이 다른 둘과 반대다 (뜯기는 ./quota.ts)
+  quota: { commands: ["usage"], parse: parseClaudeQuota },
   // ★ 우리 도구는 **이름**으로 안다 — `mcp__ai-in-one__say` (리팩토링 ⑤)
   mcpIdentity: "name",
 };

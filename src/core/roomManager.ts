@@ -15,7 +15,6 @@ import { BotQueue } from "./mcp/botQueue.js";
 import { McpCalls, type McpPort } from "./mcp/calls.js";
 import { Review, type ReviewPort } from "./review/review.js";
 import { messageId } from "./ids.js";
-import { parseQuota } from "./quotaParse.js";
 import {
   parseCompose,
   type ComposeParse,
@@ -349,13 +348,6 @@ const SAVE_INTERVAL_MS = 2000;
  */
 const CONFIG_PROBE_MS = 90_000;
 
-/**
- * ★ **잔량을 물어볼 명령** (`docs/SLASH.md`, 2026-10-19 실측).
- *
- * 어댑터마다 이름이 다르다 — Claude·Antigravity 는 `usage`, Codex 는
- * `status`. 앞엣것부터 찾아 **그 세션이 광고한 것** 중에서 고른다.
- */
-const USAGE_COMMANDS = ["usage", "status"] as const;
 /** 세션을 새로 열고 한 턴을 묻는 길이라 설정 조회보다 넉넉히 둔다 */
 const USAGE_PROBE_MS = 120_000;
 
@@ -3442,23 +3434,30 @@ export class RoomManager extends EventEmitter<Events> {
       const label = def?.label ?? agentId;
       try {
         /*
-         * ★ **애드온이 선언했으면 그 명령만 묻는다** (리팩토링 ③). 선언이 없는
-         * 낯선 에이전트는 광고한 목록에서 아는 이름을 골라 본다.
+         * ★ **무엇을 물을지도 애드온이 정한다** — 코어는 명령 이름을 모른다.
+         * 목록을 세울 때 standard 가 끼워지므로 보통 비지 않는다.
          */
-        const want = def?.quota ? [def.quota.command] : USAGE_COMMANDS;
+        const q = def?.quota;
+        if (!q) {
+          return { agentId, label, at: Date.now(), why: "잔량을 묻는 길을 모르는 에이전트입니다." };
+        }
         const got = await withTimeout(
-          this.connection(agentId).probeUsage(this.opts.host.defaultCwd(), want),
+          this.connection(agentId).probeUsage(this.opts.host.defaultCwd(), q.commands),
           USAGE_PROBE_MS,
           `${label}이(가) ${Math.round(USAGE_PROBE_MS / 1000)}초 안에 응답하지 않았습니다.`,
         );
         /*
-         * ★ **뜯는 것은 여기다 — 화면이 아니라** (리팩토링 ③). 화면은 에이전트를
-         * 몰라야 하는데, «쓴 양이냐 남은 양이냐» 는 에이전트마다 반대다.
+         * ★ **뜯는 것은 애드온이다** — 코어는 그 꼴(`QuotaLine[]`)만 받는다.
+         *
+         * 🔴 **애드온이 터져도 팝업은 산다.** 남의 글 모양에 기대는 코드라 언젠가
+         * 반드시 틀리는데, 그게 예외로 올라오면 다른 에이전트 줄까지 같이 사라진다.
+         * 막대만 잃고 받은 글은 그대로 보인다.
          */
-        return {
-          agentId, label, at: Date.now(), ...got,
-          lines: parseQuota(got.text, def?.quota?.sense),
-        };
+        let lines: AgentQuota["lines"] = [];
+        try { lines = q.parse(got.text); } catch (e) {
+          this.opts.host.log(`[${agentId}] 잔량 글을 못 뜯었습니다: ${(e as Error).message}`);
+        }
+        return { agentId, label, at: Date.now(), ...got, lines };
       } catch (e) {
         return { agentId, label, at: Date.now(), why: (e as Error).message };
       }
