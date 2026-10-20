@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { unzip } from "./unzip.js";
 import { alive } from "./roomLock.js";
-import { NODE_PIN } from "./agentCatalog.js";
+import { NODE_PIN } from "./nodePin.js";
 import type { AgentCmd, AgentDef, AgentPackage, AgentState } from "./types.js";
 
 /**
@@ -596,7 +596,7 @@ export async function dropOptions(dir: string): Promise<void> {
 // ── Node ─────────────────────────────────────────────────────────────────
 
 /*
- * ★ **Node 도 우리가 받아둔다** (2026-10-07) — 까닭은 `agentCatalog.NODE_PIN`.
+ * ★ **Node 도 우리가 받아둔다** (2026-10-07) — 까닭은 `nodePin.ts` 의 `NODE_PIN`.
  *
  * 자리는 에이전트 옆이 아니라 **따로**다. 에이전트가 아니고 **여럿이 같이
  * 쓰므로** `agents/` 안에 두면 «어느 에이전트의 것» 처럼 보인다. 버려진

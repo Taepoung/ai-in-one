@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
-import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../src/agents/index.js";
 import { McpServer } from "../src/core/mcpServer.js";
 import type { BotQueue } from "../src/core/botQueue.js";
 import type { PermissionDecision, PermissionRequest, WaitItem } from "../src/core/types.js";

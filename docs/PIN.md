@@ -1,6 +1,7 @@
 # 어댑터 핀을 올릴 때
 
-`src/core/agentCatalog.ts` 의 이 한 줄을 바꾸는 일이다.
+`src/agents/claude/index.ts` 의 이 한 줄을 바꾸는 일이다.
+(리팩토링 ① 전에는 `src/core/agentCatalog.ts` 에 셋이 같이 있었다.)
 
 ```ts
 args: ["-y", "@agentclientprotocol/claude-agent-acp@0.90.0"],

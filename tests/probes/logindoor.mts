@@ -13,7 +13,7 @@
  */
 import * as os from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
-import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../../src/agents/index.js";
 import { dirFor, cmdPath, statusOf } from "../../src/core/agentInstaller.js";
 
 const mark = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, m); return c; };

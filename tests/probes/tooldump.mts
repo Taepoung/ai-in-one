@@ -26,7 +26,7 @@ import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
-import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../../src/agents/index.js";
 import { OUR_MCP_NAME } from "../../src/core/acpConnection.js";
 import { rosterText } from "../../src/core/types.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";

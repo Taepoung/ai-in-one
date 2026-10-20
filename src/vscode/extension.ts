@@ -1,6 +1,6 @@
 ﻿import * as vscode from "vscode";
 import * as path from "node:path";
-import { resolveAgents } from "../core/agentCatalog.js";
+import { resolveAgents } from "../agents/index.js";
 import { withInstalled, sweepStrays } from "../core/agentInstaller.js";
 import { RoomManager } from "../core/roomManager.js";
 import { McpServer } from "../core/mcpServer.js";

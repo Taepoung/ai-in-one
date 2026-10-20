@@ -21,7 +21,7 @@ import { RoomLocks } from "../src/core/roomLock.js";
 import { fileURLToPath } from "node:url";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
-import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../src/agents/index.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));

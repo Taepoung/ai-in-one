@@ -9,24 +9,31 @@
  * 이 세션에서만 \u00ab좁게 재서 틀린 결론\u00bb 을 여러 번 냈다. 그 중 제일 고약한
  * 종류가 이것이다 — 숫자는 멀쩡히 나오는데 **다른 것을 재고 있는** 경우.
  *
- * 그래서 판을 손으로 안 적는다. **`agentCatalog.ts` 에서 읽는다.** 거기가
- * 제품이 쓰는 유일한 자리이므로 둘이 갈릴 수가 없다.
+ * 그래서 판을 손으로 안 적는다. **그 에이전트의 애드온 파일에서 읽는다.**
+ * 거기가 제품이 쓰는 유일한 자리이므로 둘이 갈릴 수가 없다.
+ *
+ * ★ 리팩토링 ①(2026-10-20)부터 에이전트마다 파일이 하나다 —
+ * `src/agents/<id>/index.ts`. 예전처럼 한 파일을 뒤져 `id:` 를 찾을 때보다
+ * **남의 정의를 잘못 집을 길**이 없어졌다.
  */
 const fs = require("node:fs");
 const path = require("node:path");
 
-const SRC = path.join(__dirname, "..", "..", "src", "core", "agentCatalog.ts");
+/** 그 에이전트의 애드온 파일 */
+const srcOf = (id) => path.join(__dirname, "..", "..", "src", "agents", id, "index.ts");
 
 /**
- * `agentCatalog.ts` 가 그 에이전트에게 주는 `args` 를 그대로.
+ * 그 에이전트의 애드온이 주는 `args` 를 그대로.
  *
  * 핀이 없으면 없는 대로 돌려준다 — 여기서 고치지 않는다. 제품이 안 박았으면
  * probe 도 안 박은 것을 재는 게 맞다.
  */
 function argsOf(id) {
-  const src = fs.readFileSync(SRC, "utf8");
+  const file = srcOf(id);
+  if (!fs.existsSync(file)) throw new Error(`애드온이 없다: src/agents/${id}/`);
+  const src = fs.readFileSync(file, "utf8");
   const at = src.indexOf(`id: "${id}"`);
-  if (at < 0) throw new Error(`agentCatalog 에 ${id} 가 없다`);
+  if (at < 0) throw new Error(`src/agents/${id}/index.ts 에 id: "${id}" 가 없다`);
   const m = /args: \[([^\]]*)\]/.exec(src.slice(at));
   if (!m) throw new Error(`${id} 의 args 를 못 찾았다`);
 

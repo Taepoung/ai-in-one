@@ -22,7 +22,7 @@ import { spawn } from "node:child_process";
 import {
   dirFor, install, remove, sizeOf, statusOf, spawnSpecFor, pickBinary, hostKey, realNpm, withInstalled,
 } from "../../src/core/agentInstaller.js";
-import { DEFAULT_AGENTS } from "../../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../../src/agents/index.js";
 
 const mark = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, m); return c; };
 const MB = (n: number) => (n / 1048576).toFixed(0) + "MB";

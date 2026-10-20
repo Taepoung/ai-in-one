@@ -22,7 +22,8 @@
  * 🔴 **손으로 돌린다** — 망을 탄다. 판을 올린 날과 「한 달에 한 번」이 그 자리다
  * (`adapter-pin-is-the-model`).
  */
-import { DEFAULT_AGENTS, NODE_PIN } from "../../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../../src/agents/index.js";
+import { NODE_PIN } from "../../src/core/nodePin.js";
 
 const mark = (okay: boolean) => (okay ? "OK" : "🔴");
 let bad = 0;

@@ -163,7 +163,7 @@ node tests/probes/bumpsafe.cjs <새판>
 node tests/probes/bumpsonnet.cjs <새판>
 node tests/probes/opusbump.cjs
 
-# 4. 핀을 고친다 — src/core/agentCatalog.ts 한 자리 (CODEX_PIN / args)
+# 4. 핀을 고친다 — src/agents/<에이전트>/index.ts 한 자리 (CODEX_PIN / args)
 
 # 5. 진짜로 받아지고 **끝까지 도나**  ← ②③⑦ 과 왕복
 npx tsx tests/probes/realinstall.mts     # npm 꼴
@@ -195,7 +195,8 @@ node tests/probes/codexmodels.cjs
 ```
 
 **probe 는 판을 손으로 안 적는다.** `tests/probes/pinned.cjs` 가
-`agentCatalog.ts` 에서 읽는다 — 4번만 고치면 5~8이 새 판을 잰다. 이게
+그 에이전트의 애드온 파일(`src/agents/<id>/index.ts`)에서 읽는다 — 4번만
+고치면 5~8이 새 판을 잰다. 이게
 없으면 핀을 박는 순간 probe 만 `latest` 를 재서 **아무도 안 쓰는 판**을
 검사하게 된다.
 

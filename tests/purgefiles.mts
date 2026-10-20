@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { AcpConnection } from "../src/core/acpConnection.js";
 import { purgeOnce, sweepBacklog } from "../src/core/purgeBacklog.js";
-import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../src/agents/index.js";
 import type { AgentDef } from "../src/core/types.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 

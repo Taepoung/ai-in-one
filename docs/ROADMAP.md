@@ -362,7 +362,7 @@ session/load 재생분       그대로 먹음          → 반대로, 안 뺐다
   > 3. node tests/probes/sweep.mjs <새판>
   > 4. 둘을 맞춰본다
   > 5. node tests/probes/bumpsafe.cjs <새판>   ← 세션·되돌리기
-  > 6. agentCatalog.ts 를 고치고 npm test
+  > 6. src/agents/<에이전트>/index.ts 를 고치고 npm test
   > ```
   >
   > 🔴 **4번에서 OK/NO 줄만 맞추면 절반을 놓친다.** 판정표를 안 찍고 글로만
@@ -1926,7 +1926,10 @@ ACP `ContentBlock`은 5종이다: `text` · `image` · `audio` · `resource`(내
 | `eslint.config.mjs` | core가 `vscode`를 import하지 못하게 강제 | ✅ |
 | `src/core/types.ts` | `Room` / `Message` / `BotInstance` / `RoomStatus` (§2.5 반영) | ✅ |
 | `src/core/workspaceHost.ts` | 셸 능력 인터페이스 | ✅ |
-| `src/core/agentCatalog.ts` | 기본 에이전트 3종 + 설정 병합 | ✅ |
+| `src/agents/*/index.ts` | 에이전트 애드온 — 하나에 하나 (리팩토링 ①) | ✅ |
+| `src/agents/index.ts` | 기본 목록 + 설정 병합 (`resolveAgents`) | ✅ |
+| `src/core/agent-api.ts` | 애드온이 core 에서 보는 유일한 문 | ✅ |
+| `src/core/nodePin.ts` | 우리가 받는 Node 판 | ✅ |
 | `src/core/acpConnection.ts` | ACP 연결 / 세션 / 턴 실행 | ✅ |
 | `src/core/roomManager.ts` | 방 상태 · unread · 영속화 | ✅ |
 | `src/vscode/extension.ts` | 활성화 · 커맨드 · 상태표시줄 | ✅ |

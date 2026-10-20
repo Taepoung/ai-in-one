@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomManager } from "../src/core/roomManager.js";
 import { RoomStore } from "../src/core/store.js";
-import { DEFAULT_AGENTS } from "../src/core/agentCatalog.js";
+import { DEFAULT_AGENTS } from "../src/agents/index.js";
 import type { WorkspaceHost } from "../src/core/workspaceHost.js";
 
 const ok = (c: boolean, m: string) => { if (!c) throw new Error("FAIL: " + m); console.log("  ok -", m); };

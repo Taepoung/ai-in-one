@@ -21,7 +21,7 @@
  *
  * ⏪ **«핀을 안 박았다» 는 이제 아니다** (2026-10-01). 사용자가 박으라고 했고
  * `@2.1.0` 으로 박혔다. 그래서 이 probe 도 더 이상 `latest` 를 안 본다 —
- * `pinned.cjs` 가 `agentCatalog.ts` 에서 읽어오므로 **제품이 띄우는 바로 그
+ * `pinned.cjs` 가 애드온 파일(`src/agents/<id>/`)에서 읽어오므로 **제품이 띄우는 바로 그
  * 판**을 재다.
  *
  * 다만 박아도 **모델은 안 고정된다.** 엔진이 `^0.159.1` 로 물려 있어서다 —
@@ -82,7 +82,13 @@ const ask = (c) => { try { return execSync(c, { encoding: "utf8" }).trim(); } ca
   console.log(`  사용자 codex                                      : ${ask("codex --version")}`);
 
   console.log("\n[우리 쪽 핀]");
-  const cat = fs.readFileSync(path.join(__dirname, "..", "..", "src", "core", "agentCatalog.ts"), "utf8");
+  // 리팩토링 ① 부터 에이전트마다 파일이 하나다 — 셋을 이어 붙여 읽는다
+  const AGENTS = path.join(__dirname, "..", "..", "src", "agents");
+  const cat = fs.readdirSync(AGENTS, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => fs.readFileSync(path.join(AGENTS, d.name, "index.ts"), "utf8"))
+    .join("
+");
   for (const m of cat.matchAll(/"(-y)", "(@agentclientprotocol\/[^"]+)"/g)) {
     const spec = m[2];
     console.log(`  ${spec.includes("@", 1) ? "박음  " : "안 박음"} ${spec}`);
