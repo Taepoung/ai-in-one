@@ -196,9 +196,16 @@ async function main(): Promise<void> {
 
     ok(systemTexts(t.room).every((x) => !x.includes("막았습니다")),
        "★ **대화에는 안 쌓인다** — 「심사봇이 막았습니다」 가 줄로 쌓이던 자리다");
-    const held = (t.mgr as unknown as { verdictWhy: Map<string, string> }).verdictWhy;
-    ok(held.get("tc-1") === "비밀번호가 들어 있습니다.",
-       `★ **까닭은 들고 있다** — 그 활동이 돌아올 때 접어 넣는다 (${held.get("tc-1")})`);
+    /*
+     * 리팩토링 ⑦-3 부터 까닭은 심사 층(`core/review`)이 든다. 밖에서 꺼내는 길은
+     * `takeWhy` 하나뿐이고, 활동 줄에 접어 넣는 쪽도 **이 길로** 꺼낸다 — 그래서
+     * 여기서도 같은 길로 읽는다(한 번 꺼내면 지워지는 것까지 같다).
+     */
+    const review = (t.mgr as unknown as { review: { takeWhy(id: string): string | undefined } }).review;
+    const why = review.takeWhy("tc-1");
+    ok(why === "비밀번호가 들어 있습니다.",
+       `★ **까닭은 들고 있다** — 그 활동이 돌아올 때 접어 넣는다 (${why})`);
+    ok(review.takeWhy("tc-1") === undefined, "★ 한 번 꺼내면 지워진다 — 두 번 접어 넣지 않는다");
     bye(t);
   }
 
