@@ -8,7 +8,7 @@
  * ```
  * 방이 조용해진다      도는 봇 · 턴 꼬리 · 큐에 걸린 say · 예약 — 아무것도 없다
  * 2초 기다린다         턴 꼬리(TURN_TAIL_MS 1.5초)를 넘기려고. 그 사이 무언가 생기면 안 보낸다
- * 다시 묻는다          «종료» 를 안 한 루프 봇에게만:
+ * 다시 묻는다          **이번 일에 낀**(사용자의 마지막 말 뒤에 답한) 루프 봇 중 «종료» 안 한 봇에게만:
  *                     «사용자가 자리를 비웠습니다. 이어서 할 작업이 있으면 계속하고,
  *                      없으면 «종료» 한 단어로만 답하세요.»
  * 답을 본다            «종료» 면 빠지고, 아니면 다음에 또 묻는다
@@ -104,7 +104,21 @@ export class Loops {
   }
 
   private fire(room: Room): void {
-    const loops = room.participants.filter(isLoop);
+    /*
+     * ★ **이번 일에 낀 봇만** (사용자, 2026-10-21: *"턴을 시작한 봇만 해야될듯? 지금 내가
+     * 한 봇만 불렀는데 루프가 다른 봇한테서도 돌아"*).
+     *
+     * «낀 봇» = **사용자의 마지막 말 뒤에 한 번이라도 답한 봇**. 사용자가 부른 봇과, 그
+     * 봇이 `say` 로 불러 일에 끼어든 봇이다. 루프모드를 켜 두었어도 이번 일에 안 낀 봇은
+     * 깨우지 않는다 — 그 봇에게는 이어 갈 일이 없다.
+     */
+    const lastUser = room.messages.map((m) => m.role).lastIndexOf("user");
+    const spoke = new Set(
+      room.messages.slice(lastUser + 1)
+        .filter((m) => m.role === "agent" && m.authorBotId)
+        .map((m) => m.authorBotId!),
+    );
+    const loops = room.participants.filter((b) => isLoop(b) && spoke.has(b.id));
     if (loops.length === 0 || !this.quiet(room)) return;
 
     // 사용자가 새로 말을 걸었으면 처음부터 센다 — 새 일이 생긴 것이다

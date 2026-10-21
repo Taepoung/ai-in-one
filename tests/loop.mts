@@ -118,6 +118,28 @@ async function main(): Promise<void> {
     await done(t);
   }
 
+  console.log(`${NL}[★ 이번 일에 낀 봇만 — 사용자가 안 부른 봇은 안 깨운다 (2026-10-21)]`);
+  {
+    /*
+     * 사용자: *"지금 내가 한 봇만 불렀는데 루프가 다른 봇한테서도 돌아"*. 둘 다 루프모드를
+     * 켜 두고 알파만 부른다 — 베타는 이번 일에 안 꼈으니 다시 묻지 않는다.
+     */
+    const t = await make([{ AIO_FAKE_LOOP_DONE_AT: "1" }, { AIO_FAKE_LOOP_DONE_AT: "1" }]);
+    const [a, b] = t.room.participants as [Room["participants"][0], Room["participants"][0]];
+    await t.mgr.setPolicy(t.room.id, { answerPolicy: "auto" }, a.id);
+    await t.mgr.setPolicy(t.room.id, { answerPolicy: "auto" }, b.id);
+    await t.say(0, "일 해줘");
+    ok(await t.until(() => t.notes(/모두 «종료»/).length === 1, 15000), "★ 알파가 «종료» 해 끝났다");
+    ok(await t.asked(0) === 1, `★ 부른 알파에게는 다시 묻는다 (${await t.asked(0)})`);
+    ok(await t.asked(1) === 0, `★ 🔴 **안 부른 베타에게는 안 묻는다** (${await t.asked(1)})`);
+    ok(!t.notes(/다시 물었습니다/).some((m) => m.text.includes("베타")), "★ 방에 남는 줄에도 베타가 없다");
+
+    // 다음 말에서 베타를 부르면 이번엔 베타가 낀다
+    await t.say(1, "이번엔 너");
+    ok(await t.until(async () => (await t.asked(1)) === 1, 10000), "★ 베타를 부르면 그때 베타에게 묻는다");
+    await done(t);
+  }
+
   console.log(`${NL}[★ 끄면 안 묻는다]`);
   {
     const t = await make([{}]);
