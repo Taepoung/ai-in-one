@@ -26,6 +26,8 @@ docs/**
 esbuild.mjs
 eslint.config.mjs
 tsconfig.json
+# 검사 파일의 타입 검사 설정 (2026-10-14 에 생겼다) — `tsconfig.*.json` 으로 잡아 다음 것도 막는다
+tsconfig.*.json
 package-lock.json
 
 # 소스맵은 디버깅용이라 배포본에서 뺀다 (dist/*.js 는 남는다)
