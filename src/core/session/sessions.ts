@@ -28,6 +28,9 @@ import type { AgentPool } from "./pool.js";
 /** 세션 하나를 여는 데 기다려 주는 시간 — 띄우기는 `START_MS` 가 따로 잰다 */
 const SESSION_MS = 30_000;
 
+/** 세션을 열 때 MCP 가 서는 것을 기다려 주는 끝 — 보통 수십 ms 면 선다 (2026-10-21) */
+const MCP_WAIT_MS = 5000;
+
 /**
  * 이어받기가 «다른 클라이언트가 쥐고 있어서» 실패했나 — 애드온에게 묻는다
  * (`AgentDef.sessionInUse`). 애드온이 없거나 터지면 **모른다** — 예전처럼 새로 연다.
@@ -121,7 +124,7 @@ export class Sessions {
     const bt = this.port.runtimes.bot(room.id, bot.id);
 
     this.port.runtimes.setStatus(room.id, "connecting", bot.id);
-    const { sessionId, configOptions } = await conn.newSession(room.cwd, this.mcpFor(room, bot), () =>
+    const { sessionId, configOptions } = await conn.newSession(room.cwd, await this.mcpNow(room, bot), () =>
       this.port.emitNotice(room.id,
         `${this.port.agent(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
       ),
@@ -199,7 +202,7 @@ export class Sessions {
     let lostNote: string | undefined;
 
     if (bot.sessionId) {
-      const resumed = await conn.resumeSession(bot.sessionId, room.cwd, this.mcpFor(room, bot));
+      const resumed = await conn.resumeSession(bot.sessionId, room.cwd, await this.mcpNow(room, bot));
       if (resumed.ok) {
         bt.sessionId = bot.sessionId;
         // 복구된 세션은 역할을 이미 알고 있다
@@ -319,7 +322,7 @@ export class Sessions {
      * 띄우는 값은 `startAgent` 가 이미 치렀으므로 여기는 **세션만** 잰다.
      */
     const { sessionId, configOptions } = await withTimeout(
-      conn.newSession(room.cwd, this.mcpFor(room, bot)),
+      conn.newSession(room.cwd, await this.mcpNow(room, bot)),
       SESSION_MS,
       `${this.port.agent(bot.agentId).label}의 세션이 ` +
         `${Math.round(SESSION_MS / 1000)}초 안에 열리지 않았습니다.`,
@@ -498,7 +501,7 @@ export class Sessions {
     if (!bot || !lost) return false;
 
     const resumed = await this.port.pool.connection(bot.agentId)
-      .resumeSession(lost, room.cwd, this.mcpFor(room, bot));
+      .resumeSession(lost, room.cwd, await this.mcpNow(room, bot));
     if (!resumed.ok) {
       this.port.rooms.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
       return false;
@@ -698,6 +701,19 @@ export class Sessions {
     if (bot.sessionPrompted && bot.sessionId) return;
     bot.sessionId = sessionId;
     bot.sessionPrompted = false;
+  }
+
+  /**
+   * ★ **MCP 가 서는 중이면 잠깐 기다렸다가 목록을 준다** (2026-10-21).
+   *
+   * 🔴 확장이 켜질 때 서버를 기다리지 않고 세우므로, 그 사이에 열린 세션은 MCP 없이
+   * 붙고 **다시 붙여 주는 길이 없었다** — 그 봇은 그 세션 내내 `say` 를 못 썼다. 세션을
+   * 여는 네 자리(새로 · 이어받기 · 다시 붙기)가 모두 여기를 지난다. 이미 섰거나 꺼져
+   * 있으면 바로 돌아온다.
+   */
+  private async mcpNow(room: Room, bot: BotInstance): Promise<acp.McpServer[]> {
+    await this.port.mcp?.settled(MCP_WAIT_MS);
+    return this.mcpFor(room, bot);
   }
 
   /**

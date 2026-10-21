@@ -66,9 +66,14 @@ const PROTOCOL = "2025-06-18";
 /** 한 임자에게 살려두는 열쇠 수 — 다시 붙는 연결이 살아남을 만큼만 */
 const KEEP_KEYS = 4;
 
+/** 자기 주소를 두드려 보는 데 기다리는 끝 — 보통 몇 ms 다 (2026-10-21) */
+export const KNOCK_MS = 3000;
+
 export class McpServer {
   private server?: http.Server;
   private state: McpState = { at: "off" };
+  /** 세우는 중인 약속 — 겹쳐 불러도 하나만 선다 */
+  private starting?: Promise<McpState>;
   /**
    * 비밀 → 주인.
    *
@@ -116,6 +121,33 @@ export class McpServer {
    */
   async start(): Promise<McpState> {
     if (this.state.at === "ready") return this.state;
+    /*
+     * ★ **세우는 중이면 그 약속을 같이 기다린다** (2026-10-21). 겹쳐 부르면(켜질 때 한 번
+     * · [다시 시도] · 세션이 기다리기) 서버가 **둘 서던** 자리다.
+     */
+    if (this.starting) return this.starting;
+    this.starting = this.raise().finally(() => { this.starting = undefined; });
+    return this.starting;
+  }
+
+  /**
+   * ★ **세우는 중이면 잠깐 기다린다 — 최대 `ms`** (2026-10-21).
+   *
+   * 🔴 확장이 켜질 때 서버는 **기다리지 않고** 세운다(보통 수십 ms). 그 사이에 열린
+   * 세션은 MCP 없이 붙고, **서버가 선 뒤에도 다시 붙여 주는 길이 없다** — 그 봇은 그
+   * 세션 내내 `say` 를 못 쓴다. 그래서 세션을 열기 전에 여기서 잠깐 기다린다. 이미
+   * 섰거나 꺼져 있으면(세우는 중이 아니면) 바로 돌아온다.
+   */
+  async settled(ms: number): Promise<McpState> {
+    const going = this.starting;
+    if (!going) return this.state;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([going, new Promise((r) => { timer = setTimeout(r, ms); })]);
+    clearTimeout(timer);
+    return this.state;
+  }
+
+  private async raise(): Promise<McpState> {
     try {
       const url = await this.listen();
       await this.knock(url);
@@ -251,10 +283,16 @@ export class McpServer {
   private async knock(url: string): Promise<void> {
     const probe = this.issue("__knock__");
     try {
+      /*
+       * ★ **끝을 둔다** (2026-10-21). 자기 주소라 보통 몇 ms 인데, 프록시 · 보안
+       * 소프트웨어가 루프백을 붙잡으면 **영영 안 돌아온다** — 그러면 «세우는 중» 에 갇혀
+       * 실패도 [다시 시도] 도 안 뜬다. 넘기면 실패로 읽고 까닭을 적는다.
+       */
       const res = await fetch(url, {
         method: "POST",
         headers: { "content-type": "application/json", "x-aio-secret": probe },
         body: JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} }),
+        signal: AbortSignal.timeout(KNOCK_MS),
       });
       if (!res.ok) throw new Error(`자기 주소가 ${res.status} 로 답합니다`);
       await res.json();
