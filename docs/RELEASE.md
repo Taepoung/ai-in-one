@@ -146,22 +146,18 @@ npx ovsx publish ai-in-one-0.1.0.vsix -p <토큰>
 
 ## 4. 아직 안 된 것
 
-### `repository` — **지금 막고 있다**
+### ✅ `repository` · `bugs` 를 넣었다 (2026-10-21)
 
-```
-ERROR  Couldn't detect the repository where this extension is published.
-       The link 'docs/ROADMAP.md' will be broken in README.md
-```
+GitHub 저장소는 **<https://github.com/Taepoung/ai-in-one>** (공개). `package.json` 에
+`repository` · `bugs` · `homepage` 가 들어갔다 — 마켓플레이스 상세 페이지의 «저장소» ·
+«문제 제보» 링크가 이걸로 선다. **0.1.0 은 이 주소 없이** 올렸으므로
+(`--allow-missing-repository`) 링크는 **다음 판부터** 뜬다.
 
-README가 `docs/`를 상대 경로로 가리키는데 저장소 주소가 없으면 vsce가 링크를
-절대 주소로 못 바꿔서 **멈춘다.** GitHub에 올린 뒤 `package.json`에 넣는다:
+⚠️ README 가 저장소 안의 파일을 상대 경로로 가리키게 되면, vsce 가 이 주소로 절대 경로를
+만든다 — 그래서 `master` 에 올라간 뒤에 내보내야 링크가 산다.
 
-```json
-"repository": { "type": "git", "url": "https://github.com/<계정>/ai-in-one.git" }
-```
-
-임시로 넘기려면 `--allow-missing-repository --baseContentUrl <주소>` 를 줄 수도
-있지만, **README의 링크가 깨진 채로 나간다.**
+검사는 GitHub Actions 가 **Windows · Linux · macOS** 에서 돈다(`.github/workflows/ci.yml`).
+진짜 에이전트 프로브는 거기서 안 돈다 — 손으로 돌린다.
 
 ### ✅ 나머지는 넣었다 (2026-10-07)
 

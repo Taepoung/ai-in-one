@@ -6,6 +6,14 @@
   "publisher": "taein-yoon",
   "preview": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Taepoung/ai-in-one.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Taepoung/ai-in-one/issues"
+  },
+  "homepage": "https://github.com/Taepoung/ai-in-one#readme",
   "icon": "media/icon.png",
   "keywords": [
     "acp",
