@@ -74,6 +74,7 @@ async function main(): Promise<void> {
   ok(tool.paths?.includes("src/thing.ts") === true,
      `★ **파일 자리가 살아 있다** (${JSON.stringify(tool.paths)}) — 활동 줄이 «무엇을» 을 잃지 않는다`);
   ok(tool.kind === "edit", "★ 종류도 지킨다 — 아이콘이 바뀌면 안 된다");
+  ok(tool.name === "Edit", `★ **도구 이름도 지킨다** (${tool.name}) — 알약 글자다 (2026-10-23)`);
   ok(typeof tool.output === "string" && tool.output.includes("modified since read"),
      "★ 반대로 **갱신이 준 것은 받아 적는다** — 결과는 나중에 온다");
 

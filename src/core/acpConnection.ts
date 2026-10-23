@@ -24,6 +24,8 @@ export type AgentEvent =
       type: "tool";
       toolCallId: string;
       title: string;
+      /** 도구 이름 — 애드온이 알아냈으면 (`AgentDef.toolName`) */
+      name?: string;
       kind?: string;
       status: string;
       paths: string[];
@@ -1112,7 +1114,7 @@ export class AcpConnection {
   }
 
   private dispatch(note: acp.SessionNotification): void {
-    let events = translate(note.update, (tc) => identify(this.agent, tc));
+    let events = translate(note.update, (tc) => identify(this.agent, tc), (tc) => nameOf(this.agent, tc));
     // 재생 중이면 이미 우리가 갖고 있는 대화다 — `resumeSession` 참조
     if (this.replaying.has(note.sessionId)) {
       const kept = events.filter((ev) => !this.isReplayed(ev));
@@ -1409,6 +1411,17 @@ function identify(agent: AgentDef, tc: ToolCallShape): McpWho | undefined {
   }
 }
 
+/** 도구 이름 — 애드온에게 묻는다. 터지거나 비면 «모른다» (화면이 `kind` 로 줄인다) */
+function nameOf(agent: AgentDef, tc: ToolCallShape): string | undefined {
+  if (!agent.toolName) return undefined;
+  try {
+    const n = agent.toolName(tc)?.trim();
+    return n || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * **«그런 메서드 없다»인가** (JSON-RPC `-32601`).
  *
@@ -1538,6 +1551,8 @@ function translate(
   update: acp.SessionUpdate,
   /** 우리 도구를 알아보는 길 — 애드온의 것 (`AgentDef.mcpIdentity`) */
   who?: (tc: ToolCallShape) => McpWho | undefined,
+  /** 도구 이름을 꺼내는 길 — 애드온의 것 (`AgentDef.toolName`) */
+  named?: (tc: ToolCallShape) => string | undefined,
 ): AgentEvent[] {
   switch (update.sessionUpdate) {
     /*
@@ -1568,6 +1583,10 @@ function translate(
           type: "tool",
           toolCallId: update.toolCallId,
           title: ("title" in update && update.title) || "",
+          ...(() => {
+            const name = named?.(update as ToolCallShape);
+            return name ? { name } : {};
+          })(),
           ...("kind" in update && update.kind ? { kind: update.kind } : {}),
           status: ("status" in update && update.status) || "pending",
           paths: locations.map((l) => l.path).filter(Boolean),

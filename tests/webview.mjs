@@ -1577,6 +1577,32 @@ function main() {
     ok(t.sent.some((m) => m.t === "openFile" && m.path === "/ws/src/store.ts"), "openFile 전송");
   }
 
+  console.log("\n[★ 알약은 도구 이름 — 제목이 명령 전체여도 (사용자, 2026-10-23)]");
+  {
+    /*
+     * 🔴 사용자: *"search로만 나와야하는데 길게 나옴 … 이것 때문에 말풍선이 넘침"*.
+     * Claude 어댑터 0.90 은 `title` 에 미리보기(명령 전체, `Search "…"`)를 싣는다.
+     */
+    const cmd = "python3 -I - <<'EOF'\np='models.txt'\ns=open(p).read()\nEOF";
+    const t = mount(boot([meta()]));
+    enter(t, { messages: [msg({ id: "a", tools: [
+      { id: "t1", title: 'Search "GLM-4-9B-0414 maximum output tokens max_tokens context length"',
+        name: "WebSearch", kind: "fetch", status: "completed" },
+      { id: "t2", title: cmd, name: "Bash", kind: "execute", status: "completed", command: cmd },
+      // 이름을 안 주는 에이전트 — 길면 종류로 줄인다
+      { id: "t3", title: "Running a very long command line that goes on and on", kind: "execute", status: "completed" },
+      { id: "t4", title: "Running view_file", kind: "read", status: "completed" },
+    ] })] });
+    const what = t.$$("#screen-chat .act-pill .what").map((w) => w.textContent);
+    ok(what[0] === "WebSearch", `★ **검색은 이름만** (${what[0]})`);
+    ok(what[1] === "Bash", `★ **명령은 이름만** (${what[1]})`);
+    ok(what[2] === "Shell", `★ 이름이 없고 길면 종류로 (${what[2]})`);
+    ok(what[3] === "Running view_file", `짧은 제목은 그대로 (${what[3]})`);
+
+    t.$$("#screen-chat .act-pill")[0].click();
+    ok(t.$(".modal .act-title")?.textContent.includes("GLM-4-9B-0414 maximum"), "★ 원문은 눌러서 본다 — 버리지 않는다");
+  }
+
   console.log("\n[사용량은 화면에 없다 — 압축 배너만 남는다 (B14)]");
   {
     const t = enter(mount(boot([meta()])));

@@ -144,6 +144,8 @@ export class Activity {
       id: ev.toolCallId,
       // 갱신 이벤트는 제목을 안 줄 수도 있다. 먼저 온 걸 지키자.
       title: mine || ev.title || tools[at]?.title || "도구 사용",
+      // 이름도 첫 이벤트에만 올 수 있다 — 지킨다. 우리 도구는 위 `mine` 이 이름이다
+      ...(!mine && (ev.name || tools[at]?.name) ? { name: (ev.name || tools[at]?.name)! } : {}),
       ...(ev.kind ? { kind: ev.kind } : tools[at]?.kind ? { kind: tools[at]!.kind! } : {}),
       status,
       ...(ev.paths.length > 0 ? { paths: ev.paths } : tools[at]?.paths ? { paths: tools[at]!.paths! } : {}),

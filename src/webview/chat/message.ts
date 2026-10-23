@@ -703,11 +703,32 @@ function weave(m: Message): Part[] {
  * ★ **가로로 늘어놓는다 — 넘치면 줄을 바꾼다** (사용자). 말풍선 밖으로는
  * 안 나간다: 알약이 글보다 넓어지면 **말풍선이 활동 때문에 늘어난다.**
  *
- * 글자는 **도구 이름**이다(`title`) — `Bash`·`Read` 처럼 짧은 것이 와야
+ * 글자는 **도구 이름**이다(`pillLabel`) — `Bash`·`Read` 처럼 짧은 것이 와야
  * 한 줄에 여럿이 선다. 무엇을 했는지 자세히는 눌러서 본다.
  *
  * 누르면 상세가 **팝업**으로 뜬다 — 말풍선 안에서 펴면 글이 멀어진다.
  */
+/**
+ * ★ **알약 글자** (사용자, 2026-10-23: *"search로만 나와야하는데 길게 나옴 … 말풍선이 넘침"*).
+ *
+ * 🔴 `title` 은 이름이 아니다 — Claude 어댑터는 거기에 **명령 전체**나 `Search "…"` 를
+ * 싣는다. 이름은 애드온이 알아낸 `name` 을 쓴다. 이름이 없는 에이전트(Codex ·
+ * Antigravity)는 제목이 짧으면 그대로, 길면 **종류(`kind`)로 줄인다** — 원문은 툴팁과
+ * 상세에 그대로 있다.
+ */
+const KIND_LABEL: Record<string, string> = {
+  execute: "Shell", search: "Search", fetch: "Fetch", read: "Read", edit: "Edit",
+  delete: "Delete", move: "Move", think: "Think",
+};
+const PILL_MAX = 24;
+
+export function pillLabel(t: ToolActivity): string {
+  if (t.name) return t.name;
+  const title = t.title.trim();
+  if (title.length <= PILL_MAX && !title.includes("\n")) return title;
+  return (t.kind && KIND_LABEL[t.kind]) ?? `${title.split("\n")[0]!.slice(0, PILL_MAX - 1)}…`;
+}
+
 function toolPills(list: ToolActivity[]): HTMLElement {
   const box = el("div", { class: "acts" });
   for (const t of list) {
@@ -721,7 +742,7 @@ function toolPills(list: ToolActivity[]): HTMLElement {
           onclick: () => showActivity(t),
         },
         icon(permIcon(t.kind)),
-        el("span", { class: "what", text: t.title }),
+        el("span", { class: "what", text: pillLabel(t) }),
         /* 승인 결과는 **그 활동에 붙는다**(D3) — 알약에는 표만, 까닭은 팝업에 */
         t.decision
           ? el("span", {
@@ -755,9 +776,13 @@ function showActivity(t: ToolActivity): void {
         "div",
         { class: "card-title" },
         icon(permIcon(t.kind)),
-        el("span", { class: "what", text: t.title }),
+        el("span", { class: "what", text: pillLabel(t) }),
         t.at ? el("span", { class: "at", text: hhmm(t.at) }) : null,
       ),
+      // 줄인 제목의 원문 — 명령과 같으면 아래 상자에 이미 있다
+      pillLabel(t) !== t.title && t.title !== t.command
+        ? el("div", { class: "act-title", text: t.title })
+        : null,
       why
         ? el("div", {
             class: `seal ${t.decision?.mark === "✓" ? "ok" : t.decision?.mark === "✕" ? "no" : ""}`,

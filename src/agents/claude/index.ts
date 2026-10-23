@@ -11,7 +11,7 @@
 import * as path from "node:path";
 import { npx, type AgentDef } from "../../core/agent-api.js";
 import { parseClaudeQuota } from "./quota.js";
-import { claudeMcpIdentity } from "./identity.js";
+import { claudeMcpIdentity, claudeToolName } from "./identity.js";
 
 /** 품은 `claude.exe` — `.bin` 에 안 나오므로 꾸러미 안을 찾는다. 플랫폼마다 이름이 다르다 */
 const CLAUDE_EXE = "node_modules/@anthropic-ai/claude-agent-sdk-*/claude";
@@ -124,4 +124,6 @@ export const claude: AgentDef = {
   quota: { commands: ["usage"], parse: parseClaudeQuota },
   // ★ 우리 도구 알아보기 — 제 자리에서만 꺼낸다 (./identity.ts)
   mcpIdentity: claudeMcpIdentity,
+  // ★ 알약에 쓸 도구 이름 — 제목은 명령 전체라 (./identity.ts)
+  toolName: claudeToolName,
 };

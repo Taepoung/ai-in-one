@@ -551,6 +551,8 @@ function handle(msg) {
             sessionUpdate: "tool_call", toolCallId: id, status: "pending",
             title: "Edit", kind: "edit",
             locations: [{ path: hit[1] }],
+            // Claude 어댑터처럼 이름은 따로 (0.90 은 title 에 미리보기를 싣는다)
+            _meta: { claudeCode: { toolName: "Edit" } },
           } },
         }) + "\n");
         process.stdout.write(JSON.stringify({

@@ -133,6 +133,14 @@ export interface AgentDef {
    */
   mcpIdentity?: (tc: ToolCallShape) => McpWho | undefined;
   /**
+   * ★ **도구 이름** — 알약에 쓸 짧은 이름(`Bash` · `WebSearch`) (사용자, 2026-10-23).
+   *
+   * 🔴 `title` 은 이름이 아니다. Claude 어댑터 0.90 은 거기에 **미리보기**를 싣는다 —
+   * 명령 전체, `Search "…"`. 그걸 알약에 그대로 쓰니 *"말풍선이 넘침"*. 이름은 따로
+   * 오는데 그 자리가 에이전트마다 달라 애드온이 꺼낸다. 비우면 화면이 `kind` 로 줄인다.
+   */
+  toolName?: (tc: ToolCallShape) => string | undefined;
+  /**
    * ★ **그 세션을 다른 클라이언트가 쥐고 있다** — 이어받기 실패의 글을 보고 가린다
    * (사용자, 2026-10-20).
    *
@@ -908,7 +916,10 @@ export interface Clash {
 export interface ToolActivity {
   /** `toolCallId`. 같은 id로 여러 번 오므로 이걸로 합친다 */
   id: string;
+  /** 저쪽이 단 제목 — 명령 전체일 수도 있다. 상세와 툴팁에 쓴다 */
   title: string;
+  /** 도구 이름(`Bash` · `WebSearch`) — 알약 글자. 애드온이 알아낸 것만 (`AgentDef.toolName`) */
+  name?: string;
   /** `read` · `edit` · `execute` · `fetch` … 아이콘과 필터에 쓴다 */
   kind?: string;
   status: "pending" | "in_progress" | "completed" | "failed";
