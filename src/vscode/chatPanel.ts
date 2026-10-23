@@ -1145,7 +1145,10 @@ export class ChatPanel implements AskTarget {
         const r = await install(dir, agent.pkg, realNpm, (line: string) => {
           ChatPanel.busy.set(agent.id, line.slice(0, 120));
           ChatPanel.repaintAgents();
+          // ★ 출력 창에도 남긴다 (2026-10-23) — 화면 표시로만 흘러가면 멈췄을 때 까닭을 볼 길이 없다
+          this.rooms.log(`[${agent.id}] 받기: ${line}`);
         });
+        this.rooms.log(`[${agent.id}] 받기 ${r.ok ? "끝" : "실패"} — ${r.say.split("\n").filter(Boolean).at(-1) ?? ""}`);
         if (!r.ok) {
           void vscode.window.showErrorMessage(
             `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}`);

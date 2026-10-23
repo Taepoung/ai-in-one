@@ -137,6 +137,21 @@ export class AgentPool {
      */
     if (this.port.isDown()) throw new Error("이미 내려가는 중입니다");
     let conn = this.conns.get(agentId);
+    /*
+     * ★ **스스로 내려간 연결은 버리고 새로 만든다** (사용자, 2026-10-23: *"Antigravity
+     * 로그인 시 … 로그인에 실패했습니다 — Antigravity 연결이 이미 내려갔습니다"*).
+     *
+     * 🔴 첫 띄우기가 실패하면(시작 인사에서 오류) 연결이 **스스로** 내려간다. 그런데 여기서
+     * 그 죽은 연결을 계속 내줘서, 창을 다시 띄울 때까지 로그인을 포함한 **모든 호출**이
+     * «이미 내려갔습니다» 로 끝났다. 처음 까는 환경에서 잘 걸린다 — Antigravity 는 첫
+     * 띄우기가 12초가 넘고, 로그인 전이면 시작부터 실패하기 쉽다.
+     *
+     * 우리가 내린 것(`drop` · `disposeAll`)은 이미 지도에서 빠지므로 여기 안 걸린다.
+     */
+    if (conn?.isClosed) {
+      this.conns.delete(agentId);
+      conn = undefined;
+    }
     if (!conn) {
       conn = new AcpConnection(
         this.port.agent(agentId),

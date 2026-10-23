@@ -793,30 +793,70 @@ export type Run = (
   env?: Record<string, string>,
 ) => Promise<{ code: number; say: string }>;
 
-export const realNpm: Run = (args, cwd, onLine, env) =>
-  new Promise((done) => {
-    const cmd = process.platform === "win32" ? "npm.cmd" : "npm";
-    const p = spawn(cmd, args, {
+/**
+ * ★ **npm 이 요약 줄을 찍은 뒤 기다려 주는 끝** (2026-10-23).
+ *
+ * 사용자: *"코덱스 설치중 added 25 packages in 9s에 멈춤"*. «added N packages in Ns» 는 npm 이
+ * **일을 마치고** 찍는 줄인데, 그 뒤로 npm 이 끝났다는 신호가 안 와 화면이 거기 멈췄다.
+ * 끝에 하는 «새 판 있나» 확인(update-notifier)이 망에 붙잡히는 것이 유력하다 — 그건 아래에서
+ * 끄고, 그래도 요약을 찍고 이만큼 조용하면 **끝난 것으로 마무리한다**. 정말 받아졌는지는
+ * 부르는 쪽(`install`)이 `statusOf` 로 따로 본다 — 마무리가 «받았다» 를 지어내지 않는다.
+ */
+export const NPM_FINISH_MS = 15_000;
+
+/** npm 이 일을 마치고 찍는 요약 줄 */
+const NPM_SUMMARY = /^(added|removed|changed|up to date|audited)\b/;
+
+/**
+ * 명령을 띄우고 끝을 기다린다 — `realNpm` 의 몸이고, 검사가 가짜 npm 을 꽂으려고 따로 둔다.
+ */
+export function spawnRun(cmd: string, pre: readonly string[], finishMs: number): Run {
+  return (args, cwd, onLine, env) => new Promise((done) => {
+    const p = spawn(cmd, [...pre, ...args], {
       cwd, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"],
       /*
        * ★ **받아둔 Node 가 있으면 그걸 먼저 본다** (2026-10-07).
        *
        * `npm.cmd` 를 이름으로 부르므로 **PATH 가 정한다.** 앞에 우리
        * 칸을 세우면 사용자 기계에 Node 가 없어도 받을 수 있다.
+       *
+       * ★ **새 판 확인은 끈다** (2026-10-23) — 받는 데 필요 없고, 망에 붙잡히면 끝이 안 온다.
        */
-      ...(env ? { env: { ...process.env, ...env } } : {}),
+      env: { ...process.env, ...(env ?? {}), npm_config_update_notifier: "false" },
     });
     let say = "";
+    let settled = false;
+    let finish: ReturnType<typeof setTimeout> | undefined;
+    const give = (r: { code: number; say: string }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(finish);
+      done(r);
+    };
     const eat = (c: Buffer | string): void => {
       const t = String(c);
       say = (say + t).slice(-4000);
-      if (onLine) for (const l of t.split("\n")) if (l.trim()) onLine(l.trim());
+      for (const l of t.split("\n")) {
+        const line = l.trim();
+        if (!line) continue;
+        onLine?.(line);
+        if (NPM_SUMMARY.test(line)) {
+          clearTimeout(finish);
+          finish = setTimeout(() => {
+            if (p.pid) void killPid(p.pid);
+            give({ code: 0, say: `${say}\n(npm 이 마치고도 끝나지 않아 ${finishMs / 1000}초 뒤 마무리했습니다)` });
+          }, finishMs);
+        }
+      }
     };
     p.stdout.on("data", eat);
     p.stderr.on("data", eat);
-    p.on("error", (e) => done({ code: -1, say: String(e.message) }));
-    p.on("exit", (code) => done({ code: code ?? -1, say }));
+    p.on("error", (e) => give({ code: -1, say: String(e.message) }));
+    p.on("exit", (code) => give({ code: code ?? -1, say }));
   });
+}
+
+export const realNpm: Run = spawnRun(process.platform === "win32" ? "npm.cmd" : "npm", [], NPM_FINISH_MS);
 
 /**
  * 받는다. 이미 맞는 판이 있으면 아무것도 안 한다.

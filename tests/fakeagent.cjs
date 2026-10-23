@@ -159,7 +159,18 @@ const SLOW_INIT = Number(process.env.AIO_FAKE_SLOW_INIT ?? 0);
 function handle(msg) {
   const { id, method, params } = msg;
   switch (method) {
-    case "initialize":
+    case "initialize": {
+      /*
+       * ★ **첫 띄우기만 실패한다** (2026-10-23) — `AIO_FAKE_INIT_FAIL_ONCE=<파일>`.
+       * 그 파일이 없으면 만들고 실패한다. 다음에 뜬 프로세스는 파일을 보고 붙는다.
+       * 처음 까는 환경에서 첫 띄우기가 실패한 뒤 로그인이 막히던 것을 재려고.
+       */
+      const failOnceInit = process.env.AIO_FAKE_INIT_FAIL_ONCE;
+      if (failOnceInit && !fs.existsSync(failOnceInit)) {
+        fs.writeFileSync(failOnceInit, "failed");
+        throw new Error("처음엔 실패한다");
+      }
+    }
       return {
         protocolVersion: 1,
         agentCapabilities: {

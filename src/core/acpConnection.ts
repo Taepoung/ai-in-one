@@ -1197,6 +1197,15 @@ export class AcpConnection {
     return this.init.agentCapabilities?.mcpCapabilities?.http === true;
   }
 
+  /**
+   * ★ **내려간 연결인가** (2026-10-23). 한 번 내려가면 다시 안 뜬다(`ensureStarted`).
+   * 첫 띄우기가 실패하면 **스스로 내려가므로**, 들고 있는 쪽(연결 풀)이 이걸 보고
+   * 새로 만들어야 한다.
+   */
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
   async probeUsage(
     cwd: string,
     want: readonly string[],
