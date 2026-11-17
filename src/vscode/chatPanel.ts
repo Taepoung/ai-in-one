@@ -29,7 +29,7 @@ import type {
   ToWebview,
 } from "../protocol.js";
 import { roomListHtml } from "../protocol.js";
-import { errorFields, readableError } from "./errorText.js";
+import { errorFields, popupDue, readableError } from "./errorText.js";
 
 /**
  * 채팅 앱 하나.
@@ -766,7 +766,9 @@ export class ChatPanel implements AskTarget {
       else if ("roomId" in m && typeof m.roomId === "string") {
         this.post({ t: "roomError", roomId: m.roomId, message });
       }
-      else void vscode.window.showErrorMessage(`AI in One: ${message} — 자세한 것은 출력 창(AI in One)에`);
+      else if (popupDue(ChatPanel.popped, message, Date.now())) {
+        void vscode.window.showErrorMessage(`AI in One: ${message} — 자세한 것은 출력 창(AI in One)에`);
+      }
     }
   }
 
@@ -1076,6 +1078,8 @@ export class ChatPanel implements AskTarget {
    * 지킨다 — 그건 따로 볼 문제다.
    */
   private static readonly busy = new Map<string, string>();
+  /** 같은 오류 팝업을 언제 띄웠나 — 줄지어 쌓이지 않게 (`popupDue`) */
+  private static readonly popped = new Map<string, number>();
 
   /**
    * ★ **에이전트마다 지금 어느 칸에 있나** (2026-10-01).
