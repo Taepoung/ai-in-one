@@ -29,6 +29,7 @@ import type {
   ToWebview,
 } from "../protocol.js";
 import { roomListHtml } from "../protocol.js";
+import { errorFields, readableError } from "./errorText.js";
 
 /**
  * 채팅 앱 하나.
@@ -748,14 +749,24 @@ export class ChatPanel implements AskTarget {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = readableError(err);
+      /*
+       * ★ **무엇을 하다 났는지 출력 창에 남긴다** (사용자, 2026-11-18: *"AI in One: Unknown
+       * system error -122: Unknown system error -122, write"*).
+       *
+       * 🔴 그 한 줄로는 **어느 일이 어느 파일에 쓰다** 났는지 알 길이 없었다 — 팝업만 뜨고
+       * 어디에도 안 남았다. 화면에서 온 요청 이름과 오류의 칸(code · syscall · path)과
+       * 스택을 적는다.
+       */
+      this.rooms.log(`[${m.t}${"agentId" in m ? ` ${String(m.agentId)}` : ""}] 실패 — ${message}${errorFields(err)}`);
+      if (err instanceof Error && err.stack) this.rooms.log(err.stack);
       // 방 만들기 실패는 화면이 다르다 — 방이 없으니 roomError로 보낼 수 없다.
       if (m.t === "createRoom") this.post({ t: "createFailed", message });
       // `roomId`가 선택인 메시지도 있다 — 없으면 어느 방 오류인지 말할 수 없다
       else if ("roomId" in m && typeof m.roomId === "string") {
         this.post({ t: "roomError", roomId: m.roomId, message });
       }
-      else void vscode.window.showErrorMessage(`AI in One: ${message}`);
+      else void vscode.window.showErrorMessage(`AI in One: ${message} — 자세한 것은 출력 창(AI in One)에`);
     }
   }
 
@@ -1595,3 +1606,4 @@ function mimeFromPath(p: string): string {
 function describeErr(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
