@@ -92,8 +92,13 @@ export const claude: AgentDef = {
    *
    * 0.81.2 → 0.84.0 (2026-09-29). 위 순서를 다 밟았다. probe 21개 판정
    * 차이 0, 세션·맥락·되돌리기 다 살아 있다. Sonnet 방만 모델이 올라간다.
+   *
+   * 0.90.0 → 0.108.0 (2026-11-18). probe 21개 중 갈린 셋: delsess · wakebusy 는 **좋아졌고**
+   * (지운 방이 디스크에서도 사라진다 · 백그라운드 결과를 물으면 가져온다), bgnotify 는 **자**
+   * 탓이다 — 첫 턴이 19초라 백그라운드(10초)가 둘째 턴 전에 끝나 알림이 올 자리가 없었다.
+   * 세션·되돌리기 3/3. 🔴 0.90.0 의 `sonnet` 은 **`claude-sonnet-5`** 였다 — 또 한 세대 묶여 있었다.
    */
-  args: ["-y", "@agentclientprotocol/claude-agent-acp@0.90.0"],
+  args: ["-y", "@agentclientprotocol/claude-agent-acp@0.108.0"],
   /*
    * ★ **우리 자리에 받아둔다** (2026-10-01) — `src/core/install/README.md`.
    *
@@ -106,7 +111,7 @@ export const claude: AgentDef = {
    * 갈리므로(`-win32-x64` · `-darwin-arm64` …) `*` 로 두고 받은 것을 찾는다.
    */
   pkg: {
-    spec: "@agentclientprotocol/claude-agent-acp@0.90.0",
+    spec: "@agentclientprotocol/claude-agent-acp@0.108.0",
     bin: "claude-agent-acp",
     auth: {
       file: path.join(".claude", ".credentials.json"),

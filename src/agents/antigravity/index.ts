@@ -96,28 +96,28 @@ export const antigravity: AgentDef = {
      */
     binary: {
       "win32-x64": {
-        archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-x86_64.zip",
+        archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.5.0-windows-x86_64.zip",
         cmd: "agy_acp_server.exe",
       },
       "win32-arm64": {
-        archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.4.0-windows-arm64.zip",
+        archive: "https://dl.google.com/agy-extensions/releases/windows/agy-acp-server-1.5.0-windows-arm64.zip",
         cmd: "agy_acp_server.exe",
       },
       "darwin-arm64": {
-        archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-arm64.zip",
+        archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.5.0-darwin-arm64.zip",
         cmd: "agy_acp_server.par",
       },
       "darwin-x64": {
-        archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.4.0-darwin-x86_64.zip",
+        archive: "https://dl.google.com/agy-extensions/releases/macos/agy-acp-server-1.5.0-darwin-x86_64.zip",
         cmd: "agy_acp_server.par",
       },
       "linux-x64": {
-        archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-x86_64.zip",
+        archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.5.0-linux-x86_64.zip",
         cmd: "agy_acp_server.par",
         args: ["--uid="],
       },
       "linux-arm64": {
-        archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.4.0-linux-arm64.zip",
+        archive: "https://dl.google.com/agy-extensions/releases/linux/agy-acp-server-1.5.0-linux-arm64.zip",
         cmd: "agy_acp_server.par",
         args: ["--uid="],
       },

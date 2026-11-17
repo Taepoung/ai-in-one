@@ -54,8 +54,8 @@ const CODEX_EXE = "node_modules/@openai/codex-*/vendor/*/bin/codex";
  * 생긴다 — 없애려면 `~/AppData/Local/npm-cache/_npx` 의 낡은 자리를 지운다.
  */
 const CODEX_PIN = [
-  "-p", "@agentclientprotocol/codex-acp@2.2.2",
-  "-p", "@openai/codex@0.160.1",
+  "-p", "@agentclientprotocol/codex-acp@2.7.0",
+  "-p", "@openai/codex@0.166.0",
 ];
 
 export const codex: AgentDef = {
@@ -113,11 +113,13 @@ export const codex: AgentDef = {
    * 옛 핀(0.159.3)을 그대로 뒀으면 `overrides` 가 **저쪽이 거절할 판을
    * 억지로** 눌러 박는 꼴이었다. 지금 그 범위에 드는 것은 `0.160.1`
    * 하나뿐이라 그것으로 박는다(0.162.1 은 범위 밖이다).
+   *
+   * 2026-11-18: 어댑터 2.7.0 은 `^0.166.0` — 범위 안은 `0.166.0` 하나다(최신 0.169.0 은 밖).
    */
   pkg: {
-    spec: "@agentclientprotocol/codex-acp@2.2.2",
+    spec: "@agentclientprotocol/codex-acp@2.7.0",
     bin: "codex-acp",
-    overrides: { "@openai/codex": "0.160.1" },
+    overrides: { "@openai/codex": "0.166.0" },
     exeEnv: { name: "CODEX_PATH", bin: "codex" },
     /* 나갈 때 세션을 지우는 명령 — **품은 그 exe** 로 부른다 */
     purge: { find: CODEX_EXE, args: ["delete", "--force", "{id}"] },

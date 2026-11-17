@@ -844,6 +844,14 @@ export function spawnRun(cmd: string, pre: readonly string[], finishMs: number):
           clearTimeout(finish);
           finish = setTimeout(() => {
             if (p.pid) void killPid(p.pid);
+            /*
+             * 🔴 **통로도 놓는다** (2026-11-18). 죽이기는 늦게 닿거나(윈도우 taskkill) 본체만
+             * 죽여서(리눅스) npm 이 띄운 손자가 출력 통로를 쥐고 남을 수 있다 — 그러면 우리
+             * 쪽 통로가 열린 채라 Node 가 그걸 기다린다. 검사가 가끔 안 끝나며 드러났다.
+             */
+            p.stdout.destroy();
+            p.stderr.destroy();
+            p.unref();
             give({ code: 0, say: `${say}\n(npm 이 마치고도 끝나지 않아 ${finishMs / 1000}초 뒤 마무리했습니다)` });
           }, finishMs);
         }

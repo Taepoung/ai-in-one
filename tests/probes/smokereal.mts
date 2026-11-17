@@ -4,6 +4,9 @@
  * probe 는 ACP 를 손으로 말한다. `npm test` 는 가짜 에이전트를 쓴다.
  * 그 사이 — **우리 코드 + 진짜 어댑터** — 가 아무도 안 밟는 칸이다.
  * 핀을 올렸으면 거기를 한 번은 지나가 봐야 한다.
+ *
+ * 에이전트를 고를 수 있다(2026-11-18 — Codex 핀을 올리다 Claude 만 재던 것을 알았다):
+ * `npx tsx tests/probes/smokereal.mts codex`. 안 주면 claude.
  */
 import * as os from "node:os"; import * as path from "node:path"; import * as fs from "node:fs/promises";
 import { RoomManager } from "../../src/core/roomManager.js";
@@ -21,13 +24,14 @@ async function main(): Promise<void> {
     requestPermission: async () => ({ outcome: "cancelled" }),
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
-  const claude = DEFAULT_AGENTS.find((a) => a.id === "claude")!;
+  const id = process.argv[2] ?? "claude";
+  const claude = DEFAULT_AGENTS.find((a) => a.id === id)!;
   console.log(`  어댑터: ${claude.args.join(" ")}`);
 
   const mgr = new RoomManager({ host, store, agents: [claude], configProbeMs: 60000 });
   mgr.on("roomError", (_r, e) => console.log("  roomError:", e));
 
-  const room = await mgr.createRoom({ agentId: "claude", title: "연기" });
+  const room = await mgr.createRoom({ agentId: id, title: "연기" });
   const opts = await mgr.roomConfigOptions(room.id);
   const model = opts.find((o) => o.category === "model") as
     | { currentValue?: unknown; options?: unknown[] } | undefined;

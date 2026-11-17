@@ -87,8 +87,7 @@ const ask = (c) => { try { return execSync(c, { encoding: "utf8" }).trim(); } ca
   const cat = fs.readdirSync(AGENTS, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => fs.readFileSync(path.join(AGENTS, d.name, "index.ts"), "utf8"))
-    .join("
-");
+    .join("\n");
   for (const m of cat.matchAll(/"(-y)", "(@agentclientprotocol\/[^"]+)"/g)) {
     const spec = m[2];
     console.log(`  ${spec.includes("@", 1) ? "박음  " : "안 박음"} ${spec}`);
