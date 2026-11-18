@@ -214,4 +214,31 @@ console.log(NL + "[★ 줄 하나만 다시 받는다 (사용자, 2026-10-20)]")
   ok(!/받는 중/.test(t.$(".quota-card").textContent), "★ 다 받았으면 «받는 중» 이 걷힌다");
 }
 
+console.log(NL + "[★ 리셋은 «몇 시간 뒤» 로 — 원문은 툴팁에 (2026-11-18)]");
+{
+  const t = mount();
+  open(t, [bot("b1", "claude"), bot("b2", "codex")]);
+  t.$("button.icon[title='사용량']").click();
+  const soon = Date.now() + (3 * 60 + 12) * 60_000;
+  const week = Date.now() + (6 * 24 + 5) * 3_600_000 + 30 * 60_000;
+  t.send({ t: "quota", list: [
+    { agentId: "claude", label: "Claude", cmd: "usage", at: 1, text: "…",
+      lines: [
+        { label: "5-hour limit", percent: 3, sense: "used", left: 97,
+          resets: "Oct 19, 7:20 PM GMT+9", resetsAt: soon },
+        { label: "Weekly", percent: 9, sense: "used", left: 91,
+          resets: "Oct 22, 11:00 AM GMT+9", resetsAt: week },
+      ] },
+    // 애드온이 못 읽은 모양 — 시각이 없다
+    { agentId: "codex", label: "Codex", cmd: "status", at: 1, text: "…",
+      lines: [{ label: "codex 5h limit", percent: 50, sense: "left", left: 50, resets: "next Tuesday" }] },
+  ] });
+  // `.quota-at` 은 «…기준» 줄도 쓴다 — 막대 안의 것만
+  const at = t.$$(".quota-bar .quota-at");
+  ok(at[0]?.textContent === "3시간 12분 뒤 다시 찹니다", `★ **몇 시간 뒤** (${at[0]?.textContent})`);
+  ok(at[0]?.title === "Oct 19, 7:20 PM GMT+9", "★ 원문은 **툴팁에** 남는다");
+  ok(at[1]?.textContent === "6일 5시간 뒤 다시 찹니다", `★ 하루가 넘으면 **분은 버린다** (${at[1]?.textContent})`);
+  ok(at[2]?.textContent === "next Tuesday 에 다시 찹니다", `★ 못 읽은 모양은 **원문 그대로** (${at[2]?.textContent})`);
+}
+
 console.log(NL + "전부 통과");

@@ -160,4 +160,51 @@ console.log(NL + "[★ standard — 처음 보는 에이전트는 짐작하는 �
   ok(parseStandardQuota("**비용:** 0.29 USD").length === 0, "★ 퍼센트가 아니면 안 줍는다");
 }
 
+console.log(NL + "[★ 리셋 글을 시각으로 읽는다 — 화면이 «몇 시간 뒤» 를 센다 (2026-11-18)]");
+{
+  /*
+   * 사용자: *"사용량에서는 언제 다시 차는지가 아니라 몇시간 후 이렇게는 못보여주려나"*.
+   * 셋의 모양이 다 다르다 — 위의 **진짜 표본**을 그대로 읽힌다. `now` 를 박아 둬야
+   * 연도 없는 날짜(Claude · Codex)를 어느 해로 맞추는지까지 잴 수 있다.
+   */
+  const pq = (id: string, text: string, now: number): QuotaLine[] =>
+    (DEFAULT_AGENTS.find((a) => a.id === id)!.quota!.parse as (t: string, n: number) => QuotaLine[])(text, now);
+
+  // Claude — «Oct 19, 7:20 PM GMT+9» : 연도 없음 · 시간대 있음
+  const c = pq("claude", CLAUDE, Date.UTC(2026, 9, 19, 8, 0));
+  ok(c[0]!.resetsAt === Date.UTC(2026, 9, 19, 10, 20),
+     `★ Claude — GMT+9 의 저녁 7:20 은 UTC 10:20 (${new Date(c[0]!.resetsAt ?? 0).toISOString()})`);
+  ok(c[1]!.resetsAt === Date.UTC(2026, 9, 22, 2, 0), "★ Claude 주간 — Oct 22, 11:00 AM GMT+9");
+  ok(c[0]!.resets === "Oct 19, 7:20 PM GMT+9", "★ **원문도 그대로** 남는다 — 툴팁과, 못 읽었을 때의 자리");
+
+  // 해를 넘긴다 — 12월 말에 받은 «Jan 2» 는 내년이다
+  const wrap = pq("claude", "**Weekly** — **9%** · Resets Jan 2, 9:00 AM GMT+9", Date.UTC(2026, 11, 30));
+  ok(wrap[0]!.resetsAt === Date.UTC(2027, 0, 2, 0, 0), "★ **해를 넘긴다** — 12월에 받은 1월 2일은 내년");
+  // 방금 지난 것은 내년으로 안 보낸다 — «이미 다시 찼다» 여야 한다
+  const just = pq("claude", "**5-hour limit** — **3%** · Resets Oct 19, 7:20 PM GMT+9", Date.UTC(2026, 9, 19, 10, 30));
+  ok(just[0]!.resetsAt === Date.UTC(2026, 9, 19, 10, 20), "★ 10분 전에 지난 시각은 **그대로** — 1년 뒤가 아니다");
+
+  // Antigravity — «Oct 26, 2026, 07:02 UTC» : 연도 · 시간대 다 있다
+  const g = pq("antigravity", AGY, Date.UTC(2026, 9, 19));
+  ok(g[0]!.resetsAt === Date.UTC(2026, 9, 26, 7, 2), "★ Antigravity — UTC 그대로");
+
+  // Codex — «16:02 on 11월 18일» : 시간대 없음 → 이 기계 시계
+  const nowLocal = new Date(2026, 10, 18, 10, 0).getTime();
+  const x = pq("codex", CODEX, nowLocal);
+  ok(x[0]!.resetsAt === new Date(2026, 10, 18, 16, 2).getTime(), "★ Codex — «11월 18일» 을 이 기계 시간으로");
+  const en = pq("codex", "**codex 5h limit:** 50% left (resets 16:02 on 18 Nov)", nowLocal);
+  ok(en[0]!.resetsAt === new Date(2026, 10, 18, 16, 2).getTime(), "★ Codex — 영어 «18 Nov» 도");
+  const en2 = pq("codex", "**codex 5h limit:** 50% left (resets 16:02 on Nov 18)", nowLocal);
+  ok(en2[0]!.resetsAt === new Date(2026, 10, 18, 16, 2).getTime(), "★ Codex — «Nov 18» 도");
+  const bare = pq("codex", "**codex 5h limit:** 50% left (resets 09:00)", nowLocal);
+  ok(bare[0]!.resetsAt === new Date(2026, 10, 19, 9, 0).getTime(), "★ Codex — 시각만 있으면 **다음에 오는** 그 시각 (내일 9시)");
+
+  // 모르는 모양은 지어내지 않는다 — 원문만 남는다
+  const odd = pq("codex", "**codex 5h limit:** 50% left (resets next Tuesday)", nowLocal);
+  ok(odd[0]!.resetsAt === undefined && odd[0]!.resets === "next Tuesday",
+     "★ **못 읽으면 시각을 안 지어낸다** — 화면은 원문을 보인다");
+  ok(pq("claude", "**x** — **3%** · Resets Oct 19, 25:20 PM GMT+9", nowLocal)[0]!.resetsAt === undefined,
+     "★ 말이 안 되는 시각(25시)도 버린다");
+}
+
 console.log(NL + "전부 통과");

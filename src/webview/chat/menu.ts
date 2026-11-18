@@ -239,6 +239,25 @@ export function paintQuota(): void {
  * 에이전트마다 반대인데, 그걸 아는 것은 애드온이다 — 화면은 에이전트를 몰라야
  * 한다(`src/agents/README.md`). 그래서 `line.left` 는 **이미 «남은 양»** 이다.
  */
+/**
+ * 리셋까지 남은 시간을 한 줄로 — `42분 뒤` · `3시간 12분 뒤` · `2일 5시간 뒤`.
+ *
+ * 하루가 넘으면 분은 버린다 — 주간 한도에서 «6일 23시간 41분» 은 읽히지 않는다.
+ * 지났으면 그렇다고 말한다: 받은 뒤 시간이 흘렀다는 뜻이라 다시 받으면 찬 값이 온다.
+ */
+export function untilRefill(at: number, now = Date.now()): string {
+  const ms = at - now;
+  if (ms <= 0) return "다시 찼을 시각입니다 — 다시 받으면 새 값이 옵니다";
+  const min = Math.ceil(ms / 60_000);
+  if (min < 60) return `${min}분 뒤 다시 찹니다`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h < 24) return `${h}시간${m ? ` ${m}분` : ""} 뒤 다시 찹니다`;
+  const d = Math.floor(h / 24);
+  const hh = h % 24;
+  return `${d}일${hh ? ` ${hh}시간` : ""} 뒤 다시 찹니다`;
+}
+
 function quotaBars(lines: readonly QuotaLine[]): HTMLElement[] {
   return lines.map((line) => {
     const left = line.left;
@@ -263,9 +282,16 @@ function quotaBars(lines: readonly QuotaLine[]): HTMLElement[] {
           style: { width: `${left}%` },
         }),
       ),
-      ...(line.resets
-        ? [el("div", { class: "quota-at", text: `${line.resets} 에 다시 찹니다` })]
-        : []),
+      /*
+       * ★ **«몇 시간 뒤» 로 말한다** (사용자, 2026-11-18): *"언제 다시 차는지가 아니라
+       * 몇시간 후 이렇게는 못보여주려나"*. 셈은 **그릴 때** 한다 — 받아둔 것을 나중에
+       * 다시 열어도 맞는다. 원문은 툴팁에 남긴다. 애드온이 못 읽은 모양이면 원문 그대로다.
+       */
+      ...(line.resetsAt !== undefined
+        ? [el("div", { class: "quota-at", text: untilRefill(line.resetsAt), title: line.resets ?? "" })]
+        : line.resets
+          ? [el("div", { class: "quota-at", text: `${line.resets} 에 다시 찹니다` })]
+          : []),
     );
   });
 }
