@@ -1858,6 +1858,29 @@ function main() {
     ok(t.sent.some((m) => m.t === "authSkip"), "★ [그냥 들어가기] 도 간다");
   }
 
+  console.log("\n[★ 옆 방에 다녀오면 **옛 «답하는 중» 을 안 들고 온다** (2026-11-18)]");
+  {
+    /*
+     * 🔴 상태는 **보는 방 것만** 받는다. 다른 방에 있는 사이 봇이 끝나면 그 소식은
+     * 버려지고, 돌아왔을 때 화면은 여전히 «답하는 중» 이라 친 말을 **예약으로**
+     * 올렸다 — 사용자 눈에는 «바로 안 나가고 멈춰 있다».
+     */
+    const t = mount(boot());
+    t.send({ t: "room", room: room(), compactable: false });
+    t.send({ t: "status", roomId: "r1", status: "streaming", bots: { b1: "streaming" } });
+    // 옆 방에 갔다가 (그 사이 r1 의 «끝났다» 는 이 화면에 안 온다)
+    t.send({ t: "room", room: room({ id: "r2", participants: [
+      { id: "b2", agentId: "codex", name: "Codex", sessionId: "s2",
+        approver: { kind: "user" }, answerPolicy: "ask" }] }), compactable: false });
+    // 돌아온다 — 상태 소식 없이
+    t.send({ t: "room", room: room(), compactable: false });
+    const box = t.$("#screen-chat .composer textarea");
+    box.value = "돌아와서 친 말";
+    t.$("#screen-chat button.send").click();
+    const last = t.sent.filter((m) => m.t === "send" || m.t === "stage").pop();
+    ok(last?.t === "send", `★ **바로 보낸다** — 예약으로 안 올린다 (${last?.t})`);
+  }
+
   console.log("\n전부 통과\n");
 }
 

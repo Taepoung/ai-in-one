@@ -15,6 +15,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
   Room,
+  RoomStatus,
 } from "../core/types.js";
 import { BlobDocuments } from "./blobDocuments.js";
 import type { AskTarget } from "./vscodeHost.js";
@@ -231,7 +232,19 @@ export class ChatPanel implements AskTarget {
     };
 
     on("metas", (() => this.post({ t: "metas", rooms: this.rooms.listMetas() })) as never);
-    on("room", ((room: Room) => this.postRoom(room)) as never);
+    /*
+     * 🔴 **보고 있는 방 것만 넘긴다** (사용자, 2026-11-18).
+     *
+     * 코어는 **어느 방이든** 바뀌면 `room` 을 낸다 — 뒤에서 올려둔 글이 나갈 때도,
+     * 세션이 붙을 때도. 화면은 받은 방을 **곧 «지금 보는 방»** 으로 삼으므로, 거르지
+     * 않으면 옆 방의 예약이 나가는 순간 **그 방으로 끌려간다.** 끌려간 뒤에는 입력창 ·
+     * 봇 상태 · 예약 칸이 엇갈린 방을 보고 «안 나가고 멈춰 있다» 로 보였다.
+     * 목록의 변화는 `metas` 가 따로 나른다. 사용자가 고른 이동(열기 · 만들기 · 분기)은
+     * `openRoomId` 를 먼저 세우고 `postRoom` 을 직접 부르므로 이 문을 안 지난다.
+     */
+    on("room", ((room: Room) => {
+      if (room.id === this.openRoomId) this.postRoom(room);
+    }) as never);
     // 스트리밍은 여기로 나간다 — 대화 길이와 무관하게 한 개만 보낸다.
     on("message", ((roomId: string, message: never) => {
       // 사용량은 숫자 몇 개라 같이 실어도 페이로드가 사실상 느지 않는다
@@ -376,6 +389,7 @@ export class ChatPanel implements AskTarget {
           this.openRoomId = m.roomId;
           // **방을 여는 것과 읽는 것은 다르다.** 먼저 구분선 위치를 잡고 나서 읽음 처리한다.
           this.postRoom(got.room);
+          this.postBots(got.room);
           await this.rooms.setActiveRoom(m.roomId);
           break;
         }
@@ -1446,6 +1460,27 @@ export class ChatPanel implements AskTarget {
     this.post({ t: "reviews", roomId: room.id, list: this.rooms.reviewsIn(room.id) });
     this.post({ t: "waiting", roomId: room.id, list: this.rooms.waitingIn(room.id) });
     this.post({ t: "clashes", roomId: room.id, list: this.rooms.clashesIn(room.id) });
+  }
+
+  /**
+   * ★ **들어온 방의 봇 상태를 지금 값으로 준다** (2026-11-18).
+   *
+   * 🔴 상태는 **바뀔 때만** 나가고 화면은 보는 방 것만 받는다. 그래서 다른 방에 있는
+   * 사이 끝난 봇은 화면에 «답하는 중» 으로 남았고, 돌아와 친 말이 **괜히 예약으로**
+   * 올라갔다. 방에 들어갈 때(`open`) 한 번만 준다 — `postRoom` 은 붙기가 끝날 때도
+   * 불려서, 거기 실으면 붙는 화면이 한 번 뒤로 돈다.
+   *
+   * ⚠️ **`idle` 은 싣지 않는다.** 코어는 아직 안 붙은 봇도 `idle` 이라 답하는데, 붙는
+   * 화면은 빈칸을 «붙는 중» 으로 읽고 `idle` 을 «다 붙음» 으로 읽는다 — 실으면 들어가는
+   * 순간 ✓ 로 깜빡인다. 대화창은 빈칸을 한가함으로 읽으니 빼도 같은 뜻이다.
+   */
+  private postBots(room: Room): void {
+    const bots: Record<string, RoomStatus> = {};
+    for (const b of room.participants) {
+      const at = this.rooms.statusOf(room.id, b.id);
+      if (at !== "idle") bots[b.id] = at;
+    }
+    this.post({ t: "status", roomId: room.id, status: this.rooms.statusOf(room.id), bots });
   }
 
   private post(msg: ToWebview): void {

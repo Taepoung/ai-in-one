@@ -165,7 +165,8 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       // 🔴 심사 줄은 **방마다**다. 안 비우면 옆 방 것이 여기 붙는다.
       // 치워둔 글도 방을 갈아타면 보여줄 자리가 없다 — 그 방으로 돌아가면 다시 뜬다.
       /* 🔴 **창도 되돌린다** — 안 그러면 옆 방에서 편 만큼 여기서도 펴진다 */
-      if (switching) { S.reviews = []; S.waiting = []; S.waitBotId = null; S.shownCount = PAGE; }
+      // 봇 상태도 비운다 — 옆 방 것을 들고 있으면 «답하는 중» 으로 잘못 막는다(바로 뒤에 새 값이 온다)
+      if (switching) { S.reviews = []; S.waiting = []; S.waitBotId = null; S.shownCount = PAGE; S.botStatus = {}; }
       S.room = m.room;
       S.usage = m.room.usage;
       S.compactable = m.compactable;
