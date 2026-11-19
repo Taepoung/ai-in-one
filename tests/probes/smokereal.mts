@@ -13,6 +13,12 @@ import { RoomManager } from "../../src/core/roomManager.js";
 import { RoomStore } from "../../src/core/store.js";
 import { DEFAULT_AGENTS } from "../../src/agents/index.js";
 import type { WorkspaceHost } from "../../src/core/workspaceHost.js";
+import { withInstalled } from "../../src/core/install/agentInstaller.js";
+
+/* ★ 받아둔 것을 띄운다 (2026-11-20) — 카탈로그의 `npx -y` 는 더는 앱이 쓰는 길이 아니다 */
+const ROOT = path.join(
+  process.env["APPDATA"] ?? path.join(os.homedir(), ".config"),
+  "Code", "User", "globalStorage", "taein-yoon.ai-in-one");
 
 const ok = (c: boolean, m: string) => { console.log(`  ${c ? "OK" : "NO"} -`, m); return c; };
 
@@ -25,7 +31,8 @@ async function main(): Promise<void> {
     log: () => {}, defaultCwd: () => dir, hasWorkspace: () => true,
   };
   const id = process.argv[2] ?? "claude";
-  const claude = DEFAULT_AGENTS.find((a) => a.id === id)!;
+  const claude = withInstalled(DEFAULT_AGENTS.find((a) => a.id === id)!, ROOT);
+  if (claude.unavailable) { console.log("  " + claude.unavailable); return; }
   console.log(`  어댑터: ${claude.args.join(" ")}`);
 
   const mgr = new RoomManager({ host, store, agents: [claude], configProbeMs: 60000 });
