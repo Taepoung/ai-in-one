@@ -283,6 +283,15 @@ export const S = {
   /** 마지막으로 받은 에이전트 목록 — 화면을 다시 그릴 때 쓴다 */
   agentRows: [] as Extract<ToWebview, { t: "agents" }>["list"],
   /**
+   * ★ **디스크 정리 칸** (2026-11-19). `spots` 는 마지막으로 잰 것 — 다시 재는 동안에도
+   * 그대로 보여준다(칸이 사라졌다 나타나면 누르려던 단추가 도망간다).
+   */
+  clean: { spots: undefined, busy: undefined, said: undefined } as {
+    spots: Extract<ToWebview, { t: "clean" }>["spots"];
+    busy: string | undefined;
+    said: string | undefined;
+  },
+  /**
    * ★ **에이전트 설정 화면** (2026-10-01) — `src/core/install/README.md`.
    *
    * 단추는 **전부 `state` 가 정한다.** 여기서 다시 판단하지 않는다 —

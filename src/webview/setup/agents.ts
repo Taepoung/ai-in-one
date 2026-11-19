@@ -175,4 +175,66 @@ export function renderAgents(): void {
     }
     host.append(row);
   }
+
+  host.append(renderClean());
+}
+
+/**
+ * ★ **디스크 정리** (2026-11-19) — 사용자: *"캐시 정리할 수 있는 기능 넣을 수 있나?"*
+ *
+ * ```
+ * 받아둔 에이전트   972MB   쓰는 중 — 위에서 「제거」
+ * 같이 받은 Node    107MB   쓰는 중
+ * 받다·지우다 남은 것  0MB
+ * npm 캐시         3.7GB   다른 프로그램도 씀    [지우기]
+ * npx 캐시         6.6GB   다른 프로그램도 씀    [지우기]
+ * ```
+ *
+ * 쓰는 중인 것도 **같이 보여준다** — 어디가 얼마나 먹나를 알아야 무엇을 지울지 고른다.
+ * 그건 단추 대신 왜 못 지우는지를 적는다. 재는 것은 **누를 때만**이다(수만 개를 센다).
+ */
+function renderClean(): HTMLElement {
+  const c = S.clean;
+  const card = el("div", { class: "clean-card" },
+    el("div", { class: "agent-head" }, el("span", { class: "agent-name", text: "디스크 정리" })));
+
+  if (!c.spots) {
+    card.append(
+      el("p", { class: "dim", text: "에이전트와 npm 이 디스크를 얼마나 쓰는지 재고, 남은 것을 지웁니다." }),
+      c.busy
+        ? el("p", { class: "agent-busy dim", text: c.busy })
+        : el("div", { class: "agent-acts" }, el("button", {
+          class: "agent-btn", text: "얼마나 쓰나 보기", onclick: () => post({ t: "cleanAsk" }),
+        })),
+    );
+    if (c.said) card.append(el("p", { class: "clean-said", text: c.said }));
+    return card;
+  }
+
+  for (const s of c.spots) {
+    const why = !s.canClean
+      ? (s.id === "agents" ? "쓰는 중 · 지우려면 위에서 「제거」" : "쓰는 중")
+      : s.shared ? "다른 프로그램도 씀" : "";
+    const line = el("div", { class: `clean-row ${s.id}`, title: s.where },
+      el("span", { class: "clean-name", text: s.label }),
+      el("span", { class: "clean-size", text: mb(s.bytes) || "0MB" }),
+      why ? el("span", { class: "clean-why dim", text: why }) : null,
+    );
+    if (s.canClean) {
+      line.append(el("button", {
+        class: "agent-btn", text: "지우기",
+        disabled: c.busy !== undefined || s.bytes <= 0,
+        onclick: () => post({ t: "cleanDo", id: s.id }),
+      }));
+    }
+    card.append(line);
+  }
+
+  card.append(c.busy
+    ? el("p", { class: "agent-busy dim", text: c.busy })
+    : el("div", { class: "agent-acts" }, el("button", {
+      class: "agent-btn", text: "다시 재기", onclick: () => post({ t: "cleanAsk" }),
+    })));
+  if (c.said) card.append(el("p", { class: "clean-said", text: c.said }));
+  return card;
 }

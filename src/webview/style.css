@@ -4025,6 +4025,59 @@ fieldset.bot .bot-drop.danger:hover {
   font-size: var(--fs-12);
 }
 
+/* 디스크 정리 — 에이전트 카드와 같은 틀, 아래에 한 장 (setup/agents.ts renderClean) */
+.clean-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 16px 16px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.clean-card p {
+  margin: 0;
+  font-size: var(--fs-12);
+}
+
+/* 이름 · 크기 · 왜 · [지우기] — 좁은 옆 패널에서는 «왜» 가 아래로 접힌다 */
+.clean-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  font-size: var(--fs-12);
+}
+
+.clean-name {
+  min-width: 0;
+}
+
+.clean-size {
+  font-variant-numeric: tabular-nums;
+}
+
+.clean-why {
+  font-size: var(--fs-11);
+}
+
+.clean-row .agent-btn {
+  margin-left: auto;
+  padding: 2px 10px;
+}
+
+.clean-row .agent-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 결과 글 — «비웠습니다» 와 «못 지웠습니다» 가 같은 자리라 색으로 가르지 않는다 */
+.clean-said {
+  font-weight: 600;
+}
+
 /* 막음 화면의 «내보내기» — 봇 빼기와 같은 무게다 (src/core/install/README.md) */
 .fix-bot .ghost.danger {
   border-color: var(--danger);

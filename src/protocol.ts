@@ -20,6 +20,10 @@ import type {
 } from "./core/types.js";
 import type { ComposeToken } from "./core/mentions.js";
 import type { McpState } from "./core/mcpServer.js";
+import type { Spot } from "./core/install/cleanup.js";
+
+/** 디스크 정리의 한 칸 — 지울 경로 목록은 화면에 안 보낸다(확장이 다시 잰다) */
+export type CleanSpot = Omit<Spot, "paths"> & { count: number };
 
 /** 방 만들기 화면에 필요한 만큼만 추린 에이전트 정보. `command`·`env`는 보내지 않는다 */
 export interface AgentBrief {
@@ -174,6 +178,11 @@ export type ToWebview =
         busy?: string;
       }[];
     }
+  /**
+   * ★ **디스크 정리 칸** (2026-11-19). `busy` 면 재거나 지우는 중이고, `said` 는
+   * 방금 한 일의 결과다(«2.1GB 를 비웠습니다»).
+   */
+  | { t: "clean"; spots?: CleanSpot[]; busy?: string; said?: string }
   | { t: "metas"; rooms: RoomMeta[] }
   | {
       t: "room";
@@ -580,6 +589,15 @@ export type FromWebview =
    * 지금 상태**다(`none` 인가 `stale` 인가). 단추 글자만 다르게 보여준다.
    */
   | { t: "agentDo"; agentId: string; what: "install" | "remove" | "login" | "logout" }
+  /**
+   * ★ **디스크 정리** (2026-11-19) — `src/core/install/cleanup.ts`.
+   *
+   * `cleanAsk` 는 «얼마나 쓰나» 를 잰다. 수만 개를 세므로 **누를 때만** 잰다 —
+   * 로봇 화면을 열 때마다 재면 그때마다 디스크가 돈다.
+   * `cleanDo` 는 그 칸을 지운다. 남의 자리(`shared`)는 확장이 한 번 더 묻는다.
+   */
+  | { t: "cleanAsk" }
+  | { t: "cleanDo"; id: CleanSpot["id"] }
   /** 끊긴 맥락을 되먹일지 (F7). `accept`면 다음 메시지에 실어 보낸다 */
   | {
       t: "refeed";

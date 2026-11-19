@@ -609,6 +609,15 @@ export async function dropOptions(dir: string): Promise<void> {
  */
 const NODE_MARK = "aio-node.json";
 
+/** 받는 동안 npm 이 쓰는 우리 캐시들이 사는 곳 — `<root>/npm-cache/<에이전트id>` (`install`) */
+export function ownCacheRoot(root: string): string {
+  return path.join(root, "npm-cache");
+}
+
+export function ownCacheFor(root: string, agentId: string): string {
+  return path.join(ownCacheRoot(root), agentId);
+}
+
 /** 받아둔 Node 가 사는 자리 */
 export function nodeHome(root: string): string {
   return path.join(root, "node", "current");
@@ -966,9 +975,25 @@ export async function install(
    * 는 `.bin` 이 **우리가 아는 자리**에 생기게 한다. 기본값이 바뀌어도
    * `node_modules/.bin/<이름>` 을 그대로 쓸 수 있어야 한다.
    */
-  const r = await run(
-    ["install", "--no-audit", "--no-fund", "--install-strategy=hoisted"],
-    dir, onLine, nodeEnv(root));
+  /*
+   * ★ **npm 캐시는 우리 것을 쓰고 끝에 지운다** (2026-11-19).
+   *
+   * 🔴 기본 캐시(`~/.npm` · `%LOCALAPPDATA%\npm-cache`)를 쓰고 있었다. npm 은 받은
+   * 것을 거기 **한 벌씩 남기고** 아무도 안 지운다 — 핀을 올릴 때마다 수백 MB 가
+   * 더 쌓였고, 사용자 할당량이 있는 리눅스 서버에서 저장이 막혔다. 다시 받을 때
+   * 아끼는 몇 초보다 **사용자 디스크**가 먼저다.
+   *
+   * 끊겨서 남은 것은 «디스크 정리» 가 찌꺼기로 쓸어간다(`cleanup.leftovers`).
+   */
+  const cache = ownCacheFor(root, path.basename(dir));
+  let r: { code: number; say: string };
+  try {
+    r = await run(
+      ["install", "--no-audit", "--no-fund", "--install-strategy=hoisted"],
+      dir, onLine, { ...nodeEnv(root), npm_config_cache: cache });
+  } finally {
+    await fsp.rm(cache, { recursive: true, force: true }).catch(() => undefined);
+  }
 
   const now = statusOf(dir, pkg);
   if (r.code === 0 && now.installed && !now.stale) return { ok: true, say: r.say };

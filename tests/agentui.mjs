@@ -225,4 +225,65 @@ console.log("\n[★ 사용자가 직접 적은 에이전트는 안 건드린다]
   ok(card.textContent.includes("설정"), "★ 왜 비었는지 적어준다");
 }
 
+/*
+ * ★ **디스크 정리** (2026-11-19) — 사용자: *"캐시 정리할 수 있는 기능 넣을 수 있나?"*
+ *
+ * 재는 것은 **누를 때만** — 수만 개를 세므로 화면을 열 때마다 재면 디스크가 돈다.
+ * 쓰는 중인 것은 보여주되 단추가 없고, 남의 자리는 그렇다고 적는다.
+ */
+console.log("\n[★ 디스크 정리 — 누를 때만 재고, 쓰는 것은 지우지 않는다]");
+{
+  const a = mount();
+  a.$("#btn-agents").dispatchEvent(new a.w.MouseEvent("click", { bubbles: true }));
+  a.send({ t: "agents", list: [row({ state: "ready", version: "1", size: 1, loggedIn: true })] });
+  const card = () => a.$("#screen-agents .clean-card");
+  ok(card() !== null, "★ 로봇 화면 아래에 정리 칸이 있다");
+  ok(a.cards().length === 1, "★ 에이전트 카드로 세지 않는다 — 다른 검사의 단추 세기를 안 흐린다");
+  ok(!a.sent.some((m) => m.t === "cleanAsk"), "★ **열기만 해서는 안 잰다**");
+
+  const go = [...card().querySelectorAll("button")].find((b) => b.textContent === "얼마나 쓰나 보기");
+  ok(go !== undefined, "★ «얼마나 쓰나 보기» 단추");
+  go.click();
+  ok(a.sent.at(-1)?.t === "cleanAsk", "★ 누르면 재 달라고 한다");
+
+  a.send({ t: "clean", busy: "얼마나 쓰는지 재는 중…" });
+  ok(card().textContent.includes("재는 중"), "★ 재는 동안 그렇다고 보인다");
+
+  const GB = 1024 * 1048576;
+  const spot = (id, label, bytes, shared, canClean) =>
+    ({ id, label, where: `/x/${id}`, bytes, shared, canClean, count: canClean ? 1 : 0 });
+  a.send({ t: "clean", spots: [
+    spot("agents", "받아둔 에이전트", 972 * 1048576, false, false),
+    spot("node", "같이 받은 Node", 107 * 1048576, false, false),
+    spot("leftover", "받다·지우다 남은 것", 0, false, true),
+    spot("npmCache", "npm 캐시", 3.7 * GB, true, true),
+    spot("npx", "npx 캐시", 6.6 * GB, true, true),
+  ] });
+  const rows = [...card().querySelectorAll(".clean-row")];
+  for (const r of rows) console.log(`   ${r.textContent}`);
+  ok(rows.length === 5, "★ 다섯 칸");
+  const btn = (id) => card().querySelector(`.clean-row.${id} button`);
+  ok(!btn("agents") && !btn("node"), "★ **쓰는 에이전트·Node 에는 지우기 단추가 없다**");
+  ok(card().querySelector(".clean-row.agents").textContent.includes("「제거」"),
+     "★ 대신 어디서 지우는지 적는다");
+  ok(btn("leftover").disabled, "★ 0MB 칸의 단추는 죽어 있다");
+  ok(card().querySelector(".clean-row.npx").textContent.includes("6.6GB"), "★ 크기를 보여준다");
+  ok(card().querySelector(".clean-row.npmCache").textContent.includes("다른 프로그램도 씀"),
+     "★ **남의 자리라고 적는다**");
+  ok(card().querySelector(".clean-row.npx").title === "/x/npx", "★ 어디인지는 마우스를 올리면");
+
+  btn("npx").click();
+  ok(JSON.stringify(a.sent.at(-1)) === JSON.stringify({ t: "cleanDo", id: "npx" }), "★ 그 칸만 지우라고 한다");
+
+  a.send({ t: "clean", busy: "npx 캐시을(를) 지우는 중…" });
+  ok(card().querySelectorAll(".clean-row").length === 5, "★ 지우는 동안에도 칸은 그대로 — 단추가 도망가지 않는다");
+  ok(btn("npmCache").disabled, "★ 지우는 동안 다른 지우기는 죽어 있다");
+
+  a.send({ t: "clean", spots: [spot("npx", "npx 캐시", 0, true, true)], said: "6.6GB를 비웠습니다" });
+  ok(card().textContent.includes("6.6GB를 비웠습니다"), "★ 결과를 말한다");
+  ok(btn("npx").disabled, "★ 비운 칸은 0이라 단추가 죽는다");
+  a.send({ t: "clean", busy: "얼마나 쓰는지 재는 중…" });
+  ok(!card().textContent.includes("비웠습니다"), "★ 다음 일이 시작되면 지난 결과는 지운다");
+}
+
 console.log("\n전부 통과");

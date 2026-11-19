@@ -5,7 +5,14 @@ import {
   authPlan, authStatus, cmdPath, dirFor, dropOptions, freeInstall, holdInstall, install,
   landingFor, realNpm, remove, stateOf,
 } from "../core/install/agentInstaller.js";
+import { npmCacheDir, survey, sweep, type Spot } from "../core/install/cleanup.js";
 import type * as acp from "@agentclientprotocol/sdk";
+
+/** 바이트를 사람 글로 — 정리 결과에 쓴다 */
+function sizeText(n: number): string {
+  const m = n / 1048576;
+  return m >= 1024 ? `${(m / 1024).toFixed(1)}GB` : `${Math.round(m)}MB`;
+}
 import type { RoomManager } from "../core/roomManager.js";
 import type { RoomStore } from "../core/store.js";
 import { baseName, sendsContent, underCwd } from "../core/types.js";
@@ -669,6 +676,12 @@ export class ChatPanel implements AskTarget {
         case "agentDo":
           await this.agentDo(m.agentId, m.what);
           break;
+        case "cleanAsk":
+          await this.cleanAsk();
+          break;
+        case "cleanDo":
+          await this.cleanDo(m.id);
+          break;
         case "refeed":
           await this.rooms.decideRefeed(m.roomId, m.accept, m.kind);
           break;
@@ -1130,6 +1143,85 @@ export class ChatPanel implements AskTarget {
         };
       }),
     });
+  }
+
+  /**
+   * ★ **디스크 정리** (2026-11-19) — 무엇을 얼마나 쓰나는 `cleanup.ts` 가 잰다.
+   *
+   * 재기와 지우기는 **확장에 하나**다(`cleaning`). 창이 둘이면 둘이 같이 지울 수
+   * 있지만 `rm` 은 겹쳐도 괜찮다 — 남는 것은 «못 지웠다» 의 수뿐이다.
+   */
+  private static cleaning = false;
+  /** npm 에게 물어본 캐시 자리 — 창이 사는 동안은 안 바뀐다고 본다 */
+  private npmCache: string | undefined;
+  /** 마지막으로 잰 것 — 지우기는 이것을 지운다(확인창 앞에서 다시 재면 수십 초 걸린다) */
+  private lastSpots: Spot[] = [];
+
+  private async measure(): Promise<Spot[]> {
+    const root = this.ctx.globalStorageUri.fsPath;
+    this.npmCache ??= await npmCacheDir(root, os.homedir());
+    this.lastSpots = await survey(root, this.npmCache);
+    return this.lastSpots;
+  }
+
+  private postClean(spots: Spot[], said?: string): void {
+    this.post({
+      t: "clean",
+      spots: spots.map(({ paths, ...s }) => ({ ...s, count: paths.length })),
+      ...(said ? { said } : {}),
+    });
+  }
+
+  private async cleanAsk(): Promise<void> {
+    if (ChatPanel.cleaning) return;
+    ChatPanel.cleaning = true;
+    this.post({ t: "clean", busy: "얼마나 쓰는지 재는 중…" });
+    try {
+      this.postClean(await this.measure());
+    } catch (err) {
+      this.post({ t: "clean", said: `재지 못했습니다 — ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      ChatPanel.cleaning = false;
+    }
+  }
+
+  private async cleanDo(id: Spot["id"]): Promise<void> {
+    if (ChatPanel.cleaning) return;
+    const spot = this.lastSpots.find((s) => s.id === id);
+    if (!spot?.canClean || spot.paths.length === 0) return;
+    ChatPanel.cleaning = true;
+    try {
+      /*
+       * 🔴 **남의 자리는 한 번 더 묻는다.** 지워도 고장 나지는 않지만 다른 편집기와
+       * 사용자의 npm 이 다시 받느라 느려진다 — 그건 사용자가 고를 일이다.
+       */
+      if (spot.shared) {
+        const yes = await vscode.window.showWarningMessage(
+          `${spot.label} ${sizeText(spot.bytes)}를 지울까요?`,
+          {
+            modal: true,
+            detail:
+              `${spot.where}\n\n` +
+              "다른 프로그램(다른 편집기, 직접 쓰는 npm)도 같이 쓰는 자리입니다. " +
+              "지워도 고장 나지는 않고, 필요할 때 다시 받으므로 그때만 조금 느려집니다.",
+          },
+          "지우기",
+        );
+        if (yes !== "지우기") return;
+      }
+      this.post({ t: "clean", busy: `${spot.label}을(를) 지우는 중…` });
+      const r = await sweep(spot.paths);
+      this.rooms.log(`[정리] ${spot.label} — ${sizeText(r.freed)} 비움 · 못 지운 것 ${r.kept}`);
+      const said = r.kept > 0
+        ? `${sizeText(r.freed)}를 비웠습니다 · ${r.kept}개는 쓰는 중이라 남겼습니다`
+        : `${sizeText(r.freed)}를 비웠습니다`;
+      this.post({ t: "clean", busy: "다시 재는 중…" });
+      this.postClean(await this.measure(), said);
+    } catch (err) {
+      this.post({ t: "clean", said: `지우지 못했습니다 — ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      ChatPanel.cleaning = false;
+    }
   }
 
   /**

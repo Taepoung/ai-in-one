@@ -353,6 +353,15 @@ window.addEventListener("message", (e: MessageEvent<ToWebview>) => {
       break;
     }
 
+    case "clean": {
+      if (m.spots) S.clean.spots = m.spots;
+      S.clean.busy = m.busy;
+      /* 결과 글은 끝에 한 번 온다 — 다음 일이 시작되면 지난 결과는 지운다 */
+      S.clean.said = m.said;
+      renderAgents();
+      break;
+    }
+
     case "agents": {
       S.agentRows = m.list;
       /*
