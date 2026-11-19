@@ -982,6 +982,30 @@ export async function install(
   const was = statusOf(dir, pkg);
   if (was.installed && !was.stale) return { ok: true, say: "이미 받아져 있습니다" };
 
+  /*
+   * 🔴 **업데이트도 먼저 내린다** (2026-11-19). 사용자가 밟았다 — *"Claude을(를) 받지
+   * 못했습니다: npm error code EBUSY … copyfile"*. 윈도우는 **도는 실행파일을 못 덮어쓴다.**
+   * 지우기(`remove`)는 이미 그 자리에서 나온 것을 다 내리고 시작하는데, 업데이트는 안 그랬다.
+   * 붙잡고 있던 것은 둘이었다:
+   *
+   * ```
+   * 이 창의 Claude 방들              claude.exe ×3   ← 부르는 쪽이 연결을 먼저 놓는다
+   * Chrome 의 «Claude» 확장          claude.exe --chrome-native-host
+   * ```
+   *
+   * 둘째는 Claude in Chrome 이 데려온 것이다 — 한 번 켜면 claude.exe 가 **제 자신을 Chrome
+   * 의 연결 프로그램으로 등록**하고(`~/.claude/chrome/chrome-native-host.bat`), Chrome 이
+   * 켜져 있는 동안 그것을 띄워 둔다. 내려도 괜찮다 — 확장이 다음에 쓸 때 다시 띄운다.
+   * 옆 창의 방도 같이 내려간다(지우기와 같은 판단 — 누른 사람이 원한 일이다). 그 방은
+   * «응답이 중단되었습니다» 로 닫히고 다음 말에 새 판으로 붙는다.
+   *
+   * 윈도우만이다 — 다른 OS 는 도는 파일도 갈아 끼운다.
+   */
+  if (was.installed && process.platform === "win32") {
+    const n = await killUnder(dir);
+    if (n > 0) onLine?.(`돌고 있던 ${n}개를 내렸습니다`);
+  }
+
   /* zip 꼴은 npm 을 안 부른다 — 받아서 푸는 것이 전부다 */
   const at = pickBinary(pkg);
   if (at) {
@@ -1020,11 +1044,21 @@ export async function install(
    * 끊겨서 남은 것은 «디스크 정리» 가 찌꺼기로 쓸어간다(`cleanup.leftovers`).
    */
   const cache = ownCacheFor(root, path.basename(dir));
+  const npmInstall = () => run(
+    ["install", "--no-audit", "--no-fund", "--install-strategy=hoisted"],
+    dir, onLine, { ...nodeEnv(root), npm_config_cache: cache });
   let r: { code: number; say: string };
   try {
-    r = await run(
-      ["install", "--no-audit", "--no-fund", "--install-strategy=hoisted"],
-      dir, onLine, { ...nodeEnv(root), npm_config_cache: cache });
+    r = await npmInstall();
+    /*
+     * ★ **그래도 붙잡혔으면 한 번 더 내리고 다시** (2026-11-19). 내리는 사이에 방이 다시
+     * 붙었거나(옆 창), Chrome 이 연결 프로그램을 다시 띄웠을 수 있다.
+     */
+    if (r.code !== 0 && /EBUSY|EPERM/.test(r.say) && process.platform === "win32") {
+      const n = await killUnder(dir);
+      onLine?.(`아직 붙잡혀 있어 ${n}개를 더 내리고 다시 받습니다`);
+      r = await npmInstall();
+    }
   } finally {
     await fsp.rm(cache, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -1222,10 +1256,49 @@ function killPid(pid: number): Promise<void> {
  */
 export async function killUnder(dir: string): Promise<number> {
   const at = path.resolve(dir).toLowerCase();
-  const hit = (await procRows()).filter((r) => r.path.toLowerCase().startsWith(at));
+  const pids = process.platform === "win32"
+    ? await pidsUnderWin(path.resolve(dir))
+    : (await procRows()).filter((r) => r.path.toLowerCase().startsWith(at)).map((r) => r.pid);
   // **한꺼번에 내린다** — 하나씩 기다리면 스물일곱 번이 줄줄이 더해진다
-  await Promise.all(hit.map((r) => killPid(r.pid)));
-  return hit.length;
+  await Promise.all(pids.map((pid) => killPid(pid)));
+  return pids.length;
+}
+
+/**
+ * ★ **그 폴더에서 나온 것만 빨리 찾는다 — 윈도우** (2026-11-19).
+ *
+ * 🔴 `procRows` 는 `Get-CimInstance` 로 **전부** 긁는다(이 기계 4초, 바쁠 때 10초를
+ * 넘겨 빈 목록). 검사를 한꺼번에 돌리자 업데이트가 아무것도 못 내리고 EBUSY 로 졌다 —
+ * 사용자 기계가 바쁠 때도 같다. `Get-Process` 의 경로로 거르면 1.8초다. 사람이 누른
+ * 일이라 기다림도 넉넉히(30초) 준다.
+ */
+function pidsUnderWin(dir: string): Promise<number[]> {
+  const quoted = dir.replace(/'/g, "''");
+  const script =
+    "Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith('" + quoted +
+    "', [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.Id }";
+  return new Promise<number[]>((done) => {
+    let out = "";
+    let settled = false;
+    const give = (pids: number[]) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done(pids);
+    };
+    let child: ReturnType<typeof spawn>;
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* 이미 갔으면 말고 */ }
+      give([]);
+    }, 30_000);
+    try {
+      child = spawn("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+    } catch { give([]); return; }
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (c: string) => { out += c; });
+    child.on("error", () => give([]));
+    child.on("close", () => give(out.split(/\s+/).map(Number).filter((n) => n > 0 && n !== process.pid)));
+  });
 }
 
 /**

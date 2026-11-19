@@ -1265,6 +1265,12 @@ export class ChatPanel implements AskTarget {
       }
       ChatPanel.busy.set(agent.id, "준비하는 중…");
       ChatPanel.repaintAgents();
+      /*
+       * 🔴 **이미 받은 것을 갈아 끼우면 이 창의 연결을 먼저 놓는다** (2026-11-19) — 지우기와
+       * 같은 순서다. 안 놓고 밑에서 프로세스만 내리면(`install` → `killUnder`) 연결은 «죽었다»
+       * 로 읽고, 다시 띄우면서 **받는 중인 자리**를 붙잡는다.
+       */
+      if (stateOf(agent, root, os.homedir()).state !== "none") this.rooms.dropConnection(agent.id);
       try {
         const r = await install(dir, agent.pkg, realNpm, (line: string) => {
           ChatPanel.busy.set(agent.id, line.slice(0, 120));
@@ -1275,7 +1281,11 @@ export class ChatPanel implements AskTarget {
         this.rooms.log(`[${agent.id}] 받기 ${r.ok ? "끝" : "실패"} — ${r.say.split("\n").filter(Boolean).at(-1) ?? ""}`);
         if (!r.ok) {
           void vscode.window.showErrorMessage(
-            `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}`);
+            `${agent.label}을(를) 받지 못했습니다: ${r.say.slice(-300)}` +
+            // 내리고 다시 해도 붙잡혀 있으면 — 누가 붙잡나를 사람 말로 (2026-11-19)
+            (/EBUSY|EPERM/.test(r.say)
+              ? " — 아직 다른 프로그램이 붙잡고 있습니다. Chrome 을 닫거나 VS Code 를 다시 켠 뒤 다시 해 보세요."
+              : ""));
         }
       } finally {
         // **성공이든 실패든 푼다** — 안 풀면 그 창이 살아 있는 동안 아무도 못 받는다
