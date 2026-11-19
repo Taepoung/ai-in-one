@@ -31,7 +31,7 @@ import {
   dirFor, splitSpec, manifestFor, statusOf, stateOf, spawnSpecFor,
   landingFor,
   install, remove, findOne, withInstalled, pickBinary, hostKey, fetchExtra, straysIn,
-  haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, authPlan, type Run,
+  haveNode, nodeBinDir, nodeEnv, nodeHome, authStatus, authPlan, olderThan, type Run,
 } from "../src/core/install/agentInstaller.js";
 import { DEFAULT_AGENTS } from "../src/agents/index.js";
 import { NODE_PIN } from "../src/core/install/nodePin.js";
@@ -142,6 +142,19 @@ async function main(): Promise<void> {
     console.log(`   핀 올린 뒤 · ${s3.state} (있는 것 ${s3.version} · 원하는 것 ${s3.wanted})`);
     ok(s3.state === "stale", "★ 핀이 올라갔다 → `stale` (업데이트)");
     ok(s3.version === PIN && s3.wanted === NEXT, "★ 두 판을 같이 보여준다");
+
+    /*
+     * 🔴 **옛 창은 새 판을 낡았다고 안 본다** (2026-11-19). 사용자: *"판이 왜 두개야"*.
+     * 다시 안 불러온 옛 확장 창(핀이 더 낮다)이 새 창이 받아둔 것을 «다르다 = 낡았다» 로
+     * 읽고 «업데이트» 로 **옛 판을 내려 받았다.**
+     */
+    const older: AgentDef = { ...codex, pkg: { ...codex.pkg!, spec: "@agentclientprotocol/codex-acp@0.0.1" } };
+    const s5 = stateOf(older, root, home);
+    console.log(`   옛 창의 눈 · ${s5.state} (있는 것 ${s5.version} · 그 창의 핀 ${s5.wanted})`);
+    ok(s5.state === "ready", "★ **더 새것이 있으면 낡지 않았다** — 옛 창이 내려 받지 않는다");
+    let downgraded = 0;
+    await install(dirFor(root, codex.id), older.pkg!, async () => { downgraded++; return { code: 0, say: "" }; });
+    ok(downgraded === 0, "★ 옛 창에서 받기를 눌러도 npm 을 안 부른다");
 
     const s4 = stateOf(codex, root, home);
     ok(s4.state === "ready", "★ **핀이 안 올라갔으면 그대로 둔다** — 괜히 다시 받지 않는다");
@@ -307,6 +320,21 @@ async function main(): Promise<void> {
     ok(next.stale, "★ **핀이 올라가면 낡았다고 한다** — 안 그러면 옛 판에 묶인다");
     ok(stateOf({ ...agy, pkg: bumped }, root, home).state === "stale", "★ 화면도 `stale` 로 본다");
 
+    /* 옛 창의 눈 — 그 창의 핀은 더 낮다. zip 꼴도 내려 받지 않는다 (`olderThan`) */
+    const lowered = {
+      ...pkg,
+      binary: {
+        ...pkg.binary,
+        [hostKey()]: { ...at, archive: at.archive.replace(/-[0-9]+\.[0-9]+\.[0-9]+-/, "-0.0.1-") },
+      },
+    };
+    ok(!statusOf(dir, lowered).stale, "★ **옛 창은 새 판을 낡았다고 안 본다** (zip 꼴)");
+
+    ok(olderThan("0.90.0", "0.108.0") && !olderThan("0.108.0", "0.90.0"),
+       "★ 판은 **숫자로** 잰다 — 글자로 재면 0.90 이 0.108 보다 크다");
+    ok(!olderThan("2.7.0", "2.7.0") && olderThan("1.4.0", "1.5.0"), "★ 같으면 안 낡았고, 낮으면 낡았다");
+    ok(olderThan("weird", "1.0.0") && !olderThan("weird", "weird"), "★ 못 읽으면 예전처럼 «다르면 낡았다»");
+
     /* 띄울 것은 푼 자리의 실행파일이다 */
     const sp = spawnSpecFor(dir, pkg);
     ok(sp.command === path.join(dir, at.cmd), "★ 푼 자리의 실행파일을 띄운다");
@@ -428,7 +456,12 @@ async function main(): Promise<void> {
      */
     fs.writeFileSync(path.join(base, "aio-node.json"),
       JSON.stringify({ version: "0.0.0" }), "utf8");
-    ok(!haveNode(root), "★ **판이 다르면 다시 받는다**");
+    ok(!haveNode(root), "★ **판이 옛것이면 다시 받는다**");
+
+    /* 🔴 옛 창의 눈 — 새 창이 더 새 Node 를 받아뒀으면 그걸 쓴다. 내려 받지 않는다 */
+    fs.writeFileSync(path.join(base, "aio-node.json"),
+      JSON.stringify({ version: "999.0.0" }), "utf8");
+    ok(haveNode(root), "★ **더 새 Node 가 있으면 받은 것으로 본다** — 옛 창이 내려 받지 않는다");
 
     fs.writeFileSync(path.join(base, "aio-node.json"),
       JSON.stringify({ version: NODE_PIN.version }), "utf8");

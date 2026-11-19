@@ -88,6 +88,34 @@ function versionIn(url: string): string {
   return m ? m[0] : (url.split("/").pop() ?? url);
 }
 
+/**
+ * ★ **`have` 가 `want` 보다 옛 판인가** (2026-11-19).
+ *
+ * 🔴 «다르면 낡았다» 였다. 사용자가 밟았다 — *"판이 왜 두개야"*. VS Code 는 확장을
+ * 새 판으로 바꿔도 **이미 열린 창은 다시 불러올 때까지 옛 코드로 돈다.** 일주일 넘게
+ * 열려 있던 창(0.1.2)이 새 창(0.1.4)이 받아둔 에이전트를 «내 핀과 다르다 = 낡았다» 로
+ * 읽고 로봇 화면을 띄웠고, 거기서 «업데이트» 를 누르자 **옛 판으로 내려 받았다.**
+ * 받아두는 자리는 창끼리 같이 쓰므로, 판이 다른 창 둘이 있으면 서로 올리고 내린다.
+ *
+ * 그래서 **더 새것이면 낡지 않았다.** 옛 창은 제 핀보다 새 것을 돌리게 되는데,
+ * 그건 다시 불러오면 맞춰질 일이고 내려 받는 것보다 낫다.
+ *
+ * 숫자 칸만 비교한다(`0.108.0` > `0.90.0`). 못 읽으면 예전처럼 «다르면 낡았다».
+ */
+export function olderThan(have: string, want: string): boolean {
+  const nums = (v: string): number[] | undefined => {
+    const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
+  };
+  const a = nums(have);
+  const b = nums(want);
+  if (!a || !b) return have !== want;
+  for (let i = 0; i < 3; i++) {
+    if (a[i]! !== b[i]!) return a[i]! < b[i]!;
+  }
+  return false;
+}
+
 /** 받아둔 뒤 남기는 표 — 무엇을 받았는지 적어두고 다음에 맞춰본다 */
 const MARK = "aio-installed.json";
 
@@ -300,7 +328,8 @@ export function statusOf(dir: string, pkg: AgentPackage): {
        */
       ...(got ? { version: versionIn(got) } : {}),
       wanted: versionIn(at.archive),
-      stale: ready && got !== at.archive,
+      /* 주소가 같으면 볼 것 없고, 다르면 주소 속 판끼리 잰다 — 내려 받지 않는다 (`olderThan`) */
+      stale: ready && got !== at.archive && olderThan(versionIn(got), versionIn(at.archive)),
     };
   }
 
@@ -317,8 +346,8 @@ export function statusOf(dir: string, pkg: AgentPackage): {
     installed: ready,
     ...(have ? { version: have } : {}),
     wanted: version,
-    /* 받아는 있는데 판이 다르면 «낡았다» — 핀을 올린 뒤가 이 꼴이다 */
-    stale: ready && have !== version,
+    /* 받아는 있는데 판이 **옛것이면** «낡았다» — 핀을 올린 뒤가 이 꼴이다. 더 새것이면 둔다 (`olderThan`) */
+    stale: ready && olderThan(have ?? "", version),
   };
 }
 
@@ -634,12 +663,17 @@ export function nodeBinDir(root: string): string {
   return process.platform === "win32" ? home : path.join(home, "bin");
 }
 
-/** 받아둔 Node 가 쓸 만한가 — 판이 맞고 실행파일이 있나 */
+/**
+ * 받아둔 Node 가 쓸 만한가 — 판이 핀보다 옛것이 아니고 실행파일이 있나.
+ *
+ * 🔴 «핀과 같나» 였다. 에이전트와 같은 사고가 난다 — 다시 안 불러온 옛 창이 새 창이 받은
+ * Node 를 지우고 **옛 판으로 내려 받는다** (`olderThan`).
+ */
 export function haveNode(root: string): boolean {
   try {
     const mark = JSON.parse(
       fs.readFileSync(path.join(root, "node", NODE_MARK), "utf8")) as { version?: string };
-    if (mark.version !== NODE_PIN.version) return false;
+    if (mark.version === undefined || olderThan(mark.version, NODE_PIN.version)) return false;
   } catch { return false; }
   const exe = process.platform === "win32" ? "node.exe" : "node";
   return fs.existsSync(path.join(nodeBinDir(root), exe));
