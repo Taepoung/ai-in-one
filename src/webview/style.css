@@ -1890,6 +1890,23 @@ body.vscode-high-contrast .room:hover {
   object-fit: cover;
 }
 
+/* 도구가 돌려준 그림(브라우저 스크린샷) — 활동 상세 안에서, 누르면 크게 */
+.act-shot {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;
+  margin-top: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  cursor: zoom-in;
+  object-fit: contain;
+}
+
+.act-shot.zoom {
+  max-height: none;
+  cursor: zoom-out;
+}
+
 /* 탭하면 확대 (I6) */
 .thumb.zoom {
   max-width: 100%;

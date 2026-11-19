@@ -29,6 +29,11 @@ export interface BotRuntime {
   loopRounds?: number;
   loopDone?: boolean;
   loopAskedAt?: number;
+  /**
+   * ★ **지금 세션이 브라우저를 켠 채로 붙어 있나** (2026-11-19). 봇 설정(`BotInstance.browser`)과
+   * 다르면 다음 턴 전에 다시 붙인다(`Sessions.ensure`) — 방 안에서 켜고 끄는 길이다.
+   */
+  browserOn?: boolean;
   /** 역할을 이미 주입했는지. 세션이 새로 열리면 다시 false가 된다 */
   roleInjected: boolean;
   /**

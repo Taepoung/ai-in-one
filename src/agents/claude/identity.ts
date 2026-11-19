@@ -37,5 +37,12 @@ export function claudeToolName(tc: ToolCallShape): string | undefined {
   const fromMeta = meta && typeof meta === "object" ? (meta as { toolName?: unknown }).toolName : undefined;
   const name = typeof fromMeta === "string" ? fromMeta : typeof tc.name === "string" ? tc.name : "";
   if (!name) return undefined;
-  return claudeMcpIdentity({ name })?.tool ?? name;
+  const mcp = claudeMcpIdentity({ name });
+  /*
+   * ★ **Chrome 도구는 «Chrome» 을 앞에 붙인다** (2026-11-19). 서버 이름을 떼면
+   * `navigate`·`computer`·`find` 만 남는데, 그래서는 **사용자의 브라우저를 만졌다**
+   * 는 것이 안 보인다. 꼬리의 `_mcp` 는 군더더기라 뗀다(`tabs_create_mcp`).
+   */
+  if (mcp?.server === "claude-in-chrome") return `Chrome ${mcp.tool.replace(/_mcp$/, "")}`;
+  return mcp?.tool ?? name;
 }

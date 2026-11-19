@@ -456,7 +456,9 @@ export class ChatPanel implements AskTarget {
           // 내용을 실어 보낸 것은 blob에 있다.
           const buf = await this.store.getBlob(m.sha256);
           if (buf) {
-            const mime = this.mimeOf.get(m.sha256) ?? "application/octet-stream";
+            const mime = this.mimeOf.get(m.sha256)
+              ?? (m.mimeType && /^image\/(png|jpeg|gif|webp)$/.test(m.mimeType) ? m.mimeType : undefined)
+              ?? "application/octet-stream";
             this.post({
               t: "blobData",
               sha256: m.sha256,
@@ -700,6 +702,7 @@ export class ChatPanel implements AskTarget {
           const patch = {
             ...(m.answerPolicy ? { answerPolicy: m.answerPolicy } : {}),
             ...(m.approver ? { approver: m.approver } : {}),
+            ...(m.browser !== undefined ? { browser: m.browser } : {}),
           };
           await this.rooms.setPolicy(m.roomId, patch, m.botId);
           this.postRoom(await this.rooms.openRoom(m.roomId));
@@ -1601,6 +1604,7 @@ export class ChatPanel implements AskTarget {
           label: a.label,
           ...(a.description ? { description: a.description } : {}),
           available: this.isAvailable(a),
+          ...(a.browser ? { browser: { label: a.browser.label, needs: a.browser.needs } } : {}),
         }),
       ),
       reducedMotion: false,

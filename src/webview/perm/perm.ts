@@ -5,7 +5,7 @@ import { botColor, DEFAULT_LOOP_CAP, type BotInstance, type Room } from "../../c
 import { sharedMemoryRow } from "../chat/fork.js";
 import { el, icon, type Kids } from "../common/dom.js";
 import { back, push, screens } from "../common/screens.js";
-import { S, configErrors, configKey, configs, optionsFor, post } from "../common/state.js";
+import { S, agentById, configErrors, configKey, configs, optionsFor, post } from "../common/state.js";
 
 /**
  * 권한 설정 시트 (D2).
@@ -412,6 +412,35 @@ function botPolicyBlock(r: Room, bot: BotInstance): HTMLElement {
       el("span", { class: "dim", text: loopWhy, title: loopWhy }),
     ),
   );
+
+  /*
+   * ── 브라우저 (2026-11-19 · 사용자: *"Claude in Chrome 은 지원하게 할 수 있어?"*) ──
+   *
+   * 켤 줄 아는 에이전트에만 뜬다(`AgentBrief.browser`). 처음엔 꺼 둔다 — 웹페이지 속
+   * 글이 지시처럼 읽힐 수 있어서다. 바꾸면 **다음 말부터** 적용된다(그 봇의 세션을
+   * 턴 사이에 다시 붙인다) — 그 사실을 적어야 «켰는데 왜 없지» 가 안 된다.
+   */
+  const browser = agentById.get(bot.agentId)?.browser;
+  if (browser) {
+    const pick = el("select", { class: "browser-pick" }) as HTMLSelectElement;
+    pick.append(el("option", { value: "off", text: "끔", selected: bot.browser !== true }));
+    pick.append(el("option", { value: "on", text: "켬", selected: bot.browser === true }));
+    pick.addEventListener("change", () =>
+      post({ t: "setPolicy", roomId: r.id, botId: bot.id, browser: pick.value === "on" }),
+    );
+    const why = bot.browser === true
+      ? `켜져 있습니다 — 봇이 사용자의 Chrome 에서 탭을 열고 누르고 읽습니다. ${browser.needs}`
+      : `켜면 봇이 사용자의 Chrome 을 조작합니다(다음 말부터). ${browser.needs}`;
+    rows.push(
+      el(
+        "div",
+        { class: "field" },
+        el("label", { text: browser.label }),
+        pick,
+        el("span", { class: "dim", text: why, title: why }),
+      ),
+    );
+  }
 
   return el(
     "div",

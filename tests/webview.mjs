@@ -1881,6 +1881,67 @@ function main() {
     ok(last?.t === "send", `★ **바로 보낸다** — 예약으로 안 올린다 (${last?.t})`);
   }
 
+  /*
+   * ★ **Claude in Chrome** (사용자, 2026-11-19: *"Claude in Chrome 은 지원하게 할 수 있어?"*).
+   * 켤 줄 아는 에이전트에만 칸이 뜨고, 켠 봇은 참여자 요약에 «Chrome» 이 붙고,
+   * 활동을 펼치면 봇이 본 화면(스크린샷)이 보인다.
+   */
+  console.log("\n[★ Chrome — 켤 줄 아는 봇에만 칸이 뜬다]");
+  {
+    const agents = [
+      { ...AGENTS[0], browser: { label: "Claude in Chrome", needs: "확장이 있어야 합니다." } },
+      AGENTS[1],
+    ];
+    const two = [
+      { id: "b1", agentId: "claude", name: "Claude", sessionId: "s1",
+        approver: { kind: "user" }, answerPolicy: "ask" },
+      { id: "b2", agentId: "codex", name: "Codex", sessionId: "s2",
+        approver: { kind: "user" }, answerPolicy: "ask" },
+    ];
+    const t = enter(mount({ ...boot([meta()]), agents }), { participants: two });
+    t.$(".composer .perm").click();
+    const boxes = t.$$("#screen-perm .sheet-bot:not(.relay)");
+    const chromeOf = (box) => [...box.querySelectorAll(".field")]
+      .find((f) => f.querySelector("label")?.textContent === "Claude in Chrome");
+    ok(chromeOf(boxes[0]) !== undefined, "★ Claude 봇에는 «Claude in Chrome» 칸이 있다");
+    ok(chromeOf(boxes[1]) === undefined, "★ **Codex 봇에는 없다** — 켤 길이 없는 칸은 안 띄운다");
+    const pick = chromeOf(boxes[0]).querySelector("select");
+    ok(pick.value === "off", "★ 처음엔 꺼져 있다");
+    ok(chromeOf(boxes[0]).textContent.includes("확장이 있어야 합니다."), "★ 무엇을 갖춰야 하는지 적는다");
+    ok(chromeOf(boxes[0]).textContent.includes("다음 말부터"), "★ 언제부터 되는지 적는다");
+    pick.value = "on";
+    pick.dispatchEvent(new t.w.Event("change"));
+    const sent = t.sent.filter((m) => m.t === "setPolicy").pop();
+    ok(sent?.botId === "b1" && sent.browser === true, `★ 그 봇에게 켜라고 보낸다 (${JSON.stringify(sent)})`);
+
+    const t2 = enter(mount({ ...boot([meta()]), agents }), {
+      participants: [{ ...two[0], browser: true }, two[1]],
+    });
+    t2.$(".composer .perm").click();
+    const on = chromeOf(t2.$$("#screen-perm .sheet-bot:not(.relay)")[0]);
+    ok(on.querySelector("select").value === "on", "★ 켠 것은 켜진 채로 그려진다");
+  }
+
+  console.log("\n[★ 활동을 펼치면 봇이 본 화면이 보인다]");
+  {
+    const t = mount(boot([meta()]));
+    enter(t, { messages: [msg({ id: "a", tools: [
+      { id: "t1", title: "mcp__claude-in-chrome__computer", name: "Chrome computer", kind: "other",
+        status: "completed", output: "Successfully captured screenshot",
+        images: [{ sha256: "ab".repeat(32), mimeType: "image/jpeg" }] },
+    ] })] });
+    const pill = t.$("#screen-chat .act-pill .what");
+    ok(pill?.textContent === "Chrome computer", `★ 알약에 «Chrome» 이 보인다 (${pill?.textContent})`);
+    t.$("#screen-chat .act-pill").click();
+    const shot = t.$(".modal img.act-shot");
+    ok(shot !== null, "★ 스크린샷 자리가 생긴다");
+    const asked = t.sent.filter((m) => m.t === "needBlob").pop();
+    ok(asked?.sha256 === "ab".repeat(32) && asked.mimeType === "image/jpeg",
+       "★ 원본을 **종류와 함께** 달라고 한다 — 확장은 이 그림의 종류를 모른다");
+    t.send({ t: "blobData", sha256: "ab".repeat(32), dataUri: "data:image/jpeg;base64,AAAA" });
+    ok(shot.src.startsWith("data:image/jpeg"), "★ 받으면 그려진다");
+  }
+
   console.log("\n전부 통과\n");
 }
 

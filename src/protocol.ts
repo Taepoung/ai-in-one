@@ -40,6 +40,8 @@ export interface AgentBrief {
    * 우리가 받는 게 아니므로 «안 받았다» 고 말하면 거짓말이 된다.
    */
   available?: boolean;
+  /** 브라우저를 조작하게 켤 수 있나 — 있으면 봇 설정에 칸이 뜬다 (`AgentDef.browser`) */
+  browser?: { label: string; needs: string };
 }
 
 export interface ConfigOptionBrief {
@@ -402,7 +404,13 @@ export type FromWebview =
    *
    * 경로만 보낸 첨부는 blob이 없어 `path`로 지금 읽어야 한다 (I4).
    */
-  | { t: "needBlob"; sha256: string; path?: string }
+  | {
+      t: "needBlob";
+      sha256: string;
+      path?: string;
+      /** 그림의 종류 — 도구가 돌려준 스크린샷처럼 이 창에서 붙인 것이 아닐 때 (`image/*` 만 믿는다) */
+      mimeType?: string;
+    }
   | { t: "needCaps"; agentId: string }
   /** 전문 검색 (H2). 목록 필터(H1)와 방 안 찾기(H4)는 웹뷰에서 끝난다 */
   | { t: "search"; query: string }
@@ -621,6 +629,8 @@ export type FromWebview =
       answerPolicy?: AnswerPolicy;
       /** 승인을 누가 답할지 (D2). v1.0은 사용자뿐 */
       approver?: Approver;
+      /** 브라우저 조작 (2026-11-19) — 그 에이전트에 `browser` 가 있을 때만 뜻이 있다 */
+      browser?: boolean;
     }
   /** 대화 중에 모델·추론 강도를 바꾼다 (B12·B15) */
   /** 🔴 `botId` 는 필수다 — 없으면 단체방에서 **첫 봇이 바뀐다** (B1) */

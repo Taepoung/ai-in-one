@@ -229,7 +229,7 @@ export class Forks {
           "원본의 세션이 끊겨 지금은 빈 세션에 붙어 있습니다 — 복제해도 물려받을 것이 없습니다",
         );
       }
-      const res = await conn.forkSession(live, room.cwd, this.port.sessions.mcpFor(room, bot));
+      const res = await conn.forkSession(live, room.cwd, this.port.sessions.mcpFor(room, bot), this.port.sessions.metaFor(bot));
       if (res.ok) return { sessionId: res.sessionId, native: true, options: res.options };
       return await this.freshFork(room, bot, res.reason);
     }
@@ -253,6 +253,7 @@ export class Forks {
       this.port.emitNotice(room.id,
         `${this.port.agent(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
       ),
+      this.port.sessions.metaFor(bot),
     );
     return { sessionId, native: false, options: configOptions, reason };
   }
@@ -312,7 +313,7 @@ export class Forks {
         : undefined;
       if (!origin || !live) continue;
 
-      const got = await this.port.pool.connection(origin.agentId).forkSession(live, room.cwd, this.port.sessions.mcpFor(room, origin));
+      const got = await this.port.pool.connection(origin.agentId).forkSession(live, room.cwd, this.port.sessions.mcpFor(room, origin), this.port.sessions.metaFor(bot));
       if (!got.ok) continue;
 
       // 폴백으로 열었던 세션은 **빈 것**이라 지울 것도 없다 — 놓기만 한다
@@ -321,6 +322,7 @@ export class Forks {
         await this.port.pool.get(bot.agentId)?.closeSession(bt.sessionId).catch(() => undefined);
       }
       bt.sessionId = got.sessionId;
+      bt.browserOn = this.port.sessions.browserWanted(bot);
       // 네이티브로 갈라낸 세션은 역할을 이미 알고 있다
       bt.roleInjected = true;
       bot.sessionId = got.sessionId;
@@ -484,6 +486,7 @@ export class Forks {
       if (fallback !== "fresh" && !forked.native) fresh.refeedPending = true;
       const bt = this.port.runtimes.bot(room.id, fresh.id);
       bt.sessionId = forked.sessionId;
+      bt.browserOn = this.port.sessions.browserWanted(fresh);
       // 네이티브 분기는 역할을 이미 알고 있다 — 원본이 들은 것을 그대로 물려받았다
       bt.roleInjected = forked.native;
       this.port.watch(room, fresh, forked.sessionId);

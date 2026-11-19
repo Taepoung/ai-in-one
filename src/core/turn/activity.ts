@@ -5,6 +5,7 @@
  * 파일을 동시에 만지면 띠(clash)를 세운다. 받는 것은 `ActivityPort` 가 전부다 —
  * 아래층 둘(방 저장 · 봇 상태)과 디스크 · 알리기 하나.
  */
+import { createHash } from "node:crypto";
 import { describe, OUR_MCP_NAME, type AgentEvent } from "../acpConnection.js";
 import { messageId } from "../ids.js";
 import type { Rooms } from "../room/rooms.js";
@@ -101,6 +102,27 @@ export class Activity {
   }
 
   /**
+   * ★ **도구가 돌려준 그림을 blob 으로 둔다** (2026-11-19).
+   *
+   * 열쇠(sha256)는 여기서 바로 센다 — 활동은 지금 적혀야 하고, 쓰기는 뒤에서 한다.
+   * 같은 그림은 한 번만 남는다(`putBlob`). 쓰기가 실패하면 그 그림만 못 보여줄 뿐이다.
+   */
+  private keepImages(
+    images: { data: string; mimeType: string }[] | undefined,
+  ): { sha256: string; mimeType: string }[] {
+    const out: { sha256: string; mimeType: string }[] = [];
+    for (const img of images ?? []) {
+      const buf = Buffer.from(img.data, "base64");
+      if (buf.length === 0) continue;
+      const sha256 = createHash("sha256").update(buf).digest("hex");
+      void this.port.disk.putBlob(buf).catch((err: unknown) =>
+        this.port.host.log(`도구 그림을 저장하지 못했습니다: ${describe(err)}`));
+      out.push({ sha256, mimeType: img.mimeType });
+    }
+    return out;
+  }
+
+  /**
    * 에이전트가 한 일을 기록한다 (C3).
    *
    * **같은 `toolCallId`로 여러 번 온다** — `pending` → `in_progress` → `completed`.
@@ -159,6 +181,11 @@ export class Activity {
           : tools[at]?.output
             ? { output: tools[at]!.output! }
             : {}),
+      // **무엇을 봤나** — 그림은 blob 으로, 여기엔 열쇠만. 끝난 갱신에만 오니 있던 것을 지킨다
+      ...(() => {
+        const pics = this.keepImages(ev.images);
+        return pics.length > 0 ? { images: pics } : tools[at]?.images ? { images: tools[at]!.images! } : {};
+      })(),
       // 언제 시작했나. 타임라인으로 읽으려면 시각이 있어야 한다
       ...(tools[at]?.at ? { at: tools[at]!.at! } : { at: Date.now() }),
       // **글의 어디쯤이었나.** 처음 본 시점을 지킨다 — 갱신 때 옮기면 순서가 흐트러진다

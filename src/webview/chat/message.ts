@@ -10,7 +10,7 @@ import {
   type ToolActivity,
 } from "../../core/types.js";
 import type { AgentBrief } from "../../protocol.js";
-import { attachmentsNode } from "./attach.js";
+import { attachmentsNode, toolImageNode } from "./attach.js";
 import { openMessageMenu } from "./fork.js";
 import { deliveryChips, manyBots } from "./paint.js";
 import { jumpTo } from "./scroll.js";
@@ -791,6 +791,8 @@ function showActivity(t: ToolActivity): void {
         : null,
       t.command ? el("pre", { class: "act-in" }, el("code", { text: t.command })) : null,
       t.output ? el("pre", { class: "act-out" }, el("code", { text: t.output })) : null,
+      // ★ 무엇을 봤나 — 브라우저 스크린샷. 누르면 크게 (2026-11-19)
+      ...(t.images ?? []).map((img) => toolImageNode(img)),
       ...(t.paths ?? []).map((p) =>
         el("button", {
           class: "file", text: shortenPath(p), title: "에디터에서 열기",

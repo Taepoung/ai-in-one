@@ -289,6 +289,8 @@ export class RoomStore {
       if (!room) continue;
       for (const msg of room.messages) {
         for (const a of msg.attachments ?? []) alive.add(a.sha256);
+        // 도구가 돌려준 그림(브라우저 스크린샷)도 산 것이다 — 안 세면 방을 하나 지울 때 같이 사라진다
+        for (const t of msg.tools ?? []) for (const img of t.images ?? []) alive.add(img.sha256);
         for (const f of msg.files ?? []) {
           if (f.oldSha256) alive.add(f.oldSha256);
           if (f.newSha256) alive.add(f.newSha256);

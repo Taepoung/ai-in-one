@@ -152,6 +152,26 @@ export interface AgentDef {
    * 글 모양이 에이전트마다 달라서 애드온이 든다. 비우면 «모른다» — 예전처럼 새로 연다.
    */
   sessionInUse?: (reason: string) => boolean;
+  /**
+   * ★ **브라우저를 조작하게 켜는 길** (사용자, 2026-11-19: *"Claude in Chrome 은
+   * 지원하게 할 수 있어?"*). 있으면 그 에이전트의 봇 설정에 «Chrome» 칸이 뜬다.
+   *
+   * 켜는 법이 에이전트마다 달라 애드온이 든다 — 세션을 열거나 다시 붙일 때 실을
+   * `_meta` 를 준다. Claude 는 `--chrome` 을 넘긴다(`claudeCode.options.extraArgs`).
+   * 코어는 그 값을 들여다보지 않고 그대로 싣는다.
+   *
+   * ★ **켜고 끄기는 다시 붙이면 된다** (실측 `chromeresume` · 2026-11-19) — 열린
+   * 세션을 다른 `_meta` 로 `session/resume` 하면 도구가 생기고 사라지며, 앞 대화는
+   * 그대로다. 그래서 방 안에서 켜고 끌 수 있다.
+   */
+  browser?: {
+    /** 화면에 쓰는 이름 — «Claude in Chrome» */
+    label: string;
+    /** 켜기 전에 사용자가 갖춰야 할 것 — 화면에 그대로 적는다 */
+    needs: string;
+    /** 켤 때 세션에 실을 `_meta` */
+    meta: Record<string, unknown>;
+  };
 }
 
 /**
@@ -589,6 +609,12 @@ export interface BotInstance {
    * **모르는 것까지 그대로 담아 그대로 되돌려준다.**
    */
   configValues?: Record<string, string | boolean>;
+  /**
+   * ★ **브라우저 조작을 켰나** (2026-11-19) — 에이전트에 `browser` 가 있을 때만 뜻이
+   * 있다. 비면 꺼짐. 처음엔 꺼 둔다 — 웹페이지 속 글이 지시처럼 읽힐 수 있어서,
+   * 사용자가 고른 봇에게만 준다.
+   */
+  browser?: boolean;
 }
 
 export type MessageRole = "user" | "agent" | "system";
@@ -940,6 +966,14 @@ export interface ToolActivity {
    * 길면 잘라서 담고 **잘랐다고 적는다**(`acpConnection.outputOf`).
    */
   output?: string;
+  /**
+   * ★ **도구가 돌려준 그림** (2026-11-19) — 브라우저 스크린샷 같은 것.
+   *
+   * 🔴 글만 꺼내고 그림은 버리고 있었다. 봇이 «스크린샷을 찍었다» 고 해도 사람은
+   * 무엇을 봤는지 알 길이 없다. 원본은 `blobs/<sha256>` 에 두고(첨부와 같은 자리 —
+   * `sweepBlobs` 가 산 것으로 센다) 여기엔 열쇠만 둔다.
+   */
+  images?: { sha256: string; mimeType: string }[];
   /**
    * ★ **이 활동의 승인 결과** (D3).
    *

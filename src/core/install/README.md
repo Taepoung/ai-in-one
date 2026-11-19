@@ -105,6 +105,7 @@ npm 꼴 (Claude · Codex)          zip 꼴 (Antigravity)
 | 로그인됐나 — 물어보기 | `auth.status` | `auth status` | `login status` 🔴 **stderr** | **없다** → 파일만 본다 |
 | 세션 지우기 | `purge` | — (ACP 로 충분) | 🔴 `delete --force` (sqlite 가 남는다) | — |
 | 남는 파일 치우기 | `purgeFiles` | — | — | 🔴 집 아래를 우리가 지운다 |
+| 브라우저 조작 | `browser` (`AgentDef`) | ✅ `--chrome` (Claude in Chrome) | — (길이 없다) | — (안에 있어 보이나 **켜는 길을 아직 못 찾았다**) |
 
 **칸마다 걸렸던 것**(왜 빈칸으로 두면 안 되는지):
 

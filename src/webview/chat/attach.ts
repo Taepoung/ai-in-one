@@ -196,6 +196,28 @@ function loadBlob(a: Attachment): Promise<string> {
   });
 }
 
+/**
+ * ★ **도구가 돌려준 그림** (2026-11-19) — 브라우저 스크린샷. 첨부처럼 blob 에서 가져오되,
+ * 이 창에서 붙인 것이 아니라 확장이 종류를 모르므로 **종류를 같이 보낸다.**
+ */
+export function toolImageNode(img: { sha256: string; mimeType: string }): HTMLImageElement {
+  const node = el("img", { class: "act-shot", alt: "도구가 돌려준 그림" }) as HTMLImageElement;
+  node.addEventListener("click", () => node.classList.toggle("zoom"));
+  const hit = blobCache.get(img.sha256);
+  if (hit) {
+    node.src = hit;
+    return node;
+  }
+  const waiting = blobWaiters.get(img.sha256);
+  const done = (uri: string): void => { node.src = uri; };
+  if (waiting) waiting.push(done);
+  else {
+    blobWaiters.set(img.sha256, [done]);
+    post({ t: "needBlob", sha256: img.sha256, mimeType: img.mimeType });
+  }
+  return node;
+}
+
 export function attachmentsNode(m: Message): HTMLElement {
   const wrap = el("div", { class: "attachments" });
   for (const a of m.attachments ?? []) {

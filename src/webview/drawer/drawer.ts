@@ -145,6 +145,8 @@ function policyLine(r: Room, bot: BotInstance): string {
   );
   // 루프모드는 **켰을 때만** 적는다 — 꺼진 것이 평소다 (2026-10-20 · 예전 «질문은 물어봄/알아서»)
   if (bot.answerPolicy === "auto") bits.push("루프모드");
+  // 브라우저도 켰을 때만 — 사용자의 Chrome 을 만지는 봇은 한눈에 보여야 한다
+  if (bot.browser === true) bits.push("Chrome");
   return bits.join(" · ");
 }
 

@@ -88,6 +88,7 @@ mcpIdentity(toolCall)                우리 MCP 도구인지 — 제 자리에�
 | **⑬ `allow_once` 를 주나** | **봇 심사가 통째로 사람에게 간다** — 조용히 | `request_permission` 의 `options` 종류 |
 | **⑭ 세션이 지워지나** | 지운 대화가 **평문으로 남는다** — 조용히 | `agymethods.cjs`(지우는 길이 생겼나) · `agydelete.cjs`(파일 자리가 그대로인가) |
 | **⑮ 잔량 글의 모양** | 사용량 팝업의 **막대가 조용히 사라진다** (글은 그대로 뜬다) | `quota.mts` 로 받아 `quotaparse.mts` 의 표본과 맞댄다 |
+| **⑯ 브라우저 켜는 깃발** (Claude) | 봇 설정에서 «Claude in Chrome» 을 켜도 **Chrome 도구가 안 생긴다** — 조용히 | `chromereal.mts` — `_meta.claudeCode.options.extraArgs.chrome` 이 claude.exe 의 `--chrome` 으로 가나 · 도구 이름이 `mcp__claude-in-chrome__*` 인가 (알약의 «Chrome») |
 
 🔴 **⑫는 이제 그 애드온의 신원 어댑터와 맞대야 한다** (리팩토링 ⑤, 2026-10-20).
 각 애드온이 «우리 도구는 여기서 꺼낸다» 를 **제 자리 하나에서만** 하는 함수를

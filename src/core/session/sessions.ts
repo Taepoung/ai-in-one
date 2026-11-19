@@ -128,9 +128,11 @@ export class Sessions {
       this.port.emitNotice(room.id,
         `${this.port.agent(bot.agentId).label}을(를) 처음 시작하는 중입니다. 잠시 걸릴 수 있습니다…`,
       ),
+      this.metaFor(bot),
     );
 
     bt.sessionId = sessionId;
+    bt.browserOn = this.browserWanted(bot);
     /*
      * ★ **열쇠를 이 세션에 맨다** (2026-10-15). 내줄 때는 세션 id 가 없었다 —
      * `session/new` 의 **인자로** 나가므로 답이 와야 알았다. 매어두면 그
@@ -168,7 +170,11 @@ export class Sessions {
    */
   async ensure(room: Room, bot: BotInstance): Promise<string> {
     const bt = this.port.runtimes.bot(room.id, bot.id);
-    if (bt.sessionId) return bt.sessionId;
+    if (bt.sessionId) {
+      if ((bt.browserOn ?? false) === this.browserWanted(bot)) return bt.sessionId;
+      if (await this.rewire(room, bot, bt.sessionId)) return bt.sessionId;
+      // 못 붙였다 — 아래의 늘 하던 길(이어받기 → 새로)로 간다
+    }
 
     const conn = this.port.pool.connection(bot.agentId);
 
@@ -202,9 +208,11 @@ export class Sessions {
     let lostNote: string | undefined;
 
     if (bot.sessionId) {
-      const resumed = await conn.resumeSession(bot.sessionId, room.cwd, await this.mcpNow(room, bot));
+      const resumed = await conn.resumeSession(
+        bot.sessionId, room.cwd, await this.mcpNow(room, bot), this.metaFor(bot));
       if (resumed.ok) {
         bt.sessionId = bot.sessionId;
+        bt.browserOn = this.browserWanted(bot);
         // 복구된 세션은 역할을 이미 알고 있다
         bt.roleInjected = true;
         // **이 방이 지금 어떤 모드·모델인지는 복구 응답에만 있다.**
@@ -322,7 +330,7 @@ export class Sessions {
      * 띄우는 값은 `startAgent` 가 이미 치렀으므로 여기는 **세션만** 잰다.
      */
     const { sessionId, configOptions } = await withTimeout(
-      conn.newSession(room.cwd, await this.mcpNow(room, bot)),
+      conn.newSession(room.cwd, await this.mcpNow(room, bot), undefined, this.metaFor(bot)),
       SESSION_MS,
       `${this.port.agent(bot.agentId).label}의 세션이 ` +
         `${Math.round(SESSION_MS / 1000)}초 안에 열리지 않았습니다.`,
@@ -335,6 +343,7 @@ export class Sessions {
      */
     this.port.mcp?.tie(`${room.id}:${bot.id}`, sessionId);
     this.pointAt(bot, sessionId);
+    bt.browserOn = this.browserWanted(bot);
     /*
      * ★ **여기가 「새 세션」 이 참말이 되는 자리다** (2026-10-13).
      *
@@ -501,7 +510,7 @@ export class Sessions {
     if (!bot || !lost) return false;
 
     const resumed = await this.port.pool.connection(bot.agentId)
-      .resumeSession(lost, room.cwd, await this.mcpNow(room, bot));
+      .resumeSession(lost, room.cwd, await this.mcpNow(room, bot), this.metaFor(bot));
     if (!resumed.ok) {
       this.port.rooms.noteRoom(room, `아직 이어받을 수 없습니다 — ${resumed.reason}`);
       return false;
@@ -509,6 +518,7 @@ export class Sessions {
 
     const bt = this.port.runtimes.bot(room.id, bot.id);
     bt.sessionId = lost;
+    bt.browserOn = this.browserWanted(bot);
     bt.roleInjected = true;
     bot.sessionId = lost;
     bot.sessionPrompted = true;
@@ -697,6 +707,57 @@ export class Sessions {
    * 그래서 **써본 세션은 써본 세션으로만** 밀어낸다. 새 세션이 프롬프트를
    * 받으면 그때 `notePrompted()`가 기록을 옮긴다.
    */
+  /**
+   * ★ **이 봇이 브라우저를 켜야 하나** (2026-11-19) — 켰고, 그 에이전트가 켤 줄 알 때만.
+   * 에이전트를 갈아 끼워 길이 없어지면 켠 표시가 남아 있어도 끈 것으로 본다.
+   */
+  browserWanted(bot: BotInstance): boolean {
+    return bot.browser === true && this.port.agent(bot.agentId).browser !== undefined;
+  }
+
+  /** 세션에 실을 `_meta` — 켤 때만 (`AgentDef.browser.meta`). 끌 때는 안 싣는 것이 끄는 것이다 */
+  metaFor(bot: BotInstance): Record<string, unknown> | undefined {
+    return this.browserWanted(bot) ? this.port.agent(bot.agentId).browser!.meta : undefined;
+  }
+
+  /**
+   * ★ **열린 세션을 브라우저 설정만 바꿔 다시 붙인다** (2026-11-19). 붙었으면 `true`.
+   *
+   * 저쪽은 같은 세션을 다른 `_meta` 로 `session/resume` 하면 **다시 짓는다** — 도구가
+   * 생기고 사라지며 앞 대화는 그대로다(실측 `chromeresume`). 턴 사이에만 부른다
+   * (`ensure` 는 말을 보내기 직전에 불린다).
+   *
+   * 🔴 **말을 건 적 없는 세션은 다시 붙이지 않는다** (실측 `chromereal` · 2026-11-19).
+   * 에이전트는 첫 말을 받아야 세션을 디스크에 남기므로(§13.1) 방을 만들고 바로 켜면
+   * `Resource not found` 로 떨어지고, 그 세션으로 보낸 말은 **답 없이 멈췄다.** 잃을
+   * 것이 없으니 닫고 새로 연다(`false` → `ensure` 가 새로 연다).
+   *
+   * 🔴 **못 붙으면 그 세션을 놓는다.** 다시 짓다 실패한 세션이 멀쩡한지 우리는 모른다 —
+   * 처음엔 «그대로 쓴다» 였고, 그 꼴이 위의 멈춤이다. 놓으면 `ensure` 의 늘 하던 길
+   * (이어받기 → 안 되면 새로, 그때는 맥락이 끊겼다고 말한다)이 맡는다.
+   */
+  private async rewire(room: Room, bot: BotInstance, sessionId: string): Promise<boolean> {
+    const bt = this.port.runtimes.bot(room.id, bot.id);
+    const want = this.browserWanted(bot);
+    const label = this.port.agent(bot.agentId).browser?.label ?? "브라우저";
+    const drop = async (): Promise<false> => {
+      await this.port.pool.get(bot.agentId)?.closeSession(sessionId).catch(() => undefined);
+      delete bt.sessionId;
+      return false;
+    };
+    if (!bot.sessionPrompted) return drop();
+
+    const r = await this.port.pool.connection(bot.agentId)
+      .resumeSession(sessionId, room.cwd, await this.mcpNow(room, bot), this.metaFor(bot));
+    if (!r.ok) {
+      this.port.host.log(`[${bot.agentId}] ${label} ${want ? "켜기" : "끄기"} 실패: ${r.reason}`);
+      return drop();
+    }
+    bt.browserOn = want;
+    if (r.options.length > 0) await this.restoreChoices(room, bot, sessionId, r.options);
+    return true;
+  }
+
   private pointAt(bot: BotInstance, sessionId: string): void {
     if (bot.sessionPrompted && bot.sessionId) return;
     bot.sessionId = sessionId;

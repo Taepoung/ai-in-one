@@ -117,8 +117,10 @@ function emit(sessionId, update) {
  */
 function mcpNote(params) {
   const list = params?.mcpServers;
-  if (!Array.isArray(list)) return { mcp: null };   // null = **안 실렸다** (빈 배열과 다르다)
-  return { mcp: list.map((s) => ({ name: s?.name, url: s?.url, type: s?.type })) };
+  /* ★ 실려 온 `_meta` 도 적는다 — 브라우저 켜기가 네 길에 다 실리나 (2026-11-19) */
+  const meta = params?._meta ?? null;
+  if (!Array.isArray(list)) return { mcp: null, meta };   // null = **안 실렸다** (빈 배열과 다르다)
+  return { mcp: list.map((s) => ({ name: s?.name, url: s?.url, type: s?.type })), meta };
 }
 
 function optionsOf(s) {
@@ -531,6 +533,34 @@ function handle(msg) {
             sessionUpdate: "tool_call", toolCallId: "t" + (++diffs), status: "completed",
             title: "파일 고치기", kind: "edit",
             content: [{ type: "diff", path: hit[1], oldText: "before", newText: "after" }],
+          } },
+        }) + "\n");
+      }
+      /*
+       * ★ **스크린샷을 돌려준 척한다** — `[[shot]]` (2026-11-19). Claude in Chrome 의
+       * `computer` 가 실제로 보낸 꼴 그대로(`chromeprobe` 실측): 글 몇 줄 + 그림 하나.
+       */
+      if (text.includes("[[shot]]")) {
+        const id = "shot" + (++diffs);
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", method: "session/update",
+          params: { sessionId: params.sessionId, update: {
+            sessionUpdate: "tool_call", toolCallId: id, status: "pending",
+            title: "mcp__claude-in-chrome__computer", kind: "other", rawInput: {},
+            _meta: { claudeCode: { toolName: "mcp__claude-in-chrome__computer" } },
+          } },
+        }) + "\n");
+        // 1x1 png
+        const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        process.stdout.write(JSON.stringify({
+          jsonrpc: "2.0", method: "session/update",
+          params: { sessionId: params.sessionId, update: {
+            sessionUpdate: "tool_call_update", toolCallId: id, status: "completed",
+            content: [
+              { type: "content", content: { type: "text", text: "Successfully captured screenshot (1x1, png)" } },
+              { type: "content", content: { type: "image", data: png, mimeType: "image/png" } },
+              { type: "content", content: { type: "image", data: png, mimeType: "text/html" } },
+            ],
           } },
         }) + "\n");
       }

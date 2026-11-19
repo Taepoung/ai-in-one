@@ -1734,7 +1734,7 @@ export class RoomManager extends EventEmitter<Events> {
    */
   async setPolicy(
     roomId: string,
-    patch: { answerPolicy?: AnswerPolicy; approver?: Approver },
+    patch: { answerPolicy?: AnswerPolicy; approver?: Approver; browser?: boolean },
     botId?: string,
   ): Promise<void> {
     const room = await this.rooms.openRoom(roomId);
@@ -1746,6 +1746,15 @@ export class RoomManager extends EventEmitter<Events> {
 
     if (patch.answerPolicy !== undefined) bot.answerPolicy = patch.answerPolicy;
     if (patch.approver !== undefined) bot.approver = patch.approver;
+    /*
+     * ★ **브라우저는 적어만 둔다** (2026-11-19). 세션에 실리는 것은 다음 턴 직전이다 —
+     * `Sessions.ensure` 가 지금 세션과 다르면 다시 붙인다. 답하는 중에 갈아 끼우면
+     * 그 턴이 끊기므로 여기서 바로 붙이지 않는다.
+     */
+    if (patch.browser !== undefined) {
+      if (patch.browser) bot.browser = true;
+      else delete bot.browser;
+    }
     await this.rooms.saveProps(room, { participants: room.participants });
     // 루프모드를 켰는데 방이 이미 조용하면 턴이 안 끝나니 — 여기서 한 번 센다
     if (patch.answerPolicy !== undefined) this.loops.check(room);

@@ -131,4 +131,19 @@ export const claude: AgentDef = {
   mcpIdentity: claudeMcpIdentity,
   // ★ 알약에 쓸 도구 이름 — 제목은 명령 전체라 (./identity.ts)
   toolName: claudeToolName,
+  /*
+   * ★ **Claude in Chrome** (사용자, 2026-11-19).
+   *
+   * 품은 claude.exe 에 이미 들어 있다 — `--chrome` 으로 켜고, Chrome 의 «Claude» 확장과
+   * 이어져 **사용자의 Chrome** 에서 탭을 열고 누르고 읽는다(도구 `mcp__claude-in-chrome__*`).
+   * 어댑터는 `_meta.claudeCode.options.extraArgs` 를 claude.exe 에 그대로 넘긴다 —
+   * 값 `null` 이 «값 없는 깃발» 이다. 실측(`chromeprobe` · 2026-11-19): 켜면 example.com
+   * 을 열어 읽고 스크린샷까지 찍었고, 안 켜면 그 도구가 아예 없었다. 확장과 잇는 길
+   * (native messaging)은 claude.exe 가 처음 켤 때 스스로 등록했다.
+   */
+  browser: {
+    label: "Claude in Chrome",
+    needs: "Chrome 에 Anthropic 의 «Claude» 확장을 깔고 같은 계정으로 로그인해야 합니다.",
+    meta: { claudeCode: { options: { extraArgs: { chrome: null } } } },
+  },
 };

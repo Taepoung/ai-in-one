@@ -38,6 +38,8 @@ export type AgentEvent =
        * 실패했는지는 여기 있다.
        */
       output?: string;
+      /** 그 도구가 돌려준 그림 — 브라우저 스크린샷 같은 것 (base64 그대로) */
+      images?: { data: string; mimeType: string }[];
       /**
        * ★ **우리 MCP 도구인가** (사용자, 2026-10-15).
        *
@@ -662,12 +664,15 @@ export class AcpConnection {
     cwd: string,
     mcp: acp.McpServer[],
     onSlowStart?: () => void,
+    /** 세션에 실을 `_meta` — 브라우저 켜기 같은 것 (`AgentDef.browser`) */
+    meta?: Record<string, unknown>,
   ): Promise<NewSessionResult> {
     await this.ensureStarted(onSlowStart);
     try {
       const res = await this.conn!.agent.request(acp.methods.agent.session.new, {
         cwd,
         mcpServers: mcp,
+        ...(meta ? { _meta: meta } : {}),
       });
       return { sessionId: res.sessionId, configOptions: res.configOptions ?? [] };
     } catch (err) {
@@ -746,6 +751,11 @@ export class AcpConnection {
     sessionId: string,
     cwd: string,
     mcp: acp.McpServer[],
+    /**
+     * 세션에 실을 `_meta`. ★ **열린 세션을 다른 값으로 다시 붙이면 저쪽이 다시 짓는다** —
+     * 브라우저를 방 안에서 켜고 끄는 길이 이것이다 (`AgentDef.browser`).
+     */
+    meta?: Record<string, unknown>,
   ): Promise<ResumeResult> {
     await this.ensureStarted();
     const caps = this.init?.agentCapabilities;
@@ -753,7 +763,7 @@ export class AcpConnection {
     try {
       if (caps?.sessionCapabilities?.resume) {
         const res = await ctx.request(acp.methods.agent.session.resume, {
-          sessionId, cwd, mcpServers: mcp,
+          sessionId, cwd, mcpServers: mcp, ...(meta ? { _meta: meta } : {}),
         });
         return { ok: true, options: res?.configOptions ?? [] };
       }
@@ -778,7 +788,7 @@ export class AcpConnection {
           // `session/load`는 응답을 안 줘도 되는 메서드라(`| void`) 타입이 `{}`다.
           // 주면 `configOptions`가 들어 있다.
           const res = (await ctx.request(acp.methods.agent.session.load, {
-            sessionId, cwd, mcpServers: mcp,
+            sessionId, cwd, mcpServers: mcp, ...(meta ? { _meta: meta } : {}),
           })) as
             | acp.LoadSessionResponse
             | undefined;
@@ -860,6 +870,7 @@ export class AcpConnection {
     sessionId: string,
     cwd: string,
     mcp: acp.McpServer[],
+    meta?: Record<string, unknown>,
   ): Promise<ForkResult> {
     await this.ensureStarted();
     if (!this.canFork()) {
@@ -872,6 +883,7 @@ export class AcpConnection {
         sessionId,
         cwd,
         mcpServers: mcp,
+        ...(meta ? { _meta: meta } : {}),
       })) as { sessionId?: string } | undefined;
 
       // 세션 id가 없으면 갈라진 게 아니다. **받은 것처럼 굴지 않는다** —
@@ -888,7 +900,7 @@ export class AcpConnection {
 
     // **붙여야 쓸 수 있다.** 여기서 실패하면 분기는 디스크에 남지만 말을 걸 수
     // 없으므로 실패로 친다 — 폴백이 맡는 편이 낫다.
-    const attached = await this.resumeSession(forked, cwd, mcp);
+    const attached = await this.resumeSession(forked, cwd, mcp, meta);
     if (!attached.ok) {
       return { ok: false, reason: `분기는 만들었지만 붙이지 못했습니다 — ${attached.reason}` };
     }
@@ -1513,6 +1525,28 @@ export function startupHint(stderr: string): string {
   return "CLI 설치와 로그인을 확인해 보세요.";
 }
 
+/**
+ * 도구가 돌려준 그림 (`content[]` 의 `type: "image"`).
+ *
+ * ★ **그림만, 크기를 묶어서.** 브라우저 스크린샷이 한 장 수십 KB 다. 한 활동에 넷까지,
+ * 한 장 5MB 까지만 받는다 — 그 이상은 방 파일이 아니라 디스크를 녹인다.
+ */
+const TOOL_IMAGES_MAX = 4;
+const TOOL_IMAGE_BYTES_MAX = 5 * 1024 * 1024;
+
+export function imagesOf(content: readonly acp.ToolCallContent[]): { data: string; mimeType: string }[] {
+  const out: { data: string; mimeType: string }[] = [];
+  for (const c of content) {
+    if (c?.type !== "content" || c.content.type !== "image") continue;
+    const { data, mimeType } = c.content;
+    if (typeof data !== "string" || !/^image\/(png|jpeg|gif|webp)$/.test(mimeType)) continue;
+    if (data.length * 0.75 > TOOL_IMAGE_BYTES_MAX) continue;
+    out.push({ data, mimeType });
+    if (out.length >= TOOL_IMAGES_MAX) break;
+  }
+  return out;
+}
+
 function outputOf(content: readonly acp.ToolCallContent[]): string | undefined {
   const parts: string[] = [];
   for (const c of content) {
@@ -1599,6 +1633,11 @@ function translate(
           ...(() => {
             const out = outputOf(("content" in update && update.content) || []);
             return out ? { output: out } : {};
+          })(),
+          // **무엇을 봤나** — 스크린샷. 글만 꺼내면 봇이 본 화면을 사람이 못 본다
+          ...(() => {
+            const pics = imagesOf(("content" in update && update.content) || []);
+            return pics.length > 0 ? { images: pics } : {};
           })(),
           // **우리 것인가** — 이름을 우리가 달 때 쓴다
           ...(() => {
