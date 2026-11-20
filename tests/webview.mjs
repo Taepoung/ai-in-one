@@ -1942,6 +1942,56 @@ function main() {
     ok(shot.src.startsWith("data:image/jpeg"), "★ 받으면 그려진다");
   }
 
+  console.log("\n[★ 답이 흐르는 중에 위로 올리면 끌려내려가지 않는다]");
+  {
+    /*
+     * 사용자: *"글이 오면 자꾸 화면이 끌려내려가"* (2026-11-20). `scroll` 이벤트는
+     * 다음 프레임에 오는데 그 사이 답 조각이 와서 바닥으로 다시 끌었다. jsdom 은
+     * 배치가 없으니 목록의 길이·자리를 손으로 둔다 — **scroll 이벤트는 안 보낸다**
+     * (그것이 늦게 오는 상황 그대로).
+     */
+    const t = mount(boot([meta()]));
+    enter(t, { messages: [msg({ id: "a", text: "첫 답" })] });
+    const list = t.$("#screen-chat .messages");
+    let top = 800;
+    Object.defineProperty(list, "scrollHeight", { configurable: true, get: () => 1000 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, get: () => 200 });
+    Object.defineProperty(list, "scrollTop", { configurable: true, get: () => top, set: (v) => { top = Math.min(v, 800); } });
+    const stream = (text) => t.send({ t: "msg", roomId: "r1", message: msg({ id: "b", text }) });
+
+    top = 790;
+    stream("조각 1");
+    ok(top === 800, "바닥에 있으면 답을 따라 내려간다");
+
+    const bubble = list.querySelector(".msg") ?? list;
+    bubble.dispatchEvent(new t.w.WheelEvent("wheel", { deltaY: -40, bubbles: true }));
+    top = 795; // 부드러운 스크롤의 첫 프레임 — 몇 px 뿐
+    stream("조각 2");
+    ok(top === 795, `★ **휠을 위로 굴리면 그 순간 놓는다** — 다음 조각이 끌어내리지 않는다 (${top})`);
+
+    // 바닥으로 다시 내려오면 도로 붙는다
+    top = 800;
+    list.dispatchEvent(new t.w.Event("scroll", { bubbles: true }));
+    top = 790;
+    stream("조각 3");
+    ok(top === 800, "★ 바닥까지 내려오면 다시 따라간다");
+
+    // 키나 스크롤바로 조금(문턱 60px 안) 올라가도 — 올라간 것은 사람이다
+    top = 780;
+    list.dispatchEvent(new t.w.Event("scroll", { bubbles: true }));
+    stream("조각 4");
+    ok(top === 780, `★ **문턱 안이라도 위로 갔으면 놓는다** (${top})`);
+
+    // 스크롤바를 잡고 있는 동안에도 끌지 않는다
+    top = 800;
+    list.dispatchEvent(new t.w.Event("scroll", { bubbles: true }));
+    list.dispatchEvent(new t.w.Event("pointerdown", { bubbles: true }));
+    top = 799;
+    stream("조각 5");
+    ok(top === 799, "★ 스크롤바를 잡고 있으면 끌지 않는다");
+    t.w.dispatchEvent(new t.w.Event("pointerup"));
+  }
+
   console.log("\n전부 통과\n");
 }
 

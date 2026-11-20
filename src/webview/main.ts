@@ -114,12 +114,67 @@ screens.chat.addEventListener("drop", (e) => {
   if (files.length > 0) void attachFiles(S.room.id, files);
 });
 
+/*
+ * ★ **위로 가려는 손짓은 스크롤보다 먼저 듣는다** (사용자, 2026-11-20).
+ *
+ * 사용자: *"글이 오면 자꾸 화면이 끌려내려가"*. 바닥 붙기(`S.stick`)를 `scroll`
+ * 이벤트로만 풀었는데, 그 이벤트는 **다음 프레임에야** 온다 — 그 사이에 답 조각이
+ * 오면 아직 붙어 있는 줄 알고 바닥으로 다시 끌어내린다. 부드러운 스크롤은 첫
+ * 몇 프레임이 몇 px 뿐이라 60px 문턱도 못 넘는다. 답이 흐르는 동안은 **위로 갈 수가
+ * 없었다.**
+ *
+ * 그래서 휠·키·스크롤바 잡기는 **그 순간에** 붙기를 푼다. 바닥까지 다시 내려오면
+ * 아래 `scroll` 이 도로 붙인다.
+ */
+const listOf = (e: Event): HTMLElement | null =>
+  (e.target as Element | null)?.closest?.<HTMLElement>("#screen-chat .messages") ?? null;
+/** 안쪽 상자(긴 코드 등)가 그 휠을 먼저 먹는가 */
+function innerTakes(from: Element | null, list: HTMLElement): boolean {
+  for (let n = from; n && n !== list; n = n.parentElement) {
+    if (n.scrollTop > 0 && n.scrollHeight > n.clientHeight &&
+        /auto|scroll/.test(getComputedStyle(n).overflowY)) return true;
+  }
+  return false;
+}
+let holdingBar = false;
+let lastTop = 0;
+let lastHeight = 0;
+let lastList: HTMLElement | null = null;
+screens.chat.addEventListener("wheel", (e) => {
+  const list = listOf(e);
+  if (list && (e as WheelEvent).deltaY < 0 && !innerTakes(e.target as Element, list)) S.stick = false;
+}, { capture: true, passive: true });
+screens.chat.addEventListener("keydown", (e) => {
+  if (listOf(e) && ["PageUp", "ArrowUp", "Home"].includes((e as KeyboardEvent).key)) S.stick = false;
+}, true);
+// 스크롤바를 잡으면 이벤트의 대상은 목록 그 자체다(안의 말풍선이 아니라)
+screens.chat.addEventListener("pointerdown", (e) => {
+  const t = e.target as HTMLElement;
+  if (t.classList?.contains("messages")) { holdingBar = true; S.stick = false; }
+}, true);
+window.addEventListener("pointerup", () => {
+  if (!holdingBar) return;
+  holdingBar = false;
+  const list = S.chat?.list;
+  if (list) S.stick = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+});
+
 screens.chat.addEventListener(
   "scroll",
   (e) => {
     const t = e.target as HTMLElement;
     if (!t.classList.contains("messages")) return;
-    S.stick = t.scrollHeight - t.scrollTop - t.clientHeight < 60;
+    /*
+     * 🔴 **올라갔으면 문턱 안이어도 푼다.** 길이는 그대로인데 위로 갔다면 사람이
+     * 움직인 것이다 — 코드가 움직이는 것은 늘 바닥 쪽이다. 다시 그리느라 길이가
+     * 줄어 밀려 올라간 것은 사람이 아니므로 뺀다.
+     */
+    // 방을 갈아타면 목록도 새것이다 — 옆 방에서 잰 자리와 견주지 않는다
+    if (t !== lastList) { lastList = t; lastTop = t.scrollTop; lastHeight = t.scrollHeight; }
+    const wentUp = t.scrollTop < lastTop - 1 && t.scrollHeight >= lastHeight;
+    lastTop = t.scrollTop;
+    lastHeight = t.scrollHeight;
+    S.stick = !holdingBar && !wentUp && t.scrollHeight - t.scrollTop - t.clientHeight < 60;
     // 손으로 바닥까지 내려왔으면 **이미 돌아온 것**이다 — 띠가 남아 있을 이유가 없다
     if (S.stick && S.backTo !== undefined) paintBack(false);
     /*
