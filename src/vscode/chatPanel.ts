@@ -25,6 +25,7 @@ import type {
   RoomStatus,
 } from "../core/types.js";
 import { BlobDocuments } from "./blobDocuments.js";
+import { checkPasted, loopbackPortOf, relayCallback } from "./loopback.js";
 import type { AskTarget } from "./vscodeHost.js";
 import type {
   AgentBrief,
@@ -1446,6 +1447,8 @@ export class ChatPanel implements AskTarget {
    */
   private async authViaAcp(agent: AgentDef, what: "login" | "logout"): Promise<void> {
     if (ChatPanel.busy.has(agent.id)) return;
+    /** 로그인이 끝나면 원격용 붙여넣기 칸을 거둔다 */
+    const loginDone = new vscode.CancellationTokenSource();
     try {
       if (what === "logout") {
         ChatPanel.busy.set(agent.id, "로그아웃하는 중…");
@@ -1490,10 +1493,17 @@ export class ChatPanel implements AskTarget {
 
       ChatPanel.busy.set(agent.id, `${way.name} — 브라우저를 기다리는 중…`);
       ChatPanel.repaintAgents();
+      /* 원격이면 브라우저는 내 PC, 기다리는 에이전트는 원격 — 되돌아오는 길을 따로 낸다 */
+      const remote = vscode.env.remoteName !== undefined;
+      let remoteAsked = false;
       await this.rooms.authenticateAs(agent.id, way.id, (line) => {
         const at = /https?:\/\/\S+/.exec(line);
         if (!at) return;
         const url = at[0];
+        if (remote) {
+          if (!remoteAsked) { remoteAsked = true; void this.remoteLogin(agent, url, loginDone.token); }
+          return;
+        }
         void (async () => {
           const p = await vscode.window.showInformationMessage(
             `${agent.label}: 브라우저가 안 열렸다면 이 주소로 들어가세요.`,
@@ -1509,10 +1519,44 @@ export class ChatPanel implements AskTarget {
         `${agent.label} ${what === "login" ? "로그인" : "로그아웃"}에 실패했습니다 — ` +
           `${err instanceof Error ? err.message : String(err)}`);
     } finally {
+      loginDone.cancel();
+      loginDone.dispose();
       ChatPanel.busy.delete(agent.id);
       this.authAt.delete(agent.id);
       ChatPanel.repaintAgents();
     }
+  }
+
+  /**
+   * ★ **원격(SSH)에서의 브라우저 로그인** (사용자, 2026-11-22) — 까닭은 `loopback.ts`.
+   *
+   * ① 되돌아올 포트를 미리 넘겨 두고(같은 번호로 넘겨지면 그대로 끝난다) 브라우저를
+   * 연다. ② 그래도 «연결 거부» 가 뜨면 그 주소를 붙여 넣게 해서 원격 쪽에서 대신 연다.
+   * 저절로 끝나면 붙여넣기 칸은 거둔다.
+   */
+  private async remoteLogin(agent: AgentDef, url: string, done: vscode.CancellationToken): Promise<void> {
+    const port = loopbackPortOf(url);
+    if (port !== undefined) {
+      try {
+        const out = await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${port}/`));
+        this.rooms.log(`[${agent.id}] 로그인 — 포트 ${port} 를 넘김: ${out.authority}`);
+      } catch (err) {
+        this.rooms.log(`[${agent.id}] 로그인 — 포트 ${port} 를 못 넘김: ${String(err)}`);
+      }
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+    const pasted = await vscode.window.showInputBox({
+      title: `${agent.label} 로그인 — 원격(SSH)`,
+      prompt: "브라우저에서 로그인한 뒤 «127.0.0.1 에서 연결을 거부했습니다» 가 뜨면, " +
+        "그 페이지 주소창의 주소를 통째로 복사해 여기 붙여 넣으세요. 저절로 끝나면 이 칸은 닫힙니다.",
+      placeHolder: "http://127.0.0.1:…",
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim() ? checkPasted(v) : undefined),
+    }, done);
+    if (pasted === undefined || !pasted.trim() || done.isCancellationRequested) return;
+    const r = await relayCallback(pasted);
+    this.rooms.log(`[${agent.id}] 로그인 — 붙여 넣은 주소를 넘김: ${r.say}`);
+    if (!r.ok) void vscode.window.showWarningMessage(`${agent.label} 로그인: ${r.say}`);
   }
 
   private async sendConfig(agentId: string, roomId?: string, botId?: string): Promise<void> {
