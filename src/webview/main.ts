@@ -555,6 +555,13 @@ cards.push(m.card);
       break;
     }
 
+    case "roomHeld":
+      /* 다른 창이 쓰는 중 — 붙는 화면에 서 있지 말고 기록만 보는 채팅으로 */
+      S.peeking = m.roomId;
+      S.joinFails = new Map();
+      go("chat");
+      break;
+
     case "nav":
       if (m.screen === "new") openNewRoom();
       else if (m.screen === "agents") {

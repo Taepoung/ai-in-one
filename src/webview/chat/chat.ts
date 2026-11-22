@@ -24,7 +24,7 @@ import { go, paintScreens, screens } from "../common/screens.js";
 import { PAGE, S, post } from "../common/state.js";
 import { autoGrow } from "../common/text.js";
 import { closeDrawer, paintDrawer } from "../drawer/drawer.js";
-import { joined } from "../join/join.js";
+import { joined, renderOpening } from "../join/join.js";
 import { paintPermissionSheet, togglePermissionSheet } from "../perm/perm.js";
 
 /**
@@ -66,6 +66,11 @@ export function openRoom(roomId: string): void {
    * 한 번 들어갔던 방은 다시 안 세운다 — 세션이 이미 붙어 있어 **한 프레임
    * 번쩍하고 사라질** 뿐이다.
    */
+  /*
+   * 🔴 **붙는 화면을 이 방 것으로 먼저 갈아 놓는다** (2026-11-22). 안 그러면 방이
+   * 올 때까지 **앞 방의 ✓** 가 그대로 보인다 — «붙었다» 로 읽힌다.
+   */
+  if (!joined.has(roomId)) renderOpening(S.metas.find((x) => x.id === roomId)?.title ?? "");
   go(joined.has(roomId) ? "chat" : "joining");
 }
 

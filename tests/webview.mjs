@@ -1992,6 +1992,32 @@ function main() {
     t.w.dispatchEvent(new t.w.Event("pointerup"));
   }
 
+  console.log("\n[★ 다른 창이 쓰는 방 — 목록으로 튕기지 않고 기록만 연다]");
+  {
+    /*
+     * 사용자: *"체크가 뜨는데 뒤로 튕겨져나오고 시간이 지나면 또 되는거 같아"*
+     * (2026-11-22). 붙는 화면에 앞 방의 ✓ 가 남아 있다가, 자물쇠에 막혀 아무 말
+     * 없이 목록으로 갔다.
+     */
+    const t = mount(boot([meta()]));
+    enter(t, { participants: [{ id: "b1", agentId: "claude", name: "Claude", sessionId: "s1",
+      approver: { kind: "user" }, answerPolicy: "ask" }] });
+    t.key("Escape"); // 목록으로
+    t.$(".room").click();
+    const joining = t.$("#screen-joining");
+    ok(!joining.textContent.includes("✓"), "★ 붙는 화면에 **앞 방의 ✓ 가 남지 않는다**");
+    ok(joining.textContent.includes("여는 중"), "붙는 화면은 이 방을 여는 중이라고 말한다");
+
+    const why = "이 방은 «다른 창» 에서 열려 있습니다.";
+    t.send({ t: "roomHeld", roomId: "r1", why });
+    t.send({ t: "room", room: room({ messages: [msg({ id: "a", text: "지난 답" })] }), compactable: false });
+    t.send({ t: "notice", roomId: "r1", message: why });
+    ok(t.screenOf() === "chat", `★ **목록으로 튕기지 않는다** — 채팅에 선다 (${t.screenOf()})`);
+    ok(t.$("#screen-chat").textContent.includes("지난 답"), "★ 지난 대화를 읽을 수 있다");
+    ok(t.$("#screen-chat").textContent.includes(why), "★ 왜 기록만인지 방 안에 적는다");
+    ok(t.$("#screen-chat .composer").hidden, "★ 입력창은 잠긴다 — 세션을 안 붙였다");
+  }
+
   console.log("\n전부 통과\n");
 }
 

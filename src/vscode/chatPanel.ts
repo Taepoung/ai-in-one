@@ -389,8 +389,22 @@ export class ChatPanel implements AskTarget {
            */
           const got = await this.rooms.enterRoom(m.roomId);
           if (!got.ok) {
+            /*
+             * ★ **목록으로 튕기지 않는다** (사용자, 2026-11-22: *"체크가 뜨는데 뒤로
+             * 튕겨져나오고 시간이 지나면 또 되는거 같아"*).
+             *
+             * 🔴 여기서 `notice` 를 보내고 목록으로 돌려보냈는데, 그 `notice` 는 **방
+             * 안에서만** 그려진다 — 방이 아직 안 그려졌으니 아무 데도 안 떴다. 붙는
+             * 화면엔 **앞 방의 ✓** 가 남아 있다가 목록으로 튕기니 «붙었는데 쫓겨났다»
+             * 로 보였다. 저쪽 창이 조용해지면 자리를 놓으므로 «시간이 지나면 된다».
+             *
+             * 세션은 안 붙이고(그게 막는 까닭이다) **기록만 읽는 모드로** 연다. 까닭은
+             * 그 방 안에 적는다.
+             */
+            this.rooms.log(`[${m.roomId}] 다른 창이 쓰는 중이라 기록만 엽니다 — ${got.why}`);
+            this.post({ t: "roomHeld", roomId: m.roomId, why: got.why });
+            this.postRoom(await this.rooms.openRoom(m.roomId));
             this.post({ t: "notice", roomId: m.roomId, message: got.why });
-            this.post({ t: "nav", screen: "list" });
             break;
           }
           this.openRoomId = m.roomId;

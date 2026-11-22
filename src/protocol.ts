@@ -277,6 +277,8 @@ export type ToWebview =
   | { t: "clashes"; roomId: string; list: Clash[] }
   | { t: "roomError"; roomId: string; message: string }
   | { t: "notice"; roomId: string; message: string }
+  /** 다른 창이 그 방을 쓰는 중이다 — 기록만 읽는 모드로 연다(바로 뒤에 `room` 이 온다) */
+  | { t: "roomHeld"; roomId: string; why: string }
   | {
       t: "config";
       agentId: string;

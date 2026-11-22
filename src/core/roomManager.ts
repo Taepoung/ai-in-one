@@ -545,7 +545,11 @@ export class RoomManager extends EventEmitter<Events> {
       get sessions() { return self.sessions; },
       emitRoom: (room) => { this.emit("room", room); },
       emitJoinStep: (roomId, botId, step) => { this.emit("joinStep", roomId, botId, step); },
-      emitJoinFail: (roomId, botId, why, line) => { this.emit("joinFail", roomId, botId, why, line); },
+      emitJoinFail: (roomId, botId, why, line) => {
+        // 화면에만 뜨고 사라지면 «가끔 안 붙는다» 를 나중에 짚을 수가 없다
+        this.log(`[${roomId}] ${botId} 붙지 못함(${why}) — ${line}`);
+        this.emit("joinFail", roomId, botId, why, line);
+      },
       emitJoinDone: (roomId) => { this.emit("joinDone", roomId); },
     };
   }
