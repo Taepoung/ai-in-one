@@ -54,7 +54,9 @@ export function relayCallback(pasted: string, timeoutMs = 15_000): Promise<{ ok:
   const u = new URL(pasted.trim());
   return new Promise((done) => {
     const req = http.get(
-      { host: "127.0.0.1", port: Number(u.port), path: u.pathname + u.search, timeout: timeoutMs },
+      // agent:false — 연결 풀을 안 쓴다. 풀에 남은 닫힌 소켓을 다시 집으면 리눅스에서
+      // «socket hang up» 이 난다(CI ubuntu, 2026-11-22). 한 번 넘기는 데 풀은 필요 없다.
+      { host: "127.0.0.1", port: Number(u.port), path: u.pathname + u.search, timeout: timeoutMs, agent: false },
       (res) => {
         res.resume();
         const code = res.statusCode ?? 0;
@@ -64,8 +66,9 @@ export function relayCallback(pasted: string, timeoutMs = 15_000): Promise<{ ok:
       },
     );
     req.on("timeout", () => { req.destroy(); done({ ok: false, say: "에이전트가 답하지 않습니다." }); });
-    req.on("error", (e) => {
-      done({ ok: false, say: /ECONNREFUSED|ECONNRESET/.test(String(e))
+    req.on("error", (e: NodeJS.ErrnoException) => {
+      // 글자가 아니라 code 로 가린다 — 같은 끊김도 OS 마다 글은 다르다
+      done({ ok: false, say: e.code === "ECONNREFUSED" || e.code === "ECONNRESET"
         ? "기다리던 에이전트가 이미 내려갔습니다 — 로그인을 처음부터 다시 해 보세요."
         : String(e) });
     });
