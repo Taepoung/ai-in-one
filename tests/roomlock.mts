@@ -184,6 +184,57 @@ async function main(): Promise<void> {
     await fs.rm(home, { recursive: true, force: true }).catch(() => {});
   }
 
+  console.log(`${NL}[★ 창을 다시 불러온 직후 — 앞 판이 쥔 자리는 넘겨받는다]`);
+  {
+    /*
+     * 사용자: *"아마 reload하면서 생기는 문제일 수도"* (2026-11-22). 다시 불러오면 옛
+     * 확장 호스트가 몇 초 더 살아 자리를 쥐고 있었다 — 그 사이엔 «다른 창» 으로 막혔다.
+     */
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aio-lockself-"));
+    const store = new RoomStore(home); await store.init();
+    const host: WorkspaceHost = {
+      readTextFile: async () => "", writeTextFile: async () => {},
+      requestPermission: async () => ({ outcome: "cancelled" }),
+      log: () => {}, defaultCwd: () => home, hasWorkspace: () => true,
+    };
+    const KEY = "file:///c%3A/ws";
+    const mgr = new RoomManager({
+      host, store, configProbeMs: 20000,
+      agents: [{ ...DEFAULT_AGENTS[0]!, id: "fake", label: "가짜",
+                 command: "node", args: [path.join(here, "fakeagent.cjs")] }],
+      locks: new RoomLocks(path.join(home, "rooms"), "ws", () => {}, KEY),
+    });
+    mgr.on("roomError", () => {}); mgr.on("notice", () => {});
+    const room = await mgr.createRoom({ agentId: "fake", title: "다시 불러온 창" });
+    mgr.releaseRoom(room.id);
+    const lockAt = path.join(home, "rooms", `${room.id}.open`);
+
+    // ① 앞 판이 **곧 내려간다** — 진짜 프로세스를 띄워 쥐게 하고 0.8초 뒤 끈다
+    const { spawn } = await import("node:child_process");
+    const old = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+    await fs.writeFile(lockAt, JSON.stringify({ pid: old.pid, window: "ws", at: Date.now(), key: KEY }));
+    setTimeout(() => old.kill(), 800);
+    const t0 = Date.now();
+    const got = await mgr.enterRoom(room.id);
+    ok(got.ok, "★ **막히지 않는다** — 내 창의 앞 판이다");
+    ok(Date.now() - t0 >= 700, `★ 앞 판이 내려가기를 기다렸다 (${Date.now() - t0}ms)`);
+    mgr.releaseRoom(room.id);
+
+    // ② **다른 폴더** 창이 쥐고 있으면 여전히 막는다
+    await fs.writeFile(lockAt, JSON.stringify({ pid: process.ppid, window: "옆", at: Date.now(), key: "file:///c%3A/other" }));
+    const t1 = Date.now();
+    const blocked = await mgr.enterRoom(room.id);
+    ok(!blocked.ok, "★ 다른 폴더의 창이면 그대로 막는다");
+    ok(Date.now() - t1 < 1000, "기다리지도 않는다");
+
+    // ③ 열쇠 없는(폴더 없는) 창끼리는 못 가린다 — 막는 쪽이 안전하다
+    await fs.writeFile(lockAt, JSON.stringify({ pid: process.ppid, window: "빈 창", at: Date.now() }));
+    ok(!(await mgr.enterRoom(room.id)).ok, "★ 열쇠가 없으면 앞 판인지 모른다 — 막는다");
+
+    mgr.dispose();
+    await fs.rm(home, { recursive: true, force: true }).catch(() => {});
+  }
+
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   console.log(`${NL}전부 통과`);
 }

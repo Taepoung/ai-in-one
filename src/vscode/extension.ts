@@ -235,6 +235,8 @@ async function boot(
     path.join(ctx.globalStorageUri.fsPath, "rooms"),
     vscode.workspace.workspaceFolders?.[0]?.name ?? "다른 창",
     (m) => host.log(m),
+    // 다시 불러와도 같은 값 — 앞 판이 들고 있는 자리를 알아본다(폴더 없는 창은 못 가린다)
+    (vscode.workspace.workspaceFile ?? vscode.workspace.workspaceFolders?.[0]?.uri)?.toString(),
   );
   madeHere.push(() => locks.releaseAll());
 

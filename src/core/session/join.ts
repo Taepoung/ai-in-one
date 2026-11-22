@@ -15,7 +15,7 @@
 import { describe } from "../acpConnection.js";
 import type { Rooms } from "../room/rooms.js";
 import type { Runtimes } from "../room/runtimes.js";
-import type { RoomLocks } from "../roomLock.js";
+import { alive, type RoomLocks } from "../roomLock.js";
 import { isBusy, type BotInstance, type JoinFail, type JoinStep, type Room } from "../types.js";
 import type { AgentPool } from "./pool.js";
 import { SessionInUse, type Sessions } from "./sessions.js";
@@ -52,6 +52,10 @@ export interface JoinPort {
   emitJoinDone(roomId: string): void;
 }
 
+/** 내 창의 앞 판이 내려가기를 기다리는 한도 — 넘으면 그래도 넘겨받는다 */
+export const EARLIER_SELF_WAIT_MS = 5000;
+const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export class Joins {
   /** 세션을 붙이는 중인 방들. 방을 빠르게 오가도 CLI를 두 번 부르지 않는다 */
   private readonly sessionFlight = new Map<string, Promise<void>>();
@@ -70,7 +74,20 @@ export class Joins {
    * 것만 본다. **껐다 켜면 저절로 풀리는 것**이 출구다.
    */
   async enterRoom(roomId: string): Promise<{ ok: true; room: Room } | { ok: false; why: string }> {
-    const got = this.port.locks?.take(roomId) ?? { ok: true as const };
+    const locks = this.port.locks;
+    let got = locks?.take(roomId) ?? { ok: true as const };
+    /*
+     * ★ **내 창의 앞 판이면 내려가기를 잠깐 기다렸다가 넘겨받는다** (사용자, 2026-11-22).
+     *
+     * 창을 다시 불러오면 옛 확장 호스트가 몇 초 더 산다. 그 사이에 방을 누르면 «다른
+     * 창에서 열려 있습니다» 로 막혔고, 조금 뒤엔 됐다. 앞 판은 **내려가는 중**이라 그
+     * 세션을 쓸 사람이 없다 — 죽기를 기다리되(세션을 놓을 틈), 늦어도 넘겨받는다.
+     */
+    if (!got.ok && locks?.myEarlierSelf(got.held)) {
+      const until = Date.now() + EARLIER_SELF_WAIT_MS;
+      while (alive(got.held.pid) && Date.now() < until) await nap(200);
+      got = locks.take(roomId, true);
+    }
     if (!got.ok) {
       return {
         ok: false,

@@ -32,6 +32,12 @@ export interface LockNote {
   /** 사람이 읽을 창 이름 — «어디서 열려 있나»를 말해주려고 */
   window: string;
   at: number;
+  /**
+   * ★ **어느 창인지 — 다시 불러와도 같은 값** (사용자, 2026-11-22: *"아마 reload하면서
+   * 생기는 문제일 수도"*). 열린 폴더(워크스페이스)의 주소다. VS Code 는 한 폴더를 두
+   * 창에 안 연다 — 같으면 **내 창의 앞 판**이다. 폴더 없는 창은 없다(가릴 수 없다).
+   */
+  key?: string;
 }
 
 export type LockResult =
@@ -48,7 +54,17 @@ export class RoomLocks {
     /** 이 창의 이름. 사람에게 보여줄 글이다 */
     private readonly window: string,
     private readonly log: (m: string) => void,
+    /** 다시 불러와도 같은 이 창의 열쇠(`LockNote.key`) — 없으면 앞 판을 못 알아본다 */
+    private readonly key?: string,
   ) {}
+
+  /**
+   * ★ **막은 것이 내 창의 앞 판인가** — 창을 다시 불러오면 옛 확장 호스트가 내려가는 몇
+   * 초 동안 **산 채로** 자리를 들고 있다. 그 사이에 방을 누르면 «다른 창» 으로 막혔다.
+   */
+  myEarlierSelf(held: LockNote): boolean {
+    return this.key !== undefined && held.key === this.key && held.pid !== process.pid;
+  }
 
   private pathOf(roomId: string): string {
     return path.join(this.roomsDir, `${roomId}.open`);
@@ -61,19 +77,23 @@ export class RoomLocks {
    * 다른 창이 들어올 수 있다 — «읽고 나서 쓴다» 사이가 벌어지는 만큼 둘이
    * 같이 잡는다. 파일 하나 쓰는 일이라 동기가 더 싸기도 하다.
    */
-  take(roomId: string): LockResult {
+  take(roomId: string, overEarlierSelf = false): LockResult {
     if (this.mine.has(roomId)) return { ok: true };
 
     const held = this.read(roomId);
     if (held && held.pid !== process.pid && alive(held.pid)) {
-      return { ok: false, held };
+      if (!(overEarlierSelf && this.myEarlierSelf(held))) return { ok: false, held };
+      this.log(`[${roomId}] 이 창의 앞 판(pid ${held.pid})이 아직 안 내려갔지만 자리를 넘겨받습니다`);
     }
     if (held && held.pid !== process.pid) {
       // 죽은 창이 들고 있던 것 — 빼앗는다. **껐다 켜면 저절로 풀리는 길**이다
       this.log(`[${roomId}] 죽은 창(pid ${held.pid})의 자리를 넘겨받습니다`);
     }
 
-    const note: LockNote = { pid: process.pid, window: this.window, at: Date.now() };
+    const note: LockNote = {
+      pid: process.pid, window: this.window, at: Date.now(),
+      ...(this.key !== undefined ? { key: this.key } : {}),
+    };
     try {
       /*
        * 🔴 **원자적으로 쓰지 않아도 된다.** 둘이 동시에 쓰면 뒤엣것이 이기는데,
